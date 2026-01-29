@@ -32,13 +32,18 @@ export class DaemonConnection {
   private maxReconnectAttempts = 5
   private reconnecting = false
 
-  // Opcodes
+  // Opcodes - Session & Auth
   private static readonly OP_CLIENT_HELLO = 0x01
   private static readonly OP_SERVER_HELLO = 0x02
   private static readonly OP_AUTH = 0x03
   private static readonly OP_AUTH_RESULT = 0x04
   private static readonly OP_ERROR = 0x7f
   private static readonly PROTOCOL_VERSION = 1
+
+  // File I/O opcodes (public for use by DaemonFileHandle)
+  static readonly OP_FILE_WRITE = 0x30
+  static readonly OP_FILE_WRITE_ACK = 0x31
+  static readonly OP_FILE_WRITE_ERROR = 0x32
 
   constructor(
     private port: number,

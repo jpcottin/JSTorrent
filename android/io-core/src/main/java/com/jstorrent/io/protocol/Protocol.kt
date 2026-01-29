@@ -43,6 +43,11 @@ object Protocol {
     const val OP_UDP_JOIN_MULTICAST: Byte = 0x25
     const val OP_UDP_LEAVE_MULTICAST: Byte = 0x26
 
+    // File I/O opcodes (0x30-0x3F)
+    const val OP_FILE_WRITE: Byte = 0x30
+    const val OP_FILE_WRITE_ACK: Byte = 0x31
+    const val OP_FILE_WRITE_ERROR: Byte = 0x32
+
     // Control plane opcodes (0xE0-0xEF)
     const val OP_CTRL_ROOTS_CHANGED: Byte = 0xE0.toByte()
     const val OP_CTRL_EVENT: Byte = 0xE1.toByte()
@@ -58,7 +63,8 @@ object Protocol {
         OP_TCP_LISTEN, OP_TCP_LISTEN_RESULT, OP_TCP_ACCEPT, OP_TCP_STOP_LISTEN,
         OP_TCP_SECURE, OP_TCP_SECURED,
         OP_UDP_BIND, OP_UDP_BOUND, OP_UDP_SEND, OP_UDP_RECV, OP_UDP_CLOSE,
-        OP_UDP_JOIN_MULTICAST, OP_UDP_LEAVE_MULTICAST
+        OP_UDP_JOIN_MULTICAST, OP_UDP_LEAVE_MULTICAST,
+        OP_FILE_WRITE, OP_FILE_WRITE_ACK, OP_FILE_WRITE_ERROR
     )
 
     val CONTROL_OPCODES = HANDSHAKE_OPCODES + setOf(
@@ -126,4 +132,12 @@ fun Int.toLEBytes(): ByteArray {
 
 fun Short.toLEBytes(): ByteArray {
     return ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN).putShort(this).array()
+}
+
+fun ByteArray.getLongLE(offset: Int): Long {
+    return ByteBuffer.wrap(this, offset, 8).order(ByteOrder.LITTLE_ENDIAN).long
+}
+
+fun Long.toLEBytes(): ByteArray {
+    return ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(this).array()
 }

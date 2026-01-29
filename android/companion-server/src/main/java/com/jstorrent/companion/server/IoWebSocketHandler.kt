@@ -3,9 +3,13 @@
 package com.jstorrent.companion.server
 
 import android.util.Log
+import com.jstorrent.io.file.FileManager
+import com.jstorrent.io.file.FileManagerException
+import com.jstorrent.io.hash.Hasher
 import com.jstorrent.io.protocol.Protocol
 import com.jstorrent.io.protocol.getUIntLE
 import com.jstorrent.io.protocol.getUShortLE
+import com.jstorrent.io.protocol.getLongLE
 import com.jstorrent.io.protocol.toLEBytes
 import com.jstorrent.io.socket.TcpServerCallback
 import com.jstorrent.io.socket.TcpSocketCallback
@@ -40,6 +44,7 @@ private const val TAG = "IoWebSocketHandler"
 class IoWebSocketHandler(
     private val wsSession: DefaultWebSocketServerSession,
     private val deps: CompanionServerDeps,
+    private val fileManager: FileManager,
     private val onControlSessionRegistered: (IoWebSocketHandler) -> Unit = {},
     private val onControlSessionUnregistered: (IoWebSocketHandler) -> Unit = {}
 ) : TcpSocketCallback, UdpSocketCallback, TcpServerCallback {
@@ -289,6 +294,7 @@ class IoWebSocketHandler(
             Protocol.OP_UDP_CLOSE -> handleUdpClose(payload)
             Protocol.OP_UDP_JOIN_MULTICAST -> handleUdpJoinMulticast(payload)
             Protocol.OP_UDP_LEAVE_MULTICAST -> handleUdpLeaveMulticast(payload)
+            Protocol.OP_FILE_WRITE -> handleFileWrite(envelope.requestId, payload)
             else -> sendError(envelope.requestId, "Unknown opcode: ${envelope.opcode}")
         }
     }
@@ -471,6 +477,188 @@ class IoWebSocketHandler(
 
         Log.d(TAG, "UDP_LEAVE_MULTICAST: socketId=$socketId, group=$groupAddr")
         udpManager.leaveMulticast(socketId, groupAddr)
+    }
+
+    // ==========================================================================
+    // File I/O handlers
+    // ==========================================================================
+
+    /**
+     * Handle file write via WebSocket.
+     * Payload format: [root_key_len:1][root_key:N][path_len:2 LE][path:M][offset:8 LE][flags:1][optional sha1:20][data:K]
+     *
+     * root_key: String key (hex, e.g., "a1b2c3d4e5f6a7b8") matching HTTP API
+     * flags bit 0: hash verification enabled (if set, next 20 bytes are expected SHA1 hash)
+     *
+     * If requestId is 0, operates in fire-and-forget mode (no ACK on success).
+     * Errors are always reported via OP_FILE_WRITE_ERROR.
+     */
+    private fun handleFileWrite(requestId: Int, payload: ByteArray) {
+        // Minimum size: root_key_len(1) + path_len(2) + offset(8) + flags(1) = 12 bytes + variable
+        if (payload.size < 12) {
+            Log.w(TAG, "FILE_WRITE: payload too short: ${payload.size}")
+            sendFileWriteError(requestId, "", 0L, "Payload too short")
+            return
+        }
+
+        var idx = 0
+        val rootKeyLen = payload[idx].toInt() and 0xFF
+        idx += 1
+
+        if (payload.size < idx + rootKeyLen + 2 + 8 + 1) {
+            Log.w(TAG, "FILE_WRITE: payload too short for root key: ${payload.size}, rootKeyLen=$rootKeyLen")
+            sendFileWriteError(requestId, "", 0L, "Invalid root key length")
+            return
+        }
+
+        val rootKey = String(payload, idx, rootKeyLen)
+        idx += rootKeyLen
+
+        val pathLen = payload.getUShortLE(idx)
+        idx += 2
+
+        if (payload.size < idx + pathLen + 8 + 1) {
+            Log.w(TAG, "FILE_WRITE: payload too short for path: ${payload.size}, pathLen=$pathLen")
+            sendFileWriteError(requestId, rootKey, 0L, "Invalid path length")
+            return
+        }
+
+        val path = String(payload, idx, pathLen)
+        idx += pathLen
+
+        val offset = payload.getLongLE(idx)
+        idx += 8
+
+        val flags = payload[idx].toInt() and 0xFF
+        idx += 1
+
+        val hasHash = (flags and 1) != 0
+        var expectedHash: ByteArray? = null
+
+        if (hasHash) {
+            if (payload.size < idx + 20) {
+                Log.w(TAG, "FILE_WRITE: payload too short for hash: ${payload.size}")
+                sendFileWriteError(requestId, rootKey, offset, "Hash expected but not provided")
+                return
+            }
+            expectedHash = payload.copyOfRange(idx, idx + 20)
+            idx += 20
+        }
+
+        val data = payload.copyOfRange(idx, payload.size)
+
+        Log.d(TAG, "FILE_WRITE: rootKey=$rootKey, path=$path, offset=$offset, size=${data.size}, hasHash=$hasHash")
+
+        // Resolve root key to SAF URI
+        val rootUri = deps.rootStore.resolveKey(rootKey)
+        if (rootUri == null) {
+            Log.w(TAG, "FILE_WRITE: Invalid root key: $rootKey")
+            sendFileWriteError(requestId, rootKey, offset, "Invalid root key")
+            return
+        }
+
+        // Validate path (prevent directory traversal)
+        if (path.contains("..")) {
+            Log.w(TAG, "FILE_WRITE: Invalid path with ..: $path")
+            sendFileWriteError(requestId, rootKey, offset, "Invalid path")
+            return
+        }
+
+        // Perform write on IO dispatcher
+        scope.launch(Dispatchers.IO) {
+            try {
+                // Hash verification FIRST (before any file operations)
+                if (expectedHash != null) {
+                    val actualHash = Hasher.sha1(data)
+                    if (!actualHash.contentEquals(expectedHash)) {
+                        val expectedHex = expectedHash.joinToString("") { "%02x".format(it) }
+                        val actualHex = actualHash.joinToString("") { "%02x".format(it) }
+                        Log.w(TAG, "FILE_WRITE hash mismatch: expected=$expectedHex, actual=$actualHex")
+                        sendFileWriteError(requestId, rootKey, offset, "Hash mismatch: expected $expectedHex, got $actualHex")
+                        return@launch
+                    }
+                }
+
+                fileManager.write(rootUri, path, offset, data)
+
+                // Only send ACK if requestId is non-zero
+                if (requestId != 0) {
+                    sendFileWriteAck(requestId, rootKey, offset)
+                }
+            } catch (e: FileManagerException) {
+                val errorMsg = when (e) {
+                    is FileManagerException.FileNotFound -> "File not found: ${e.message}"
+                    is FileManagerException.CannotCreateFile -> "Cannot create file: ${e.message}"
+                    is FileManagerException.CannotOpenFile -> "Cannot open file: ${e.message}"
+                    is FileManagerException.WriteError -> "Write error: ${e.message}"
+                    is FileManagerException.DiskFull -> "Disk full: ${e.message}"
+                    else -> "Error: ${e.message}"
+                }
+                Log.e(TAG, "FILE_WRITE failed: $errorMsg")
+                sendFileWriteError(requestId, rootKey, offset, errorMsg)
+            } catch (e: Exception) {
+                Log.e(TAG, "FILE_WRITE unexpected error: ${e.message}", e)
+                sendFileWriteError(requestId, rootKey, offset, "Unexpected error: ${e.message}")
+            }
+        }
+    }
+
+    private fun sendFileWriteAck(requestId: Int, rootKey: String, offset: Long) {
+        // Payload: [root_key_len:1][root_key:N][offset:8 LE][status:1]
+        val rootKeyBytes = rootKey.toByteArray()
+        val payload = ByteArray(1 + rootKeyBytes.size + 8 + 1)
+        var idx = 0
+
+        // root_key_len
+        payload[idx++] = rootKeyBytes.size.toByte()
+        // root_key
+        System.arraycopy(rootKeyBytes, 0, payload, idx, rootKeyBytes.size)
+        idx += rootKeyBytes.size
+        // offset (little-endian)
+        payload[idx++] = (offset and 0xFF).toByte()
+        payload[idx++] = ((offset shr 8) and 0xFF).toByte()
+        payload[idx++] = ((offset shr 16) and 0xFF).toByte()
+        payload[idx++] = ((offset shr 24) and 0xFF).toByte()
+        payload[idx++] = ((offset shr 32) and 0xFF).toByte()
+        payload[idx++] = ((offset shr 40) and 0xFF).toByte()
+        payload[idx++] = ((offset shr 48) and 0xFF).toByte()
+        payload[idx++] = ((offset shr 56) and 0xFF).toByte()
+        // status: 0 = success
+        payload[idx] = 0
+
+        send(Protocol.createMessage(Protocol.OP_FILE_WRITE_ACK, requestId, payload))
+    }
+
+    private fun sendFileWriteError(requestId: Int, rootKey: String, offset: Long, message: String) {
+        // Payload: [root_key_len:1][root_key:N][offset:8 LE][error_code:4 LE][message:M]
+        val rootKeyBytes = rootKey.toByteArray()
+        val msgBytes = message.toByteArray()
+        val payload = ByteArray(1 + rootKeyBytes.size + 8 + 4 + msgBytes.size)
+        var idx = 0
+
+        // root_key_len
+        payload[idx++] = rootKeyBytes.size.toByte()
+        // root_key
+        System.arraycopy(rootKeyBytes, 0, payload, idx, rootKeyBytes.size)
+        idx += rootKeyBytes.size
+        // offset (little-endian)
+        payload[idx++] = (offset and 0xFF).toByte()
+        payload[idx++] = ((offset shr 8) and 0xFF).toByte()
+        payload[idx++] = ((offset shr 16) and 0xFF).toByte()
+        payload[idx++] = ((offset shr 24) and 0xFF).toByte()
+        payload[idx++] = ((offset shr 32) and 0xFF).toByte()
+        payload[idx++] = ((offset shr 40) and 0xFF).toByte()
+        payload[idx++] = ((offset shr 48) and 0xFF).toByte()
+        payload[idx++] = ((offset shr 56) and 0xFF).toByte()
+        // error_code (1 = generic error, little-endian)
+        payload[idx++] = 1
+        payload[idx++] = 0
+        payload[idx++] = 0
+        payload[idx++] = 0
+        // message
+        System.arraycopy(msgBytes, 0, payload, idx, msgBytes.size)
+
+        send(Protocol.createMessage(Protocol.OP_FILE_WRITE_ERROR, requestId, payload))
     }
 
     // ==========================================================================

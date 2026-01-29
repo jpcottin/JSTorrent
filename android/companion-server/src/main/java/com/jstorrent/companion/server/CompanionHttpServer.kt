@@ -388,10 +388,10 @@ class CompanionHttpServer(
                 Log.i(TAG, "WebSocket throughput test disconnected")
             }
 
-            // WebSocket endpoint for I/O operations (sockets)
+            // WebSocket endpoint for I/O operations (sockets, file writes)
             webSocket("/io") {
                 Log.i(TAG, "WebSocket /io connected")
-                val handler = IoWebSocketHandler(this, deps)
+                val handler = IoWebSocketHandler(this, deps, fileManager)
                 handler.run()
                 Log.i(TAG, "WebSocket /io disconnected")
             }
