@@ -54,6 +54,7 @@ const PROTOCOL_VERSION: u8 = 1;
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/io", get(ws_handler))
+        .route("/control", get(ws_handler)) // Alias for Android compatibility
 }
 
 async fn ws_handler(
