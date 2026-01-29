@@ -27,6 +27,9 @@ import type { IEngineManager, StorageRoot, FileOperationResult } from './types'
 // Toggle: true = WebRTC (no audio icon), false = Audio (shows audio icon)
 const USE_WEBRTC_KEEP_ALIVE = true
 
+// Toggle: true = writes are discarded (not sent to companion), for benchmarking I/O bottlenecks
+const NULL_STORAGE = false
+
 // Session store key for default root key
 const DEFAULT_ROOT_KEY_KEY = 'settings:defaultRootKey'
 
@@ -240,8 +243,13 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     })
 
     // 3. Set up storage root manager
+    if (NULL_STORAGE) {
+      console.warn(
+        '[ChromeExtensionEngineManager] NULL_STORAGE enabled - writes will be discarded!',
+      )
+    }
     const srm = new StorageRootManager(
-      (root) => new DaemonFileSystem(this.daemonConnection!, root.key),
+      (root) => new DaemonFileSystem(this.daemonConnection!, root.key, NULL_STORAGE),
     )
 
     // 4. Create session store (before registering roots so we can load default)

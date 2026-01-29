@@ -17,20 +17,21 @@ import java.nio.channels.SocketChannel
  * - No 128KB read size cap (InputStream limitation)
  * - Direct ByteBuffer reduces GC pressure (off-heap allocation)
  * - Larger reads per syscall = fewer context switches
+ * - Zero-copy framing: allocates with header space for WS protocol
  *
  * Threading model: Same as TcpConnection - blocking reads on coroutine dispatcher.
  *
  * @param socketId Unique identifier for this socket
  * @param channel The underlying connected SocketChannel (blocking mode)
  * @param scope CoroutineScope for I/O operations
- * @param onData Callback when data is received
+ * @param onDataFramed Callback with pre-framed buffer (frame, dataOffset, dataLen)
  * @param onClose Callback when socket closes (hadError, errorCode)
  */
 internal class TcpConnectionNio(
     override val socketId: Int,
     private var channel: SocketChannel,
     private val scope: CoroutineScope,
-    private val onData: (ByteArray) -> Unit,
+    private val onDataFramed: (ByteArray, Int, Int) -> Unit,
     private val onClose: (Boolean, Int) -> Unit
 ) : TcpConnectionBase {
     private val sendQueue = Channel<ByteArray>(100)
@@ -50,6 +51,10 @@ internal class TcpConnectionNio(
         private const val WRITE_BUFFER_SIZE = 64 * 1024
         private const val FLUSH_THRESHOLD = 32 * 1024
         private const val SMALL_MESSAGE_SIZE = 1024
+
+        // Frame header size for zero-copy WS forwarding
+        // 8 bytes protocol envelope + 4 bytes socketId = 12 bytes
+        const val FRAME_HEADER_SIZE = 12
     }
 
     /**
@@ -113,13 +118,15 @@ internal class TcpConnectionNio(
             var statsBytes = 0L
             var statsMinRead = Int.MAX_VALUE
             var statsMaxRead = 0
+            var statsCopyTimeNs = 0L
             var statsLastLogTime = System.currentTimeMillis()
 
             try {
                 // Log buffer info once at start
                 val socket = channel.socket()
-                Log.i(TAG, "Socket $socketId: SO_RCVBUF=${socket.receiveBufferSize}, " +
-                        "READ_BUFFER=$READ_BUFFER_SIZE (direct), NIO mode")
+                val actualRcvBuf = socket.receiveBufferSize
+                Log.i(TAG, "Socket $socketId: SO_RCVBUF=$actualRcvBuf (${actualRcvBuf/1024}KB), " +
+                        "READ_BUFFER=$READ_BUFFER_SIZE (direct), NIO zero-copy mode")
 
                 while (isActive) {
                     // Backpressure: wait while reads are paused
@@ -156,24 +163,37 @@ internal class TcpConnectionNio(
                         val readsPerSec = statsReadCount * 1000.0 / elapsed
                         val mbPerSec = statsBytes / (elapsed / 1000.0) / (1024 * 1024)
                         val avgReadSize = statsBytes / statsReadCount
-                        Log.i(TAG, "Socket $socketId: %.1f reads/s, %.1f MB/s, avg=%d min=%d max=%d bytes/read".format(
-                            readsPerSec, mbPerSec, avgReadSize, statsMinRead, statsMaxRead))
+                        val avgCopyUs = statsCopyTimeNs / statsReadCount / 1000
+                        val copyPct = (statsCopyTimeNs / 1_000_000.0) / elapsed * 100
+                        val currentRcvBuf = channel.socket().receiveBufferSize
+                        Log.i(TAG, "Socket $socketId: %.1f reads/s, %.1f MB/s, avg=%d min=%d max=%d bytes/read, copyTime=%dµs (%.1f%%), rcvBuf=%dKB".format(
+                            readsPerSec, mbPerSec, avgReadSize, statsMinRead, statsMaxRead, avgCopyUs, copyPct, currentRcvBuf/1024))
                         statsReadCount = 0
                         statsBytes = 0
                         statsMinRead = Int.MAX_VALUE
                         statsMaxRead = 0
+                        statsCopyTimeNs = 0
                         statsLastLogTime = now
                     }
 
                     // Flip buffer for reading
                     directBuffer.flip()
 
-                    // Copy to ByteArray for queue
-                    // TODO: Buffer pool to eliminate this allocation
-                    val data = ByteArray(bytesRead)
-                    directBuffer.get(data)
+                    // Timing: measure allocation + copy overhead
+                    val t0 = System.nanoTime()
 
-                    onData(data)
+                    // Zero-copy framing: allocate with header space
+                    // Frame layout: [header:12][data:N]
+                    // Header will be filled by IoWebSocketHandler
+                    val frame = ByteArray(FRAME_HEADER_SIZE + bytesRead)
+                    directBuffer.get(frame, FRAME_HEADER_SIZE, bytesRead)
+
+                    val copyTimeNs = System.nanoTime() - t0
+
+                    // Track copy overhead
+                    statsCopyTimeNs += copyTimeNs
+
+                    onDataFramed(frame, FRAME_HEADER_SIZE, bytesRead)
                 }
             } catch (e: IOException) {
                 Log.d(TAG, "Socket $socketId read error: ${e.message}")

@@ -356,6 +356,38 @@ class CompanionHttpServer(
                 )
             }
 
+            // WebSocket throughput test - sends N frames of M bytes each
+            webSocket("/ws-throughput-test") {
+                Log.i(TAG, "WebSocket throughput test connected")
+                try {
+                    // Wait for request: "frames,frameSize" e.g. "1000,65536"
+                    val request = incoming.receive()
+                    if (request is Frame.Text) {
+                        val parts = request.readText().split(",")
+                        val frameCount = parts.getOrNull(0)?.toIntOrNull() ?: 1000
+                        val frameSize = parts.getOrNull(1)?.toIntOrNull() ?: 65536
+                        val data = ByteArray(frameSize)
+
+                        Log.i(TAG, "WS throughput test: sending $frameCount frames of $frameSize bytes")
+                        val startTime = System.currentTimeMillis()
+
+                        for (i in 0 until frameCount) {
+                            send(Frame.Binary(true, data))
+                        }
+
+                        val elapsed = System.currentTimeMillis() - startTime
+                        val totalBytes = frameCount.toLong() * frameSize
+                        val mbps = totalBytes / (elapsed / 1000.0) / (1024 * 1024)
+                        Log.i(TAG, "WS throughput test: sent ${totalBytes / (1024*1024)}MB in ${elapsed}ms = ${"%.1f".format(mbps)} MB/s")
+
+                        send(Frame.Text("done:$elapsed:$totalBytes:${"%.1f".format(mbps)}"))
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "WS throughput test error: ${e.message}")
+                }
+                Log.i(TAG, "WebSocket throughput test disconnected")
+            }
+
             // WebSocket endpoint for I/O operations (sockets)
             webSocket("/io") {
                 Log.i(TAG, "WebSocket /io connected")
@@ -375,6 +407,14 @@ class CompanionHttpServer(
                 )
                 handler.run()
                 Log.i(TAG, "WebSocket /control disconnected")
+            }
+
+            // Throughput test endpoint - returns N MB of zeros
+            get("/throughput-test/{sizeMB}") {
+                val sizeMB = call.parameters["sizeMB"]?.toIntOrNull() ?: 10
+                val bytes = ByteArray(sizeMB * 1024 * 1024)  // Pre-allocated zeros
+                Log.i(TAG, "Throughput test: sending ${sizeMB}MB")
+                call.respondBytes(bytes, ContentType.Application.OctetStream)
             }
 
             // Protected endpoints

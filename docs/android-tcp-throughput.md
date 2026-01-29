@@ -137,21 +137,117 @@ Migrated from InputStream to NIO SocketChannel for plain TCP connections.
 - `TcpSocketService.kt` - Uses SocketChannel for connects, dispatches to appropriate connection type
 - `TcpConnection.kt` - Implements TcpConnectionBase (kept for TLS and server sockets)
 
-### Expected Benefits
+### Results
+
+| Metric | Before NIO | After NIO | Change |
+|--------|------------|-----------|--------|
+| TCP recv rate | 68 MB/s | **93.65 MB/s** | **+38%** |
+| Desktop target | 90 MB/s | 90 MB/s | **Exceeded** |
+
+Batch processing stats at steady state:
+- 1335 flushes in 5s (~267 flushes/sec)
+- 5.0 events/flush average
+- 359.9 KB/flush average
+- Queue depth: 2-3 events (JS keeping up)
+
+### Why It Worked
 
 1. **No 128KB read cap** - SocketChannel can read up to buffer size (1MB)
 2. **Reduced GC pressure** - Direct ByteBuffer is off-heap, doesn't pressure GC
 3. **Larger reads per syscall** - Fewer context switches
-4. **Foundation for future optimization** - Buffer pooling now easier to implement
 
-### Still Allocating
+### Still Allocating (but not a bottleneck)
 
 The `ByteArray(bytesRead)` allocation still happens in TcpConnectionNio for queuing to JS.
-This is the next target for optimization via buffer pooling.
+Buffer pooling could reduce GC pressure further but is no longer needed for throughput.
 
-## Next Steps
+## Summary
 
-1. **Buffer pooling** - Pool ByteArrays to eliminate per-read allocations
-2. **Measure improvement** - Compare throughput before/after NIO migration
-3. **Profile GC** - Check if allocation pressure is reduced
-4. **Compare with iperf3** - Establish raw TCP baseline on device
+| Phase | Change | Throughput |
+|-------|--------|------------|
+| Initial | Small buffers | 48 MB/s |
+| Buffer tuning | 2MB SO_RCVBUF, 512KB read buffer | 68 MB/s |
+| NIO migration | SocketChannel + direct ByteBuffer | **93.65 MB/s** |
+
+Android now matches or exceeds desktop throughput (90 MB/s target).
+
+## ChromeOS Companion Throughput (2025-01-29)
+
+### Problem Statement
+
+ChromeOS extension + companion app achieves ~10-17 MB/s vs ~93 MB/s standalone. Same NIO code, same buffer settings.
+
+### Root Cause: ARCVM Kernel Limit
+
+ChromeOS runs Android in ARCVM with a restricted kernel configuration:
+
+```bash
+# On ChromeOS ARCVM:
+$ adb shell cat /proc/sys/net/core/rmem_max
+262144  # 256KB max - cannot be increased without root
+
+# On real Android devices:
+$ adb shell cat /proc/sys/net/core/rmem_max
+2097152  # 2MB+ - allows our 2MB SO_RCVBUF request
+```
+
+The `rmem_max` kernel parameter caps all socket receive buffers. Our 2MB request gets silently reduced to 256KB.
+
+### Investigation Results
+
+**WebSocket is NOT the bottleneck:**
+
+| Metric | Value |
+|--------|-------|
+| TCP recv | 16-18 MB/s |
+| WS send | 16-18 MB/s (matches TCP) |
+| WS avgSend | 100-150µs/frame |
+| Queue depth | 0-7 (no backlog) |
+
+The WebSocket forwarding adds only ~100-150µs latency per frame. Data flows through without queuing.
+
+**Actual bottleneck**: TCP window limited by 256KB kernel buffer cap.
+
+### Throughput Comparison
+
+| Environment | rmem_max | SO_RCVBUF | TCP Throughput |
+|-------------|----------|-----------|----------------|
+| Real Android | 2MB+ | 4MB (2MB×2) | **93 MB/s** |
+| ChromeOS ARCVM | 256KB | 256KB (capped) | **16-18 MB/s** |
+
+The ~5x throughput difference roughly matches the ~8x buffer difference (TCP window scaling effects).
+
+### Diagnostic Commands (ChromeOS)
+
+```bash
+# Check kernel buffer limits
+ssh chromeroot "adb shell cat /proc/sys/net/core/rmem_max"
+ssh chromeroot "adb shell cat /proc/sys/net/ipv4/tcp_rmem"
+
+# Watch throughput metrics
+ssh chromeroot "adb logcat -s IoWebSocketHandler:I TcpConnectionNio:I"
+
+# Key log lines:
+# "WS THROUGHPUT: send=X.X MB/s" - WebSocket send rate
+# "Socket N: X.X reads/s, Y.Y MB/s" - TCP read rate
+# "SO_RCVBUF=262144" - actual buffer (should be 2MB but capped)
+```
+
+### Potential Optimizations
+
+1. **Multiple peer connections** - Each peer gets its own 256KB buffer. More peers = more aggregate buffer.
+
+2. **Reduce extension-side latency** - Faster block processing means faster ACKs, larger effective window.
+
+3. **Request rmem_max increase from ChromeOS team** - This is the only real fix for the kernel limit.
+
+### Files Changed
+
+- `IoWebSocketHandler.kt` - Added throughput metrics (WS THROUGHPUT logging)
+- `TcpConnectionNio.kt` - Already had SO_RCVBUF logging
+
+## Future Optimization (Optional)
+
+1. **Buffer pooling** - Pool ByteArrays to reduce GC pressure (not needed for throughput)
+2. **Profile GC** - Verify allocation pressure is acceptable under load
+3. **NIO for server sockets** - Currently use classic I/O for accepted connections

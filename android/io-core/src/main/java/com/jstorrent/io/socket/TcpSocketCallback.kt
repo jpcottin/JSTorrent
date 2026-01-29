@@ -26,6 +26,26 @@ interface TcpSocketCallback {
     fun onTcpData(socketId: Int, data: ByteArray)
 
     /**
+     * Called when data is received with pre-allocated frame space.
+     *
+     * This is an optimization for WebSocket forwarding - the frame buffer
+     * has [dataOffset] bytes of header space before the data, allowing
+     * the implementer to fill in protocol headers without copying.
+     *
+     * Default implementation extracts data and calls [onTcpData].
+     *
+     * @param socketId The socket identifier
+     * @param frame Buffer with header space + data
+     * @param dataOffset Offset where data starts (header space before this)
+     * @param dataLen Length of data
+     */
+    fun onTcpDataFramed(socketId: Int, frame: ByteArray, dataOffset: Int, dataLen: Int) {
+        // Default: extract data and use regular callback
+        val data = frame.copyOfRange(dataOffset, dataOffset + dataLen)
+        onTcpData(socketId, data)
+    }
+
+    /**
      * Called when a TCP socket is closed.
      *
      * @param socketId The socket identifier

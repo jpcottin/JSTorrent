@@ -26,6 +26,7 @@ export class DaemonFileHandle implements IFileHandle {
     private connection: DaemonConnection,
     private path: string,
     private rootKey: string,
+    private nullStorage: boolean = false,
   ) {}
 
   /**
@@ -67,6 +68,12 @@ export class DaemonFileHandle implements IFileHandle {
     length: number,
     position: number,
   ): Promise<{ bytesWritten: number }> {
+    // Null storage mode: skip HTTP request, pretend write succeeded
+    if (this.nullStorage) {
+      this.pendingHash = null // Consume pending hash if set
+      return { bytesWritten: length }
+    }
+
     const data = buffer.subarray(offset, offset + length)
     const pathB64 = btoa(this.path)
 

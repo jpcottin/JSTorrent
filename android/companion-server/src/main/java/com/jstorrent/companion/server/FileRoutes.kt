@@ -1,6 +1,7 @@
 package com.jstorrent.companion.server
 
 import android.util.Base64
+import android.util.Log
 import com.jstorrent.io.file.FileManager
 import com.jstorrent.io.file.FileManagerException
 import com.jstorrent.io.hash.Hasher
@@ -11,6 +12,13 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 
 private const val MAX_BODY_SIZE = 64 * 1024 * 1024 // 64MB
+private const val TAG = "FileRoutes"
+
+// Track concurrent writes
+private val concurrentWrites = java.util.concurrent.atomic.AtomicInteger(0)
+private val totalWrites = java.util.concurrent.atomic.AtomicLong(0)
+private val totalWriteBytes = java.util.concurrent.atomic.AtomicLong(0)
+private val totalWriteTimeMs = java.util.concurrent.atomic.AtomicLong(0)
 
 /**
  * HTTP routes for file read/write operations.
@@ -59,6 +67,9 @@ fun Route.fileRoutes(rootStore: RootStoreProvider, fileManager: FileManager) {
     }
 
     post("/write/{root_key}") {
+        val concurrent = concurrentWrites.incrementAndGet()
+        val t0 = System.nanoTime()
+
         val rootKey = call.parameters["root_key"]
             ?: return@post call.respond(HttpStatusCode.BadRequest, "Missing root_key")
 
@@ -83,15 +94,20 @@ fun Route.fileRoutes(rootStore: RootStoreProvider, fileManager: FileManager) {
         val rootUri = rootStore.resolveKey(rootKey)
             ?: return@post call.respond(HttpStatusCode.Forbidden, "Invalid root key")
 
+        val tReceiveStart = System.nanoTime()
         val body = call.receive<ByteArray>()
+        val receiveMs = (System.nanoTime() - tReceiveStart) / 1_000_000
 
         if (body.size > MAX_BODY_SIZE) {
             return@post call.respond(HttpStatusCode.PayloadTooLarge, "Body too large")
         }
 
         // Hash verification FIRST (before any file operations)
+        var hashMs = 0L
         if (expectedSha1 != null) {
+            val tHashStart = System.nanoTime()
             val actualHash = Hasher.sha1Hex(body)
+            hashMs = (System.nanoTime() - tHashStart) / 1_000_000
             if (!actualHash.equals(expectedSha1, ignoreCase = true)) {
                 return@post call.respond(
                     HttpStatusCode.Conflict,
@@ -101,9 +117,23 @@ fun Route.fileRoutes(rootStore: RootStoreProvider, fileManager: FileManager) {
         }
 
         try {
+            val tWriteStart = System.nanoTime()
             fileManager.write(rootUri, relativePath, offset, body)
+            val writeMs = (System.nanoTime() - tWriteStart) / 1_000_000
+            val totalMs = (System.nanoTime() - t0) / 1_000_000
+
+            // Track stats
+            val writeNum = totalWrites.incrementAndGet()
+            totalWriteBytes.addAndGet(body.size.toLong())
+            totalWriteTimeMs.addAndGet(totalMs)
+            concurrentWrites.decrementAndGet()
+
+            // Log every write with concurrency info
+            Log.i(TAG, "WRITE #$writeNum: ${body.size/1024}KB in ${totalMs}ms (recv=${receiveMs}ms, hash=${hashMs}ms, write=${writeMs}ms) concurrent=$concurrent")
+
             call.respond(HttpStatusCode.OK)
         } catch (e: FileManagerException) {
+            concurrentWrites.decrementAndGet()
             val (status, message) = e.toHttpResponse()
             call.respond(status, message)
         }

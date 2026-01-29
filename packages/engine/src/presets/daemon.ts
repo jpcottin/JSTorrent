@@ -21,6 +21,11 @@ export interface DaemonEngineConfig {
    * Optional ConfigHub for reactive configuration.
    */
   config?: ConfigHub
+  /**
+   * If true, writes are discarded (not sent to daemon).
+   * Use for benchmarking to isolate disk I/O bottlenecks.
+   */
+  nullStorage?: boolean
 }
 
 export async function createDaemonEngine(config: DaemonEngineConfig): Promise<BtEngine> {
@@ -28,7 +33,7 @@ export async function createDaemonEngine(config: DaemonEngineConfig): Promise<Bt
   await connection.connectWebSocket()
 
   const storageRootManager = new StorageRootManager((root) => {
-    return new DaemonFileSystem(connection, root.key)
+    return new DaemonFileSystem(connection, root.key, config.nullStorage ?? false)
   })
 
   for (const root of config.contentRoots) {

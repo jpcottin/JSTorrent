@@ -73,11 +73,17 @@ class IoWebSocketHandler(
     // Session statistics
     private val dropCount = AtomicLong(0)
     private val queueDepth = AtomicInteger(0)
+    private val maxQueueDepth = AtomicInteger(0)
     private val bytesReceived = AtomicLong(0)
     private val bytesSent = AtomicLong(0)
     private val framesReceived = AtomicLong(0)
     private val framesSent = AtomicLong(0)
     private val connectTime = System.currentTimeMillis()
+
+    // TCP recv throughput tracking (separate from WS send)
+    private val tcpRecvBytes = AtomicLong(0)
+    private val tcpRecvFrames = AtomicLong(0)
+    private val tcpFrameBuildTimeNs = AtomicLong(0)
 
     companion object {
         private const val ENABLE_SEND_LOGGING = true
@@ -99,31 +105,59 @@ class IoWebSocketHandler(
         // Track global WS connection
         DaemonStats.wsConnections.incrementAndGet()
 
-        // Start sender coroutine
+        // Start sender coroutine with time-based throughput tracking
         val senderJob = scope.launch {
-            var sendCount = 0L
-            var totalSendTimeNs = 0L
+            var statsStartTime = System.currentTimeMillis()
+            var statsSendCount = 0L
+            var statsBytesSent = 0L
+            var statsTotalSendTimeNs = 0L
+            var statsMaxSendTimeMs = 0L
+
             try {
                 for (data in outgoing) {
                     val depth = queueDepth.decrementAndGet()
                     val t0 = System.nanoTime()
                     wsSession.send(Frame.Binary(true, data))
                     val sendTimeNs = System.nanoTime() - t0
-                    totalSendTimeNs += sendTimeNs
-                    sendCount++
-
-                    // Log slow sends and queue depth
                     val sendTimeMs = sendTimeNs / 1_000_000
+
+                    statsSendCount++
+                    statsBytesSent += data.size
+                    statsTotalSendTimeNs += sendTimeNs
+                    if (sendTimeMs > statsMaxSendTimeMs) statsMaxSendTimeMs = sendTimeMs
+
+                    // Log slow sends (>50ms)
                     if (sendTimeMs > 50) {
                         val opcode = if (data.size >= 2) data[1].toInt() and 0xFF else -1
-                        Log.w(TAG, "SLOW SEND: ${sendTimeMs}ms, opcode=0x${opcode.toString(16)}, " +
+                        Log.w(TAG, "SLOW WS SEND: ${sendTimeMs}ms, opcode=0x${opcode.toString(16)}, " +
                             "size=${data.size}, queueDepth=$depth")
                     }
 
-                    // Periodic stats every 1000 sends
-                    if (sendCount % 1000 == 0L) {
-                        val avgSendUs = totalSendTimeNs / sendCount / 1000
-                        Log.i(TAG, "Sender stats: $sendCount sends, avg=${avgSendUs}µs/send, queueDepth=$depth")
+                    // Log throughput stats every 5 seconds
+                    val now = System.currentTimeMillis()
+                    val elapsed = now - statsStartTime
+                    if (elapsed >= 5000 && statsSendCount > 0) {
+                        val wsSendMbps = statsBytesSent / (elapsed / 1000.0) / (1024 * 1024)
+                        val avgSendUs = statsTotalSendTimeNs / statsSendCount / 1000
+                        val avgFrameSize = statsBytesSent / statsSendCount
+                        val tcpRecvMbps = tcpRecvBytes.getAndSet(0) / (elapsed / 1000.0) / (1024 * 1024)
+                        val tcpFrames = tcpRecvFrames.getAndSet(0)
+                        val frameBuildNs = tcpFrameBuildTimeNs.getAndSet(0)
+                        val avgFrameBuildUs = if (tcpFrames > 0) frameBuildNs / tcpFrames / 1000 else 0
+                        val frameBuildPct = (frameBuildNs / 1_000_000.0) / elapsed * 100
+                        val maxDepth = maxQueueDepth.getAndSet(depth)
+                        Log.i(TAG, "WS THROUGHPUT: send=${"%.1f".format(wsSendMbps)} MB/s ($statsSendCount frames), " +
+                            "tcpRecv=${"%.1f".format(tcpRecvMbps)} MB/s ($tcpFrames frames), " +
+                            "avgSend=${avgSendUs}µs, maxSend=${statsMaxSendTimeMs}ms, " +
+                            "frameBuild=${avgFrameBuildUs}µs (${"%.1f".format(frameBuildPct)}%), " +
+                            "avgFrame=$avgFrameSize bytes, queueDepth=$depth (max=$maxDepth)")
+
+                        // Reset stats
+                        statsStartTime = now
+                        statsSendCount = 0
+                        statsBytesSent = 0
+                        statsTotalSendTimeNs = 0
+                        statsMaxSendTimeMs = 0
                     }
                 }
             } catch (e: Exception) {
@@ -466,8 +500,13 @@ class IoWebSocketHandler(
     }
 
     override fun onTcpData(socketId: Int, data: ByteArray) {
-        // Track bytes received
+        // Legacy path - allocate frame and copy (used by TLS connections)
+        val t0 = System.nanoTime()
+
+        // Track bytes received (global and session TCP metrics)
         DaemonStats.bytesReceived.addAndGet(data.size.toLong())
+        tcpRecvBytes.addAndGet(data.size.toLong())
+        tcpRecvFrames.incrementAndGet()
 
         // Build TCP_RECV frame with minimal allocations
         // Frame structure: [header:8][socketId:4][data:N]
@@ -489,6 +528,39 @@ class IoWebSocketHandler(
         // Copy data
         System.arraycopy(data, 0, frame, 12, data.size)
 
+        tcpFrameBuildTimeNs.addAndGet(System.nanoTime() - t0)
+
+        send(frame)
+    }
+
+    /**
+     * Zero-copy optimized path - frame already has header space allocated.
+     * Just fill in the 12-byte header and send directly.
+     */
+    override fun onTcpDataFramed(socketId: Int, frame: ByteArray, dataOffset: Int, dataLen: Int) {
+        val t0 = System.nanoTime()
+
+        // Track bytes received (global and session TCP metrics)
+        DaemonStats.bytesReceived.addAndGet(dataLen.toLong())
+        tcpRecvBytes.addAndGet(dataLen.toLong())
+        tcpRecvFrames.incrementAndGet()
+
+        // Fill in header - frame already has data at correct offset
+        // Frame structure: [header:8][socketId:4][data:N]
+        frame[0] = Protocol.VERSION
+        frame[1] = Protocol.OP_TCP_RECV
+        // flags = 0 (bytes 2-3 already zero from ByteArray init)
+        // requestId = 0 (bytes 4-7 already zero)
+
+        // Write socketId (little-endian)
+        frame[8] = (socketId and 0xFF).toByte()
+        frame[9] = ((socketId shr 8) and 0xFF).toByte()
+        frame[10] = ((socketId shr 16) and 0xFF).toByte()
+        frame[11] = ((socketId shr 24) and 0xFF).toByte()
+
+        tcpFrameBuildTimeNs.addAndGet(System.nanoTime() - t0)
+
+        // Send directly - no copy needed!
         send(frame)
     }
 
@@ -640,6 +712,11 @@ class IoWebSocketHandler(
         val result = outgoing.trySend(data)
         if (result.isSuccess) {
             val depth = queueDepth.incrementAndGet()
+            // Track max queue depth
+            var currentMax = maxQueueDepth.get()
+            while (depth > currentMax && !maxQueueDepth.compareAndSet(currentMax, depth)) {
+                currentMax = maxQueueDepth.get()
+            }
             // Log when queue is building up
             if (depth > 100 && depth % 100 == 0) {
                 val opcode = if (data.size >= 2) data[1].toInt() and 0xFF else -1

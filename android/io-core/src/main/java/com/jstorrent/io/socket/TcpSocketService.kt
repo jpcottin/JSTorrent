@@ -336,11 +336,14 @@ class TcpSocketService(
 
     /**
      * Configure a SocketChannel with optimal settings.
+     *
+     * Note: We don't set SO_RCVBUF explicitly to allow TCP autotuning.
+     * Testing showed autotuning achieves better throughput than fixed buffers on ChromeOS ARCVM.
      */
     private fun configureChannel(channel: SocketChannel) {
         val socket = channel.socket()
         socket.tcpNoDelay = TCP_NO_DELAY
-        socket.receiveBufferSize = RECEIVE_BUFFER_SIZE
+        // Let kernel autotune SO_RCVBUF - better throughput than fixed setting
         socket.soTimeout = SO_TIMEOUT
         socket.setKeepAlive(true)
     }
@@ -381,6 +384,9 @@ class TcpSocketService(
         val onData: (ByteArray) -> Unit = { data ->
             socketCallback?.onTcpData(socketId, data)
         }
+        val onDataFramed: (ByteArray, Int, Int) -> Unit = { frame, offset, len ->
+            socketCallback?.onTcpDataFramed(socketId, frame, offset, len)
+        }
         val onClose: (Boolean, Int) -> Unit = { hadError, errorCode ->
             activeConnections.remove(socketId)
             socketCallback?.onTcpClose(socketId, hadError, errorCode)
@@ -388,12 +394,12 @@ class TcpSocketService(
 
         return when (pending) {
             is PendingConnection.NioChannel -> {
-                Log.d(TAG, "Socket $socketId: activating with NIO (direct ByteBuffer)")
+                Log.d(TAG, "Socket $socketId: activating with NIO (direct ByteBuffer, zero-copy framing)")
                 TcpConnectionNio(
                     socketId = socketId,
                     channel = pending.channel,
                     scope = scope,
-                    onData = onData,
+                    onDataFramed = onDataFramed,
                     onClose = onClose
                 )
             }
