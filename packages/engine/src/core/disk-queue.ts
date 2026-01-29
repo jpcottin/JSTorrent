@@ -158,7 +158,6 @@ export class TorrentDiskQueue implements IDiskQueue {
     this.draining = false
     this.drainResolve = null
     if (cleared > 0) {
-      // eslint-disable-next-line no-console
       console.log(`[DiskQueue] Cleared ${cleared} pending jobs`)
     }
   }

@@ -805,17 +805,17 @@ class EngineController(
     //
     // SYNC WITH: packages/engine/src/core/bt-engine.ts (startEngineTick)
     //
-    // This tick loop should be morally in sync with the JS-driven tick loop
-    // in bt-engine.ts. Key differences:
+    // Both implementations use adaptive timing with similar parameters:
     //
-    // - Extension (JS-driven, bt-engine.ts): Fixed 100ms interval via setInterval
-    // - Android (host-driven, here): Adaptive timing with delay hints from JS
+    // - Extension (JS-driven, bt-engine.ts): setTimeout with calculateTickDelay()
+    //   - MIN_TICK_INTERVAL_MS (1ms) when bufferedBytes > 0 or activePieces > 0
+    //   - IDLE_TICK_INTERVAL_MS (20ms) when peers connected but idle
+    //   - MAX_TICK_INTERVAL_MS (100ms) when no peers
+    //
+    // - Android (host-driven, here): postDelayed with delay hints from JS
     //   - MIN_TICK_INTERVAL_MS (1ms) when work pending
     //   - IDLE_DELAY_MS (20ms) when idle
-    //   - Proportional delay when hasher backed up
-    //
-    // The adaptive mode gives better throughput on Android by eliminating
-    // dead time between ticks when there's work to do.
+    //   - Proportional delay when hasher backed up (pendingHashes * 0.4, max 100ms)
     //
     // Both call the same __jstorrent_engine_tick() / tick() which processes:
     // 1. GATHER - drain TCP buffers

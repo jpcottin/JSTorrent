@@ -294,16 +294,29 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   private daemonRateLimiter: TokenBucket
 
   /**
-   * Interval handle for unified engine tick loop.
+   * Timeout handle for unified engine tick loop.
    * Combines connection slot allocation and per-torrent processing.
+   * Uses setTimeout (not setInterval) for adaptive timing.
    */
-  private engineTickInterval: ReturnType<typeof setInterval> | null = null
+  private engineTickTimeout: ReturnType<typeof setTimeout> | null = null
+
+  // Adaptive tick timing constants (sync with EngineController.kt)
+  private static readonly MIN_TICK_INTERVAL_MS = 1 // Minimum delay (near-continuous when busy)
+  private static readonly IDLE_TICK_INTERVAL_MS = 20 // Delay when peers connected but idle
+  private static readonly MAX_TICK_INTERVAL_MS = 100 // Delay when no peers but torrents active
+  private static readonly DORMANT_TICK_INTERVAL_MS = 1000 // Delay when no active torrents (save CPU)
 
   /**
    * Tick loop ownership mode.
    * 'js' = JS owns via setInterval, 'host' = external caller drives tick()
    */
   private _tickMode: 'js' | 'host' = 'js'
+
+  /**
+   * True once destroy() has been called. Used to guard against
+   * tick callbacks that fire during async destroy operations.
+   */
+  private _destroyed = false
 
   // ILoggableComponent implementation
   static logName = 'client'
@@ -945,6 +958,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
 
   async destroy() {
     this.logger.info('Destroying engine')
+    this._destroyed = true
 
     // Clean up config subscriptions
     for (const unsubscribe of this.configUnsubscribers) {
@@ -1288,18 +1302,19 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   //
   // SYNC WITH: android/quickjs-engine/.../EngineController.kt (startHostDrivenTick)
   //
-  // This tick loop should be morally in sync with the Kotlin host-driven tick
-  // loop in EngineController.kt. Key differences:
+  // Both implementations use adaptive timing with similar parameters:
   //
-  // - Extension (JS-driven, here): Fixed 100ms interval via setInterval
-  // - Android (host-driven, EngineController.kt): Adaptive timing with delay hints
-  //   - 1ms minimum when work pending (near-continuous)
-  //   - 20ms when idle (no active pieces, no buffered bytes)
+  // - Extension (JS-driven, here): setTimeout with calculateTickDelay()
+  //   - MIN_TICK_INTERVAL_MS (1ms) when work pending (bufferedBytes > 0 or activePieces > 0)
+  //   - IDLE_TICK_INTERVAL_MS (20ms) when peers connected but idle
+  //   - MAX_TICK_INTERVAL_MS (100ms) when active torrents but no peers
+  //   - DORMANT_TICK_INTERVAL_MS (1000ms) when no active torrents (save CPU)
+  //
+  // - Android (host-driven, EngineController.kt): postDelayed with delay hints from JS
+  //   - MIN_TICK_INTERVAL_MS (1ms) when work pending
+  //   - IDLE_DELAY_MS (20ms) when idle
   //   - Proportional delay when hasher backed up (pendingHashes * 0.4, max 100ms)
-  //
-  // The Android adaptive mode gives better throughput by eliminating dead time
-  // between ticks when there's work to do. The extension uses fixed interval
-  // for simplicity since browser tabs run in a more predictable environment.
+  //   - (TODO: Android should also add dormant mode for parity)
   //
   // Both call the same doTick()/tick() which delegates to TorrentTickLoop:
   // 1. GATHER - drain TCP buffers from all peers
@@ -1312,31 +1327,79 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   // ==========================================================================
 
   /**
-   * Start the unified engine tick loop.
-   * Runs at 100ms intervals: connection slot allocation + per-torrent processing.
+   * Start the unified engine tick loop with adaptive timing.
+   * Uses setTimeout (not setInterval) to adjust delay based on workload:
+   * - MIN_TICK_INTERVAL_MS (1ms) when work is pending (near-continuous)
+   * - IDLE_TICK_INTERVAL_MS (20ms) when idle
+   * - MAX_TICK_INTERVAL_MS (100ms) under backpressure
+   *
    * Only starts if tickMode is 'js'. In 'host' mode, host calls tick() directly.
    */
   private startEngineTick(): void {
-    if (this.engineTickInterval) return
+    if (this.engineTickTimeout) return
     if (this._tickMode === 'host') {
-      this.logger.info('Tick mode: host-driven (JS interval disabled)')
+      this.logger.info('Tick mode: host-driven (JS timeout disabled)')
       return
     }
 
-    // Engine tick at 100ms intervals (10Hz)
-    this.engineTickInterval = setInterval(() => {
-      this.doTick()
-    }, 100)
-    this.logger.info('Tick mode: js-driven (100ms interval)')
+    const scheduleNextTick = (delayMs: number): void => {
+      if (this._tickMode !== 'js') return
+
+      this.engineTickTimeout = setTimeout(() => {
+        const result = this.doTick()
+        const nextDelay = this.calculateTickDelay(result)
+        scheduleNextTick(nextDelay)
+      }, delayMs)
+    }
+
+    // Start with minimum delay
+    scheduleNextTick(BtEngine.MIN_TICK_INTERVAL_MS)
+    this.logger.info(
+      `Tick mode: js-driven adaptive (${BtEngine.MIN_TICK_INTERVAL_MS}-${BtEngine.MAX_TICK_INTERVAL_MS}ms)`,
+    )
+  }
+
+  /**
+   * Calculate delay until next tick based on current state.
+   * Returns shorter delays when there's work to do, longer when idle.
+   *
+   * Timing hierarchy:
+   * - 1ms: buffered data or active pieces (work pending)
+   * - 20ms: peers connected but no immediate work
+   * - 100ms: active torrents but no peers yet
+   * - 1000ms: no active torrents (dormant - save CPU)
+   */
+  private calculateTickDelay(result: EngineTickResult): number {
+    // If there's buffered data or active pieces, tick quickly
+    if (result.bufferedBytes > 0 || result.activePieces > 0) {
+      return BtEngine.MIN_TICK_INTERVAL_MS
+    }
+
+    // If we have connected peers but no active work, use idle interval
+    if (result.connectedPeers > 0) {
+      return BtEngine.IDLE_TICK_INTERVAL_MS
+    }
+
+    // Check if any torrents are active or if there are pending connection ops
+    const hasActiveTorrents = this.torrents.some((t) => t.isActive)
+    const hasPendingOps = this.pendingOps.size > 0
+
+    if (hasActiveTorrents || hasPendingOps) {
+      // Active torrents but no peers yet - use max interval
+      return BtEngine.MAX_TICK_INTERVAL_MS
+    }
+
+    // No active torrents, no pending work - use dormant interval (save CPU)
+    return BtEngine.DORMANT_TICK_INTERVAL_MS
   }
 
   /**
    * Stop the unified engine tick loop.
    */
   private stopEngineTick(): void {
-    if (this.engineTickInterval) {
-      clearInterval(this.engineTickInterval)
-      this.engineTickInterval = null
+    if (this.engineTickTimeout) {
+      clearTimeout(this.engineTickTimeout)
+      this.engineTickTimeout = null
     }
   }
 
@@ -1383,6 +1446,22 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
    * Returns aggregated result across all torrents.
    */
   private doTick(): EngineTickResult {
+    // Guard against tick callbacks firing during async destroy
+    if (this._destroyed) {
+      return {
+        blocksRecv: 0,
+        blocksSent: 0,
+        elapsedMs: 0,
+        activePieces: 0,
+        connectedPeers: 0,
+        bufferedBytes: 0,
+        pipelineFilled: 0,
+        pipelineMax: 0,
+        pendingHashes: 0,
+        pendingDiskWrites: 0,
+      }
+    }
+
     const startTime = Date.now()
 
     // Phase 3+4: Flush accumulated callbacks from native I/O threads.
@@ -1447,9 +1526,13 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
    * native reads are paused to prevent unbounded memory growth.
    */
   private getTotalBufferedBytes(): number {
+    if (this._destroyed) return 0
     let total = 0
     for (const torrent of this.torrents) {
-      for (const peer of torrent.peers) {
+      // Guard: peers may be undefined if torrent is being destroyed
+      const peers = torrent.peers
+      if (!peers) continue
+      for (const peer of peers) {
         total += peer.bufferedBytes
       }
     }

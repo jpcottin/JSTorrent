@@ -29,6 +29,9 @@ export function TableMount<T>(props: TableMountProps<T>) {
   const getRowStyleRef = useRef(props.getRowStyle)
   getRowStyleRef.current = props.getRowStyle
 
+  const isRowActiveRef = useRef(props.isRowActive)
+  isRowActiveRef.current = props.isRowActive
+
   useEffect(() => {
     if (!containerRef.current) return
 
@@ -55,6 +58,7 @@ export function TableMount<T>(props: TableMountProps<T>) {
           onForceUpdate: (fn) => {
             forceUpdateRef.current = fn
           },
+          isRowActive: isRowActiveRef.current ? (row) => isRowActiveRef.current!(row) : undefined,
         }) as unknown as Element,
       containerRef.current,
     )

@@ -81,4 +81,6 @@ export interface TableMountProps<T> {
   getRowStyle?: (row: T) => Record<string, string> | undefined
   /** Key that triggers immediate refresh when changed (e.g., selected torrent hash) */
   refreshKey?: string
+  /** Check if a row is "active" (e.g., downloading/seeding). Used for idle detection. */
+  isRowActive?: (row: T) => boolean
 }

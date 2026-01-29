@@ -30,6 +30,8 @@ export interface VirtualTableProps<T> {
   getRowStyle?: (row: T) => Record<string, string> | undefined
   /** Callback to receive forceUpdate function for external refresh triggering */
   onForceUpdate?: (forceUpdate: () => void) => void
+  /** Check if a row is "active" (e.g., downloading/seeding). Used for idle detection. */
+  isRowActive?: (row: T) => boolean
 }
 
 /**
@@ -263,7 +265,15 @@ export function VirtualTable<T>(props: VirtualTableProps<T>) {
   let throttledRaf: { start: () => void; stop: () => void } | undefined
 
   onMount(() => {
-    throttledRaf = createThrottledRaf(() => forceUpdate({}), getMaxFps)
+    // isIdle returns true when no rows are "active" - RAF drops to lower FPS
+    const isIdle = props.isRowActive
+      ? () => {
+          const rows = props.getRows()
+          return rows.length === 0 || !rows.some(props.isRowActive!)
+        }
+      : undefined
+
+    throttledRaf = createThrottledRaf(() => forceUpdate({}), getMaxFps, isIdle)
     throttledRaf.start()
 
     // Watch for UI scale changes via MutationObserver on data-scale attribute

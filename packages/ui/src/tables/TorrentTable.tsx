@@ -155,6 +155,7 @@ export function TorrentTable(props: TorrentTableProps) {
       onRowClick={props.onRowClick}
       onRowDoubleClick={props.onRowDoubleClick}
       onRowContextMenu={props.onRowContextMenu}
+      isRowActive={(t) => t.activityState !== 'stopped'}
     />
   )
 }
