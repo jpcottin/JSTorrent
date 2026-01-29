@@ -103,7 +103,7 @@ impl DaemonStats {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub token: String,
+    pub token: Arc<std::sync::RwLock<String>>,
     pub install_id: String,
     pub extension_id: Arc<std::sync::RwLock<Option<String>>>,
     pub download_roots: Arc<std::sync::RwLock<Vec<jstorrent_common::DownloadRoot>>>,
@@ -176,7 +176,7 @@ async fn run_managed(args: Args) -> anyhow::Result<()> {
         });
 
     let state = Arc::new(AppState {
-        token: token.clone(),
+        token: Arc::new(std::sync::RwLock::new(token.clone())),
         install_id: install_id.clone(),
         extension_id: Arc::new(std::sync::RwLock::new(extension_id.clone())),
         download_roots: Arc::new(std::sync::RwLock::new(roots)),
@@ -263,7 +263,7 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
     eprintln!("================================================\n");
 
     let state = Arc::new(AppState {
-        token: token.clone(),
+        token: Arc::new(std::sync::RwLock::new(token.clone())),
         install_id: install_id.clone(),
         extension_id: Arc::new(std::sync::RwLock::new(standalone_config.extension_id.clone())),
         download_roots: Arc::new(std::sync::RwLock::new(roots)),

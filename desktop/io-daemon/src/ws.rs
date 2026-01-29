@@ -217,7 +217,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         // The `io-daemon` receives the token as a CLI arg.
                         // We need to store it in `AppState`.
                         
-                        if token == state.token {
+                        let expected_token = state.token.read().unwrap().clone();
+                        if token == expected_token {
                             authenticated = true;
                             // Send AUTH_RESULT success (0)
                             send_msg(&tx, OP_AUTH_RESULT, env.request_id, vec![0]).await;

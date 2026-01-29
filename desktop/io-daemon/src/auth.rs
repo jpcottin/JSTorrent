@@ -34,8 +34,9 @@ pub async fn middleware(
                 .and_then(|value| value.strip_prefix("Bearer "))
         });
 
+    let expected_token = state.token.read().unwrap().clone();
     match token {
-        Some(t) if t == state.token => {
+        Some(t) if t == expected_token => {
             Ok(next.run(req).await)
         }
         _ => {
@@ -79,8 +80,9 @@ pub async fn standalone_middleware(
                 .and_then(|value| value.strip_prefix("Bearer "))
         });
 
+    let expected_token = state.token.read().unwrap().clone();
     match token {
-        Some(t) if t == state.token => {
+        Some(t) if t == expected_token => {
             Ok(next.run(req).await)
         }
         _ => {

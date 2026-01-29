@@ -754,7 +754,15 @@ export class DaemonBridge {
       return
     }
 
-    // Need to pair
+    // For Crostini standalone daemon, try to pair directly (it auto-approves)
+    // For Android daemon, pairing requires user interaction via triggerLaunch()
+    if (host === CHROMEOS_CROSTINI_HOST) {
+      console.log('[DaemonBridge] Crostini daemon found, attempting direct pairing...')
+      await this.checkStatusAndPair(host, port)
+      return
+    }
+
+    // Need to pair with Android - requires launching the app
     throw new Error('Not paired - use triggerLaunch()')
   }
 

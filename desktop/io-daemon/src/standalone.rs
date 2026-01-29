@@ -5,7 +5,7 @@
 
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -153,20 +153,33 @@ async fn status_handler(
 
 async fn pair_handler(
     State(state): State<Arc<StandaloneState>>,
+    headers: HeaderMap,
     Json(request): Json<PairRequest>,
 ) -> Result<Json<PairResponse>, StatusCode> {
     // Extract extension headers from the request
     // In standalone mode, we auto-approve all pairing requests
     // since the user deliberately started the daemon
 
+    let extension_id = headers
+        .get("X-JST-ExtensionId")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+    let install_id = headers
+        .get("X-JST-InstallId")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+
     let mut config = state.config.write().unwrap();
 
-    // Store the token and mark as paired
+    // Store the token, extension_id, and install_id in config
     config.token = Some(request.token.clone());
+    config.extension_id = extension_id.clone();
+    config.install_id = install_id.clone();
 
-    // Update the app state token as well
-    // Note: In standalone mode, the token comes from the extension
-    // We store it so subsequent requests can be authenticated
+    // Also update the AppState token so auth middleware uses the new token
+    *state.app.token.write().unwrap() = request.token.clone();
+    // Update extension_id in AppState as well
+    *state.app.extension_id.write().unwrap() = extension_id.clone();
 
     // Save to disk
     if let Err(e) = config.save() {
@@ -174,7 +187,11 @@ async fn pair_handler(
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
-    tracing::info!("Standalone mode: auto-approved pairing");
+    tracing::info!(
+        "Standalone mode: auto-approved pairing for extension={:?}, install={:?}, token updated in AppState",
+        extension_id,
+        install_id
+    );
 
     Json(PairResponse {
         status: "approved".to_string(),
