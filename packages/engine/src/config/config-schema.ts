@@ -32,6 +32,9 @@ export type PieceViewMode = 'summary' | 'bar' | 'grid'
 /** UI scale for font and spacing sizes */
 export type UiScale = 'small' | 'default' | 'large' | 'larger'
 
+/** Default max pipeline depth (outstanding block requests per peer) */
+export const DEFAULT_MAX_PIPELINE_DEPTH = 500
+
 /** Platform type */
 export type PlatformType = 'desktop' | 'chromeos' | 'android-standalone'
 
@@ -180,9 +183,9 @@ export const configSchema = {
     type: 'number',
     category: 'setting',
     storage: 'sync',
-    default: 500,
+    default: DEFAULT_MAX_PIPELINE_DEPTH,
     min: 10,
-    max: 500,
+    max: 2000,
   },
 
   // ===========================================================================

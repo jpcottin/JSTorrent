@@ -158,10 +158,10 @@ class SettingsStore(context: Context) {
 
     /**
      * Maximum pipeline depth (outstanding block requests per peer).
-     * Default is 50 for Android standalone (lower than desktop's 500 for battery/resource efficiency).
+     * High default to maximize throughput on fast connections.
      */
     var maxPipelineDepth: Int
-        get() = prefs.getInt(KEY_MAX_PIPELINE_DEPTH, 50)
+        get() = prefs.getInt(KEY_MAX_PIPELINE_DEPTH, DEFAULT_MAX_PIPELINE_DEPTH)
         set(value) = prefs.edit { putInt(KEY_MAX_PIPELINE_DEPTH, value) }
 
     companion object {
@@ -187,5 +187,8 @@ class SettingsStore(context: Context) {
         private const val KEY_MAX_GLOBAL_PEERS = "max_global_peers"
         private const val KEY_MAX_UPLOAD_SLOTS = "max_upload_slots"
         private const val KEY_MAX_PIPELINE_DEPTH = "max_pipeline_depth"
+
+        /** Default max pipeline depth - must match DEFAULT_MAX_PIPELINE_DEPTH in config-schema.ts */
+        const val DEFAULT_MAX_PIPELINE_DEPTH = 500
     }
 }

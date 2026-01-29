@@ -29,7 +29,7 @@ data class SettingsUiState(
     val maxPeersPerTorrent: Int = 20,
     val maxGlobalPeers: Int = 200,
     val maxUploadSlots: Int = 4,
-    val maxPipelineDepth: Int = 50, // Android default (desktop uses 500)
+    val maxPipelineDepth: Int = SettingsStore.DEFAULT_MAX_PIPELINE_DEPTH,
     // Behavior
     val whenDownloadsComplete: String = "stop_and_close",
     // Network

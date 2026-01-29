@@ -76,6 +76,7 @@ export interface TickLoopCallbacks {
   // Bandwidth
   isDownloadRateLimited(): boolean
   getCategoryRate(direction: 'down' | 'up', category: TrafficCategory): number
+  getMaxPipelineDepth(): number
 
   // Actions
   requestPieces(peer: PeerConnection, now: number): void
@@ -791,14 +792,23 @@ export class TorrentTickLoop extends EngineComponent {
 
     const activeCount = activePieces.activeCount
     const partialCount = activePieces.partialCount
+    const fullyRequestedCount = activePieces.fullyRequestedCount
     const fullyRespondedCount = activePieces.fullyRespondedCount
     const bufferedBytes = activePieces.totalBufferedBytes
     const bufferedMB = (bufferedBytes / (1024 * 1024)).toFixed(2)
 
-    // Sum outstanding requests across all active pieces
+    // Get peer count and pipeline stats
+    const swarm = this.callbacks.getSwarm()
+    const connectedPeers = swarm.getConnectedPeers()
+    const maxPartials = activePieces.getMaxPartials(connectedPeers.length)
+    const pipelineLimit = this.callbacks.getMaxPipelineDepth()
+
+    // Sum outstanding requests and pipeline depth across all peers
     let totalRequests = 0
-    for (const piece of activePieces.values()) {
-      totalRequests += piece.outstandingRequests
+    let totalPipelineDepth = 0
+    for (const peer of connectedPeers) {
+      totalRequests += peer.requestsPending
+      totalPipelineDepth += peer.pipelineDepth
     }
 
     // Get disk queue stats
@@ -811,9 +821,9 @@ export class TorrentTickLoop extends EngineComponent {
     const diskRateMB = (diskRate / (1024 * 1024)).toFixed(1)
 
     this.logger.info(
-      `Backpressure: ${activeCount} active (${partialCount} partial, ${fullyRespondedCount} awaiting write), ` +
-        `${bufferedMB}MB buffered, ${totalRequests} outstanding requests, ` +
-        `disk queue: ${diskPending} pending/${diskRunning} running, disk write: ${diskRateMB}MB/s`,
+      `Backpressure: ${activeCount} active (${partialCount}/${maxPartials} partial, ${fullyRequestedCount} fullyReq, ${fullyRespondedCount} awaiting write), ` +
+        `${bufferedMB}MB buffered, PIPE:${totalRequests}/${totalPipelineDepth} (limit=${pipelineLimit}), ` +
+        `disk: ${diskPending}/${diskRunning} queue, ${diskRateMB}MB/s`,
     )
   }
 

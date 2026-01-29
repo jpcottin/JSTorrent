@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-declaration-merging */
+import { DEFAULT_MAX_PIPELINE_DEPTH } from '../config/config-schema'
 import { ITcpSocket } from '../interfaces/socket'
 import {
   PeerWireProtocol,
@@ -140,7 +141,7 @@ export class PeerConnection extends EngineComponent {
   private blockCount = 0 // Blocks received since last rate check
   private lastRateCheckTime = 0 // Timestamp of last rate calculation
   private static readonly RATE_CHECK_INTERVAL = 1000 // Check rate every 1 second
-  private static readonly MAX_PIPELINE_DEPTH = 500
+  private static readonly MAX_PIPELINE_DEPTH = DEFAULT_MAX_PIPELINE_DEPTH
   private static readonly MIN_PIPELINE_DEPTH = 5
   public peerMetadataId: number | null = null
   public peerMetadataSize: number | null = null
@@ -801,8 +802,8 @@ export class PeerConnection extends EngineComponent {
 
       // Adjust depth based on rate (aggressive ramp-up for game loop tick model)
       if (rate > 10) {
-        // Fast peer - increase depth aggressively (+50/sec to reach 500 in ~9s)
-        this.pipelineDepth = Math.min(PeerConnection.MAX_PIPELINE_DEPTH, this.pipelineDepth + 50)
+        // Fast peer - increase depth aggressively (+150/sec to reach 1500 in ~10s)
+        this.pipelineDepth = Math.min(PeerConnection.MAX_PIPELINE_DEPTH, this.pipelineDepth + 150)
       } else if (rate < 2 && this.pipelineDepth > 50) {
         // Slow peer - decrease depth gradually
         this.pipelineDepth = Math.max(50, this.pipelineDepth - 10)

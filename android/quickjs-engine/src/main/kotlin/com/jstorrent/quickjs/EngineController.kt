@@ -109,7 +109,7 @@ class EngineController(
     private var lastBufferedBytes = 0
     private val TICK_LOG_INTERVAL_MS = 5000L
     // Continuous tick mode parameters
-    private val MIN_TICK_INTERVAL_MS = 5L   // Minimum time between ticks (prevent CPU spinning)
+    private val MIN_TICK_INTERVAL_MS = 1L   // Minimum time between ticks (prevent CPU spinning)
     private val IDLE_DELAY_MS = 20L         // Delay when no work pending
 
     /**
@@ -990,6 +990,69 @@ class EngineController(
         }
 
         Log.i(TAG, "Host-driven tick stopped")
+    }
+
+    // ============================================================
+    // FFI RTT BENCHMARKS
+    // ============================================================
+
+    /**
+     * Run full FFI RTT benchmark suite and return results as a map.
+     * Tests various scenarios to understand FFI overhead.
+     * MUST be called from a thread that can block (not Main thread).
+     *
+     * @return Map of test name to average RTT in microseconds
+     */
+    fun runRttBenchmark(): Map<String, Double> {
+        val eng = engine ?: return emptyMap()
+        val iterations = 1000
+        val latch = java.util.concurrent.CountDownLatch(1)
+        val results = java.util.concurrent.ConcurrentHashMap<String, Double>()
+
+        // Run all benchmarks on JS thread
+        eng.jsThread.handler.post {
+            try {
+                // Noop benchmark
+                repeat(10) { eng.context.callGlobalFunction("__jstorrent_noop") }
+                var start = System.nanoTime()
+                repeat(iterations) { eng.context.callGlobalFunction("__jstorrent_noop") }
+                results["noop"] = (System.nanoTime() - start).toDouble() / iterations / 1000.0
+
+                // Binary in benchmarks (need placeholder arg for binary position)
+                for ((name, size) in listOf("1kb" to 1024, "16kb" to 16384, "64kb" to 65536, "256kb" to 262144)) {
+                    val data = ByteArray(size)
+                    repeat(10) { eng.context.callGlobalFunctionWithBinary("__jstorrent_noop_binary", data, 0, null) }
+                    start = System.nanoTime()
+                    repeat(iterations) { eng.context.callGlobalFunctionWithBinary("__jstorrent_noop_binary", data, 0, null) }
+                    results["binary_in_$name"] = (System.nanoTime() - start).toDouble() / iterations / 1000.0
+                }
+
+                // Binary echo benchmarks
+                for ((name, size) in listOf("1kb" to 1024, "16kb" to 16384, "64kb" to 65536, "256kb" to 262144)) {
+                    val data = ByteArray(size)
+                    repeat(10) { eng.context.callGlobalFunctionWithBinary("__jstorrent_echo_binary", data, 0, null) }
+                    start = System.nanoTime()
+                    repeat(iterations) { eng.context.callGlobalFunctionWithBinary("__jstorrent_echo_binary", data, 0, null) }
+                    results["binary_echo_$name"] = (System.nanoTime() - start).toDouble() / iterations / 1000.0
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "RTT benchmark error on JS thread", e)
+            } finally {
+                latch.countDown()
+            }
+        }
+
+        // Wait for JS thread to complete (blocking)
+        latch.await()
+
+        // Log results
+        Log.i(TAG, "=== FFI RTT Benchmark Results (microseconds) ===")
+        for ((name, rtt) in results.entries.sortedBy { it.key }) {
+            Log.i(TAG, "  $name: %.1f µs (%.2f ms)".format(rtt, rtt / 1000.0))
+        }
+        Log.i(TAG, "================================================")
+
+        return results
     }
 
     /**

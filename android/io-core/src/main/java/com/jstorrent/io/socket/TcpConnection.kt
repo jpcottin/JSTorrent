@@ -2,6 +2,7 @@
 
 package com.jstorrent.io.socket
 
+import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import java.io.IOException
@@ -65,7 +66,7 @@ internal class TcpConnection(
     private var readsPaused = false
 
     companion object {
-        private const val READ_BUFFER_SIZE = 128 * 1024 // 128KB per read
+        private const val READ_BUFFER_SIZE = 512 * 1024 // 512KB per read (larger = fewer syscalls)
         private const val WRITE_BUFFER_SIZE = 64 * 1024 // 64KB buffered output
         private const val FLUSH_THRESHOLD = 32 * 1024   // Flush when accumulated >= 32KB
         private const val SMALL_MESSAGE_SIZE = 1024     // Flush immediately for small control messages
@@ -162,9 +163,19 @@ internal class TcpConnection(
             val buffer = ByteArray(READ_BUFFER_SIZE)
             var totalBytesRead = 0L
 
+            // Read stats for periodic logging
+            var statsReadCount = 0L
+            var statsBytes = 0L
+            var statsMinRead = Int.MAX_VALUE
+            var statsMaxRead = 0
+            var statsLastLogTime = System.currentTimeMillis()
+
             try {
                 val input = socket.getInputStream()
                 val originalTimeout = socket.soTimeout
+
+                // Log socket buffer size once at start
+                Log.i("TcpConnection", "Socket $socketId: SO_RCVBUF=${socket.receiveBufferSize}, READ_BUFFER=$READ_BUFFER_SIZE")
 
                 while (isActive) {
                     // Backpressure: wait while reads are paused
@@ -186,6 +197,28 @@ internal class TcpConnection(
                     if (bytesRead < 0) break
 
                     totalBytesRead += bytesRead
+
+                    // Track read stats
+                    statsReadCount++
+                    statsBytes += bytesRead
+                    if (bytesRead < statsMinRead) statsMinRead = bytesRead
+                    if (bytesRead > statsMaxRead) statsMaxRead = bytesRead
+
+                    // Log stats every 5 seconds
+                    val now = System.currentTimeMillis()
+                    val elapsed = now - statsLastLogTime
+                    if (elapsed >= 5000 && statsReadCount > 0) {
+                        val readsPerSec = statsReadCount * 1000.0 / elapsed
+                        val mbPerSec = statsBytes / (elapsed / 1000.0) / (1024 * 1024)
+                        val avgReadSize = statsBytes / statsReadCount
+                        Log.i("TcpConnection", "Socket $socketId: %.1f reads/s, %.1f MB/s, avg=%d min=%d max=%d bytes/read".format(
+                            readsPerSec, mbPerSec, avgReadSize, statsMinRead, statsMaxRead))
+                        statsReadCount = 0
+                        statsBytes = 0
+                        statsMinRead = Int.MAX_VALUE
+                        statsMaxRead = 0
+                        statsLastLogTime = now
+                    }
 
                     // Fast path: skip internal batching, deliver immediately (1 copy)
                     // TcpBindings batches across all sockets at tick boundary anyway

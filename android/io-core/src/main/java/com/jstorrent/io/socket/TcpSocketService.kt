@@ -53,7 +53,7 @@ class TcpSocketService(
     companion object {
         // Socket configuration
         private const val TCP_NO_DELAY = true
-        private const val RECEIVE_BUFFER_SIZE = 256 * 1024 // 256KB
+        private const val RECEIVE_BUFFER_SIZE = 2 * 1024 * 1024 // 2MB (kernel may double)
         private const val SO_TIMEOUT = 60_000 // 60 seconds
         private const val CONNECT_TIMEOUT = 5_000 // 5 seconds (allows trying multiple addresses within client timeout)
         private const val SEMAPHORE_TIMEOUT = 5000L // 5 seconds

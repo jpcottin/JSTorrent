@@ -1,3 +1,4 @@
+import { DEFAULT_MAX_PIPELINE_DEPTH } from '../config/config-schema'
 import { PeerConnection } from './peer-connection'
 import { ActivePiece, BLOCK_SIZE } from './active-piece'
 import type { ChunkedBuffer } from './chunked-buffer'
@@ -542,6 +543,8 @@ export class Torrent extends EngineComponent {
       isDownloadRateLimited: () => this.btEngine.bandwidthTracker.isDownloadRateLimited(),
       getCategoryRate: (direction, category) =>
         this.btEngine.bandwidthTracker.getCategoryRate(direction, category),
+      getMaxPipelineDepth: () =>
+        this.btEngine.config?.maxPipelineDepth.get() ?? DEFAULT_MAX_PIPELINE_DEPTH,
 
       // Actions
       requestPieces: (peer, now) => this.requestPieces(peer, now),
@@ -2180,7 +2183,8 @@ export class Torrent extends EngineComponent {
       getEndgameManager: () => this._endgameManager,
 
       // Bandwidth
-      getMaxPipelineDepth: () => this.btEngine.config?.maxPipelineDepth.get() ?? 500,
+      getMaxPipelineDepth: () =>
+        this.btEngine.config?.maxPipelineDepth.get() ?? DEFAULT_MAX_PIPELINE_DEPTH,
       isDownloadRateLimited: () => this.btEngine.bandwidthTracker.downloadBucket.isLimited,
       getDownloadRateLimit: () => this.btEngine.bandwidthTracker.downloadBucket.refillRate,
       tryConsumeDownloadBandwidth: (bytes) =>

@@ -40,6 +40,9 @@ private const val TAG = "JSTorrent-Debug"
  *
  * # Get peers for a torrent
  * adb shell am broadcast -a com.jstorrent.DEBUG --es cmd peers --es hash "abc123..."
+ *
+ * # Run FFI RTT benchmark
+ * adb shell am broadcast -a com.jstorrent.DEBUG --es cmd rtt -p com.jstorrent.app
  * ```
  *
  * Results are logged to logcat with tag "JSTorrent-Debug".
@@ -77,6 +80,7 @@ class DebugReceiver : BroadcastReceiver() {
             "loglevel" -> handleLogLevel(controller, intent.getStringExtra("level"))
             "peers" -> handlePeers(controller, intent.getStringExtra("hash"))
             "power" -> handlePower(context)
+            "rtt" -> handleRttBenchmark(controller)
             "help" -> logHelp()
             else -> {
                 Log.w(TAG, "Unknown command: $cmd")
@@ -281,6 +285,41 @@ class DebugReceiver : BroadcastReceiver() {
         }
     }
 
+    private fun handleRttBenchmark(controller: com.jstorrent.quickjs.EngineController) {
+        scope.launch {
+            try {
+                Log.i(TAG, "=== FFI RTT BENCHMARK ===")
+                Log.i(TAG, "Running 1000 iterations per test...")
+                Log.i(TAG, "")
+
+                val results = controller.runRttBenchmark()
+
+                Log.i(TAG, "")
+                Log.i(TAG, "Summary:")
+                val noopUs = results["noop"] ?: 0.0
+                Log.i(TAG, "  Base FFI overhead (noop): %.1f µs (%.3f ms)".format(noopUs, noopUs / 1000.0))
+
+                val binary16kIn = results["binary_in_16kb"] ?: 0.0
+                val binary16kEcho = results["binary_echo_16kb"] ?: 0.0
+                Log.i(TAG, "  16KB data in: %.1f µs, echo: %.1f µs".format(binary16kIn, binary16kEcho))
+
+                val binary64kIn = results["binary_in_64kb"] ?: 0.0
+                val binary64kEcho = results["binary_echo_64kb"] ?: 0.0
+                Log.i(TAG, "  64KB data in: %.1f µs, echo: %.1f µs".format(binary64kIn, binary64kEcho))
+
+                // Calculate copy overhead
+                val copyOverheadPer16k = (binary16kIn - noopUs)
+                val copyOverheadPer64k = (binary64kIn - noopUs)
+                Log.i(TAG, "")
+                Log.i(TAG, "  Copy overhead: ~%.1f µs/16KB, ~%.1f µs/64KB".format(copyOverheadPer16k, copyOverheadPer64k))
+
+                Log.i(TAG, "=== END RTT BENCHMARK ===")
+            } catch (e: Exception) {
+                Log.e(TAG, "RTT benchmark failed: ${e.message}", e)
+            }
+        }
+    }
+
     private fun handlePower(context: Context) {
         Log.i(TAG, "=== POWER STATE ===")
 
@@ -355,6 +394,7 @@ class DebugReceiver : BroadcastReceiver() {
         Log.i(TAG, "  torrents            - List all torrents with details")
         Log.i(TAG, "  peers [--es hash X] - List connected peers")
         Log.i(TAG, "  power               - Power/Doze state info")
+        Log.i(TAG, "  rtt                 - FFI RTT benchmark (Kotlin<->JS crossing overhead)")
         Log.i(TAG, "  loglevel --es level X - Set log level (debug/info/warn/error)")
         Log.i(TAG, "  help                - Show this help")
         Log.i(TAG, "")

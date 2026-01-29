@@ -709,6 +709,38 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
     return JSON.stringify(stats)
   }
 
+  // ============================================================
+  // RTT BENCHMARK (for measuring FFI crossing overhead)
+  // ============================================================
+
+  /**
+   * No-op function for measuring raw FFI crossing RTT.
+   * Returns 0 immediately.
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_noop = (): number => {
+    return 0
+  }
+
+  /**
+   * No-op function that receives binary data.
+   * Returns the size of received data (to prevent optimization).
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_noop_binary = (
+    data: ArrayBuffer,
+  ): number => {
+    return data.byteLength
+  }
+
+  /**
+   * No-op function that receives and returns binary data.
+   * Echoes back the input (for measuring round-trip with binary both ways).
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_echo_binary = (
+    data: ArrayBuffer,
+  ): ArrayBuffer => {
+    return data
+  }
+
   /**
    * Get aggregated engine statistics for health monitoring.
    * Includes tick duration, active pieces, and connected peers.
