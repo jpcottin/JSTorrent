@@ -55,6 +55,8 @@ export class DaemonConnection {
     private getCredentials?: CredentialsGetter,
     // Direct token for desktop (extensionId/installId will be empty strings)
     private legacyToken?: string,
+    /** Separate port for /io WebSocket endpoint. If set, WebSocket connects to this port instead of main port. */
+    private ioPort?: number,
   ) {
     this.baseUrl = `http://${host}:${port}`
   }
@@ -101,7 +103,9 @@ export class DaemonConnection {
       throw new Error('No credentials available')
     }
 
-    const url = `ws://${this.host}:${this.port}/io`
+    // Use ioPort if available (separate high-throughput data plane), otherwise use main port
+    const wsPort = this.ioPort ?? this.port
+    const url = `ws://${this.host}:${wsPort}/io`
     this.ws = new WebSocket(url)
     this.ws.binaryType = 'arraybuffer'
 

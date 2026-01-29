@@ -48,6 +48,16 @@ dependencies {
     implementation(libs.ktor.server.netty)
     implementation(libs.ktor.server.websockets)
 
+    // Direct Netty dependencies for raw WebSocket server (Phase 3)
+    // These are transitively available via ktor-server-netty, but we declare them
+    // explicitly for clarity and to ensure the correct modules are available.
+    implementation("io.netty:netty-codec-http:4.1.100.Final")
+    implementation("io.netty:netty-handler:4.1.100.Final")
+
+    // Java-WebSocket for high-throughput /io endpoint (Phase 5)
+    // This library achieves 8x better throughput than Ktor WebSocket
+    implementation(libs.java.websocket)
+
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 

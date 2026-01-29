@@ -122,10 +122,17 @@ class IoDaemonService : Service() {
     // =========================================================================
 
     /**
-     * Get the current server port.
+     * Get the current server port (Ktor HTTP/control plane).
      */
     val port: Int
         get() = httpServer?.port ?: 7800
+
+    /**
+     * Get the IO WebSocket port (java-websocket high-throughput).
+     * Returns 0 if not available.
+     */
+    val ioPort: Int
+        get() = httpServer?.ioPort ?: 0
 
     /**
      * Check if the HTTP server is running and ready.

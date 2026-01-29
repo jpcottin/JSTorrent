@@ -3,12 +3,12 @@
 package com.jstorrent.companion.server
 
 import android.util.Log
+import com.jstorrent.companion.server.websocket.KtorWebSocketSession
+import com.jstorrent.companion.server.websocket.WebSocketSession
 import com.jstorrent.io.protocol.Protocol
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
+import io.ktor.server.websocket.DefaultWebSocketServerSession
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -26,7 +26,7 @@ private const val TAG = "ControlWebSocketHandler"
  * out-of-band communication between extension and daemon.
  */
 class ControlWebSocketHandler(
-    private val wsSession: DefaultWebSocketServerSession,
+    private val session: WebSocketSession,
     private val deps: CompanionServerDeps,
     private val onSessionRegistered: (ControlWebSocketHandler) -> Unit,
     private val onSessionUnregistered: (ControlWebSocketHandler) -> Unit
@@ -39,7 +39,9 @@ class ControlWebSocketHandler(
     private val outgoing = Channel<ByteArray>(100)
 
     // Expose the WebSocket session for external close (e.g., unpair)
-    val webSocketSession: DefaultWebSocketServerSession get() = wsSession
+    // Only works with KtorWebSocketSession; returns null for other implementations
+    val webSocketSession: DefaultWebSocketServerSession?
+        get() = (session as? KtorWebSocketSession)?.underlying
 
     // Session statistics
     private val dropCount = AtomicLong(0)
@@ -60,23 +62,21 @@ class ControlWebSocketHandler(
             try {
                 for (data in outgoing) {
                     queueDepth.decrementAndGet()
-                    wsSession.send(Frame.Binary(true, data))
+                    session.send(data)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "WebSocket sender failed: ${e.message}")
                 try {
-                    wsSession.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Sender failed"))
+                    session.close(1001, "Sender failed")
                 } catch (_: Exception) {}
             }
         }
 
         try {
-            for (frame in wsSession.incoming) {
-                if (frame is Frame.Binary) {
-                    handleMessage(frame.readBytes())
-                }
+            while (true) {
+                val data = session.receive() ?: break
+                handleMessage(data)
             }
-        } catch (e: ClosedReceiveChannelException) {
             Log.d(TAG, "WebSocket closed normally")
         } catch (e: Exception) {
             Log.e(TAG, "WebSocket error: ${e.message}")
@@ -226,6 +226,14 @@ class ControlWebSocketHandler(
 
     private fun sendError(requestId: Int, message: String) {
         send(Protocol.createError(requestId, message))
+    }
+
+    /**
+     * Close the WebSocket session with a close code and reason.
+     * Used for external close (e.g., unpair).
+     */
+    suspend fun closeSession(code: Int = 1001, reason: String = "Closed") {
+        session.close(code, reason)
     }
 
     // ==========================================================================

@@ -1,6 +1,8 @@
 package com.jstorrent.companion.server
 
 import android.util.Log
+import com.jstorrent.companion.server.websocket.JavaWebSocketServer
+import com.jstorrent.companion.server.websocket.KtorWebSocketSession
 import com.jstorrent.io.file.FileManager
 import com.jstorrent.io.hash.Hasher
 import com.jstorrent.io.protocol.Protocol
@@ -39,6 +41,7 @@ private data class StatusRequest(
 @Serializable
 private data class StatusResponse(
     val port: Int,
+    val ioPort: Int? = null,  // Separate WebSocket port for /io (high-throughput)
     val paired: Boolean,
     val extensionId: String? = null,
     val installId: String? = null,
@@ -96,6 +99,9 @@ class CompanionHttpServer(
     private var server: NettyApplicationEngine? = null
     private var actualPort: Int = 0
 
+    // High-throughput java-websocket server for /io endpoint (separate port)
+    private var ioServer: JavaWebSocketServer? = null
+
     // Connected WebSocket sessions for control broadcasts
     private val controlSessions = CopyOnWriteArrayList<ControlWebSocketHandler>()
 
@@ -104,6 +110,7 @@ class CompanionHttpServer(
     private var pairingDialogShowing = false
 
     val port: Int get() = if (actualPort > 0) actualPort else 7800
+    val ioPort: Int get() = ioServer?.port ?: 0
     val isRunning: Boolean get() = server != null && actualPort > 0
 
     fun start(preferredPort: Int = 7800) {
@@ -132,7 +139,19 @@ class CompanionHttpServer(
                 }.start(wait = false)
 
                 actualPort = port
-                Log.i(TAG, "Server started on port $actualPort")
+                Log.i(TAG, "Ktor server started on port $actualPort")
+
+                // Start high-throughput java-websocket server for /io on port+1
+                try {
+                    val ioSrv = JavaWebSocketServer(deps, fileManager)
+                    ioSrv.start(preferredPort = port + 1)
+                    ioServer = ioSrv
+                    Log.i(TAG, "IO WebSocket server started on port ${ioSrv.port}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start IO WebSocket server: ${e.message}")
+                    // Continue without IO server - will fall back to Ktor /io route
+                }
+
                 return
             } catch (e: Exception) {
                 Log.w(TAG, "Port $port unavailable: ${e.message}")
@@ -143,6 +162,11 @@ class CompanionHttpServer(
     }
 
     fun stop() {
+        // Stop IO WebSocket server first
+        ioServer?.stop()
+        ioServer = null
+
+        // Stop Ktor server
         server?.stop(1000, 2000)
         server = null
         actualPort = 0
@@ -289,6 +313,7 @@ class CompanionHttpServer(
 
                 val response = StatusResponse(
                     port = actualPort,
+                    ioPort = if (ioServer?.isRunning == true) ioServer?.port else null,
                     paired = deps.tokenStore.hasToken(),
                     extensionId = deps.tokenStore.extensionId,
                     installId = deps.tokenStore.installId,
@@ -388,22 +413,19 @@ class CompanionHttpServer(
                 Log.i(TAG, "WebSocket throughput test disconnected")
             }
 
-            // WebSocket endpoint for I/O operations (sockets, file writes)
-            webSocket("/io") {
-                Log.i(TAG, "WebSocket /io connected")
-                val handler = IoWebSocketHandler(this, deps, fileManager)
-                handler.run()
-                Log.i(TAG, "WebSocket /io disconnected")
-            }
+            // Note: /io WebSocket endpoint has been moved to java-websocket server
+            // on a separate port (ioPort) for 8x better throughput.
+            // Clients should check ioPort in /status response and connect there.
 
             // WebSocket endpoint for control plane (roots, events)
             webSocket("/control") {
                 Log.i(TAG, "WebSocket /control connected")
+                val session = KtorWebSocketSession(this)
                 val handler = ControlWebSocketHandler(
-                    this,
+                    session,
                     deps,
-                    onSessionRegistered = { session -> registerControlSession(session) },
-                    onSessionUnregistered = { session -> unregisterControlSession(session) }
+                    onSessionRegistered = { ctrlSession -> registerControlSession(ctrlSession) },
+                    onSessionUnregistered = { ctrlSession -> unregisterControlSession(ctrlSession) }
                 )
                 handler.run()
                 Log.i(TAG, "WebSocket /control disconnected")
@@ -531,7 +553,7 @@ class CompanionHttpServer(
         val sessionsToClose = controlSessions.toList()
         for (session in sessionsToClose) {
             try {
-                session.webSocketSession.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Unpaired"))
+                session.closeSession(1001, "Unpaired")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to close session: ${e.message}")
             }

@@ -247,7 +247,7 @@ export class DaemonBridge {
     // Already paired with us?
     if (status.paired && status.extensionId === extensionId && status.installId === installId) {
       console.log('[DaemonBridge] Already paired, connecting...')
-      await this.completeConnection(host, port, status.version, status.capabilities)
+      await this.completeConnection(host, port, status.version, status.capabilities, status.ioPort)
       return
     }
 
@@ -257,7 +257,13 @@ export class DaemonBridge {
     if (pairResult === 'approved') {
       // Re-fetch status to get capabilities after pairing
       const newStatus = await this.fetchStatus(host, port)
-      await this.completeConnection(host, port, newStatus.version, newStatus.capabilities)
+      await this.completeConnection(
+        host,
+        port,
+        newStatus.version,
+        newStatus.capabilities,
+        newStatus.ioPort,
+      )
       return
     }
 
@@ -288,7 +294,13 @@ export class DaemonBridge {
         const status = await this.fetchStatus(host, port)
         if (status.paired && status.extensionId === extensionId && status.installId === installId) {
           console.log('[DaemonBridge] Pairing approved')
-          await this.completeConnection(host, port, status.version, status.capabilities)
+          await this.completeConnection(
+            host,
+            port,
+            status.version,
+            status.capabilities,
+            status.ioPort,
+          )
           return
         }
       } catch {
@@ -330,6 +342,7 @@ export class DaemonBridge {
     installId: string | null
     version: string | null
     capabilities?: { roots_manageable?: boolean }
+    ioPort?: number
   }> {
     const headers = await this.buildHeaders()
     const response = await fetch(`http://${host}:${port}/status`, {
@@ -379,6 +392,7 @@ export class DaemonBridge {
     port: number,
     version?: string | null,
     capabilities?: { roots_manageable?: boolean },
+    ioPort?: number,
   ): Promise<void> {
     const token = await this.getOrCreateToken()
     const headers = await this.buildHeaders(true)
@@ -426,6 +440,7 @@ export class DaemonBridge {
         roots,
         host,
         capabilities: daemonCapabilities,
+        ioPort,
       },
       roots,
       lastError: null,
@@ -750,7 +765,7 @@ export class DaemonBridge {
 
     // Already paired with us? Try connecting
     if (status.paired && status.extensionId === extensionId && status.installId === installId) {
-      await this.completeConnection(host, port, status.version, status.capabilities)
+      await this.completeConnection(host, port, status.version, status.capabilities, status.ioPort)
       return
     }
 

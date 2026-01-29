@@ -224,6 +224,8 @@ export class ChromeExtensionEngineManager implements IEngineManager {
         daemonInfo.port,
         daemonInfo.host,
         createCredentialsGetter(),
+        undefined, // legacyToken (not used for ChromeOS)
+        daemonInfo.ioPort, // Separate high-throughput port for /io WebSocket
       )
     } else {
       // Desktop - use legacy token directly
@@ -232,6 +234,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
         daemonInfo.host,
         undefined,
         daemonInfo.token,
+        daemonInfo.ioPort, // Separate high-throughput port (if available)
       )
     }
     try {

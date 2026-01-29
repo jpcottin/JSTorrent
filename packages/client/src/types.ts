@@ -25,6 +25,8 @@ export interface DaemonInfo {
   host?: string
   /** Daemon capabilities - indicates what features are available */
   capabilities?: DaemonCapabilities
+  /** Separate port for /io WebSocket endpoint (high-throughput data plane). If set, /io connects here instead of main port. */
+  ioPort?: number
 }
 
 export interface DownloadRoot {

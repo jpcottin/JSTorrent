@@ -50,8 +50,11 @@ class WebSocketIOTest : CompanionTestBase() {
         val messages = mutableListOf<ByteArray>()
         val error = AtomicReference<Throwable>()
 
+        // /io endpoint is on the java-websocket server (ioPort), not Ktor (port)
+        val ioPort = IoDaemonService.instance?.ioPort
+            ?: throw AssertionError("ioPort not available")
         val request = Request.Builder()
-            .url("ws://127.0.0.1:${IoDaemonService.instance?.port}/io")
+            .url("ws://127.0.0.1:$ioPort/io")
             .build()
 
         val listener = object : WebSocketListener() {
@@ -112,8 +115,11 @@ class WebSocketIOTest : CompanionTestBase() {
         val latch = CountDownLatch(2)
         var authStatus: Int = -1
 
+        // /io endpoint is on the java-websocket server (ioPort), not Ktor (port)
+        val ioPort = IoDaemonService.instance?.ioPort
+            ?: throw AssertionError("ioPort not available")
         val request = Request.Builder()
-            .url("ws://127.0.0.1:${IoDaemonService.instance?.port}/io")
+            .url("ws://127.0.0.1:$ioPort/io")
             .build()
 
         val listener = object : WebSocketListener() {

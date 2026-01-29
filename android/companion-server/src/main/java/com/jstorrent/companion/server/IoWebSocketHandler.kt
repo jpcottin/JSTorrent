@@ -3,6 +3,8 @@
 package com.jstorrent.companion.server
 
 import android.util.Log
+import com.jstorrent.companion.server.websocket.KtorWebSocketSession
+import com.jstorrent.companion.server.websocket.WebSocketSession
 import com.jstorrent.io.file.FileManager
 import com.jstorrent.io.file.FileManagerException
 import com.jstorrent.io.hash.Hasher
@@ -16,11 +18,9 @@ import com.jstorrent.io.socket.TcpSocketCallback
 import com.jstorrent.io.socket.TcpSocketService
 import com.jstorrent.io.socket.UdpSocketCallback
 import com.jstorrent.io.socket.UdpSocketManagerImpl
-import io.ktor.server.websocket.*
-import io.ktor.websocket.*
+import io.ktor.server.websocket.DefaultWebSocketServerSession
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
@@ -42,7 +42,7 @@ private const val TAG = "IoWebSocketHandler"
  * 5. Cleans up when WebSocket disconnects
  */
 class IoWebSocketHandler(
-    private val wsSession: DefaultWebSocketServerSession,
+    private val session: WebSocketSession,
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
     private val onControlSessionRegistered: (IoWebSocketHandler) -> Unit = {},
@@ -73,7 +73,9 @@ class IoWebSocketHandler(
     private val outgoing = Channel<ByteArray>(2000)
 
     // Expose the WebSocket session for external close (e.g., unpair)
-    val webSocketSession: DefaultWebSocketServerSession get() = wsSession
+    // Only works with KtorWebSocketSession; returns null for other implementations
+    val webSocketSession: DefaultWebSocketServerSession?
+        get() = (session as? KtorWebSocketSession)?.underlying
 
     // Session statistics
     private val dropCount = AtomicLong(0)
@@ -122,7 +124,7 @@ class IoWebSocketHandler(
                 for (data in outgoing) {
                     val depth = queueDepth.decrementAndGet()
                     val t0 = System.nanoTime()
-                    wsSession.send(Frame.Binary(true, data))
+                    session.send(data)
                     val sendTimeNs = System.nanoTime() - t0
                     val sendTimeMs = sendTimeNs / 1_000_000
 
@@ -168,18 +170,16 @@ class IoWebSocketHandler(
             } catch (e: Exception) {
                 Log.w(TAG, "WebSocket sender failed: ${e.message}")
                 try {
-                    wsSession.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Sender failed"))
+                    session.close(1001, "Sender failed")
                 } catch (_: Exception) {}
             }
         }
 
         try {
-            for (frame in wsSession.incoming) {
-                if (frame is Frame.Binary) {
-                    handleMessage(frame.readBytes())
-                }
+            while (true) {
+                val data = session.receive() ?: break
+                handleMessage(data)
             }
-        } catch (e: ClosedReceiveChannelException) {
             Log.d(TAG, "WebSocket closed normally")
         } catch (e: Exception) {
             Log.e(TAG, "WebSocket error: ${e.message}")

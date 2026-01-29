@@ -66,6 +66,46 @@ object Protocol {
     fun extractSocketId(payload: ByteArray): Int {
         return ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN).int
     }
+
+    /**
+     * Read unsigned int (little-endian) from byte array at offset.
+     */
+    fun getUIntLE(data: ByteArray, offset: Int): Int {
+        return (data[offset].toInt() and 0xFF) or
+               ((data[offset + 1].toInt() and 0xFF) shl 8) or
+               ((data[offset + 2].toInt() and 0xFF) shl 16) or
+               ((data[offset + 3].toInt() and 0xFF) shl 24)
+    }
+
+    /**
+     * Read unsigned short (little-endian) from byte array at offset.
+     */
+    fun getUShortLE(data: ByteArray, offset: Int): Int {
+        return (data[offset].toInt() and 0xFF) or
+               ((data[offset + 1].toInt() and 0xFF) shl 8)
+    }
+
+    /**
+     * Parsed envelope header from a protocol message.
+     */
+    data class Envelope(
+        val version: Byte,
+        val opcode: Int,
+        val flags: Int,
+        val requestId: Int
+    ) {
+        companion object {
+            fun fromBytes(data: ByteArray): Envelope? {
+                if (data.size < 8) return null
+                return Envelope(
+                    version = data[0],
+                    opcode = data[1].toInt() and 0xFF,
+                    flags = getUShortLE(data, 2),
+                    requestId = getUIntLE(data, 4)
+                )
+            }
+        }
+    }
 }
 
 /**

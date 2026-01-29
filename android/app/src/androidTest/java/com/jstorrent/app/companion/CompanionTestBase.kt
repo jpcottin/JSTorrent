@@ -45,11 +45,20 @@ abstract class CompanionTestBase {
         // Start service
         IoDaemonService.start(context)
 
-        // Wait for server to be ready
+        // Wait for server to be ready (both Ktor and java-websocket)
+        // java-websocket may need extra time if ports are in use (fallback logic)
         runBlocking {
-            repeat(30) {
-                if (IoDaemonService.instance?.isServerRunning == true) return@runBlocking
+            repeat(100) {  // Up to 10 seconds
+                val service = IoDaemonService.instance
+                if (service?.isServerRunning == true && service.ioPort > 0) {
+                    return@runBlocking
+                }
                 delay(100)
+            }
+            // Log warning if ioPort still not ready
+            val service = IoDaemonService.instance
+            if (service?.ioPort == 0) {
+                android.util.Log.w("CompanionTestBase", "ioPort not available after 10s, port=${service?.port}")
             }
         }
     }
@@ -57,7 +66,8 @@ abstract class CompanionTestBase {
     @After
     open fun tearDown() {
         IoDaemonService.stop(context)
-        runBlocking { delay(500) }
+        // Wait longer for sockets to fully release before next test
+        runBlocking { delay(2000) }
     }
 
     // =========================================================================
