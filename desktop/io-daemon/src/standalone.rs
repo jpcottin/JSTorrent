@@ -157,9 +157,6 @@ async fn pair_handler(
     Json(request): Json<PairRequest>,
 ) -> Result<Json<PairResponse>, StatusCode> {
     // Extract extension headers from the request
-    // In standalone mode, we auto-approve all pairing requests
-    // since the user deliberately started the daemon
-
     let extension_id = headers
         .get("X-JST-ExtensionId")
         .and_then(|v| v.to_str().ok())
@@ -169,7 +166,29 @@ async fn pair_handler(
         .and_then(|v| v.to_str().ok())
         .map(String::from);
 
+    // Require valid extension ID header to prevent drive-by pairing from web pages
+    // Chrome extension IDs are 32 lowercase letters a-p (base16 using a-p instead of 0-9a-f)
+    let ext_id = match &extension_id {
+        Some(id) if is_valid_extension_id(id) => id,
+        _ => {
+            tracing::warn!(
+                "Standalone mode: rejected pairing - missing or invalid X-JST-ExtensionId header"
+            );
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    };
+
     let mut config = state.config.write().unwrap();
+
+    // Only allow pairing if not already paired (first-pairing-only security)
+    // Use --reset-pairing flag to clear existing pairing and allow new one
+    if config.token.is_some() {
+        tracing::warn!(
+            "Standalone mode: rejected pairing from {} - already paired. Use --reset-pairing to allow new pairing.",
+            ext_id
+        );
+        return Err(StatusCode::CONFLICT);
+    }
 
     // Store the token, extension_id, and install_id in config
     config.token = Some(request.token.clone());
@@ -188,8 +207,8 @@ async fn pair_handler(
     }
 
     tracing::info!(
-        "Standalone mode: auto-approved pairing for extension={:?}, install={:?}, token updated in AppState",
-        extension_id,
+        "Standalone mode: auto-approved pairing for extension={}, install={:?}, token updated in AppState",
+        ext_id,
         install_id
     );
 
@@ -197,6 +216,11 @@ async fn pair_handler(
         status: "approved".to_string(),
     })
     .pipe(Ok)
+}
+
+/// Validate Chrome extension ID format (32 lowercase letters a-p)
+fn is_valid_extension_id(id: &str) -> bool {
+    id.len() == 32 && id.chars().all(|c| c.is_ascii_lowercase() && c >= 'a' && c <= 'p')
 }
 
 async fn roots_handler(

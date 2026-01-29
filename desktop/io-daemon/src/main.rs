@@ -62,6 +62,10 @@ struct Args {
     /// Bind address (default: 127.0.0.1 for managed, 0.0.0.0 for standalone)
     #[arg(long)]
     bind: Option<String>,
+
+    /// Clear existing pairing and allow a new extension to pair (standalone mode only)
+    #[arg(long)]
+    reset_pairing: bool,
 }
 
 /// Live daemon statistics for debugging
@@ -244,20 +248,30 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
     // Load or create standalone config
     let mut standalone_config = StandaloneConfig::load();
 
-    // Generate token if not already set
-    let token = standalone_config.token.clone().unwrap_or_else(|| {
-        let new_token = standalone::generate_token();
-        standalone_config.token = Some(new_token.clone());
+    // Handle --reset-pairing flag
+    if args.reset_pairing {
+        tracing::info!("Standalone mode: clearing existing pairing (--reset-pairing)");
+        standalone_config.token = None;
+        standalone_config.extension_id = None;
+        standalone_config.install_id = None;
         if let Err(e) = standalone_config.save() {
             tracing::warn!("Failed to save standalone config: {}", e);
         }
-        new_token
-    });
+        eprintln!("Pairing reset. A new extension can now pair.");
+    }
 
-    tracing::info!("Standalone mode: token = {}", token);
+    // Get existing token or leave as None (will be set on first pairing)
+    let token = standalone_config.token.clone().unwrap_or_default();
+    let is_paired = !token.is_empty();
+
+    tracing::info!("Standalone mode: paired = {}", is_paired);
     eprintln!("\n=== JSTorrent IO Daemon (Standalone Mode) ===");
     eprintln!("Download root: {}", download_root_path.display());
-    eprintln!("Auth token: {}", token);
+    if is_paired {
+        eprintln!("Status: Paired with extension {}", standalone_config.extension_id.as_deref().unwrap_or("unknown"));
+    } else {
+        eprintln!("Status: Waiting for extension to pair...");
+    }
     eprintln!("Listening on: {}:{}", bind_addr, port);
     eprintln!("\nThe Chrome extension will auto-discover this daemon.");
     eprintln!("================================================\n");
