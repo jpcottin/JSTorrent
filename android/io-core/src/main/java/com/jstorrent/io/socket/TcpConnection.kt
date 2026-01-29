@@ -48,13 +48,13 @@ data class BatchingConfig(
  * @param onClose Callback when socket closes (hadError, errorCode)
  */
 internal class TcpConnection(
-    val socketId: Int,
+    override val socketId: Int,
     private var socket: Socket,
     private val scope: CoroutineScope,
     private val batchingConfig: BatchingConfig = BatchingConfig.STANDALONE,
     private val onData: (ByteArray) -> Unit,
     private val onClose: (Boolean, Int) -> Unit
-) {
+) : TcpConnectionBase {
     // Dedicated send queue for ordered, batched writes
     private val sendQueue = Channel<ByteArray>(100)
     private var senderJob: Job? = null
@@ -87,7 +87,7 @@ internal class TcpConnection(
      *
      * Must be called after connection is established (and optionally after TLS upgrade).
      */
-    fun activate() {
+    override fun activate() {
         if (isActive) return
         isActive = true
         startReading()
@@ -109,7 +109,7 @@ internal class TcpConnection(
      *
      * Non-blocking enqueue - will drop if queue full (connection overwhelmed).
      */
-    fun send(data: ByteArray) {
+    override fun send(data: ByteArray) {
         val result = sendQueue.trySend(data)
         if (result.isFailure) {
             // Queue full - connection can't keep up
@@ -124,7 +124,7 @@ internal class TcpConnection(
      * Uses shutdownInput/Output to immediately unblock any pending I/O
      * before closing, preventing socket.close() from blocking.
      */
-    fun close() {
+    override fun close() {
         isActive = false
         sendQueue.close()
         senderJob?.cancel()
@@ -147,14 +147,14 @@ internal class TcpConnection(
      * The read loop will stop delivering data until resumeReads() is called.
      * Data arriving on the socket will be buffered in the OS kernel.
      */
-    fun pauseReads() {
+    override fun pauseReads() {
         readsPaused = true
     }
 
     /**
      * Resume reads after backpressure is released.
      */
-    fun resumeReads() {
+    override fun resumeReads() {
         readsPaused = false
     }
 

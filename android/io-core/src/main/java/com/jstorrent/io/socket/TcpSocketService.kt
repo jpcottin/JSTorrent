@@ -2,6 +2,7 @@
 
 package com.jstorrent.io.socket
 
+import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import java.io.IOException
@@ -10,10 +11,23 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.nio.channels.SocketChannel
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
+
+/**
+ * Represents a pending connection before it's activated.
+ * NIO channels are used for plain TCP, TLS sockets for encrypted connections.
+ */
+private sealed class PendingConnection {
+    /** NIO SocketChannel for plain TCP - enables direct ByteBuffer reads. */
+    data class NioChannel(val channel: SocketChannel) : PendingConnection()
+
+    /** TLS socket after secure() upgrade - uses classic InputStream. */
+    data class TlsSocket(val socket: SSLSocket) : PendingConnection()
+}
 
 /**
  * Unified TCP socket service implementing both client and server operations.
@@ -40,8 +54,8 @@ class TcpSocketService(
 
     // Socket state
     private val pendingConnects = ConcurrentHashMap<Int, Job>()
-    private val pendingSockets = ConcurrentHashMap<Int, Socket>()
-    private val activeConnections = ConcurrentHashMap<Int, TcpConnection>()
+    private val pendingConnections = ConcurrentHashMap<Int, PendingConnection>()
+    private val activeConnections = ConcurrentHashMap<Int, TcpConnectionBase>()
 
     // Server state
     private val servers = ConcurrentHashMap<Int, ServerHandler>()
@@ -51,6 +65,8 @@ class TcpSocketService(
     private val nextSocketId = AtomicInteger(0x10000) // For accepted sockets
 
     companion object {
+        private const val TAG = "TcpSocketService"
+
         // Socket configuration
         private const val TCP_NO_DELAY = true
         private const val RECEIVE_BUFFER_SIZE = 2 * 1024 * 1024 // 2MB (kernel may double)
@@ -95,34 +111,36 @@ class TcpSocketService(
                 val addresses = InetAddress.getAllByName(host)
                     .sortedByDescending { it is Inet6Address }
 
-                var socket: Socket? = null
+                var channel: SocketChannel? = null
                 var lastException: Exception? = null
 
                 for (addr in addresses) {
-                    val s = Socket()
+                    val ch = SocketChannel.open()
+                    ch.configureBlocking(true)  // Blocking mode for coroutine-based I/O
                     try {
-                        configureSocket(s)
-                        s.connect(InetSocketAddress(addr, port), CONNECT_TIMEOUT)
-                        socket = s
+                        configureChannel(ch)
+                        ch.socket().connect(InetSocketAddress(addr, port), CONNECT_TIMEOUT)
+                        channel = ch
                         break
                     } catch (e: Exception) {
                         lastException = e
-                        s.close()
+                        ch.close()
                     }
                 }
 
-                if (socket == null) {
+                if (channel == null) {
                     throw lastException ?: Exception("No addresses found for $host")
                 }
 
                 // Check if we were cancelled during connect
                 if (!isActive) {
-                    socket.close()
+                    channel.close()
                     return@launch
                 }
 
                 // Store in pending - don't start read/write tasks yet
-                pendingSockets[socketId] = socket
+                pendingConnections[socketId] = PendingConnection.NioChannel(channel)
+                Log.d(TAG, "Socket $socketId connected via NIO to $host:$port")
 
                 // Notify success
                 socketCallback?.onTcpConnected(socketId, true, 0)
@@ -147,9 +165,9 @@ class TcpSocketService(
 
     override fun send(socketId: Int, data: ByteArray) {
         // Check if socket is pending (not yet activated) - auto-activate
-        val pendingSocket = pendingSockets.remove(socketId)
-        if (pendingSocket != null) {
-            val connection = createConnection(socketId, pendingSocket)
+        val pending = pendingConnections.remove(socketId)
+        if (pending != null) {
+            val connection = createConnectionFromPending(socketId, pending)
             activeConnections[socketId] = connection
             connection.activate()
             connection.send(data)
@@ -164,37 +182,31 @@ class TcpSocketService(
         // Cancel any pending connect
         pendingConnects.remove(socketId)?.cancel()
 
-        // Close pending socket (connected but not activated)
-        pendingSockets.remove(socketId)?.let { socket ->
-            closeSocketFast(socket)
+        // Close pending connection (connected but not activated)
+        pendingConnections.remove(socketId)?.let { pending ->
+            closePendingConnection(pending)
         }
 
         // Close active connection
         activeConnections.remove(socketId)?.close()
     }
 
-    /**
-     * Close a raw socket quickly without blocking.
-     * Calls shutdownInput/Output first to unblock any pending I/O.
-     */
-    private fun closeSocketFast(socket: java.net.Socket) {
-        try {
-            if (!socket.isInputShutdown) {
-                socket.shutdownInput()
-            }
-            if (!socket.isOutputShutdown) {
-                socket.shutdownOutput()
-            }
-            socket.close()
-        } catch (_: Exception) {}
-    }
-
     override fun secure(socketId: Int, hostname: String, skipValidation: Boolean) {
-        // Must be a pending socket (not yet active)
-        val socket = pendingSockets.remove(socketId)
-        if (socket == null) {
+        // Must be a pending connection (not yet active)
+        val pending = pendingConnections.remove(socketId)
+        if (pending == null) {
             socketCallback?.onTcpSecured(socketId, false)
             return
+        }
+
+        // Get the underlying socket from the pending connection
+        val socket = when (pending) {
+            is PendingConnection.NioChannel -> pending.channel.socket()
+            is PendingConnection.TlsSocket -> {
+                // Already TLS - shouldn't happen but handle gracefully
+                socketCallback?.onTcpSecured(socketId, false)
+                return
+            }
         }
 
         scope.launch {
@@ -207,6 +219,7 @@ class TcpSocketService(
                 }
 
                 // Create SSLSocket wrapping the existing socket
+                // Note: This transitions from NIO to classic Socket I/O for TLS
                 val sslSocket = sslSocketFactory.createSocket(
                     socket,
                     hostname,
@@ -218,14 +231,15 @@ class TcpSocketService(
                 sslSocket.useClientMode = true
                 sslSocket.startHandshake()
 
-                // Create connection with TLS socket and activate
-                val connection = createConnection(socketId, sslSocket)
-                activeConnections[socketId] = connection
-                connection.activate()
+                Log.d(TAG, "Socket $socketId upgraded to TLS (using classic InputStream)")
+
+                // Store as TLS pending - will use TcpConnection (not NIO) when activated
+                pendingConnections[socketId] = PendingConnection.TlsSocket(sslSocket)
 
                 socketCallback?.onTcpSecured(socketId, true)
 
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.e(TAG, "Socket $socketId TLS handshake failed: ${e.message}")
                 try {
                     socket.close()
                 } catch (_: Exception) {}
@@ -235,9 +249,9 @@ class TcpSocketService(
     }
 
     override fun activate(socketId: Int) {
-        val socket = pendingSockets.remove(socketId) ?: return
+        val pending = pendingConnections.remove(socketId) ?: return
 
-        val connection = createConnection(socketId, socket)
+        val connection = createConnectionFromPending(socketId, pending)
         activeConnections[socketId] = connection
         connection.activate()
     }
@@ -303,9 +317,9 @@ class TcpSocketService(
         pendingConnects.values.forEach { it.cancel() }
         pendingConnects.clear()
 
-        // Close pending sockets (use fast close to avoid blocking)
-        pendingSockets.values.forEach { closeSocketFast(it) }
-        pendingSockets.clear()
+        // Close pending connections
+        pendingConnections.values.forEach { closePendingConnection(it) }
+        pendingConnections.clear()
 
         // Close active connections
         activeConnections.values.forEach { it.close() }
@@ -320,6 +334,20 @@ class TcpSocketService(
     // Internal helpers
     // ============================================================
 
+    /**
+     * Configure a SocketChannel with optimal settings.
+     */
+    private fun configureChannel(channel: SocketChannel) {
+        val socket = channel.socket()
+        socket.tcpNoDelay = TCP_NO_DELAY
+        socket.receiveBufferSize = RECEIVE_BUFFER_SIZE
+        socket.soTimeout = SO_TIMEOUT
+        socket.setKeepAlive(true)
+    }
+
+    /**
+     * Configure a Socket with optimal settings (for accepted sockets and TLS).
+     */
     private fun configureSocket(socket: Socket) {
         socket.tcpNoDelay = TCP_NO_DELAY
         socket.receiveBufferSize = RECEIVE_BUFFER_SIZE
@@ -327,6 +355,66 @@ class TcpSocketService(
         socket.setKeepAlive(true)
     }
 
+    /**
+     * Close a pending connection quickly.
+     */
+    private fun closePendingConnection(pending: PendingConnection) {
+        try {
+            when (pending) {
+                is PendingConnection.NioChannel -> pending.channel.close()
+                is PendingConnection.TlsSocket -> {
+                    val socket = pending.socket
+                    if (!socket.isInputShutdown) socket.shutdownInput()
+                    if (!socket.isOutputShutdown) socket.shutdownOutput()
+                    socket.close()
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Create appropriate connection type based on pending connection.
+     * - NioChannel -> TcpConnectionNio (direct ByteBuffer, no 128KB cap)
+     * - TlsSocket -> TcpConnection (classic InputStream for SSLSocket)
+     */
+    private fun createConnectionFromPending(socketId: Int, pending: PendingConnection): TcpConnectionBase {
+        val onData: (ByteArray) -> Unit = { data ->
+            socketCallback?.onTcpData(socketId, data)
+        }
+        val onClose: (Boolean, Int) -> Unit = { hadError, errorCode ->
+            activeConnections.remove(socketId)
+            socketCallback?.onTcpClose(socketId, hadError, errorCode)
+        }
+
+        return when (pending) {
+            is PendingConnection.NioChannel -> {
+                Log.d(TAG, "Socket $socketId: activating with NIO (direct ByteBuffer)")
+                TcpConnectionNio(
+                    socketId = socketId,
+                    channel = pending.channel,
+                    scope = scope,
+                    onData = onData,
+                    onClose = onClose
+                )
+            }
+            is PendingConnection.TlsSocket -> {
+                Log.d(TAG, "Socket $socketId: activating with TLS (classic InputStream)")
+                TcpConnection(
+                    socketId = socketId,
+                    socket = pending.socket,
+                    scope = scope,
+                    batchingConfig = batchingConfig,
+                    onData = onData,
+                    onClose = onClose
+                )
+            }
+        }
+    }
+
+    /**
+     * Create TcpConnection for accepted sockets (server mode).
+     * Server sockets use classic I/O for now.
+     */
     private fun createConnection(socketId: Int, socket: Socket): TcpConnection {
         return TcpConnection(
             socketId = socketId,

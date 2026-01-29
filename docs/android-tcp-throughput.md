@@ -117,9 +117,41 @@ Seeder → TCP → Kernel buffer (SO_RCVBUF) → read() → ByteArray copy → Q
 - `android/io-core/src/main/java/com/jstorrent/io/socket/TcpSocketService.kt` - RECEIVE_BUFFER_SIZE
 - `android/io-core/src/main/java/com/jstorrent/io/socket/TcpConnection.kt` - READ_BUFFER_SIZE, logging
 
+## NIO Migration (2025-01-29)
+
+Migrated from InputStream to NIO SocketChannel for plain TCP connections.
+
+### Changes
+
+| Component | Before | After |
+|-----------|--------|-------|
+| Read API | `InputStream.read(byte[])` | `SocketChannel.read(ByteBuffer)` |
+| Buffer type | Heap ByteArray | Direct ByteBuffer (off-heap) |
+| Max read size | 128KB (Java InputStream limit) | 1MB (no cap) |
+| TLS connections | SSLSocket + InputStream | SSLSocket + InputStream (unchanged) |
+
+### Files Changed
+
+- `TcpConnectionNio.kt` - New NIO-based connection handler with direct ByteBuffers
+- `TcpConnectionBase.kt` - Common interface for both connection types
+- `TcpSocketService.kt` - Uses SocketChannel for connects, dispatches to appropriate connection type
+- `TcpConnection.kt` - Implements TcpConnectionBase (kept for TLS and server sockets)
+
+### Expected Benefits
+
+1. **No 128KB read cap** - SocketChannel can read up to buffer size (1MB)
+2. **Reduced GC pressure** - Direct ByteBuffer is off-heap, doesn't pressure GC
+3. **Larger reads per syscall** - Fewer context switches
+4. **Foundation for future optimization** - Buffer pooling now easier to implement
+
+### Still Allocating
+
+The `ByteArray(bytesRead)` allocation still happens in TcpConnectionNio for queuing to JS.
+This is the next target for optimization via buffer pooling.
+
 ## Next Steps
 
-1. **Buffer pooling** - Eliminate copyOf() allocations
-2. **NIO migration** - Use SocketChannel for larger reads and true non-blocking I/O
-3. **Profile GC** - Check if allocation pressure is causing pauses
+1. **Buffer pooling** - Pool ByteArrays to eliminate per-read allocations
+2. **Measure improvement** - Compare throughput before/after NIO migration
+3. **Profile GC** - Check if allocation pressure is reduced
 4. **Compare with iperf3** - Establish raw TCP baseline on device
