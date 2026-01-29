@@ -50,6 +50,7 @@ export class AndroidStandaloneEngineManager implements IEngineManager {
   logStore: LogStore = globalLogStore
   readonly isStandalone = true
   readonly supportsFileOperations = true
+  readonly rootsManageable = true // Android uses SAF, roots are always manageable
 
   private daemonConnection: DaemonConnection | null = null
   private controlConnection: ControlConnection | null = null

@@ -74,6 +74,7 @@ function ensureFrameHandler(connection: DaemonConnection): void {
 
     if (opcode === OP_FILE_WRITE_ACK) {
       // Success - payload has status at the end, but we just resolve
+      console.log(`[WS-WRITE] ACK received t=${Date.now() % 100000} reqId=${requestId}`)
       pending.resolve({ bytesWritten: -1 }) // We don't track actual bytes in response
     } else {
       // Error - parse message from payload
@@ -254,6 +255,9 @@ export class DaemonFileHandle implements IFileHandle {
       })
 
       // Send the frame
+      console.log(
+        `[WS-WRITE] sendFrame t=${Date.now() % 100000} reqId=${requestId} size=${data.length}`,
+      )
       this.connection.sendFrame(frame)
 
       // Timeout after 30 seconds (disk operations can be slow)

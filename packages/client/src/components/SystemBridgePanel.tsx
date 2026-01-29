@@ -50,6 +50,8 @@ export interface SystemBridgePanelProps {
   roots: DownloadRoot[]
   defaultRootKey: string | null
   hasEverConnected: boolean
+  /** Whether download roots can be added/removed (false for standalone Crostini mode) */
+  rootsManageable: boolean
   onClose: () => void
   onRetry: () => void
   onLaunch: () => void
@@ -70,6 +72,7 @@ export function SystemBridgePanel({
   roots,
   defaultRootKey,
   hasEverConnected,
+  rootsManageable,
   onClose,
   onRetry,
   onLaunch,
@@ -410,50 +413,56 @@ export function SystemBridgePanel({
           </div>
           {roots.length === 0 ? (
             <div style={{ fontSize: 'var(--font-base, 13px)', color: 'var(--text-secondary)' }}>
-              No download folder configured.
+              {rootsManageable
+                ? 'No download folder configured.'
+                : 'No download location set by daemon.'}
             </div>
           ) : (
             <div style={{ fontSize: 'var(--font-base, 13px)', color: 'var(--text-secondary)' }}>
               {roots.find((r) => r.key === defaultRootKey)?.display_name ?? 'None selected'}
             </div>
           )}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--spacing-sm, 8px)',
-              marginTop: 'var(--spacing-sm, 8px)',
-            }}
-          >
-            <button
-              onClick={onAddFolder}
+          {(rootsManageable || onOpenSettings) && (
+            <div
               style={{
-                padding: 'var(--spacing-xs, 6px) var(--spacing-md, 12px)',
-                fontSize: 'var(--font-base, 13px)',
-                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--spacing-sm, 8px)',
+                marginTop: 'var(--spacing-sm, 8px)',
               }}
             >
-              Add Folder...
-            </button>
-            {onOpenSettings && (
-              <button
-                onClick={() => {
-                  onOpenSettings()
-                  onClose()
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--accent-primary)',
-                  fontSize: 'var(--font-base, 13px)',
-                  cursor: 'pointer',
-                  padding: 'var(--spacing-xs, 6px) 0',
-                }}
-              >
-                Manage in Settings
-              </button>
-            )}
-          </div>
+              {rootsManageable && (
+                <button
+                  onClick={onAddFolder}
+                  style={{
+                    padding: 'var(--spacing-xs, 6px) var(--spacing-md, 12px)',
+                    fontSize: 'var(--font-base, 13px)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Add Folder...
+                </button>
+              )}
+              {onOpenSettings && (
+                <button
+                  onClick={() => {
+                    onOpenSettings()
+                    onClose()
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--accent-primary)',
+                    fontSize: 'var(--font-base, 13px)',
+                    cursor: 'pointer',
+                    padding: 'var(--spacing-xs, 6px) 0',
+                  }}
+                >
+                  {rootsManageable ? 'Manage in Settings' : 'View Settings'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Stats section - only show if onFetchStats is provided */}

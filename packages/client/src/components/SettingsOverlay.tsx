@@ -330,6 +330,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                 settings={settings}
                 config={config}
                 supportsFileOperations={engineManager.supportsFileOperations}
+                rootsManageable={engineManager.rootsManageable}
                 isStandalone={engineManager.isStandalone}
               />
             )}
@@ -374,6 +375,7 @@ interface GeneralTabProps extends TabProps {
   onSetDefault: (key: string) => void
   onRemoveRoot: (key: string) => void
   supportsFileOperations: boolean
+  rootsManageable: boolean
   isStandalone: boolean
 }
 
@@ -388,6 +390,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
   settings,
   config,
   supportsFileOperations,
+  rootsManageable,
   isStandalone,
 }) => {
   // Handle keepAwake toggle with permission request (Chrome only)
@@ -423,25 +426,29 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
             <div style={styles.warning}>
               <strong>No download location configured</strong>
               <p style={{ margin: 'var(--spacing-sm, 8px) 0 0 0' }}>
-                You need to select a download folder before you can download torrents.
+                {rootsManageable
+                  ? 'You need to select a download folder before you can download torrents.'
+                  : 'The daemon was started without a download location configured.'}
               </p>
             </div>
           ) : (
             <>
-              <div style={styles.fieldRow}>
-                <span>Default</span>
-                <select
-                  value={defaultKey ?? ''}
-                  onChange={(e) => onSetDefault(e.target.value)}
-                  style={styles.select}
-                >
-                  {roots.map((root) => (
-                    <option key={root.key} value={root.key}>
-                      {root.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {roots.length > 1 && (
+                <div style={styles.fieldRow}>
+                  <span>Default</span>
+                  <select
+                    value={defaultKey ?? ''}
+                    onChange={(e) => onSetDefault(e.target.value)}
+                    style={styles.select}
+                  >
+                    {roots.map((root) => (
+                      <option key={root.key} value={root.key}>
+                        {root.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div
                 style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs, 4px)' }}
               >
@@ -461,21 +468,36 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
                         {formatPathForDisplay(root.path)}
                       </div>
                     </div>
-                    <button
-                      style={{ ...styles.iconButton, color: 'var(--accent-error, #ef4444)' }}
-                      onClick={() => onRemoveRoot(root.key)}
-                      title="Remove"
-                    >
-                      ✕
-                    </button>
+                    {rootsManageable && (
+                      <button
+                        style={{ ...styles.iconButton, color: 'var(--accent-error, #ef4444)' }}
+                        onClick={() => onRemoveRoot(root.key)}
+                        title="Remove"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
+              {!rootsManageable && (
+                <div
+                  style={{
+                    marginTop: 'var(--spacing-sm, 8px)',
+                    fontSize: 'var(--font-sm, 12px)',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  Download location is set by the daemon and cannot be changed here.
+                </div>
+              )}
             </>
           )}
-          <button onClick={onAddRoot} disabled={addingRoot} style={styles.addButton}>
-            {addingRoot ? 'Selecting...' : '+ Add Download Location'}
-          </button>
+          {rootsManageable && (
+            <button onClick={onAddRoot} disabled={addingRoot} style={styles.addButton}>
+              {addingRoot ? 'Selecting...' : '+ Add Download Location'}
+            </button>
+          )}
         </Section>
       )}
 

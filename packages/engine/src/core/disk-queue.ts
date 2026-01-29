@@ -41,7 +41,7 @@ export interface IDiskQueue {
 }
 
 // Default concurrent disk workers for TorrentDiskQueue (extension/daemon mode)
-const DEFAULT_DISK_WORKERS = 6
+const DEFAULT_DISK_WORKERS = 8
 
 export interface DiskQueueConfig {
   maxWorkers: number
@@ -98,9 +98,20 @@ export class TorrentDiskQueue implements IDiskQueue {
   private schedule(): void {
     if (this.draining) return
 
+    const beforeRunning = this.running.size
+    const beforePending = this.pending.length
+    let started = 0
+
     while (this.running.size < this.config.maxWorkers && this.pending.length > 0) {
       const item = this.pending.shift()!
       this.startJob(item.job, item.execute)
+      started++
+    }
+
+    if (started > 0 || beforePending > 0) {
+      console.log(
+        `[DiskQueue] schedule: started=${started}, running=${beforeRunning}->${this.running.size}, pending=${beforePending}->${this.pending.length}`,
+      )
     }
   }
 

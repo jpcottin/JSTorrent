@@ -24,6 +24,10 @@ export class DaemonConnection {
   private reconnectHandlers: Array<() => void> = []
   public ready = false
 
+  // Frame queuing for batched processing during engine tick
+  private pendingFrames: ArrayBuffer[] = []
+  private frameQueuingEnabled = false
+
   // Cached credentials for HTTP requests
   private cachedCredentials: DaemonCredentials | null = null
 
@@ -144,10 +148,16 @@ export class DaemonConnection {
       throw new Error('Daemon auth failed')
     }
 
-    // Switch to normal message handling
+    // Switch to normal message handling with optional queuing
     this.ws!.onmessage = (ev) => {
       const frame = ev.data as ArrayBuffer
-      for (const h of this.frameHandlers) h(frame)
+      if (this.frameQueuingEnabled) {
+        // Queue frame for batch processing during tick
+        this.pendingFrames.push(frame)
+      } else {
+        // Process immediately (legacy mode)
+        for (const h of this.frameHandlers) h(frame)
+      }
     }
 
     // Handle unexpected disconnect with auto-reconnect
@@ -188,6 +198,68 @@ export class DaemonConnection {
 
   onReconnect(cb: () => void) {
     this.reconnectHandlers.push(cb)
+  }
+
+  /**
+   * Enable frame queuing for batched processing.
+   * When enabled, incoming frames are queued and processed via drainPendingFrames().
+   * This allows the engine tick to process all accumulated frames at once,
+   * similar to how native mode batches TCP data.
+   */
+  enableFrameQueuing() {
+    this.frameQueuingEnabled = true
+  }
+
+  // Stats for frame batching
+  private drainStats = {
+    totalDrains: 0,
+    totalFrames: 0,
+    maxFramesInDrain: 0,
+    lastLogTime: Date.now(),
+  }
+
+  /**
+   * Drain all pending frames, calling handlers for each.
+   * Called by engine at start of tick to process accumulated frames.
+   * Returns the number of frames processed.
+   */
+  drainPendingFrames(): number {
+    const frames = this.pendingFrames
+    if (frames.length === 0) return 0
+
+    this.pendingFrames = []
+
+    // Update stats
+    this.drainStats.totalDrains++
+    this.drainStats.totalFrames += frames.length
+    if (frames.length > this.drainStats.maxFramesInDrain) {
+      this.drainStats.maxFramesInDrain = frames.length
+    }
+
+    // Log stats every 5 seconds
+    const now = Date.now()
+    if (now - this.drainStats.lastLogTime >= 5000) {
+      const avgFrames =
+        this.drainStats.totalDrains > 0
+          ? (this.drainStats.totalFrames / this.drainStats.totalDrains).toFixed(1)
+          : '0'
+      console.log(
+        `[WS-BATCH] ${this.drainStats.totalDrains} drains, ${this.drainStats.totalFrames} frames, ` +
+          `avg=${avgFrames}/drain, max=${this.drainStats.maxFramesInDrain}/drain`,
+      )
+      // Reset
+      this.drainStats = {
+        totalDrains: 0,
+        totalFrames: 0,
+        maxFramesInDrain: 0,
+        lastLogTime: now,
+      }
+    }
+
+    for (const frame of frames) {
+      for (const h of this.frameHandlers) h(frame)
+    }
+    return frames.length
   }
 
   private notifyDisconnect(reason: string) {

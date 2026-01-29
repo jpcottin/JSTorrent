@@ -43,6 +43,13 @@ export interface IEngineManager {
    */
   readonly supportsFileOperations: boolean
 
+  /**
+   * Whether download roots can be added/removed.
+   * True for desktop and Android (native host / SAF).
+   * False for standalone Crostini mode (fixed root).
+   */
+  readonly rootsManageable: boolean
+
   // Lifecycle
   init(): Promise<BtEngine>
   shutdown(): void

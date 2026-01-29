@@ -25,6 +25,7 @@ mod hashing;
 mod http;
 mod ws;
 mod config;
+mod standalone;
 
 
 
@@ -32,21 +33,35 @@ mod config;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Port to listen on
-    #[arg(short, long, default_value_t = 0)]
-    port: u16,
-
-    /// Authentication token
+    /// Port to listen on (default: 0 for managed mode, 7800 for standalone)
     #[arg(short, long)]
-    token: String,
+    port: Option<u16>,
 
-    /// Parent PID to monitor
+    /// Authentication token (required for managed mode, generated for standalone)
+    #[arg(short, long)]
+    token: Option<String>,
+
+    /// Parent PID to monitor (managed mode only)
     #[arg(long)]
     parent_pid: Option<u32>,
 
-    /// Installation ID
+    /// Installation ID (required for managed mode, defaults to "standalone")
     #[arg(long)]
-    install_id: String,
+    install_id: Option<String>,
+
+    /// Run in standalone mode for Crostini/Linux without native host.
+    /// Enables Android-compatible pairing endpoints at /status, /pair, /roots.
+    /// Auto-approves pairing requests and uses CWD as download root.
+    #[arg(long)]
+    standalone: bool,
+
+    /// Download root directory for standalone mode (defaults to current directory)
+    #[arg(long)]
+    download_root: Option<std::path::PathBuf>,
+
+    /// Bind address (default: 127.0.0.1 for managed, 0.0.0.0 for standalone)
+    #[arg(long)]
+    bind: Option<String>,
 }
 
 /// Live daemon statistics for debugging
@@ -134,8 +149,26 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
+    // Determine mode and set defaults
+    let is_standalone = args.standalone;
+
+    if is_standalone {
+        run_standalone(args).await
+    } else {
+        run_managed(args).await
+    }
+}
+
+/// Run in managed mode (launched by native host)
+async fn run_managed(args: Args) -> anyhow::Result<()> {
+    // In managed mode, token and install_id are required
+    let token = args.token.ok_or_else(|| anyhow::anyhow!("--token is required in managed mode"))?;
+    let install_id = args.install_id.ok_or_else(|| anyhow::anyhow!("--install-id is required in managed mode"))?;
+    let port = args.port.unwrap_or(0);
+    let bind_addr = args.bind.as_deref().unwrap_or("127.0.0.1");
+
     // Load initial config from rpc-info.json
-    let (roots, extension_id) = config::load_config(&args.install_id)
+    let (roots, extension_id) = config::load_config(&install_id)
         .map(|c| (c.download_roots, c.extension_id))
         .unwrap_or_else(|e| {
             tracing::warn!("Failed to load initial config: {}", e);
@@ -143,8 +176,8 @@ async fn main() -> anyhow::Result<()> {
         });
 
     let state = Arc::new(AppState {
-        token: args.token.clone(),
-        install_id: args.install_id.clone(),
+        token: token.clone(),
+        install_id: install_id.clone(),
         extension_id: Arc::new(std::sync::RwLock::new(extension_id.clone())),
         download_roots: Arc::new(std::sync::RwLock::new(roots)),
         stats: Arc::new(DaemonStats::new()),
@@ -157,66 +190,7 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // CORS layer - allow extension origin + dev origins from environment
-    // max_age caches preflight responses for 24 hours to reduce OPTIONS requests
-    let cors = {
-        let mut allowed_origins: Vec<axum::http::HeaderValue> = vec![];
-
-        // Add Chrome extension origin if available
-        if let Some(ref ext_id) = extension_id {
-            let origin = format!("chrome-extension://{}", ext_id);
-            tracing::info!("CORS: Adding extension origin: {}", origin);
-            if let Ok(val) = origin.parse() {
-                allowed_origins.push(val);
-            }
-        }
-
-        // Add production website origins
-        for origin in &["https://new.jstorrent.com", "https://jstorrent.com"] {
-            tracing::info!("CORS: Adding production origin: {}", origin);
-            if let Ok(val) = origin.parse() {
-                allowed_origins.push(val);
-            }
-        }
-
-        // Add dev origins from environment (set by native-host from jstorrent-native.env)
-        if let Ok(dev_origins) = std::env::var("JSTORRENT_DEV_ORIGINS") {
-            for origin in dev_origins.split(',') {
-                let origin = origin.trim();
-                if !origin.is_empty() {
-                    tracing::info!("CORS: Adding dev origin: {}", origin);
-                    if let Ok(val) = origin.parse() {
-                        allowed_origins.push(val);
-                    }
-                }
-            }
-        }
-
-        let allowed_headers = [
-            CONTENT_TYPE,
-            AUTHORIZATION,
-            HeaderName::from_static("x-jst-auth"),
-            X_PATH_BASE64,
-            X_OFFSET,
-            X_LENGTH,
-            X_EXPECTED_SHA1,
-        ];
-
-        if allowed_origins.is_empty() {
-            tracing::warn!("CORS: No origins configured, allowing any origin");
-            CorsLayer::new()
-                .allow_origin(tower_http::cors::Any)
-                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
-                .allow_headers(allowed_headers)
-                .max_age(Duration::from_secs(86400))
-        } else {
-            CorsLayer::new()
-                .allow_origin(allowed_origins)
-                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
-                .allow_headers(allowed_headers)
-                .max_age(Duration::from_secs(86400))
-        }
-    };
+    let cors = build_cors_layer(extension_id.as_deref(), false);
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -231,10 +205,10 @@ async fn main() -> anyhow::Result<()> {
         .layer(cors)
         .with_state(state.clone());
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], args.port));
+    let addr: SocketAddr = format!("{}:{}", bind_addr, port).parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local_addr = listener.local_addr()?;
-    
+
     // Print the bound port to stdout so the parent can read it
     println!("{}", local_addr.port());
 
@@ -245,6 +219,162 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     Ok(())
+}
+
+/// Run in standalone mode (for Crostini/Linux without native host)
+async fn run_standalone(args: Args) -> anyhow::Result<()> {
+    use standalone::{StandaloneConfig, StandaloneState};
+
+    let port = args.port.unwrap_or(7800);
+    let bind_addr = args.bind.as_deref().unwrap_or("0.0.0.0");
+    let install_id = args.install_id.unwrap_or_else(|| "standalone".to_string());
+
+    // Determine download root
+    let download_root_path = args.download_root
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
+    let download_root_path = download_root_path.canonicalize()
+        .unwrap_or(download_root_path);
+
+    tracing::info!("Standalone mode: download root = {:?}", download_root_path);
+
+    // Create download root entry
+    let root = standalone::create_download_root(&download_root_path);
+    let roots = vec![root];
+
+    // Load or create standalone config
+    let mut standalone_config = StandaloneConfig::load();
+
+    // Generate token if not already set
+    let token = standalone_config.token.clone().unwrap_or_else(|| {
+        let new_token = standalone::generate_token();
+        standalone_config.token = Some(new_token.clone());
+        if let Err(e) = standalone_config.save() {
+            tracing::warn!("Failed to save standalone config: {}", e);
+        }
+        new_token
+    });
+
+    tracing::info!("Standalone mode: token = {}", token);
+    eprintln!("\n=== JSTorrent IO Daemon (Standalone Mode) ===");
+    eprintln!("Download root: {}", download_root_path.display());
+    eprintln!("Auth token: {}", token);
+    eprintln!("Listening on: {}:{}", bind_addr, port);
+    eprintln!("\nThe Chrome extension will auto-discover this daemon.");
+    eprintln!("================================================\n");
+
+    let state = Arc::new(AppState {
+        token: token.clone(),
+        install_id: install_id.clone(),
+        extension_id: Arc::new(std::sync::RwLock::new(standalone_config.extension_id.clone())),
+        download_roots: Arc::new(std::sync::RwLock::new(roots)),
+        stats: Arc::new(DaemonStats::new()),
+    });
+
+    // Create standalone state for pairing endpoints
+    let standalone_state = Arc::new(StandaloneState {
+        app: state.clone(),
+        config: std::sync::RwLock::new(standalone_config),
+        port,
+    });
+
+    // In standalone mode, allow any origin (extension origin is dynamic)
+    let cors = build_cors_layer(None, true);
+
+    let app = Router::new()
+        .route("/health", get(|| async { "ok" }))
+        .merge(standalone::routes(standalone_state))
+        .merge(files::routes())
+        .merge(hashing::routes())
+        .merge(ws::routes())
+        .merge(control::routes())
+        .merge(http::routes())
+        .layer(axum::middleware::from_fn_with_state(state.clone(), auth::standalone_middleware))
+        .layer(TraceLayer::new_for_http())
+        .layer(cors)
+        .with_state(state.clone());
+
+    let addr: SocketAddr = format!("{}:{}", bind_addr, port).parse()?;
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let local_addr = listener.local_addr()?;
+
+    tracing::info!("Standalone mode: listening on {}", local_addr);
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    Ok(())
+}
+
+/// Build CORS layer with appropriate origins
+fn build_cors_layer(extension_id: Option<&str>, allow_any: bool) -> CorsLayer {
+    let allowed_headers = [
+        CONTENT_TYPE,
+        AUTHORIZATION,
+        HeaderName::from_static("x-jst-auth"),
+        HeaderName::from_static("x-jst-extensionid"),
+        HeaderName::from_static("x-jst-installid"),
+        X_PATH_BASE64,
+        X_OFFSET,
+        X_LENGTH,
+        X_EXPECTED_SHA1,
+    ];
+
+    if allow_any {
+        tracing::info!("CORS: Allowing any origin (standalone mode)");
+        return CorsLayer::new()
+            .allow_origin(tower_http::cors::Any)
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+            .allow_headers(allowed_headers)
+            .max_age(Duration::from_secs(86400));
+    }
+
+    let mut allowed_origins: Vec<axum::http::HeaderValue> = vec![];
+
+    // Add Chrome extension origin if available
+    if let Some(ext_id) = extension_id {
+        let origin = format!("chrome-extension://{}", ext_id);
+        tracing::info!("CORS: Adding extension origin: {}", origin);
+        if let Ok(val) = origin.parse() {
+            allowed_origins.push(val);
+        }
+    }
+
+    // Add production website origins
+    for origin in &["https://new.jstorrent.com", "https://jstorrent.com"] {
+        tracing::info!("CORS: Adding production origin: {}", origin);
+        if let Ok(val) = origin.parse() {
+            allowed_origins.push(val);
+        }
+    }
+
+    // Add dev origins from environment
+    if let Ok(dev_origins) = std::env::var("JSTORRENT_DEV_ORIGINS") {
+        for origin in dev_origins.split(',') {
+            let origin = origin.trim();
+            if !origin.is_empty() {
+                tracing::info!("CORS: Adding dev origin: {}", origin);
+                if let Ok(val) = origin.parse() {
+                    allowed_origins.push(val);
+                }
+            }
+        }
+    }
+
+    if allowed_origins.is_empty() {
+        tracing::warn!("CORS: No origins configured, allowing any origin");
+        CorsLayer::new()
+            .allow_origin(tower_http::cors::Any)
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+            .allow_headers(allowed_headers)
+            .max_age(Duration::from_secs(86400))
+    } else {
+        CorsLayer::new()
+            .allow_origin(allowed_origins)
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+            .allow_headers(allowed_headers)
+            .max_age(Duration::from_secs(86400))
+    }
 }
 
 

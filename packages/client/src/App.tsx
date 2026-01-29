@@ -322,6 +322,7 @@ function App() {
                   roots={roots}
                   defaultRootKey={defaultRootKey}
                   hasEverConnected={hasEverConnected}
+                  rootsManageable={engineManager.rootsManageable}
                   onRetry={retry}
                   onLaunch={launch}
                   onCancel={cancel}

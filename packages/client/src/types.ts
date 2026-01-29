@@ -3,6 +3,12 @@
  * These are Chrome-free and can be used in standalone contexts.
  */
 
+/** Daemon capabilities - indicates what features are available */
+export interface DaemonCapabilities {
+  /** Whether download roots can be added/removed. False for standalone Crostini mode. */
+  roots_manageable: boolean
+}
+
 export interface DaemonInfo {
   port: number
   token: string
@@ -17,6 +23,8 @@ export interface DaemonInfo {
   }>
   /** Host address for daemon connection. Defaults to 127.0.0.1 on desktop, but differs on ChromeOS. */
   host?: string
+  /** Daemon capabilities - indicates what features are available */
+  capabilities?: DaemonCapabilities
 }
 
 export interface DownloadRoot {

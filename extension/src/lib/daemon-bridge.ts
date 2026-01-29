@@ -7,11 +7,11 @@
 
 import type { Platform } from './platform'
 import { detectPlatform } from './platform'
-import type { DaemonInfo, DownloadRoot } from './native-connection'
+import type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
 import { getOrCreateInstallId } from './install-id'
 
 // Re-export types for convenience
-export type { DaemonInfo, DownloadRoot } from './native-connection'
+export type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
 
 /**
  * Stats from the daemon about socket and connection state
@@ -66,8 +66,17 @@ const STORAGE_KEY_LAST_CONNECTED = 'daemon:lastConnectedTime'
 /** Host for desktop (macOS/Windows/Linux) native messaging daemon */
 const DESKTOP_HOST = '127.0.0.1'
 
-/** Host for ChromeOS Android app daemon (Crostini container IP) */
-const CHROMEOS_HOST = '100.115.92.2'
+/** Host for ChromeOS Android app daemon (ARC container IP) */
+const CHROMEOS_ANDROID_HOST = '100.115.92.2'
+
+/** Host for ChromeOS Crostini standalone daemon (Linux VM hostname) */
+const CHROMEOS_CROSTINI_HOST = 'penguin.linux.test'
+
+/** All ChromeOS hosts to try, in order of preference */
+const CHROMEOS_HOSTS = [CHROMEOS_ANDROID_HOST, CHROMEOS_CROSTINI_HOST]
+
+/** Storage key for last successful host */
+const STORAGE_KEY_HOST = 'android:daemonHost'
 
 // ============================================================================
 // DaemonBridge Class
@@ -207,64 +216,66 @@ export class DaemonBridge {
     const pollInterval = 1000
 
     // Phase 1: Wait for daemon to become reachable
-    let port: number | null = null
+    let found: { host: string; port: number } | null = null
     for (let i = 0; i < maxWaitAttempts; i++) {
-      port = await this.findDaemonPort()
-      if (port) break
+      found = await this.findDaemonPort()
+      if (found) break
       await new Promise((r) => setTimeout(r, pollInterval))
     }
 
-    if (!port) {
+    if (!found) {
       this.updateState({
         status: 'disconnected',
-        lastError: 'Android app did not start',
+        lastError: 'Companion app did not start',
       })
       return
     }
 
     // Phase 2: Check status and pair if needed
-    await this.checkStatusAndPair(port)
+    await this.checkStatusAndPair(found.host, found.port)
   }
 
   /**
    * Check pairing status and initiate pairing flow if needed.
    */
-  private async checkStatusAndPair(port: number): Promise<void> {
+  private async checkStatusAndPair(host: string, port: number): Promise<void> {
     const installId = await getOrCreateInstallId()
     const extensionId = chrome.runtime.id
 
-    const status = await this.fetchStatus(port)
+    const status = await this.fetchStatus(host, port)
 
     // Already paired with us?
     if (status.paired && status.extensionId === extensionId && status.installId === installId) {
       console.log('[DaemonBridge] Already paired, connecting...')
-      await this.completeConnection(port, status.version)
+      await this.completeConnection(host, port, status.version, status.capabilities)
       return
     }
 
     // Need to pair - POST /pair
-    const pairResult = await this.requestPairing(port)
+    const pairResult = await this.requestPairing(host, port)
 
     if (pairResult === 'approved') {
-      await this.completeConnection(port, status.version)
+      // Re-fetch status to get capabilities after pairing
+      const newStatus = await this.fetchStatus(host, port)
+      await this.completeConnection(host, port, newStatus.version, newStatus.capabilities)
       return
     }
 
     if (pairResult === 'conflict') {
       // Dialog already showing, wait and retry
       await new Promise((r) => setTimeout(r, 2000))
-      await this.checkStatusAndPair(port)
+      await this.checkStatusAndPair(host, port)
       return
     }
 
     // pairResult === 'pending' - poll until paired
-    await this.pollForPairing(port)
+    await this.pollForPairing(host, port)
   }
 
   /**
    * Poll /status until pairing completes or times out.
    */
-  private async pollForPairing(port: number): Promise<void> {
+  private async pollForPairing(host: string, port: number): Promise<void> {
     const maxPollAttempts = 60 // 60s for user to approve
     const pollInterval = 1000
     const installId = await getOrCreateInstallId()
@@ -274,10 +285,10 @@ export class DaemonBridge {
       await new Promise((r) => setTimeout(r, pollInterval))
 
       try {
-        const status = await this.fetchStatus(port)
+        const status = await this.fetchStatus(host, port)
         if (status.paired && status.extensionId === extensionId && status.installId === installId) {
           console.log('[DaemonBridge] Pairing approved')
-          await this.completeConnection(port, status.version)
+          await this.completeConnection(host, port, status.version, status.capabilities)
           return
         }
       } catch {
@@ -309,15 +320,19 @@ export class DaemonBridge {
   /**
    * Fetch status from daemon (POST for Origin header).
    */
-  private async fetchStatus(port: number): Promise<{
+  private async fetchStatus(
+    host: string,
+    port: number,
+  ): Promise<{
     port: number
     paired: boolean
     extensionId: string | null
     installId: string | null
     version: string | null
+    capabilities?: { roots_manageable?: boolean }
   }> {
     const headers = await this.buildHeaders()
-    const response = await fetch(`http://${CHROMEOS_HOST}:${port}/status`, {
+    const response = await fetch(`http://${host}:${port}/status`, {
       method: 'POST',
       headers,
     })
@@ -329,13 +344,16 @@ export class DaemonBridge {
    * Request pairing via POST /pair.
    * Returns 'approved', 'pending', or 'conflict'.
    */
-  private async requestPairing(port: number): Promise<'approved' | 'pending' | 'conflict'> {
+  private async requestPairing(
+    host: string,
+    port: number,
+  ): Promise<'approved' | 'pending' | 'conflict'> {
     const token = await this.getOrCreateToken()
     const headers = await this.buildHeaders()
     headers['Content-Type'] = 'application/json'
 
     try {
-      const response = await fetch(`http://${CHROMEOS_HOST}:${port}/pair`, {
+      const response = await fetch(`http://${host}:${port}/pair`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ token }),
@@ -356,12 +374,17 @@ export class DaemonBridge {
   /**
    * Complete connection after pairing confirmed.
    */
-  private async completeConnection(port: number, version?: string | null): Promise<void> {
+  private async completeConnection(
+    host: string,
+    port: number,
+    version?: string | null,
+    capabilities?: { roots_manageable?: boolean },
+  ): Promise<void> {
     const token = await this.getOrCreateToken()
     const headers = await this.buildHeaders(true)
 
     // Fetch roots with auth
-    const rootsResponse = await fetch(`http://${CHROMEOS_HOST}:${port}/roots`, { headers })
+    const rootsResponse = await fetch(`http://${host}:${port}/roots`, { headers })
     const rootsData = (await rootsResponse.json()) as {
       roots: Array<{
         key: string
@@ -387,18 +410,32 @@ export class DaemonBridge {
     }))
 
     // Connect WebSocket
-    await this.connectWebSocket(port, token)
+    await this.connectWebSocket(host, port, token)
+
+    // Build capabilities - default to manageable unless explicitly set to false
+    const daemonCapabilities: DaemonCapabilities = {
+      roots_manageable: capabilities?.roots_manageable !== false,
+    }
 
     this.updateState({
       status: 'connected',
-      daemonInfo: { port, token, version: version ?? 'unknown', roots, host: CHROMEOS_HOST },
+      daemonInfo: {
+        port,
+        token,
+        version: version ?? 'unknown',
+        roots,
+        host,
+        capabilities: daemonCapabilities,
+      },
       roots,
       lastError: null,
     })
 
     await chrome.storage.local.set({ [STORAGE_KEY_HAS_CONNECTED]: true })
-    this.startHealthCheck(CHROMEOS_HOST, port)
-    console.log('[DaemonBridge] Connected successfully')
+    this.startHealthCheck(host, port)
+    console.log(
+      `[DaemonBridge] Connected successfully to ${host}:${port} (roots_manageable: ${daemonCapabilities.roots_manageable})`,
+    )
   }
 
   /**
@@ -701,18 +738,19 @@ export class DaemonBridge {
   // ==========================================================================
 
   private async connectChromeos(): Promise<void> {
-    const port = await this.findDaemonPort()
-    if (!port) {
-      throw new Error('Android daemon not reachable')
+    const found = await this.findDaemonPort()
+    if (!found) {
+      throw new Error('Companion daemon not reachable')
     }
 
+    const { host, port } = found
     const installId = await getOrCreateInstallId()
     const extensionId = chrome.runtime.id
-    const status = await this.fetchStatus(port)
+    const status = await this.fetchStatus(host, port)
 
     // Already paired with us? Try connecting
     if (status.paired && status.extensionId === extensionId && status.installId === installId) {
-      await this.completeConnection(port, status.version)
+      await this.completeConnection(host, port, status.version, status.capabilities)
       return
     }
 
@@ -720,11 +758,11 @@ export class DaemonBridge {
     throw new Error('Not paired - use triggerLaunch()')
   }
 
-  private async connectWebSocket(port: number, token: string): Promise<void> {
+  private async connectWebSocket(host: string, port: number, token: string): Promise<void> {
     const installId = await getOrCreateInstallId()
 
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://${CHROMEOS_HOST}:${port}/control`)
+      const ws = new WebSocket(`ws://${host}:${port}/control`)
       ws.binaryType = 'arraybuffer'
 
       const timeout = setTimeout(() => {
@@ -870,18 +908,15 @@ export class DaemonBridge {
   }
 
   private async removeRootChromeos(key: string): Promise<boolean> {
-    const port = this.state.daemonInfo?.port
-    if (!port) return false
+    const { host, port } = this.state.daemonInfo ?? {}
+    if (!host || !port) return false
 
     try {
       const headers = await this.buildHeaders(true)
-      const response = await fetch(
-        `http://${CHROMEOS_HOST}:${port}/roots/${encodeURIComponent(key)}`,
-        {
-          method: 'DELETE',
-          headers,
-        },
-      )
+      const response = await fetch(`http://${host}:${port}/roots/${encodeURIComponent(key)}`, {
+        method: 'DELETE',
+        headers,
+      })
 
       if (response.ok) {
         // Root will be updated via ROOTS_CHANGED WebSocket message
@@ -910,28 +945,45 @@ export class DaemonBridge {
     return frame.buffer
   }
 
-  private async findDaemonPort(): Promise<number | null> {
-    const stored = await chrome.storage.local.get([STORAGE_KEY_PORT])
+  /**
+   * Find a reachable daemon on ChromeOS.
+   * Tries both Android (ARC) and Crostini hosts.
+   * Returns the host and port if found.
+   */
+  private async findDaemonPort(): Promise<{ host: string; port: number } | null> {
+    const stored = await chrome.storage.local.get([STORAGE_KEY_PORT, STORAGE_KEY_HOST])
     const ports = [stored[STORAGE_KEY_PORT], 7800, 7805, 7814, 7827, 7844].filter(
       Boolean,
     ) as number[]
 
-    for (const port of ports) {
-      try {
-        const controller = new AbortController()
-        setTimeout(() => controller.abort(), 2000)
+    // Try stored host first, then others
+    const storedHost = stored[STORAGE_KEY_HOST] as string | undefined
+    const hostsToTry = storedHost
+      ? [storedHost, ...CHROMEOS_HOSTS.filter((h) => h !== storedHost)]
+      : CHROMEOS_HOSTS
 
-        // Use /health endpoint which doesn't require headers
-        const response = await fetch(`http://${CHROMEOS_HOST}:${port}/health`, {
-          signal: controller.signal,
-        })
+    for (const host of hostsToTry) {
+      for (const port of ports) {
+        try {
+          const controller = new AbortController()
+          setTimeout(() => controller.abort(), 2000)
 
-        if (response.ok) {
-          await chrome.storage.local.set({ [STORAGE_KEY_PORT]: port })
-          return port
+          // Use /health endpoint which doesn't require headers
+          const response = await fetch(`http://${host}:${port}/health`, {
+            signal: controller.signal,
+          })
+
+          if (response.ok) {
+            await chrome.storage.local.set({
+              [STORAGE_KEY_PORT]: port,
+              [STORAGE_KEY_HOST]: host,
+            })
+            console.log(`[DaemonBridge] Found daemon at ${host}:${port}`)
+            return { host, port }
+          }
+        } catch {
+          // Try next port/host
         }
-      } catch {
-        // Try next port
       }
     }
     return null

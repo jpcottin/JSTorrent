@@ -483,6 +483,22 @@ class IoWebSocketHandler(
     // File I/O handlers
     // ==========================================================================
 
+    // Write instrumentation
+    private val wsWriteConcurrent = AtomicInteger(0)
+    private val wsWriteTotal = AtomicLong(0)
+    private val wsWriteBytes = AtomicLong(0)
+    private val wsWriteTotalTimeMs = AtomicLong(0)
+    private val wsWriteHashTimeMs = AtomicLong(0)
+    private val wsWriteDiskTimeMs = AtomicLong(0)
+    private val wsWriteQueueTimeMs = AtomicLong(0)
+    private val wsWriteMaxConcurrent = AtomicInteger(0)
+    @Volatile private var wsWriteLogTime = System.currentTimeMillis()
+
+    // Track frame arrival timing
+    private val writeFramesInFlight = AtomicInteger(0)
+    private val writeFrameMaxInFlight = AtomicInteger(0)
+    @Volatile private var lastWriteFrameArrival = 0L
+
     /**
      * Handle file write via WebSocket.
      * Payload format: [root_key_len:1][root_key:N][path_len:2 LE][path:M][offset:8 LE][flags:1][optional sha1:20][data:K]
@@ -546,8 +562,18 @@ class IoWebSocketHandler(
         }
 
         val data = payload.copyOfRange(idx, payload.size)
+        val tEnqueue = System.currentTimeMillis()
 
-        Log.d(TAG, "FILE_WRITE: rootKey=$rootKey, path=$path, offset=$offset, size=${data.size}, hasHash=$hasHash")
+        // Track frame arrival timing
+        val inFlight = writeFramesInFlight.incrementAndGet()
+        var currentMax = writeFrameMaxInFlight.get()
+        while (inFlight > currentMax && !writeFrameMaxInFlight.compareAndSet(currentMax, inFlight)) {
+            currentMax = writeFrameMaxInFlight.get()
+        }
+        val sinceLastFrame = if (lastWriteFrameArrival > 0) tEnqueue - lastWriteFrameArrival else 0
+        lastWriteFrameArrival = tEnqueue
+
+        // Log.d(TAG, "FILE_WRITE: rootKey=$rootKey, path=$path, offset=$offset, size=${data.size}, hasHash=$hasHash, inFlight=$inFlight, sinceLastFrame=${sinceLastFrame}ms")
 
         // Resolve root key to SAF URI
         val rootUri = deps.rootStore.resolveKey(rootKey)
@@ -566,26 +592,85 @@ class IoWebSocketHandler(
 
         // Perform write on IO dispatcher
         scope.launch(Dispatchers.IO) {
+            val tStart = System.currentTimeMillis()
+            val queueTime = tStart - tEnqueue
+            val concurrent = wsWriteConcurrent.incrementAndGet()
+
+            // Track max concurrent
+            var currentMax = wsWriteMaxConcurrent.get()
+            while (concurrent > currentMax && !wsWriteMaxConcurrent.compareAndSet(currentMax, concurrent)) {
+                currentMax = wsWriteMaxConcurrent.get()
+            }
+
             try {
+                var hashTime = 0L
+
                 // Hash verification FIRST (before any file operations)
                 if (expectedHash != null) {
+                    val tHash = System.currentTimeMillis()
                     val actualHash = Hasher.sha1(data)
+                    hashTime = System.currentTimeMillis() - tHash
+
                     if (!actualHash.contentEquals(expectedHash)) {
                         val expectedHex = expectedHash.joinToString("") { "%02x".format(it) }
                         val actualHex = actualHash.joinToString("") { "%02x".format(it) }
                         Log.w(TAG, "FILE_WRITE hash mismatch: expected=$expectedHex, actual=$actualHex")
                         sendFileWriteError(requestId, rootKey, offset, "Hash mismatch: expected $expectedHex, got $actualHex")
+                        wsWriteConcurrent.decrementAndGet()
+                        writeFramesInFlight.decrementAndGet()
                         return@launch
                     }
                 }
 
+                val tDisk = System.currentTimeMillis()
                 fileManager.write(rootUri, path, offset, data)
+                val diskTime = System.currentTimeMillis() - tDisk
+                val totalTime = System.currentTimeMillis() - tStart
 
                 // Only send ACK if requestId is non-zero
                 if (requestId != 0) {
                     sendFileWriteAck(requestId, rootKey, offset)
                 }
+
+                // Track frame completion
+                writeFramesInFlight.decrementAndGet()
+
+                // Update stats
+                val writeNum = wsWriteTotal.incrementAndGet()
+                wsWriteBytes.addAndGet(data.size.toLong())
+                wsWriteTotalTimeMs.addAndGet(totalTime)
+                wsWriteHashTimeMs.addAndGet(hashTime)
+                wsWriteDiskTimeMs.addAndGet(diskTime)
+                wsWriteQueueTimeMs.addAndGet(queueTime)
+                wsWriteConcurrent.decrementAndGet()
+
+                // Log every 5 seconds
+                val now = System.currentTimeMillis()
+                val elapsed = now - wsWriteLogTime
+                if (elapsed >= 5000 && writeNum > 0) {
+                    val bytes = wsWriteBytes.getAndSet(0)
+                    val count = wsWriteTotal.getAndSet(0)
+                    val totalMs = wsWriteTotalTimeMs.getAndSet(0)
+                    val hashMs = wsWriteHashTimeMs.getAndSet(0)
+                    val diskMs = wsWriteDiskTimeMs.getAndSet(0)
+                    val queueMs = wsWriteQueueTimeMs.getAndSet(0)
+                    val maxConc = wsWriteMaxConcurrent.getAndSet(concurrent)
+                    wsWriteLogTime = now
+
+                    val mbps = bytes / (elapsed / 1000.0) / (1024 * 1024)
+                    val avgTotal = if (count > 0) totalMs / count else 0
+                    val avgHash = if (count > 0) hashMs / count else 0
+                    val avgDisk = if (count > 0) diskMs / count else 0
+                    val avgQueue = if (count > 0) queueMs / count else 0
+
+                    val curFrameInFlight = writeFramesInFlight.get()
+                    val maxFrameInFlight = writeFrameMaxInFlight.getAndSet(curFrameInFlight)
+                    Log.i(TAG, "WS_WRITE: %.1f MB/s, %d writes, concurrent=%d (max=%d), framesInFlight=%d (max=%d), avg: total=%dms queue=%dms hash=%dms disk=%dms".format(
+                        mbps, count, concurrent, maxConc, curFrameInFlight, maxFrameInFlight, avgTotal, avgQueue, avgHash, avgDisk))
+                }
             } catch (e: FileManagerException) {
+                wsWriteConcurrent.decrementAndGet()
+                writeFramesInFlight.decrementAndGet()
                 val errorMsg = when (e) {
                     is FileManagerException.FileNotFound -> "File not found: ${e.message}"
                     is FileManagerException.CannotCreateFile -> "Cannot create file: ${e.message}"
@@ -597,6 +682,8 @@ class IoWebSocketHandler(
                 Log.e(TAG, "FILE_WRITE failed: $errorMsg")
                 sendFileWriteError(requestId, rootKey, offset, errorMsg)
             } catch (e: Exception) {
+                wsWriteConcurrent.decrementAndGet()
+                writeFramesInFlight.decrementAndGet()
                 Log.e(TAG, "FILE_WRITE unexpected error: ${e.message}", e)
                 sendFileWriteError(requestId, rootKey, offset, "Unexpected error: ${e.message}")
             }

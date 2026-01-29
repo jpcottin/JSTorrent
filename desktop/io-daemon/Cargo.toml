@@ -28,6 +28,7 @@ tokio-native-tls = "0.3"
 if-addrs = "0.12"
 tokio-util = { version = "0.7", features = ["io"] }
 uuid = { workspace = true }
+dirs = "5"
 jstorrent-common = { path = "../common" }
 
 [target.'cfg(windows)'.dependencies]

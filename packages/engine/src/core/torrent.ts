@@ -2448,8 +2448,15 @@ export class Torrent extends EngineComponent {
             return
           }
 
-          // ANY write failure is fatal - fail fast
+          // Check if this is a queue-cleared error (torrent was stopped) - not a real error
           const errorMsg = e instanceof Error ? e.message : String(e)
+          if (errorMsg.includes('Disk queue cleared')) {
+            // Torrent was stopped, pending writes were cancelled - this is expected
+            this.logger.debug(`Write cancelled (torrent stopped):`, errorMsg)
+            return
+          }
+
+          // ANY other write failure is fatal - fail fast
           this.logger.error(`Fatal write error - stopping torrent:`, errorMsg)
           this.errorMessage = `Write failed: ${errorMsg}`
           this.stopNetwork()

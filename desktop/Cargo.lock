@@ -1344,6 +1344,7 @@ dependencies = [
  "base64 0.21.7",
  "chrono",
  "clap",
+ "dirs",
  "futures",
  "hex",
  "if-addrs",

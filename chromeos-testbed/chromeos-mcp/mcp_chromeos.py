@@ -10,6 +10,8 @@ Screenshot returns the image - Claude figures out coordinates from there.
 import asyncio
 import json
 import base64
+import signal
+import sys
 from io import BytesIO
 
 from PIL import Image
@@ -29,6 +31,14 @@ class Connection:
     def __init__(self):
         self.process = None
         self._lock = asyncio.Lock()
+
+    def cleanup(self):
+        """Clean up SSH process."""
+        if self.process and self.process.returncode is None:
+            try:
+                self.process.terminate()
+            except Exception:
+                pass
 
     async def _ensure_client(self):
         """Deploy client.py if needed."""
@@ -260,9 +270,31 @@ Modifier remappings: {kb.get('modifier_remappings', {})}"""
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
 
+_shutting_down = False
+
+
+def signal_handler(signum, frame):
+    """Handle termination signals."""
+    global _shutting_down
+    if _shutting_down:
+        return
+    _shutting_down = True
+    conn.cleanup()
+    sys.exit(0)
+
+
 async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    # Set up signal handlers for graceful shutdown
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGHUP, signal_handler)
+
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
+    finally:
+        # Clean up when stdio_server exits (e.g., when stdin is closed)
+        conn.cleanup()
 
 
 if __name__ == "__main__":

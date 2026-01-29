@@ -147,7 +147,16 @@ export class ChromeExtensionEngineManager implements IEngineManager {
   readonly isStandalone = false
   readonly supportsFileOperations = true
 
+  private _daemonInfo: DaemonInfo | null = null
   private sessionStore: ISessionStore | null = null
+
+  /**
+   * Whether download roots can be added/removed.
+   * Reads from daemon capabilities - defaults to true if not explicitly set to false.
+   */
+  get rootsManageable(): boolean {
+    return this._daemonInfo?.capabilities?.roots_manageable !== false
+  }
   private initPromise: Promise<BtEngine> | null = null
   private swPort: chrome.runtime.Port | null = null
   private notificationProgressInterval: ReturnType<typeof setInterval> | null = null
@@ -191,6 +200,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       throw new Error(`Failed to get daemon info: ${response.error || response.status}`)
     }
     const daemonInfo: DaemonInfo = response.daemonInfo!
+    this._daemonInfo = daemonInfo
     // Roots may come separately or in daemonInfo (for backwards compatibility)
     const roots: DownloadRoot[] = response.roots ?? daemonInfo.roots ?? []
     console.log(
@@ -198,13 +208,15 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       daemonInfo,
       'roots:',
       roots.length,
+      'rootsManageable:',
+      this.rootsManageable,
     )
 
     // 2. Create direct WebSocket connection to daemon
     // On ChromeOS, use credentials getter for fresh token
     // On desktop, use token directly from daemon info
     const isChromeos = daemonInfo.host === '100.115.92.2'
-    // on chromeOs this improves performance?
+    // on chromeOs this improves performance? (no seems worse)
     const USE_WEBSOCKET_WRITES = false
 
     if (isChromeos) {

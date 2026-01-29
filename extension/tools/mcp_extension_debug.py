@@ -27,6 +27,7 @@ Register with Claude Code:
 import asyncio
 import base64
 import json
+import signal
 import sys
 from collections import deque
 from dataclasses import dataclass, field
@@ -1174,13 +1175,60 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
 
 # =============================================================================
+# Shutdown and Signal Handling
+# =============================================================================
+
+_shutting_down = False
+
+
+async def async_cleanup():
+    """Cancel and await all background tasks."""
+    global _shutting_down
+    if _shutting_down:
+        return
+    _shutting_down = True
+
+    tasks = []
+    for conn in state.connections.values():
+        if conn.sw_log_collector_task and not conn.sw_log_collector_task.done():
+            conn.sw_log_collector_task.cancel()
+            tasks.append(conn.sw_log_collector_task)
+        if conn.page_log_collector_task and not conn.page_log_collector_task.done():
+            conn.page_log_collector_task.cancel()
+            tasks.append(conn.page_log_collector_task)
+
+    # Wait for cancelled tasks to finish (with a timeout)
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
 async def main():
+    loop = asyncio.get_running_loop()
+
+    def handle_signal():
+        """Schedule async cleanup and exit."""
+        asyncio.create_task(shutdown())
+
+    async def shutdown():
+        """Async shutdown handler."""
+        await async_cleanup()
+        loop.stop()
+
+    # Set up signal handlers for graceful shutdown (async-safe)
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        loop.add_signal_handler(sig, handle_signal)
+
     init_connections()
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
+    finally:
+        # Clean up when stdio_server exits (e.g., when stdin is closed)
+        await async_cleanup()
 
 
 if __name__ == "__main__":

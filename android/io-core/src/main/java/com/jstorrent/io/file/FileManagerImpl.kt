@@ -292,18 +292,24 @@ class FileManagerImpl(
     private fun getCachedFile(rootUri: Uri, relativePath: String): DocumentFile? {
         val cacheKey = "$rootUri|$relativePath"
 
-        synchronized(cacheLock) {
-            documentFileCache[cacheKey]?.let { cached ->
-                // Verify it still exists
-                if (cached.exists()) {
-                    return cached
-                } else {
+        // Get cached entry without holding lock during SAF calls
+        val cached = synchronized(cacheLock) {
+            documentFileCache[cacheKey]
+        }
+
+        // Verify it still exists (SAF call - do NOT hold lock)
+        if (cached != null) {
+            if (cached.exists()) {
+                return cached
+            } else {
+                // Stale entry - remove from cache
+                synchronized(cacheLock) {
                     documentFileCache.remove(cacheKey)
                 }
             }
         }
 
-        // Cache miss - do the traversal
+        // Cache miss - do the traversal (no lock held)
         val file = resolveFile(rootUri, relativePath)
         if (file != null) {
             synchronized(cacheLock) {

@@ -24,6 +24,17 @@ export class DaemonSocketFactory implements ISocketFactory, IDaemonSocketManager
   constructor(private daemon: DaemonConnection) {
     this.daemon.onFrame((frame) => this.handleFrame(frame))
     this.daemon.onDisconnect((reason) => this.handleDisconnect(reason))
+    // Enable frame queuing for batched processing during tick
+    this.daemon.enableFrameQueuing()
+  }
+
+  /**
+   * Flush pending callbacks - called at start of engine tick.
+   * Drains all queued WebSocket frames and processes them.
+   * This batches incoming data similar to how native mode batches TCP data.
+   */
+  flushCallbacks(): void {
+    this.daemon.drainPendingFrames()
   }
 
   /**
