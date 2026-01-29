@@ -54,9 +54,11 @@ pub async fn standalone_middleware(
 ) -> Result<Response, StatusCode> {
     let path = req.uri().path();
 
-    // Allow these endpoints without auth (needed for pairing flow)
+    // Allow these endpoints without auth (needed for pairing flow and WebSocket)
+    // WebSocket endpoints (/control, /io) authenticate via the protocol after connection
     if path == "/health"
         || path == "/io"
+        || path == "/control"
         || path == "/status"
         || path == "/pair"
         || path == "/network/interfaces"
