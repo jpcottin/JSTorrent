@@ -9,6 +9,8 @@ export class DaemonFileSystem implements IFileSystem {
     private nullStorage: boolean = false,
     /** Enable WebSocket writes (only supported by Android companion server, not desktop Rust daemon) */
     private useWebSocketWrites: boolean = false,
+    /** Optional dedicated connection for writes to avoid contention with reads */
+    private writeConnection?: DaemonConnection,
   ) {}
 
   async open(path: string, _mode: 'r' | 'w' | 'r+'): Promise<IFileHandle> {
@@ -24,6 +26,7 @@ export class DaemonFileSystem implements IFileSystem {
       this.rootKey,
       this.nullStorage,
       this.useWebSocketWrites,
+      this.writeConnection,
     )
   }
 

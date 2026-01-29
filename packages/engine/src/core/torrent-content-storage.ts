@@ -23,6 +23,8 @@ export class TorrentContentStorage extends EngineComponent {
     engine: ILoggingEngine,
     private storageHandle: IStorageHandle,
     private diskQueue?: IDiskQueue,
+    /** Enable async writes (fire-and-forget). Used for daemon WebSocket writes to avoid ACK latency. */
+    public asyncWrites: boolean = false,
   ) {
     super(engine)
     this.logger.debug(

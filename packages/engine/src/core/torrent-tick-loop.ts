@@ -12,6 +12,7 @@ import type { Swarm } from './swarm'
 import type { TorrentUploader } from './torrent-uploader'
 import type { IDiskQueue } from './disk-queue'
 import type { TrafficCategory } from './bandwidth-tracker'
+import { getWriteStats, resetWriteStatsMax } from '../adapters/daemon/daemon-file-handle'
 
 // === Constants ===
 
@@ -820,11 +821,18 @@ export class TorrentTickLoop extends EngineComponent {
     const diskRate = this.callbacks.getCategoryRate('down', 'disk')
     const diskRateMB = (diskRate / (1024 * 1024)).toFixed(1)
 
+    // Get WebSocket write stats (in-flight writes awaiting ACK)
+    const writeStats = getWriteStats()
+
     this.logger.info(
       `Backpressure: ${activeCount} active (${partialCount}/${maxPartials} partial, ${fullyRequestedCount} fullyReq, ${fullyRespondedCount} awaiting write), ` +
         `${bufferedMB}MB buffered, PIPE:${totalRequests}/${totalPipelineDepth} (limit=${pipelineLimit}), ` +
-        `disk: ${diskPending}/${diskRunning} queue, ${diskRateMB}MB/s`,
+        `disk: ${diskPending}/${diskRunning} queue, ${diskRateMB}MB/s, ` +
+        `WS-writes: ${writeStats.inFlight} in-flight (max=${writeStats.maxInFlight}, sent=${writeStats.totalSent}, acked=${writeStats.totalAcked})`,
     )
+
+    // Reset max for next period
+    resetWriteStatsMax()
   }
 
   // ==========================================================================

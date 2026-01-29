@@ -2423,46 +2423,80 @@ export class Torrent extends EngineComponent {
     } else {
       // Wanted piece (or no classification): write to regular files
       if (this.contentStorage) {
-        try {
-          const usedVerifiedWrite = await this.contentStorage.writePieceVerified(
-            index,
-            pieceData,
-            expectedHash,
-          )
+        if (this.contentStorage.asyncWrites) {
+          // XXX BUG: This async path is broken! markPieceVerified() runs immediately
+          // after firing the write, BEFORE the ACK returns. Pieces get marked verified
+          // before hash is checked. The success code (lines below) needs to move into
+          // .then() and add `return` here. For now, asyncWrites is disabled.
+          // See chrome-extension-engine-manager.ts useAsyncWrites: false
+          this.contentStorage
+            .writePieceVerified(index, pieceData, expectedHash)
+            .then((usedVerifiedWrite) => {
+              if (!usedVerifiedWrite && expectedHash) {
+                // Verified write not available - verify hash in TypeScript
+                return this.btEngine.hasher.sha1(pieceData).then((actualHash) => {
+                  if (compare(actualHash, expectedHash) !== 0) {
+                    this.handleHashMismatch(index, piece)
+                  }
+                })
+              }
+            })
+            .catch((e) => {
+              // Check by name to handle HashMismatchError from different sources
+              if (e instanceof Error && e.name === 'HashMismatchError') {
+                this.handleHashMismatch(index, piece)
+                return
+              }
 
-          if (!usedVerifiedWrite && expectedHash) {
-            // Verified write not available - verify hash in TypeScript
-            const actualHash = await this.btEngine.hasher.sha1(pieceData)
-            if (compare(actualHash, expectedHash) !== 0) {
+              // Check if this is a queue-cleared error (torrent was stopped)
+              const errorMsg = e instanceof Error ? e.message : String(e)
+              if (errorMsg.includes('Disk queue cleared')) {
+                this.logger.debug(`Write cancelled (torrent stopped):`, errorMsg)
+                return
+              }
+
+              // ANY other write failure is fatal
+              this.logger.error(`Async write error - stopping torrent:`, errorMsg)
+              this.errorMessage = `Write failed: ${errorMsg}`
+              this.stopNetwork()
+              ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+            })
+        } else {
+          // Sync writes: await completion before continuing
+          try {
+            const usedVerifiedWrite = await this.contentStorage.writePieceVerified(
+              index,
+              pieceData,
+              expectedHash,
+            )
+
+            if (!usedVerifiedWrite && expectedHash) {
+              // Verified write not available - verify hash in TypeScript
+              const actualHash = await this.btEngine.hasher.sha1(pieceData)
+              if (compare(actualHash, expectedHash) !== 0) {
+                this.handleHashMismatch(index, piece)
+                return
+              }
+            }
+          } catch (e) {
+            if (e instanceof Error && e.name === 'HashMismatchError') {
               this.handleHashMismatch(index, piece)
               return
             }
-          }
-          // If usedVerifiedWrite is true, hash was already verified by io-daemon
-        } catch (e) {
-          // Check by name to handle HashMismatchError from different sources
-          // (daemon-file-handle and native-file-handle have separate error classes)
-          if (e instanceof Error && e.name === 'HashMismatchError') {
-            // Hash verification failed in storage layer
-            this.handleHashMismatch(index, piece)
+
+            const errorMsg = e instanceof Error ? e.message : String(e)
+            if (errorMsg.includes('Disk queue cleared')) {
+              this.logger.debug(`Write cancelled (torrent stopped):`, errorMsg)
+              return
+            }
+
+            this.logger.error(`Fatal write error - stopping torrent:`, errorMsg)
+            this.errorMessage = `Write failed: ${errorMsg}`
+            this.stopNetwork()
+            this.activePieces?.removeFullyResponded(index)
+            ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
             return
           }
-
-          // Check if this is a queue-cleared error (torrent was stopped) - not a real error
-          const errorMsg = e instanceof Error ? e.message : String(e)
-          if (errorMsg.includes('Disk queue cleared')) {
-            // Torrent was stopped, pending writes were cancelled - this is expected
-            this.logger.debug(`Write cancelled (torrent stopped):`, errorMsg)
-            return
-          }
-
-          // ANY other write failure is fatal - fail fast
-          this.logger.error(`Fatal write error - stopping torrent:`, errorMsg)
-          this.errorMessage = `Write failed: ${errorMsg}`
-          this.stopNetwork()
-          this.activePieces?.removeFullyResponded(index)
-          ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
-          return
         }
       } else if (expectedHash) {
         // No storage but have hash - verify anyway (shouldn't happen in practice)

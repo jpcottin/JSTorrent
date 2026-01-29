@@ -143,6 +143,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
   engine: BtEngine | null = null
   configHub: ConfigHub | null = null
   daemonConnection: DaemonConnection | null = null
+  writeConnection: DaemonConnection | null = null
   logStore: LogStore = globalLogStore
   readonly isStandalone = false
   readonly supportsFileOperations = true
@@ -217,7 +218,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     // On desktop, use token directly from daemon info
     const isChromeos = daemonInfo.host === '100.115.92.2'
     // on chromeOs this improves performance? (no seems worse)
-    const USE_WEBSOCKET_WRITES = false
+    const USE_WEBSOCKET_WRITES = true
 
     if (isChromeos) {
       this.daemonConnection = new DaemonConnection(
@@ -259,6 +260,38 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       this.handleIoReconnect()
     })
 
+    // 2b. Create dedicated write connection on ChromeOS for better throughput
+    // This eliminates contention between TCP recv data and file writes on the same WebSocket
+    if (isChromeos && USE_WEBSOCKET_WRITES) {
+      try {
+        this.writeConnection = new DaemonConnection(
+          daemonInfo.port,
+          daemonInfo.host,
+          createCredentialsGetter(),
+          undefined,
+          daemonInfo.ioPort,
+        )
+        await this.writeConnection.connectWebSocket()
+        console.log('[ChromeExtensionEngineManager] Write connection established')
+
+        // Independent disconnect/reconnect handling for write connection
+        this.writeConnection.onDisconnect((reason) => {
+          console.warn('[ChromeExtensionEngineManager] Write WebSocket disconnected:', reason)
+          // Writes will automatically fall back to main connection
+        })
+        this.writeConnection.onReconnect(() => {
+          console.log('[ChromeExtensionEngineManager] Write WebSocket reconnected')
+        })
+      } catch (error) {
+        console.warn(
+          '[ChromeExtensionEngineManager] Write connection failed, using main connection:',
+          error,
+        )
+        this.writeConnection = null
+        // Continue without dedicated write connection - writes fall back to main connection
+      }
+    }
+
     // 3. Set up storage root manager
     if (NULL_STORAGE) {
       console.warn(
@@ -268,7 +301,13 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     const srm = new StorageRootManager(
       // Enable WebSocket writes on ChromeOS (companion server supports it, desktop Rust daemon doesn't)
       (root) =>
-        new DaemonFileSystem(this.daemonConnection!, root.key, NULL_STORAGE, USE_WEBSOCKET_WRITES),
+        new DaemonFileSystem(
+          this.daemonConnection!,
+          root.key,
+          NULL_STORAGE,
+          USE_WEBSOCKET_WRITES,
+          this.writeConnection ?? undefined,
+        ),
     )
 
     // 4. Create session store (before registering roots so we can load default)
@@ -333,6 +372,8 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       startSuspended: true,
       getNetworkInterfaces: () => this.daemonConnection!.getNetworkInterfaces(),
       config: configHub,
+      // Async writes disabled - adds complexity without backpressure, caused hash verification bugs
+      useAsyncWrites: false,
     })
     window.engine = this.engine // expose for debugging
     console.log('[ChromeExtensionEngineManager] Engine created (suspended)')
@@ -408,6 +449,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     // cause tracker announce('stopped') to fail. The WebSocket will close
     // automatically when the page unloads.
     this.daemonConnection = null
+    this.writeConnection = null
 
     this.initPromise = null
   }
@@ -430,6 +472,12 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     if (this.daemonConnection) {
       this.daemonConnection.close()
       this.daemonConnection = null
+    }
+
+    // Close write connection
+    if (this.writeConnection) {
+      this.writeConnection.close()
+      this.writeConnection = null
     }
 
     // Destroy engine (will persist session)

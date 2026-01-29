@@ -185,6 +185,13 @@ export interface BtEngineOptions {
   usePassthroughDiskQueue?: boolean
 
   /**
+   * Enable async writes (fire-and-forget).
+   * When true, piece writes don't block waiting for ACK - errors handled async.
+   * Used for daemon WebSocket writes to avoid per-write ACK latency.
+   */
+  useAsyncWrites?: boolean
+
+  /**
    * Tick loop ownership mode.
    * - 'js': JS owns the tick loop via setInterval (default, extension/browser)
    * - 'host': Host (Kotlin/Swift) drives the tick loop, calling tick() directly
@@ -223,6 +230,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   public maxUploadSlots: number
   public encryptionPolicy: EncryptionPolicy
   public usePassthroughDiskQueue: boolean
+  public useAsyncWrites: boolean
 
   /** Optional ConfigHub for reactive configuration (created internally if not provided) */
   public config?: ConfigHub
@@ -389,6 +397,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     this.encryptionPolicy = this.config.encryptionPolicy.get()
     this._dhtEnabled = this.config.dhtEnabled.get()
     this.usePassthroughDiskQueue = options.usePassthroughDiskQueue ?? false
+    this.useAsyncWrites = options.useAsyncWrites ?? false
     this._tickMode = options.tickMode ?? 'js'
 
     // Set up bandwidth limits from config (0 = unlimited)

@@ -34,15 +34,40 @@ const pendingWrites = new Map<
   { resolve: (v: { bytesWritten: number }) => void; reject: (e: Error) => void }
 >()
 let nextRequestId = 1
-let frameHandlerRegistered = false
+const connectionsWithFrameHandler = new Set<DaemonConnection>()
+
+// PERF TEST: Set true to bypass ACK waiting entirely (fire-and-forget writes)
+const FIRE_AND_FORGET_WRITES = false
+
+// In-flight write tracking for backpressure and monitoring
+let totalWritesSent = 0
+let totalWritesAcked = 0
+let maxInFlight = 0
+
+/** Get current in-flight write stats */
+export function getWriteStats() {
+  const inFlight = pendingWrites.size
+  if (inFlight > maxInFlight) maxInFlight = inFlight
+  return {
+    inFlight,
+    maxInFlight,
+    totalSent: totalWritesSent,
+    totalAcked: totalWritesAcked,
+  }
+}
+
+/** Reset max in-flight counter (call periodically) */
+export function resetWriteStatsMax() {
+  maxInFlight = pendingWrites.size
+}
 
 /**
  * Register the frame handler for file write responses on a connection.
  * Called once per connection.
  */
 function ensureFrameHandler(connection: DaemonConnection): void {
-  if (frameHandlerRegistered) return
-  frameHandlerRegistered = true
+  if (connectionsWithFrameHandler.has(connection)) return
+  connectionsWithFrameHandler.add(connection)
 
   connection.onFrame((frame) => {
     const view = new DataView(frame)
@@ -74,7 +99,7 @@ function ensureFrameHandler(connection: DaemonConnection): void {
 
     if (opcode === OP_FILE_WRITE_ACK) {
       // Success - payload has status at the end, but we just resolve
-      console.log(`[WS-WRITE] ACK received t=${Date.now() % 100000} reqId=${requestId}`)
+      totalWritesAcked++
       pending.resolve({ bytesWritten: -1 }) // We don't track actual bytes in response
     } else {
       // Error - parse message from payload
@@ -104,10 +129,12 @@ export class DaemonFileHandle implements IFileHandle {
     private rootKey: string,
     private nullStorage: boolean = false,
     private useWebSocketWrites: boolean = true,
+    private writeConnection?: DaemonConnection,
   ) {
-    // Register the shared frame handler if using WebSocket writes
+    // Register the shared frame handler on the connection that will receive write ACKs
     if (useWebSocketWrites) {
-      ensureFrameHandler(connection)
+      const ackConnection = writeConnection ?? connection
+      ensureFrameHandler(ackConnection)
     }
   }
 
@@ -183,8 +210,8 @@ export class DaemonFileHandle implements IFileHandle {
     const flags = hasHash ? 1 : 0
     const hashSize = hasHash ? 20 : 0
 
-    // Generate unique requestId for this write
-    const requestId = nextRequestId++
+    // Generate unique requestId for this write (0 = fire-and-forget, no ACK expected)
+    const requestId = FIRE_AND_FORGET_WRITES ? 0 : nextRequestId++
     if (nextRequestId > 0x7fffffff) nextRequestId = 1 // Wrap around, avoid 0
 
     // Calculate total frame size
@@ -246,6 +273,16 @@ export class DaemonFileHandle implements IFileHandle {
     // data
     bytes.set(data, idx)
 
+    // Use write connection if available and ready, otherwise fall back to main connection
+    const targetConnection = this.writeConnection?.ready ? this.writeConnection : this.connection
+
+    // Fire-and-forget mode: send frame and immediately resolve (no ACK wait)
+    if (FIRE_AND_FORGET_WRITES) {
+      totalWritesSent++
+      targetConnection.sendFrame(frame)
+      return Promise.resolve({ bytesWritten: data.length })
+    }
+
     // Create promise that will be resolved/rejected by frame handler
     return new Promise((resolve, reject) => {
       // Register pending write
@@ -255,10 +292,8 @@ export class DaemonFileHandle implements IFileHandle {
       })
 
       // Send the frame
-      console.log(
-        `[WS-WRITE] sendFrame t=${Date.now() % 100000} reqId=${requestId} size=${data.length}`,
-      )
-      this.connection.sendFrame(frame)
+      totalWritesSent++
+      targetConnection.sendFrame(frame)
 
       // Timeout after 30 seconds (disk operations can be slow)
       setTimeout(() => {
