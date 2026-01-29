@@ -1533,6 +1533,9 @@ export class Torrent extends EngineComponent {
     this.activePieces?.destroy()
     this.activePieces = undefined
 
+    // Clear pending disk writes - prevents stale writes from accumulating
+    this._diskQueue.clearPending()
+
     // Reset endgame state
     this._endgameManager.reset()
 

@@ -360,4 +360,19 @@ export class NativeBatchingDiskQueue implements IDiskQueue {
       draining: false,
     }
   }
+
+  clearPending(): void {
+    const cleared = this.pending.length
+    // Reject all pending write promises and clean up callbacks
+    for (const item of this.pending) {
+      // Remove the callback registration
+      delete globalThis.__jstorrent_file_write_callbacks[item.callbackId]
+      // Reject the promise
+      item.reject(new Error('Disk queue cleared (torrent stopped)'))
+    }
+    this.pending = []
+    if (cleared > 0) {
+      console.log(`[NativeBatchingDiskQueue] Cleared ${cleared} pending writes`)
+    }
+  }
 }

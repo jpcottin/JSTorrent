@@ -22,6 +22,77 @@ export function supportsVerifiedWrite(handle: IFileHandle): handle is DaemonFile
 // Protocol constants
 const PROTOCOL_VERSION = 1
 const OP_FILE_WRITE = 0x30
+const OP_FILE_WRITE_ACK = 0x31
+const OP_FILE_WRITE_ERROR = 0x32
+const OP_ERROR = 0x7f
+
+// Shared pending writes registry (keyed by requestId)
+// We use a module-level map because multiple DaemonFileHandle instances
+// share the same DaemonConnection and frame handler.
+const pendingWrites = new Map<
+  number,
+  { resolve: (v: { bytesWritten: number }) => void; reject: (e: Error) => void }
+>()
+let nextRequestId = 1
+let frameHandlerRegistered = false
+
+/**
+ * Register the frame handler for file write responses on a connection.
+ * Called once per connection.
+ */
+function ensureFrameHandler(connection: DaemonConnection): void {
+  if (frameHandlerRegistered) return
+  frameHandlerRegistered = true
+
+  connection.onFrame((frame) => {
+    const view = new DataView(frame)
+    const opcode = view.getUint8(1)
+
+    // Handle generic protocol errors (e.g., unsupported opcode)
+    if (opcode === OP_ERROR) {
+      const requestId = view.getUint32(4, true)
+      if (requestId === 0) return
+      const pending = pendingWrites.get(requestId)
+      if (!pending) return
+      pendingWrites.delete(requestId)
+      const message = new TextDecoder().decode(new Uint8Array(frame, 8))
+      pending.reject(new Error(`Write failed: ${message}`))
+      return
+    }
+
+    if (opcode !== OP_FILE_WRITE_ACK && opcode !== OP_FILE_WRITE_ERROR) {
+      return // Not a file write response
+    }
+
+    const requestId = view.getUint32(4, true)
+    if (requestId === 0) return // Fire-and-forget mode (shouldn't happen with our code)
+
+    const pending = pendingWrites.get(requestId)
+    if (!pending) return // Unknown requestId (maybe already timed out)
+
+    pendingWrites.delete(requestId)
+
+    if (opcode === OP_FILE_WRITE_ACK) {
+      // Success - payload has status at the end, but we just resolve
+      pending.resolve({ bytesWritten: -1 }) // We don't track actual bytes in response
+    } else {
+      // Error - parse message from payload
+      // Payload: [root_key_len:1][root_key:N][offset:8 LE][error_code:4 LE][message:M]
+      const payload = new Uint8Array(frame, 8)
+      const rootKeyLen = payload[0]
+      // Skip root_key, offset (8), error_code (4) to get to message
+      const messageOffset = 1 + rootKeyLen + 8 + 4
+      const message = new TextDecoder().decode(payload.subarray(messageOffset))
+
+      // Check if it's a hash mismatch (error message contains "Hash mismatch")
+      if (message.includes('Hash mismatch')) {
+        pending.reject(new HashMismatchError(message))
+      } else {
+        pending.reject(new Error(`Write failed: ${message}`))
+      }
+    }
+  })
+}
 
 export class DaemonFileHandle implements IFileHandle {
   private pendingHash: Uint8Array | null = null
@@ -32,7 +103,12 @@ export class DaemonFileHandle implements IFileHandle {
     private rootKey: string,
     private nullStorage: boolean = false,
     private useWebSocketWrites: boolean = true,
-  ) {}
+  ) {
+    // Register the shared frame handler if using WebSocket writes
+    if (useWebSocketWrites) {
+      ensureFrameHandler(connection)
+    }
+  }
 
   /**
    * Set expected SHA1 hash for the next write operation.
@@ -91,8 +167,11 @@ export class DaemonFileHandle implements IFileHandle {
   }
 
   /**
-   * Write via WebSocket (fire-and-forget mode).
+   * Write via WebSocket with ACK/ERROR handling.
    * Frame format: [envelope:8][root_key_len:1][root_key:N][path_len:2 LE][path:M][offset:8 LE][flags:1][optional sha1:20][data:K]
+   *
+   * Uses non-zero requestId to receive acknowledgment or error response.
+   * Throws HashMismatchError if hash verification fails on the server.
    */
   private writeViaWebSocket(data: Uint8Array, position: number): Promise<{ bytesWritten: number }> {
     const encoder = new TextEncoder()
@@ -102,6 +181,10 @@ export class DaemonFileHandle implements IFileHandle {
     const hasHash = this.pendingHash !== null
     const flags = hasHash ? 1 : 0
     const hashSize = hasHash ? 20 : 0
+
+    // Generate unique requestId for this write
+    const requestId = nextRequestId++
+    if (nextRequestId > 0x7fffffff) nextRequestId = 1 // Wrap around, avoid 0
 
     // Calculate total frame size
     const payloadSize =
@@ -127,7 +210,7 @@ export class DaemonFileHandle implements IFileHandle {
     view.setUint8(idx++, OP_FILE_WRITE)
     view.setUint16(idx, 0, true) // flags
     idx += 2
-    view.setUint32(idx, 0, true) // requestId = 0 for fire-and-forget
+    view.setUint32(idx, requestId, true) // non-zero requestId for ACK/ERROR response
     idx += 4
 
     // root_key_len (1 byte)
@@ -162,10 +245,25 @@ export class DaemonFileHandle implements IFileHandle {
     // data
     bytes.set(data, idx)
 
-    // Send the frame
-    this.connection.sendFrame(frame)
+    // Create promise that will be resolved/rejected by frame handler
+    return new Promise((resolve, reject) => {
+      // Register pending write
+      pendingWrites.set(requestId, {
+        resolve: () => resolve({ bytesWritten: data.length }),
+        reject,
+      })
 
-    return Promise.resolve({ bytesWritten: data.length })
+      // Send the frame
+      this.connection.sendFrame(frame)
+
+      // Timeout after 30 seconds (disk operations can be slow)
+      setTimeout(() => {
+        if (pendingWrites.has(requestId)) {
+          pendingWrites.delete(requestId)
+          reject(new Error('Write timed out waiting for server response'))
+        }
+      }, 30000)
+    })
   }
 
   /**

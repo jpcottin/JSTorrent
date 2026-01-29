@@ -1283,6 +1283,34 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     this.cancelDaemonOps(infoHashHex)
   }
 
+  // ==========================================================================
+  // ENGINE TICK LOOP
+  //
+  // SYNC WITH: android/quickjs-engine/.../EngineController.kt (startHostDrivenTick)
+  //
+  // This tick loop should be morally in sync with the Kotlin host-driven tick
+  // loop in EngineController.kt. Key differences:
+  //
+  // - Extension (JS-driven, here): Fixed 100ms interval via setInterval
+  // - Android (host-driven, EngineController.kt): Adaptive timing with delay hints
+  //   - 1ms minimum when work pending (near-continuous)
+  //   - 20ms when idle (no active pieces, no buffered bytes)
+  //   - Proportional delay when hasher backed up (pendingHashes * 0.4, max 100ms)
+  //
+  // The Android adaptive mode gives better throughput by eliminating dead time
+  // between ticks when there's work to do. The extension uses fixed interval
+  // for simplicity since browser tabs run in a more predictable environment.
+  //
+  // Both call the same doTick()/tick() which delegates to TorrentTickLoop:
+  // 1. GATHER - drain TCP buffers from all peers
+  // 2. PROCESS - piece health cleanup (timeout stale requests)
+  // 3. REQUEST - fill peer request pipelines
+  // 4. OUTPUT - flush all pending sends
+  //
+  // If you change timing or tick behavior here, consider whether
+  // EngineController.kt needs the same change for Android parity.
+  // ==========================================================================
+
   /**
    * Start the unified engine tick loop.
    * Runs at 100ms intervals: connection slot allocation + per-torrent processing.

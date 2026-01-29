@@ -27,6 +27,12 @@ export interface IDiskQueue {
   resume(): void
   getSnapshot(): DiskQueueSnapshot
   /**
+   * Clear all pending jobs from the queue (running jobs continue to completion).
+   * The promises returned by enqueue() for cleared jobs will reject with an error.
+   * Use this when stopping a torrent to prevent stale writes from accumulating.
+   */
+  clearPending(): void
+  /**
    * Flush any pending batched writes.
    * Called at end of tick to send accumulated writes in a single FFI call.
    * Default implementation is no-op (for non-batching queues).
@@ -41,9 +47,15 @@ export interface DiskQueueConfig {
   maxWorkers: number
 }
 
+interface PendingJob {
+  job: DiskJob
+  execute: () => Promise<void>
+  reject: (reason: Error) => void
+}
+
 export class TorrentDiskQueue implements IDiskQueue {
   private nextId = 1
-  private pending: Array<{ job: DiskJob; execute: () => Promise<void> }> = []
+  private pending: PendingJob[] = []
   private running: Map<number, DiskJob> = new Map()
   private draining = false
   private drainResolve: (() => void) | null = null
@@ -69,12 +81,13 @@ export class TorrentDiskQueue implements IDiskQueue {
     return new Promise((resolve, reject) => {
       this.pending.push({
         job,
+        reject,
         execute: async () => {
           try {
             await execute()
             resolve()
           } catch (e) {
-            reject(e)
+            reject(e as Error)
           }
         },
       })
@@ -133,6 +146,22 @@ export class TorrentDiskQueue implements IDiskQueue {
       draining: this.draining,
     }
   }
+
+  clearPending(): void {
+    const cleared = this.pending.length
+    // Reject all pending job promises
+    for (const item of this.pending) {
+      item.reject(new Error('Disk queue cleared (torrent stopped)'))
+    }
+    this.pending = []
+    // Also reset draining state to clean state
+    this.draining = false
+    this.drainResolve = null
+    if (cleared > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`[DiskQueue] Cleared ${cleared} pending jobs`)
+    }
+  }
 }
 
 /**
@@ -166,5 +195,9 @@ export class PassthroughDiskQueue implements IDiskQueue {
 
   getSnapshot(): DiskQueueSnapshot {
     return { pending: [], running: [], draining: false }
+  }
+
+  clearPending(): void {
+    // No-op - nothing queued on JS side
   }
 }
