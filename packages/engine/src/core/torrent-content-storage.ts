@@ -57,8 +57,9 @@ export class TorrentContentStorage extends EngineComponent {
 
   private id = Math.random().toString(36).slice(2, 7)
 
-  /** Flag to prevent concurrent batch writes (one in-flight at a time) */
-  private batchInFlight = false
+  /** Track concurrent batch writes to avoid overwhelming the daemon */
+  private batchesInFlight = 0
+  private static readonly MAX_CONCURRENT_BATCHES = 1
 
   constructor(
     engine: ILoggingEngine,
@@ -387,9 +388,8 @@ export class TorrentContentStorage extends EngineComponent {
         size: data.length,
       },
       async () => {
-        // If batching is enabled, there's a backlog, and no batch currently in-flight, try to batch
-        // The batchInFlight check prevents multiple workers from sending concurrent batch requests
-        if (batchData && !this.batchInFlight) {
+        // If batching is enabled, there's a backlog, and we have capacity, try to batch
+        if (batchData && this.batchesInFlight < TorrentContentStorage.MAX_CONCURRENT_BATCHES) {
           const pendingBytes = this.diskQueue!.pendingBytes
           if (pendingBytes > LOW_BACKLOG_THRESHOLD) {
             const batched = await this.tryBatchWrite(batchData)
@@ -454,9 +454,7 @@ export class TorrentContentStorage extends EngineComponent {
       }
     }
 
-    // Mark batch as in-flight to prevent concurrent batch requests
-    this.batchInFlight = true
-
+    this.batchesInFlight++
     try {
       // Send all writes in a single HTTP request
       await daemonHandle.writeBatch(writes)
@@ -475,8 +473,7 @@ export class TorrentContentStorage extends EngineComponent {
       // Re-throw so current job also fails
       throw error
     } finally {
-      // Clear in-flight flag so next batch can proceed
-      this.batchInFlight = false
+      this.batchesInFlight--
     }
   }
 
