@@ -41,7 +41,7 @@ export interface IDiskQueue {
 }
 
 // Default concurrent disk workers for TorrentDiskQueue (extension/daemon mode)
-const DEFAULT_DISK_WORKERS = 8
+const DEFAULT_DISK_WORKERS = 5
 
 export interface DiskQueueConfig {
   maxWorkers: number

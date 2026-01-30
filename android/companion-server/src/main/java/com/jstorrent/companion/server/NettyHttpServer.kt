@@ -14,6 +14,7 @@ import io.netty.channel.socket.SocketChannel
 import io.netty.channel.socket.nio.NioServerSocketChannel
 import io.netty.handler.codec.http.*
 import io.netty.util.CharsetUtil
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.net.Inet4Address
@@ -25,6 +26,42 @@ import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "NettyHttpServer"
 private const val MAX_BODY_SIZE = 64 * 1024 * 1024 // 64MB
+
+@Serializable
+private data class StatusResponse(
+    val port: Int,
+    val ioPort: Int? = null,
+    val paired: Boolean,
+    val extensionId: String? = null,
+    val installId: String? = null,
+    val version: String? = null,
+    val tokenValid: Boolean? = null
+)
+
+@Serializable
+private data class NetworkInterfaceInfo(
+    val name: String,
+    val address: String,
+    val prefixLength: Int
+)
+
+@Serializable
+private data class RootsResponse(
+    val roots: List<DownloadRoot>
+)
+
+@Serializable
+private data class DaemonStatsResponse(
+    val tcp_sockets: Int,
+    val pending_connects: Int,
+    val pending_tcp: Int,
+    val udp_sockets: Int,
+    val tcp_servers: Int,
+    val ws_connections: Int,
+    val bytes_sent: Long,
+    val bytes_received: Long,
+    val uptime_secs: Long
+)
 
 private val json = Json {
     encodeDefaults = true
@@ -257,7 +294,7 @@ private class NettyHttpHandler(
     }
 
     private fun handleNetworkInterfaces(ctx: ChannelHandlerContext, request: FullHttpRequest) {
-        val interfaces = mutableListOf<Map<String, Any>>()
+        val interfaces = mutableListOf<NetworkInterfaceInfo>()
 
         try {
             val netInterfaces = NetworkInterface.getNetworkInterfaces()
@@ -268,10 +305,10 @@ private class NettyHttpHandler(
                 for (addr in iface.interfaceAddresses) {
                     val inet = addr.address
                     if (inet is Inet4Address) {
-                        interfaces.add(mapOf(
-                            "name" to iface.name,
-                            "address" to (inet.hostAddress ?: ""),
-                            "prefixLength" to addr.networkPrefixLength.toInt()
+                        interfaces.add(NetworkInterfaceInfo(
+                            name = iface.name,
+                            address = inet.hostAddress ?: "",
+                            prefixLength = addr.networkPrefixLength.toInt()
                         ))
                     }
                 }
@@ -326,15 +363,15 @@ private class NettyHttpHandler(
 
         // Build response - include ioPort for WebSocket connections
         val currentIoPort = ioPortProvider()
-        val response = buildMap {
-            put("port", (ctx.channel().localAddress() as InetSocketAddress).port)
-            if (currentIoPort > 0) put("ioPort", currentIoPort)
-            put("paired", deps.tokenStore.hasToken())
-            deps.tokenStore.extensionId?.let { put("extensionId", it) }
-            deps.tokenStore.installId?.let { put("installId", it) }
-            deps.versionName?.let { put("version", it) }
-            tokenValid?.let { put("tokenValid", it) }
-        }
+        val response = StatusResponse(
+            port = (ctx.channel().localAddress() as InetSocketAddress).port,
+            ioPort = if (currentIoPort > 0) currentIoPort else null,
+            paired = deps.tokenStore.hasToken(),
+            extensionId = deps.tokenStore.extensionId,
+            installId = deps.tokenStore.installId,
+            version = deps.versionName,
+            tokenValid = tokenValid
+        )
 
         sendJsonResponse(ctx, request, HttpResponseStatus.OK, json.encodeToString(response))
     }
@@ -410,16 +447,16 @@ private class NettyHttpHandler(
             return
         }
 
-        val response = mapOf(
-            "tcp_sockets" to DaemonStats.tcpSockets.get(),
-            "pending_connects" to DaemonStats.pendingConnects.get(),
-            "pending_tcp" to DaemonStats.pendingTcp.get(),
-            "udp_sockets" to DaemonStats.udpSockets.get(),
-            "tcp_servers" to DaemonStats.tcpServers.get(),
-            "ws_connections" to DaemonStats.wsConnections.get(),
-            "bytes_sent" to DaemonStats.bytesSent.get(),
-            "bytes_received" to DaemonStats.bytesReceived.get(),
-            "uptime_secs" to DaemonStats.uptimeSecs()
+        val response = DaemonStatsResponse(
+            tcp_sockets = DaemonStats.tcpSockets.get(),
+            pending_connects = DaemonStats.pendingConnects.get(),
+            pending_tcp = DaemonStats.pendingTcp.get(),
+            udp_sockets = DaemonStats.udpSockets.get(),
+            tcp_servers = DaemonStats.tcpServers.get(),
+            ws_connections = DaemonStats.wsConnections.get(),
+            bytes_sent = DaemonStats.bytesSent.get(),
+            bytes_received = DaemonStats.bytesReceived.get(),
+            uptime_secs = DaemonStats.uptimeSecs()
         )
 
         sendJsonResponse(ctx, request, HttpResponseStatus.OK, json.encodeToString(response))
@@ -436,7 +473,7 @@ private class NettyHttpHandler(
         }
 
         val roots = deps.rootStore.refreshAvailability()
-        sendJsonResponse(ctx, request, HttpResponseStatus.OK, json.encodeToString(mapOf("roots" to roots)))
+        sendJsonResponse(ctx, request, HttpResponseStatus.OK, json.encodeToString(RootsResponse(roots)))
     }
 
     private fun handleDeleteRoot(ctx: ChannelHandlerContext, request: FullHttpRequest, path: String) {

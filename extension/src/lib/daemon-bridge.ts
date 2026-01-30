@@ -423,8 +423,11 @@ export class DaemonBridge {
       last_checked: r.lastChecked ?? r.last_checked ?? Date.now(),
     }))
 
-    // Connect WebSocket
-    await this.connectWebSocket(host, port, token)
+    // Connect WebSocket to ioPort (where /control now lives after Ktor->Netty migration)
+    if (!ioPort) {
+      throw new Error('ioPort not provided - daemon may need update')
+    }
+    await this.connectWebSocket(host, ioPort, token)
 
     // Build capabilities - default to manageable unless explicitly set to false
     const daemonCapabilities: DaemonCapabilities = {

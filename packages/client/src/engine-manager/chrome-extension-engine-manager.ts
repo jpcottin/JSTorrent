@@ -218,7 +218,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     // On desktop, use token directly from daemon info
     const isChromeos = daemonInfo.host === '100.115.92.2'
     // on chromeOs this improves performance? (no seems worse)
-    const USE_WEBSOCKET_WRITES = true
+    const USE_WEBSOCKET_WRITES = false
 
     if (isChromeos) {
       this.daemonConnection = new DaemonConnection(
