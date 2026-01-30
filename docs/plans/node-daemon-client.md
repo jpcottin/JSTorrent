@@ -125,7 +125,13 @@ curl http://localhost:3000/torrent/<infohash>/peers
 
 ### Remove Torrent
 ```bash
+# Remove torrent only (keep downloaded files)
 curl -X POST http://localhost:3000/torrent/<infohash>/remove
+
+# Remove torrent and delete downloaded files
+curl -X POST http://localhost:3000/torrent/<infohash>/remove \
+  -H "Content-Type: application/json" \
+  -d '{"deleteData":true}'
 ```
 
 ### Shutdown
@@ -198,7 +204,27 @@ Options:
   --install-id <id>   Install ID for auth (env: JST_INSTALL_ID)
   --rpc-port <port>   HTTP RPC server port (default: 3000, env: RPC_PORT)
   --session-path <p>  Path to session file (default: ~/.config/jstorrent-node-client/session.json)
+  --no-session        Disable session persistence (stateless mode for benchmarking)
   --help, -h          Show help
+```
+
+## Benchmarking
+
+For repeatable download speed tests, use stateless mode:
+
+```bash
+./scripts/benchmark-daemon-download.sh
+```
+
+Or manually:
+```bash
+# Start with --no-session to avoid restoring previous state
+npx tsx src/cmd/run-daemon-rpc.ts --no-session
+
+# After download, remove with data cleanup
+curl -X POST http://localhost:3000/torrent/<hash>/remove \
+  -H "Content-Type: application/json" \
+  -d '{"deleteData":true}'
 ```
 
 ## Implementation Files

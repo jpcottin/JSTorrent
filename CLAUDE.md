@@ -450,6 +450,44 @@ The `status` command shows both current latency and max observed latency since e
 
 **Implementation:** `android/app/src/main/java/com/jstorrent/app/debug/DebugReceiver.kt`
 
+## Download Speed Benchmarking
+
+Use this to measure baseline download throughput when optimizing performance.
+
+**Quick start:**
+```bash
+# Ensure 1GB seeder is running on 192.168.1.107
+ssh 192.168.1.107 "cd ~/code/jstorrent && pnpm seed-for-test --size 1gb"
+
+# Run benchmark
+./scripts/benchmark-daemon-download.sh
+```
+
+**What it does:**
+1. Syncs engine code to chromebook
+2. Starts Node.js daemon client with `--no-session` (stateless mode)
+3. Downloads 1GB test torrent via Android companion
+4. Reports time and average speed
+5. Cleans up (removes torrent with data)
+
+**Typical results:** ~30 MB/s average
+
+**Options:**
+```bash
+./scripts/benchmark-daemon-download.sh [ssh_host] [seeder_ip:port]
+./scripts/benchmark-daemon-download.sh chromebook 192.168.1.107:6881  # defaults
+```
+
+**Node.js daemon client flags:**
+- `--no-session` - Stateless mode (MemorySessionStore), no persistence between runs
+- `--help` - Show all options
+
+**RPC endpoints used:**
+- `POST /torrent/add` - Add torrent with magnet link
+- `GET /torrent/{id}/status` - Get progress, speed, peers
+- `POST /torrent/{id}/remove` with `{"deleteData":true}` - Remove and delete files
+- `POST /shutdown` - Stop daemon
+
 ## Android SDK Setup
 
 The Android SDK is at `~/Android/Sdk`. Gradle needs to know the SDK location via one of:
