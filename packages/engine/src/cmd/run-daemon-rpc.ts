@@ -29,6 +29,7 @@ import { DaemonConnection } from '../adapters/daemon/daemon-connection'
 import { fetchDaemonRoots, fetchDaemonStatus } from '../adapters/daemon/daemon-client'
 import { createDaemonEngine } from '../presets/daemon'
 import { JsonFileSessionStore } from '../adapters/node/json-file-session-store'
+import { MemorySessionStore } from '../adapters/memory/memory-session-store'
 import { BtEngine } from '../core/bt-engine'
 import { toInfoHashString } from '../utils/infohash'
 import { globalLogStore, LogLevel, LogEntry } from '../logging/logger'
@@ -43,6 +44,7 @@ function parseArgs(): {
   installId: string
   rpcPort: number
   sessionPath: string
+  noSession: boolean
 } {
   const args = process.argv.slice(2)
   let host = process.env.JST_HOST || '127.0.0.1'
@@ -52,6 +54,7 @@ function parseArgs(): {
   let installId = process.env.JST_INSTALL_ID || ''
   let rpcPort = parseInt(process.env.RPC_PORT || '3000', 10)
   let sessionPath = ''
+  let noSession = false
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -76,6 +79,9 @@ function parseArgs(): {
       case '--session-path':
         sessionPath = args[++i]
         break
+      case '--no-session':
+        noSession = true
+        break
       case '--help':
       case '-h':
         console.log(`Usage: run-daemon-rpc.ts [options]
@@ -88,6 +94,7 @@ Options:
   --install-id <id>   Install ID for auth (env: JST_INSTALL_ID)
   --rpc-port <port>   HTTP RPC server port (default: 3000, env: RPC_PORT)
   --session-path <p>  Path to session file (default: ~/.config/jstorrent-node-client/session.json)
+  --no-session        Disable session persistence (stateless mode for testing)
   --help, -h          Show this help
 `)
         process.exit(0)
@@ -104,7 +111,7 @@ Options:
     sessionPath = path.join(os.homedir(), '.config', 'jstorrent-node-client', 'session.json')
   }
 
-  return { host, port, token, extensionId, installId, rpcPort, sessionPath }
+  return { host, port, token, extensionId, installId, rpcPort, sessionPath, noSession }
 }
 
 // HTTP RPC Server for daemon-backed engine
@@ -176,7 +183,8 @@ class DaemonRpcServer {
         this.sendJson(res, status)
       } else if (url?.startsWith('/torrent/') && url?.endsWith('/remove') && method === 'POST') {
         const id = url.split('/')[2]
-        this.removeTorrent(id)
+        const body = await this.readBody(req)
+        await this.removeTorrent(id, body.deleteData === true)
         this.sendJson(res, { ok: true })
       } else if (url?.startsWith('/torrent/') && url?.endsWith('/add-peer') && method === 'POST') {
         const id = url.split('/')[2]
@@ -283,9 +291,15 @@ class DaemonRpcServer {
     }
   }
 
-  private removeTorrent(id: string) {
+  private async removeTorrent(id: string, deleteData = false) {
     if (!this.engine) throw new Error('EngineNotRunning')
-    this.engine.removeTorrentByHash(id)
+    const torrent = this.engine.getTorrent(id)
+    if (!torrent) throw new Error('TorrentNotFound')
+    if (deleteData) {
+      await this.engine.removeTorrentWithData(torrent)
+    } else {
+      await this.engine.removeTorrent(torrent)
+    }
   }
 
   private async addPeer(torrentId: string, ip: string, port: number) {
@@ -417,11 +431,15 @@ async function main() {
     process.exit(1)
   }
 
-  // Ensure session directory exists
-  await fs.mkdir(path.dirname(config.sessionPath), { recursive: true })
-
-  // Create session store
-  const sessionStore = new JsonFileSessionStore(config.sessionPath)
+  // Create session store (memory-only if --no-session)
+  let sessionStore
+  if (config.noSession) {
+    console.log('Session persistence disabled (--no-session)')
+    sessionStore = new MemorySessionStore()
+  } else {
+    await fs.mkdir(path.dirname(config.sessionPath), { recursive: true })
+    sessionStore = new JsonFileSessionStore(config.sessionPath)
+  }
 
   // Create engine with daemon connection
   const engine = await createDaemonEngine({
