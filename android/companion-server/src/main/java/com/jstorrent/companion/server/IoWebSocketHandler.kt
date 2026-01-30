@@ -3,7 +3,6 @@
 package com.jstorrent.companion.server
 
 import android.util.Log
-import com.jstorrent.companion.server.websocket.KtorWebSocketSession
 import com.jstorrent.companion.server.websocket.WebSocketSession
 import com.jstorrent.io.file.FileManager
 import com.jstorrent.io.file.FileManagerException
@@ -18,7 +17,6 @@ import com.jstorrent.io.socket.TcpSocketCallback
 import com.jstorrent.io.socket.TcpSocketService
 import com.jstorrent.io.socket.UdpSocketCallback
 import com.jstorrent.io.socket.UdpSocketManagerImpl
-import io.ktor.server.websocket.DefaultWebSocketServerSession
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import java.util.concurrent.ConcurrentHashMap
@@ -71,11 +69,6 @@ class IoWebSocketHandler(
     // Outgoing message queue - large buffer for high throughput
     // At 65KB frames, 2000 frames = ~130MB buffer capacity
     private val outgoing = Channel<ByteArray>(2000)
-
-    // Expose the WebSocket session for external close (e.g., unpair)
-    // Only works with KtorWebSocketSession; returns null for other implementations
-    val webSocketSession: DefaultWebSocketServerSession?
-        get() = (session as? KtorWebSocketSession)?.underlying
 
     // Session statistics
     private val dropCount = AtomicLong(0)

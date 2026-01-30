@@ -3,14 +3,11 @@ package com.jstorrent.companion.server.websocket
 /**
  * Transport-agnostic WebSocket session interface.
  *
- * This abstraction decouples handler logic from specific WebSocket implementations
- * (Ktor, Netty, java-websocket, etc.) allowing easy swapping of WebSocket providers
- * for performance optimization.
+ * This abstraction decouples handler logic from specific WebSocket implementations,
+ * allowing easy swapping of WebSocket providers for performance optimization.
  *
- * Implementations:
- * - KtorWebSocketSession: Wraps Ktor's DefaultWebSocketServerSession
- * - (Future) NettyWebSocketSession: Direct Netty WebSocket
- * - (Future) JavaWebSocketSession: java_websocket library
+ * Current implementation:
+ * - JavaWebSocketSession: Uses java_websocket library (high throughput)
  */
 interface WebSocketSession {
     /**
