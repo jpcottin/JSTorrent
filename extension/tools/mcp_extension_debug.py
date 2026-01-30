@@ -27,6 +27,7 @@ Register with Claude Code:
 import asyncio
 import base64
 import json
+import os
 import signal
 import sys
 from collections import deque
@@ -44,6 +45,9 @@ from mcp.types import ImageContent, TextContent, Tool
 
 from PIL import Image
 import pytesseract
+
+# Parent PID at startup - used to detect orphaned process
+_PARENT_PID = os.getppid()
 
 # Configuration
 DEFAULT_HOST = "localhost"
@@ -1206,6 +1210,20 @@ async def async_cleanup():
 # Main
 # =============================================================================
 
+async def parent_monitor():
+    """Monitor parent process and exit if orphaned.
+
+    When parent dies, PPID becomes 1 (init/launchd). This catches cases
+    where the parent is killed abruptly and stdin doesn't close cleanly.
+    """
+    while True:
+        await asyncio.sleep(2)
+        if os.getppid() != _PARENT_PID:
+            print("Parent process died, exiting...", file=sys.stderr)
+            await async_cleanup()
+            os._exit(0)
+
+
 async def main():
     loop = asyncio.get_running_loop()
 
@@ -1223,11 +1241,16 @@ async def main():
         loop.add_signal_handler(sig, handle_signal)
 
     init_connections()
+
+    # Start parent monitor to detect orphaned process
+    monitor_task = asyncio.create_task(parent_monitor())
+
     try:
         async with stdio_server() as (read_stream, write_stream):
             await server.run(read_stream, write_stream, server.create_initialization_options())
     finally:
         # Clean up when stdio_server exits (e.g., when stdin is closed)
+        monitor_task.cancel()
         await async_cleanup()
 
 

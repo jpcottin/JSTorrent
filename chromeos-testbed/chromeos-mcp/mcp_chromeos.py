@@ -10,6 +10,7 @@ Screenshot returns the image - Claude figures out coordinates from there.
 import asyncio
 import json
 import base64
+import os
 import signal
 import sys
 from io import BytesIO
@@ -18,6 +19,9 @@ from PIL import Image
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, ImageContent, Tool
+
+# Parent PID at startup - used to detect orphaned process
+_PARENT_PID = os.getppid()
 
 SSH_HOST = "chromeroot"
 CLIENT_PATH = "/mnt/stateful_partition/c2/client.py"
@@ -283,17 +287,35 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
+async def parent_monitor():
+    """Monitor parent process and exit if orphaned.
+
+    When parent dies, PPID becomes 1 (init/launchd). This catches cases
+    where the parent is killed abruptly and stdin doesn't close cleanly.
+    """
+    while True:
+        await asyncio.sleep(2)
+        if os.getppid() != _PARENT_PID:
+            print("Parent process died, exiting...", file=sys.stderr)
+            conn.cleanup()
+            os._exit(0)
+
+
 async def main():
     # Set up signal handlers for graceful shutdown
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGHUP, signal_handler)
 
+    # Start parent monitor to detect orphaned process
+    monitor_task = asyncio.create_task(parent_monitor())
+
     try:
         async with stdio_server() as (read_stream, write_stream):
             await server.run(read_stream, write_stream, server.create_initialization_options())
     finally:
         # Clean up when stdio_server exits (e.g., when stdin is closed)
+        monitor_task.cancel()
         conn.cleanup()
 
 
