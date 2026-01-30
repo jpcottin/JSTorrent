@@ -1,8 +1,6 @@
 # Node.js Daemon-Backed Engine Client
 
-## Goal
-
-Create a Node.js BitTorrent engine client that runs on Chromebook Crostini and uses an external daemon (Android companion server or Rust io-daemon) for all network/disk I/O. This enables easier testing and performance benchmarking of the companion server without needing to reload the Chrome extension.
+A Node.js BitTorrent engine client that runs on Chromebook Crostini and uses an external daemon (Android companion server or Rust io-daemon) for all network/disk I/O.
 
 ## Architecture
 
@@ -34,186 +32,187 @@ Create a Node.js BitTorrent engine client that runs on Chromebook Crostini and u
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Implementation Plan
+## Quick Start
 
-### Phase 1: Create `run-daemon-rpc.ts` CLI
-
-**File:** `packages/engine/src/cmd/run-daemon-rpc.ts`
-
-```typescript
-// CLI arguments:
-// --host <ip>       Daemon host (default: 127.0.0.1)
-// --port <port>     Daemon port (default: 7800)
-// --token <token>   Auth token (required, or use JST_TOKEN env var)
-// --rpc-port <port> HTTP RPC server port (default: 3000)
-// --download-dir    Override default download directory (optional)
-
-// Flow:
-// 1. Parse CLI args
-// 2. Create DaemonConnection with host/port/token
-// 3. Connect WebSocket
-// 4. Fetch storage roots from daemon: GET /roots
-// 5. Create engine with createDaemonEngine()
-// 6. Start HttpRpcServer
-// 7. Print "RPC_PORT=<port>" for test harness
-```
-
-### Phase 2: Add `/roots` endpoint support to DaemonConnection
-
-The `DaemonConnection` class already has `request()` method for HTTP. Add a helper:
-
-```typescript
-// In daemon-connection.ts or a new daemon-client.ts
-async function fetchDaemonRoots(connection: DaemonConnection): Promise<StorageRoot[]> {
-  const response = await connection.request<{ roots: DaemonRoot[] }>('GET', '/roots')
-  return response.roots.map(r => ({
-    key: r.key,
-    label: r.display_name,
-    path: r.path,
-  }))
-}
-```
-
-### Phase 3: Modify `createDaemonEngine` to accept pre-connected DaemonConnection
-
-Currently `createDaemonEngine` creates its own connection. For flexibility, allow passing an existing connection:
-
-```typescript
-export interface DaemonEngineConfig {
-  // Option A: Pass connection params (current behavior)
-  daemon?: { port: number; authToken: string; host?: string }
-  // Option B: Pass pre-connected connection (new)
-  connection?: DaemonConnection
-  // ... rest of config
-}
-```
-
-### Phase 4: Token/Pairing Strategy
-
-For testing, support multiple token sources:
-
-1. **CLI arg:** `--token <token>`
-2. **Environment variable:** `JST_TOKEN`
-3. **Config file:** `~/.config/jstorrent-node-client/config.json`
-4. **Auto-pair:** If no token, call `/pair` endpoint (needs extension ID)
-
-For initial implementation, require explicit token (options 1 or 2).
-
-### Phase 5: Session Store for Daemon Mode
-
-The daemon engine needs a session store for torrent metadata. Options:
-
-1. **In-memory:** Lost on restart (fine for testing)
-2. **JSON file in Crostini:** `~/.config/jstorrent-node-client/session.json`
-3. **On daemon side:** Would need new endpoint (future work)
-
-Start with option 2 (local JSON file).
-
-## Files to Create/Modify
-
-| File | Action | Description |
-|------|--------|-------------|
-| `packages/engine/src/cmd/run-daemon-rpc.ts` | Create | New CLI entry point |
-| `packages/engine/src/presets/daemon.ts` | Modify | Accept pre-connected DaemonConnection |
-| `packages/engine/src/adapters/daemon/daemon-client.ts` | Create | Helper for fetching roots, status, etc. |
-| `packages/engine/src/node-rpc/controller.ts` | Modify | Add `startDaemonEngine()` method |
-
-## Usage Examples
-
-### Connect to Android Companion Server
+### 1. Get credentials from Android app
 
 ```bash
-# Get token from Android app (via adb or manually)
-export JST_TOKEN="abc123..."
+# Read auth credentials from Android shared preferences
+ADB=/home/graehlarts/android-sdk/platform-tools/adb
+$ADB shell "run-as com.jstorrent.app cat shared_prefs/jstorrent_auth.xml"
+```
 
-# Run the client
-cd /path/to/jstorrent
-pnpm tsx packages/engine/src/cmd/run-daemon-rpc.ts \
-  --host 100.115.92.2 \
-  --port 7800
+This outputs XML with:
+- `auth_token` - The auth token
+- `extension_id` - Extension ID for auth headers
+- `install_id` - Install ID for auth headers
 
-# In another terminal, control it
-curl -X POST http://localhost:3000/engine/start
+### 2. Create .env file (gitignored)
+
+```bash
+cat > .env << 'EOF'
+JST_HOST=100.115.92.2
+JST_PORT=7800
+JST_TOKEN=<auth_token from above>
+JST_EXTENSION_ID=<extension_id from above>
+JST_INSTALL_ID=<install_id from above>
+RPC_PORT=3000
+EOF
+```
+
+### 3. Run the daemon client
+
+```bash
+cd packages/engine
+source ../../.env
+npx tsx src/cmd/run-daemon-rpc.ts
+```
+
+Output:
+```
+Connecting to daemon at 100.115.92.2:7800...
+Fetching daemon status...
+Daemon status: port=7800, ioPort=7806, paired=true
+WebSocket connected on ioPort 7806
+Fetched 1 storage roots:
+  - jstorrent (46f460d74735e5cc)
+Engine created, listening on port 6881
+RPC_PORT=3000
+HTTP RPC Server listening on port 3000
+```
+
+## HTTP RPC API
+
+### Engine Status
+```bash
+curl http://localhost:3000/engine/status
+# {"ok":true,"running":true,"version":"1.0.0","port":6881,"torrents":[],"daemonConnected":true}
+```
+
+### Storage Roots
+```bash
+curl http://localhost:3000/engine/roots
+# {"ok":true,"roots":[{"key":"46f460d74735e5cc","label":"jstorrent","path":"content://..."}]}
+```
+
+### Add Torrent (magnet)
+```bash
 curl -X POST http://localhost:3000/torrent/add \
   -H "Content-Type: application/json" \
   -d '{"type":"magnet","data":"magnet:?xt=urn:btih:..."}'
+# {"ok":true,"id":"dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c"}
 ```
 
-### Connect to Rust io-daemon (Standalone)
+### Add Torrent (file)
+```bash
+# Base64-encode the .torrent file
+TORRENT_B64=$(base64 -w0 file.torrent)
+curl -X POST http://localhost:3000/torrent/add \
+  -H "Content-Type: application/json" \
+  -d "{\"type\":\"file\",\"data\":\"$TORRENT_B64\"}"
+```
+
+### Torrent Status
+```bash
+curl http://localhost:3000/torrent/<infohash>/status
+# {"ok":true,"id":"...","state":"downloading","progress":0.5,"downloadRate":500000,"peers":10}
+```
+
+### List Peers
+```bash
+curl http://localhost:3000/torrent/<infohash>/peers
+```
+
+### Remove Torrent
+```bash
+curl -X POST http://localhost:3000/torrent/<infohash>/remove
+```
+
+### Shutdown
+```bash
+curl -X POST http://localhost:3000/shutdown
+```
+
+## Example: Download Big Buck Bunny
 
 ```bash
-# Start io-daemon in standalone mode
-./jstorrent-io-daemon --standalone --download-root ~/Downloads --bind 0.0.0.0
+#!/bin/bash
+# download-big-buck-bunny.sh
 
-# Get token from config
-export JST_TOKEN=$(jq -r .token ~/.config/jstorrent-standalone/config.json)
+cd /path/to/jstorrent/packages/engine
+source ../../.env
 
-# Run the client
-pnpm tsx packages/engine/src/cmd/run-daemon-rpc.ts \
-  --host localhost \
-  --port 7800
+# Start daemon client in background
+npx tsx src/cmd/run-daemon-rpc.ts &
+DAEMON_PID=$!
+sleep 8
+
+# Add Big Buck Bunny torrent
+MAGNET='magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.coppersurfer.tk%3A6969&tr=udp%3A%2F%2Ftracker.empire-js.us%3A1337&tr=udp%3A%2F%2Ftracker.leechers-paradise.org%3A6969&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=wss%3A%2F%2Ftracker.btorrent.xyz&tr=wss%3A%2F%2Ftracker.fastcast.nz&tr=wss%3A%2F%2Ftracker.openwebtorrent.com&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F&xs=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2Fbig-buck-bunny.torrent'
+
+echo "Adding torrent..."
+curl -s -X POST http://localhost:3000/torrent/add \
+  -H "Content-Type: application/json" \
+  -d "{\"type\":\"magnet\",\"data\":\"$MAGNET\"}"
+echo ""
+
+HASH="dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c"
+
+# Poll status until complete
+while true; do
+  STATUS=$(curl -s http://localhost:3000/torrent/$HASH/status)
+  PROGRESS=$(echo "$STATUS" | grep -o '"progress":[0-9.]*' | cut -d: -f2)
+  RATE=$(echo "$STATUS" | grep -o '"downloadRate":[0-9]*' | cut -d: -f2)
+  PEERS=$(echo "$STATUS" | grep -o '"peers":[0-9]*' | cut -d: -f2)
+
+  # Convert to percentage and MB/s
+  PCT=$(echo "$PROGRESS * 100" | bc -l 2>/dev/null | cut -d. -f1)
+  MBPS=$(echo "scale=2; $RATE / 1048576" | bc -l 2>/dev/null)
+
+  echo "Progress: ${PCT:-0}% | Speed: ${MBPS:-0} MB/s | Peers: ${PEERS:-0}"
+
+  # Check if complete
+  if [ "$(echo "$PROGRESS >= 1.0" | bc -l 2>/dev/null)" = "1" ]; then
+    echo "Download complete!"
+    break
+  fi
+
+  sleep 5
+done
+
+# Cleanup
+curl -s -X POST http://localhost:3000/shutdown
+wait $DAEMON_PID 2>/dev/null
 ```
 
-### Use with Python Test Client
+## CLI Options
 
-```python
-from jst import JSTEngine
+```
+Usage: run-daemon-rpc.ts [options]
 
-# Point to the daemon-backed RPC server
-engine = JSTEngine(
-    download_dir="/tmp/unused",  # Ignored, daemon provides roots
-    rpc_url="http://localhost:3000"  # Connect to running daemon client
-)
-
-# Or if we add external connection support to JSTEngine:
-engine = JSTEngine.connect("http://localhost:3000")
-
-torrent_id = engine.add_magnet("magnet:?...")
-engine.wait_for_download(torrent_id, timeout=300)
+Options:
+  --host <ip>         Daemon host (default: 127.0.0.1, env: JST_HOST)
+  --port <port>       Daemon port (default: 7800, env: JST_PORT)
+  --token <token>     Auth token (required, env: JST_TOKEN)
+  --extension-id <id> Extension ID for auth (env: JST_EXTENSION_ID)
+  --install-id <id>   Install ID for auth (env: JST_INSTALL_ID)
+  --rpc-port <port>   HTTP RPC server port (default: 3000, env: RPC_PORT)
+  --session-path <p>  Path to session file (default: ~/.config/jstorrent-node-client/session.json)
+  --help, -h          Show help
 ```
 
-## Testing on Chromebook
+## Implementation Files
 
-### Prerequisites
-
-1. **Node.js in Crostini:** Should already be available via `nvm` or system install
-2. **pnpm:** Install with `npm install -g pnpm`
-3. **Clone repo:** `git clone` or rsync from dev machine
-4. **Android companion server running:** App installed and server started
-
-### Quick Test
-
-```bash
-# From Crostini terminal
-cd ~/code/jstorrent
-pnpm install
-
-# Check connectivity to Android
-curl http://100.115.92.2:7800/status
-
-# Get/set token (may need to pair first via extension or manually)
-# For testing, can use adb to read token from Android shared prefs
-
-# Run daemon client
-pnpm tsx packages/engine/src/cmd/run-daemon-rpc.ts \
-  --host 100.115.92.2 \
-  --port 7800 \
-  --token "$JST_TOKEN"
-
-# Test with curl
-curl http://localhost:3000/engine/status
-```
-
-## Future Enhancements
-
-1. **Auto-discovery:** Scan for daemon on known addresses (ARC, localhost)
-2. **Pairing flow:** Interactive pairing like the extension does
-3. **Performance logging:** Track I/O latency through daemon
-4. **Multiple daemon connections:** Compare Android vs Rust performance
-5. **Standalone binary:** Bundle with `pkg` or similar for easy deployment
+| File | Description |
+|------|-------------|
+| `packages/engine/src/cmd/run-daemon-rpc.ts` | CLI entry point with HTTP RPC server |
+| `packages/engine/src/adapters/daemon/daemon-client.ts` | Helper for fetching roots, status |
+| `packages/engine/src/presets/daemon.ts` | Engine preset accepting pre-connected DaemonConnection |
 
 ## Notes
 
-- The ADB path on Chromebook is: `/home/graehlarts/android-sdk/platform-tools/adb`
 - ARC container IP is typically `100.115.92.2`
-- Rust io-daemon in Crostini binds to `penguin.linux.test` or `localhost`
+- Android companion uses port 7800 (HTTP) and 7801+ (WebSocket IO)
+- The client auto-discovers the WebSocket port via `/status` endpoint
+- Session data is stored in `~/.config/jstorrent-node-client/session.json`
+- Downloaded files go to the Android app's configured storage root
