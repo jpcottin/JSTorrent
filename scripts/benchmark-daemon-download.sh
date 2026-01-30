@@ -48,11 +48,44 @@ fi
 MAGNET="magnet:?xt=urn:btih:18a7aacab6d2bc518e336921ccd4b6cc32a9624b&dn=testdata_1gb.bin&x.pe=${SEEDER}"
 INFOHASH="18a7aacab6d2bc518e336921ccd4b6cc32a9624b"
 RPC_PORT=3000
+DAEMON_PID=""
 
-# Check if batched writes are enabled
+# Cleanup function to properly stop remote daemon
+cleanup() {
+    echo ""
+    echo "Stopping daemon..."
+    # Try graceful shutdown via RPC endpoint
+    ssh "$CHROMEBOOK_HOST" "curl -s -X POST http://localhost:${RPC_PORT}/shutdown" 2>/dev/null || true
+    # Kill local SSH process if still running
+    if [ -n "$DAEMON_PID" ]; then
+        kill $DAEMON_PID 2>/dev/null || true
+        wait $DAEMON_PID 2>/dev/null || true
+    fi
+    exit 0
+}
+
+# Set up trap to handle Ctrl+C and other termination signals
+trap cleanup INT TERM
+
+# Check if batched writes are enabled (legacy flag)
 BATCHED_WRITES_FLAG=""
 if [ "${USE_BATCHED_WRITES:-0}" = "1" ]; then
     BATCHED_WRITES_FLAG="--batched-writes"
+fi
+
+# Build env vars to pass to remote daemon
+REMOTE_ENV_VARS=""
+if [ "${USE_ADAPTIVE_BATCHING:-0}" = "1" ]; then
+    REMOTE_ENV_VARS="export USE_ADAPTIVE_BATCHING=1 && "
+fi
+if [ -n "${LOW_BACKLOG_MB:-}" ]; then
+    REMOTE_ENV_VARS="${REMOTE_ENV_VARS}export LOW_BACKLOG_MB=${LOW_BACKLOG_MB} && "
+fi
+if [ -n "${MAX_BATCH_MB:-}" ]; then
+    REMOTE_ENV_VARS="${REMOTE_ENV_VARS}export MAX_BATCH_MB=${MAX_BATCH_MB} && "
+fi
+if [ -n "${MAX_BATCH_COUNT:-}" ]; then
+    REMOTE_ENV_VARS="${REMOTE_ENV_VARS}export MAX_BATCH_COUNT=${MAX_BATCH_COUNT} && "
 fi
 
 echo "=== Daemon Download Benchmark ==="
@@ -60,6 +93,7 @@ echo "Host: $CHROMEBOOK_HOST"
 echo "Seeder: $SEEDER"
 echo "Torrent: 1GB test file"
 echo "Batched writes: ${USE_BATCHED_WRITES:-0}"
+echo "Adaptive batching: ${USE_ADAPTIVE_BATCHING:-0}"
 echo ""
 
 # Check if port is already in use on remote host
@@ -75,7 +109,7 @@ rsync -az --delete packages/engine/src/ "${CHROMEBOOK_HOST}:~/code/jstorrent/pac
 
 # Start daemon client in background
 echo "Starting daemon client..."
-ssh "$CHROMEBOOK_HOST" "bash -l -c 'export NVM_DIR=~/.nvm && source ~/.nvm/nvm.sh && nvm use 25 && cd ~/code/jstorrent && set -a && source .env && set +a && ./packages/engine/node_modules/.bin/tsx packages/engine/src/cmd/run-daemon-rpc.ts --no-session $BATCHED_WRITES_FLAG'" &
+ssh "$CHROMEBOOK_HOST" "bash -l -c 'export NVM_DIR=~/.nvm && source ~/.nvm/nvm.sh && nvm use 25 && cd ~/code/jstorrent && set -a && source .env && set +a && ${REMOTE_ENV_VARS}./packages/engine/node_modules/.bin/tsx packages/engine/src/cmd/run-daemon-rpc.ts --no-session $BATCHED_WRITES_FLAG'" &
 DAEMON_PID=$!
 
 # Wait for RPC server to be ready

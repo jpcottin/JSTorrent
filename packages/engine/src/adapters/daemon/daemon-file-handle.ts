@@ -471,6 +471,11 @@ export class DaemonFileHandle implements IFileHandle {
       return
     }
 
+    // Ensure frame handler is registered on the connection for receiving ACKs.
+    // This is needed because writeBatch may be called even when the handle was
+    // created without useWebSocketWrites/batchingQueue (e.g., adaptive batching).
+    ensureFrameHandler(this.connection)
+
     // Generate callback IDs and create pending write entries
     const pendingPromises: Array<Promise<{ bytesWritten: number }>> = []
 

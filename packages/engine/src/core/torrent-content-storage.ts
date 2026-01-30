@@ -1,9 +1,47 @@
 import { IStorageHandle } from '../io/storage-handle'
 import { IFileHandle } from '../interfaces/filesystem'
-import { supportsVerifiedWrite } from '../adapters/daemon/daemon-file-handle'
+import {
+  supportsVerifiedWrite,
+  DaemonFileHandle,
+  BatchWriteItem,
+} from '../adapters/daemon/daemon-file-handle'
 import { TorrentFile } from './torrent-file'
 import { EngineComponent, ILoggingEngine } from '../logging/logger'
-import { IDiskQueue } from './disk-queue'
+import { IDiskQueue, VerifiedWriteBatchData, PendingJob } from './disk-queue'
+
+// Adaptive batching configuration
+// When queue backlog exceeds threshold, workers grab additional jobs and batch them
+const ADAPTIVE_BATCHING_ENABLED =
+  typeof process !== 'undefined' && process.env?.USE_ADAPTIVE_BATCHING === '1'
+
+// Queue depth (bytes) below which we send single writes for low latency
+const LOW_BACKLOG_THRESHOLD =
+  (typeof process !== 'undefined' && process.env?.LOW_BACKLOG_MB
+    ? parseInt(process.env.LOW_BACKLOG_MB, 10)
+    : 5) *
+  1024 *
+  1024
+
+// Max bytes to grab for a batch
+const MAX_BATCH_BYTES =
+  (typeof process !== 'undefined' && process.env?.MAX_BATCH_MB
+    ? parseInt(process.env.MAX_BATCH_MB, 10)
+    : 16) *
+  1024 *
+  1024
+
+// Max pieces per batch
+const MAX_BATCH_COUNT =
+  typeof process !== 'undefined' && process.env?.MAX_BATCH_COUNT
+    ? parseInt(process.env.MAX_BATCH_COUNT, 10)
+    : 64
+
+// Log configuration at module load
+if (typeof process !== 'undefined' && process.env?.USE_ADAPTIVE_BATCHING) {
+  console.log(
+    `[Adaptive Batching] ENABLED: threshold=${(LOW_BACKLOG_THRESHOLD / 1024 / 1024).toFixed(1)}MB, maxBatch=${(MAX_BATCH_BYTES / 1024 / 1024).toFixed(1)}MB, maxCount=${MAX_BATCH_COUNT}`,
+  )
+}
 
 export class TorrentContentStorage extends EngineComponent {
   static logName = 'content-storage'
@@ -18,6 +56,9 @@ export class TorrentContentStorage extends EngineComponent {
   private filePriorities: number[] = []
 
   private id = Math.random().toString(36).slice(2, 7)
+
+  /** Flag to prevent concurrent batch writes (one in-flight at a time) */
+  private batchInFlight = false
 
   constructor(
     engine: ILoggingEngine,
@@ -256,6 +297,9 @@ export class TorrentContentStorage extends EngineComponent {
    * that supports verified writes, the hash verification happens atomically
    * in the io-daemon.
    *
+   * When adaptive batching is enabled (USE_ADAPTIVE_BATCHING=1), workers check
+   * queue depth and batch multiple writes together when there's a backlog.
+   *
    * @param pieceIndex The piece index
    * @param data The piece data
    * @param expectedHash Optional SHA1 hash to verify (raw bytes, not hex)
@@ -269,28 +313,38 @@ export class TorrentContentStorage extends EngineComponent {
     const torrentOffset = pieceIndex * this.pieceLength
     const fileCount = this.countFilesTouched(torrentOffset, data.length)
 
-    // The actual write logic
+    // Check if this piece can use verified write (single file + DaemonFileHandle)
+    let canBatch = false
+    let singleFile: TorrentFile | null = null
+    let handle: IFileHandle | null = null
+    let fileRelativeOffset = 0
+
+    if (expectedHash) {
+      singleFile = this.pieceSpansSingleFile(pieceIndex, data.length)
+      if (singleFile) {
+        handle = await this.getFileHandle(singleFile.path)
+        if (supportsVerifiedWrite(handle)) {
+          fileRelativeOffset = torrentOffset - singleFile.offset
+          canBatch = ADAPTIVE_BATCHING_ENABLED
+        }
+      }
+    }
+
+    // The actual write logic (used when not batching or as fallback)
     const doWrite = async (): Promise<boolean> => {
       // Check if we can use verified write
-      if (expectedHash) {
-        const singleFile = this.pieceSpansSingleFile(pieceIndex, data.length)
-        if (singleFile) {
-          const handle = await this.getFileHandle(singleFile.path)
-          const canVerify = supportsVerifiedWrite(handle)
-          this.logger.debug(
-            `Piece ${pieceIndex}: singleFile=${singleFile.path}, supportsVerifiedWrite=${canVerify}`,
-          )
-          if (canVerify) {
-            // Use verified write - hash check happens in native layer
-            const fileRelativeOffset = torrentOffset - singleFile.offset
+      if (expectedHash && singleFile && handle && supportsVerifiedWrite(handle)) {
+        this.logger.debug(
+          `Piece ${pieceIndex}: singleFile=${singleFile.path}, supportsVerifiedWrite=true`,
+        )
+        // Use verified write - hash check happens in native layer
+        handle.setExpectedHashForNextWrite(expectedHash)
+        await handle.write(data, 0, data.length, fileRelativeOffset)
+        return true // Verified write was used
+      }
 
-            handle.setExpectedHashForNextWrite(expectedHash)
-            await handle.write(data, 0, data.length, fileRelativeOffset)
-            return true // Verified write was used
-          }
-        } else {
-          this.logger.debug(`Piece ${pieceIndex}: spans multiple files, using sync write`)
-        }
+      if (expectedHash && !singleFile) {
+        this.logger.debug(`Piece ${pieceIndex}: spans multiple files, using sync write`)
       }
 
       // Fall back to regular write (caller should verify hash)
@@ -303,6 +357,26 @@ export class TorrentContentStorage extends EngineComponent {
       return doWrite()
     }
 
+    // Create batch data if batching is possible
+    let batchData: VerifiedWriteBatchData | undefined
+    if (canBatch && handle && expectedHash) {
+      const daemonHandle = handle as DaemonFileHandle
+      batchData = {
+        fileHandle: daemonHandle,
+        fileRelativeOffset,
+        data,
+        expectedHash,
+        fileKey: `${singleFile!.path}`, // Unique key for this file
+      }
+    }
+
+    // Log batching setup (once per 100 pieces to avoid spam)
+    if (ADAPTIVE_BATCHING_ENABLED && pieceIndex % 100 === 0) {
+      this.logger.info(
+        `[Batch] piece=${pieceIndex}: canBatch=${canBatch}, batchData=${!!batchData}, expectedHash=${!!expectedHash}, singleFile=${!!singleFile}, supportsVerified=${handle ? supportsVerifiedWrite(handle) : 'no-handle'}`,
+      )
+    }
+
     // Queue the write for concurrency control
     let result = false
     await this.diskQueue.enqueue(
@@ -313,10 +387,97 @@ export class TorrentContentStorage extends EngineComponent {
         size: data.length,
       },
       async () => {
+        // If batching is enabled, there's a backlog, and no batch currently in-flight, try to batch
+        // The batchInFlight check prevents multiple workers from sending concurrent batch requests
+        if (batchData && !this.batchInFlight) {
+          const pendingBytes = this.diskQueue!.pendingBytes
+          if (pendingBytes > LOW_BACKLOG_THRESHOLD) {
+            const batched = await this.tryBatchWrite(batchData)
+            if (batched) {
+              result = true
+              return
+            }
+            // tryBatchWrite returned false (no extras found), fall through to single write
+          }
+        }
+
+        // Fall back to single write
         result = await doWrite()
       },
+      batchData,
     )
     return result
+  }
+
+  /**
+   * Try to batch the current write with other pending writes to the same file.
+   * Returns true if batching was performed, false if caller should fall back to single write.
+   */
+  private async tryBatchWrite(currentBatchData: VerifiedWriteBatchData): Promise<boolean> {
+    if (!this.diskQueue) return false
+
+    const fileKey = currentBatchData.fileKey
+    const daemonHandle = currentBatchData.fileHandle as DaemonFileHandle
+
+    // Grab additional pending jobs for the same file
+    const extras = this.diskQueue.grabPending(
+      MAX_BATCH_BYTES,
+      MAX_BATCH_COUNT - 1, // Reserve one slot for current write
+      (job: PendingJob) => job.batchData?.fileKey === fileKey,
+    )
+
+    // If no extras, don't batch (single write is more efficient)
+    if (extras.length === 0) {
+      return false
+    }
+
+    this.logger.info(
+      `[Batch] Adaptive batching: combining 1 + ${extras.length} writes for file ${fileKey}`,
+    )
+
+    // Build batch write items: current + extras
+    const writes: BatchWriteItem[] = [
+      {
+        offset: currentBatchData.fileRelativeOffset,
+        data: currentBatchData.data,
+        expectedHash: currentBatchData.expectedHash,
+      },
+    ]
+
+    for (const extra of extras) {
+      if (extra.batchData) {
+        writes.push({
+          offset: extra.batchData.fileRelativeOffset,
+          data: extra.batchData.data,
+          expectedHash: extra.batchData.expectedHash,
+        })
+      }
+    }
+
+    // Mark batch as in-flight to prevent concurrent batch requests
+    this.batchInFlight = true
+
+    try {
+      // Send all writes in a single HTTP request
+      await daemonHandle.writeBatch(writes)
+
+      // Resolve all extra jobs (current job is resolved by enqueue wrapper)
+      for (const extra of extras) {
+        extra.resolve()
+      }
+
+      return true
+    } catch (error) {
+      // On error, reject all extra jobs
+      for (const extra of extras) {
+        extra.reject(error as Error)
+      }
+      // Re-throw so current job also fails
+      throw error
+    } finally {
+      // Clear in-flight flag so next batch can proceed
+      this.batchInFlight = false
+    }
   }
 
   async read(index: number, begin: number, length: number): Promise<Uint8Array> {

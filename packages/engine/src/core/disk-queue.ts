@@ -22,6 +22,7 @@ export interface IDiskQueue {
   enqueue(
     job: Omit<DiskJob, 'id' | 'status' | 'enqueuedAt'>,
     execute: () => Promise<void>,
+    batchData?: VerifiedWriteBatchData,
   ): Promise<void>
   drain(): Promise<void>
   resume(): void
@@ -49,8 +50,16 @@ export interface IDiskQueue {
    * Atomically dequeue pending jobs up to limits for batching.
    * Used by workers to grab additional jobs when there's a backlog.
    * Returns the grabbed PendingJob items so caller can execute them.
+   *
+   * @param maxBytes Maximum total bytes to grab
+   * @param maxCount Maximum number of jobs to grab
+   * @param filter Optional filter function - only grab jobs that match
    */
-  grabPending(maxBytes: number, maxCount: number): PendingJob[]
+  grabPending(
+    maxBytes: number,
+    maxCount: number,
+    filter?: (job: PendingJob) => boolean,
+  ): PendingJob[]
 }
 
 // Default concurrent disk workers for TorrentDiskQueue (extension/daemon mode)
@@ -60,10 +69,30 @@ export interface DiskQueueConfig {
   maxWorkers: number
 }
 
+/**
+ * Data needed to batch a verified write with other writes.
+ * Stored on PendingJob so batching logic can combine multiple writes into one HTTP request.
+ */
+export interface VerifiedWriteBatchData {
+  /** DaemonFileHandle (or compatible) that supports writeBatch() */
+  fileHandle: unknown // typed as unknown to avoid circular dependency; cast to DaemonFileHandle in usage
+  /** Offset within the file (not torrent offset) */
+  fileRelativeOffset: number
+  /** The piece data to write */
+  data: Uint8Array
+  /** Expected SHA1 hash for verification */
+  expectedHash: Uint8Array
+  /** Key identifying the file (rootKey:path) for filtering during grab */
+  fileKey: string
+}
+
 export interface PendingJob {
   job: DiskJob
   execute: () => Promise<void>
+  resolve: () => void
   reject: (reason: Error) => void
+  /** Optional batch data for verified writes that support batching */
+  batchData?: VerifiedWriteBatchData
 }
 
 export class TorrentDiskQueue implements IDiskQueue {
@@ -94,6 +123,8 @@ export class TorrentDiskQueue implements IDiskQueue {
   async enqueue(
     jobData: Omit<DiskJob, 'id' | 'status' | 'enqueuedAt'>,
     execute: () => Promise<void>,
+    /** Optional batch data for verified writes that support batching */
+    batchData?: VerifiedWriteBatchData,
   ): Promise<void> {
     const job: DiskJob = {
       ...jobData,
@@ -105,7 +136,9 @@ export class TorrentDiskQueue implements IDiskQueue {
     return new Promise((resolve, reject) => {
       this.pending.push({
         job,
+        resolve,
         reject,
+        batchData,
         execute: async () => {
           try {
             await execute()
@@ -204,16 +237,40 @@ export class TorrentDiskQueue implements IDiskQueue {
    * Atomically grab pending jobs up to limits for batching.
    * Used by workers to grab additional jobs when there's a backlog.
    * Returns the grabbed PendingJob items so caller can execute them.
+   *
+   * @param maxBytes Maximum total bytes to grab
+   * @param maxCount Maximum number of jobs to grab
+   * @param filter Optional filter function - only grab jobs that match
    */
-  grabPending(maxBytes: number, maxCount: number): PendingJob[] {
+  grabPending(
+    maxBytes: number,
+    maxCount: number,
+    filter?: (job: PendingJob) => boolean,
+  ): PendingJob[] {
     const grabbed: PendingJob[] = []
     let grabbedBytes = 0
 
-    while (this.pending.length > 0 && grabbed.length < maxCount && grabbedBytes < maxBytes) {
-      const item = this.pending.shift()!
-      this._pendingBytes -= item.job.size
-      grabbedBytes += item.job.size
-      grabbed.push(item)
+    if (!filter) {
+      // Fast path: no filter, grab from front
+      while (this.pending.length > 0 && grabbed.length < maxCount && grabbedBytes < maxBytes) {
+        const item = this.pending.shift()!
+        this._pendingBytes -= item.job.size
+        grabbedBytes += item.job.size
+        grabbed.push(item)
+      }
+    } else {
+      // Filter path: scan for matching jobs
+      const remaining: PendingJob[] = []
+      for (const item of this.pending) {
+        if (grabbed.length < maxCount && grabbedBytes < maxBytes && filter(item)) {
+          this._pendingBytes -= item.job.size
+          grabbedBytes += item.job.size
+          grabbed.push(item)
+        } else {
+          remaining.push(item)
+        }
+      }
+      this.pending = remaining
     }
 
     return grabbed
@@ -236,6 +293,7 @@ export class PassthroughDiskQueue implements IDiskQueue {
   async enqueue(
     _job: Omit<DiskJob, 'id' | 'status' | 'enqueuedAt'>,
     execute: () => Promise<void>,
+    _batchData?: VerifiedWriteBatchData,
   ): Promise<void> {
     // Execute immediately - batching happens in NativeBatchingDiskQueue
     await execute()
@@ -266,7 +324,11 @@ export class PassthroughDiskQueue implements IDiskQueue {
     return 0
   }
 
-  grabPending(_maxBytes: number, _maxCount: number): PendingJob[] {
+  grabPending(
+    _maxBytes: number,
+    _maxCount: number,
+    _filter?: (job: PendingJob) => boolean,
+  ): PendingJob[] {
     return []
   }
 }
