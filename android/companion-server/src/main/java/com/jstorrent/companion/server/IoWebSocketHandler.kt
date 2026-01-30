@@ -178,7 +178,7 @@ class IoWebSocketHandler(
         try {
             while (true) {
                 val data = session.receive() ?: break
-                handleMessage(data)
+                scope.launch { handleMessage(data) }  // Don't block read loop
             }
             Log.d(TAG, "WebSocket closed normally")
         } catch (e: Exception) {

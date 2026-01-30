@@ -36,6 +36,7 @@ export interface BootstrapState {
 
 export interface BootstrapResult {
   port: number
+  ioPort: number
   token: string
   ws: WebSocket
 }
@@ -294,7 +295,8 @@ export class ChromeOSBootstrap {
       return null
     }
 
-    // Step 3: Connect WebSocket
+    // Step 3: Connect WebSocket to ioPort (where /control now lives)
+    const ioPort = status.ioPort ?? port
     this.updateState({
       phase: 'connecting',
       port,
@@ -303,8 +305,8 @@ export class ChromeOSBootstrap {
     })
 
     try {
-      const ws = await this.connectWebSocket(port, token)
-      return { port, token, ws }
+      const ws = await this.connectWebSocket(ioPort, token)
+      return { port, ioPort, token, ws }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'WebSocket failed'
 
@@ -371,6 +373,7 @@ export class ChromeOSBootstrap {
     extensionId: string | null
     installId: string | null
     tokenValid: boolean | null
+    ioPort: number | null
   }> {
     const installId = await this.getInstallId()
 
@@ -422,6 +425,7 @@ export class ChromeOSBootstrap {
 
   private async connectWebSocket(port: number, token: string): Promise<WebSocket> {
     const installId = await this.getInstallId()
+    console.log(`[ChromeOSBootstrap] Connecting to /control on port ${port}`)
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`ws://${CHROMEOS_HOST}:${port}/control`)

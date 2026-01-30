@@ -2,6 +2,7 @@ package com.jstorrent.companion.server.websocket
 
 import android.util.Log
 import com.jstorrent.companion.server.CompanionServerDeps
+import com.jstorrent.companion.server.ControlWebSocketHandler
 import com.jstorrent.companion.server.IoWebSocketHandler
 import com.jstorrent.io.file.FileManager
 import kotlinx.coroutines.CoroutineScope
@@ -15,24 +16,27 @@ import org.java_websocket.server.WebSocketServer
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "JavaWebSocketServer"
 
 /**
- * High-performance WebSocket server for the /io endpoint using java-websocket library.
+ * High-performance WebSocket server for /io and /control endpoints using java-websocket library.
  *
  * This server achieves ~8x better throughput than Ktor WebSocket by using
  * the java-websocket library's more efficient frame handling.
  *
  * Architecture:
- * - Runs on a separate port from Ktor (default: 7801)
- * - Each connection gets a JavaWebSocketSession + IoWebSocketHandler
- * - All protocol handling is delegated to IoWebSocketHandler (same as Ktor path)
+ * - Runs on a separate port from HTTP (default: 7801)
+ * - Each connection gets a JavaWebSocketSession + handler (Io or Control)
+ * - All protocol handling is delegated to handlers (same as Ktor path)
  *
- * Only handles /io endpoint - /control stays on Ktor for simplicity since
- * it's low-volume and doesn't need the performance optimization.
+ * Endpoints:
+ * - /io - High-throughput data plane (socket operations)
+ * - /control - Control plane (roots, events)
+ * - /ws-sink, /ws-source - Throughput testing
  */
 class JavaWebSocketServer(
     private val deps: CompanionServerDeps,
@@ -42,8 +46,24 @@ class JavaWebSocketServer(
     private var server: InnerServer? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    // Control session management callbacks
+    private var onControlSessionRegistered: ((ControlWebSocketHandler) -> Unit)? = null
+    private var onControlSessionUnregistered: ((ControlWebSocketHandler) -> Unit)? = null
+
     val port: Int get() = server?.port ?: 0
     val isRunning: Boolean get() = server != null
+
+    /**
+     * Set callbacks for control session lifecycle events.
+     * Must be called before start().
+     */
+    fun setControlSessionCallbacks(
+        onRegistered: (ControlWebSocketHandler) -> Unit,
+        onUnregistered: (ControlWebSocketHandler) -> Unit
+    ) {
+        onControlSessionRegistered = onRegistered
+        onControlSessionUnregistered = onUnregistered
+    }
 
     /**
      * Start the WebSocket server on the given port.
@@ -62,7 +82,14 @@ class JavaWebSocketServer(
 
         for (port in portsToTry) {
             try {
-                val s = InnerServer(port, deps, fileManager, scope)
+                val s = InnerServer(
+                    port,
+                    deps,
+                    fileManager,
+                    scope,
+                    onControlSessionRegistered,
+                    onControlSessionUnregistered
+                )
                 s.connectionLostTimeout = 60
                 s.isTcpNoDelay = true
                 s.start()
@@ -118,13 +145,18 @@ private class InnerServer(
     port: Int,
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val onControlSessionRegistered: ((ControlWebSocketHandler) -> Unit)?,
+    private val onControlSessionUnregistered: ((ControlWebSocketHandler) -> Unit)?
 ) : WebSocketServer(InetSocketAddress(port)) {
 
     val startLatch = CountDownLatch(1)
 
     // Track sessions by connection
-    private val sessions = ConcurrentHashMap<WebSocket, SessionState>()
+    private val ioSessions = ConcurrentHashMap<WebSocket, IoSessionState>()
+    private val controlSessions = ConcurrentHashMap<WebSocket, ControlSessionState>()
+    private val sinkSessions = ConcurrentHashMap<WebSocket, SinkSession>()
+    private val sourceSessions = ConcurrentHashMap<WebSocket, SourceSession>()
 
     override fun onStart() {
         Log.i(TAG, "WebSocket server started on port $port")
@@ -132,47 +164,172 @@ private class InnerServer(
     }
 
     override fun onOpen(conn: WebSocket, handshake: ClientHandshake) {
-        // Check path - only accept /io
         val path = handshake.resourceDescriptor
-        if (path != "/io" && path != "/io/") {
-            Log.w(TAG, "Rejecting connection to invalid path: $path")
-            conn.close(1002, "Invalid path - only /io is supported")
-            return
-        }
 
-        Log.i(TAG, "WebSocket /io connected from ${conn.remoteSocketAddress}")
+        when {
+            path == "/ws-sink" || path == "/ws-sink/" -> {
+                // Throughput test sink - receives data as fast as possible
+                Log.i(TAG, "WebSocket /ws-sink connected from ${conn.remoteSocketAddress}")
+                val sink = SinkSession()
+                sinkSessions[conn] = sink
+            }
+            path == "/ws-source" || path == "/ws-source/" -> {
+                // Throughput test source - sends data as fast as possible
+                // Client sends "frames,frameSize" to start (e.g. "1000,65536")
+                Log.i(TAG, "WebSocket /ws-source connected from ${conn.remoteSocketAddress}")
+                sourceSessions[conn] = SourceSession()
+            }
+            path == "/io" || path == "/io/" -> {
+                Log.i(TAG, "WebSocket /io connected from ${conn.remoteSocketAddress}")
 
-        // Create session wrapper and handler
-        val wsSession = JavaWebSocketSession(conn)
-        val handler = IoWebSocketHandler(wsSession, deps, fileManager)
+                // Create session wrapper and handler
+                val wsSession = JavaWebSocketSession(conn)
+                val handler = IoWebSocketHandler(wsSession, deps, fileManager)
 
-        sessions[conn] = SessionState(wsSession, handler)
+                ioSessions[conn] = IoSessionState(wsSession, handler)
 
-        // Launch handler in coroutine - it runs until connection closes
-        scope.launch {
-            try {
-                handler.run()
-            } catch (e: Exception) {
-                Log.e(TAG, "Handler error: ${e.message}")
-            } finally {
-                sessions.remove(conn)
-                Log.i(TAG, "WebSocket /io disconnected")
+                // Launch handler in coroutine - it runs until connection closes
+                scope.launch {
+                    try {
+                        handler.run()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "IO handler error: ${e.message}")
+                    } finally {
+                        ioSessions.remove(conn)
+                        Log.i(TAG, "WebSocket /io disconnected")
+                    }
+                }
+            }
+            path == "/control" || path == "/control/" -> {
+                Log.i(TAG, "WebSocket /control connected from ${conn.remoteSocketAddress}")
+
+                // Create session wrapper and handler
+                val wsSession = JavaWebSocketSession(conn)
+                val handler = ControlWebSocketHandler(
+                    wsSession,
+                    deps,
+                    onSessionRegistered = { onControlSessionRegistered?.invoke(it) },
+                    onSessionUnregistered = { onControlSessionUnregistered?.invoke(it) }
+                )
+
+                controlSessions[conn] = ControlSessionState(wsSession, handler)
+
+                // Launch handler in coroutine - it runs until connection closes
+                scope.launch {
+                    try {
+                        handler.run()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Control handler error: ${e.message}")
+                    } finally {
+                        controlSessions.remove(conn)
+                        Log.i(TAG, "WebSocket /control disconnected")
+                    }
+                }
+            }
+            else -> {
+                Log.w(TAG, "Rejecting connection to invalid path: $path")
+                conn.close(1002, "Invalid path - only /io, /control, /ws-sink, /ws-source supported")
             }
         }
     }
 
     override fun onClose(conn: WebSocket, code: Int, reason: String?, remote: Boolean) {
         Log.d(TAG, "WebSocket closed: code=$code, reason=$reason, remote=$remote")
-        sessions.remove(conn)?.wsSession?.onClose()
+        ioSessions.remove(conn)?.wsSession?.onClose()
+        controlSessions.remove(conn)?.wsSession?.onClose()
+        sinkSessions.remove(conn)?.let { sink ->
+            val elapsed = System.currentTimeMillis() - sink.startTime
+            val mbps = if (elapsed > 0) sink.totalBytes / (elapsed / 1000.0) / (1024 * 1024) else 0.0
+            Log.i(TAG, "WS sink closed: ${sink.totalBytes / (1024*1024)} MB in ${elapsed}ms = ${"%.1f".format(mbps)} MB/s")
+        }
+        sourceSessions.remove(conn)
     }
 
     override fun onMessage(conn: WebSocket, message: ByteBuffer) {
+        // Check if this is a sink session first (fast path)
+        sinkSessions[conn]?.let { sink ->
+            val size = message.remaining()
+            sink.totalBytes += size
+            sink.frameCount++
+
+            // Log every second
+            val now = System.currentTimeMillis()
+            if (now - sink.lastLogTime >= 1000) {
+                val intervalBytes = sink.totalBytes - sink.lastLogBytes
+                val intervalSec = (now - sink.lastLogTime) / 1000.0
+                val mbps = intervalBytes / intervalSec / (1024 * 1024)
+                Log.i(TAG, "WS sink: ${"%.1f".format(mbps)} MB/s (${sink.frameCount} frames, ${sink.totalBytes / (1024*1024)} MB total)")
+                sink.lastLogTime = now
+                sink.lastLogBytes = sink.totalBytes
+            }
+            return
+        }
+
         val data = ByteArray(message.remaining())
         message.get(data)
-        sessions[conn]?.wsSession?.onMessage(data)
+
+        // Check IO session
+        ioSessions[conn]?.wsSession?.onMessage(data)
+
+        // Check control session
+        controlSessions[conn]?.wsSession?.onMessage(data)
     }
 
     override fun onMessage(conn: WebSocket, message: String) {
+        // Handle "done" for sink sessions
+        sinkSessions[conn]?.let { sink ->
+            if (message == "done") {
+                val elapsed = System.currentTimeMillis() - sink.startTime
+                val mbps = if (elapsed > 0) sink.totalBytes / (elapsed / 1000.0) / (1024 * 1024) else 0.0
+                Log.i(TAG, "WS sink done: ${sink.totalBytes / (1024*1024)} MB in ${elapsed}ms = ${"%.1f".format(mbps)} MB/s")
+                conn.send("done:$elapsed:${sink.totalBytes}:${"%.1f".format(mbps)}")
+            }
+            return
+        }
+
+        // Handle source sessions - "frames,frameSize" starts sending
+        sourceSessions[conn]?.let { source ->
+            val parts = message.split(",")
+            val frameCount = parts.getOrNull(0)?.toIntOrNull() ?: 1000
+            val frameSize = parts.getOrNull(1)?.toIntOrNull() ?: 65536
+
+            Log.i(TAG, "WS source: sending $frameCount frames of $frameSize bytes")
+
+            scope.launch {
+                val data = ByteArray(frameSize)
+                val startTime = System.currentTimeMillis()
+                var lastLogTime = startTime
+                var lastLogBytes = 0L
+
+                for (i in 0 until frameCount) {
+                    if (!conn.isOpen) break
+                    conn.send(data)
+
+                    val bytesSent = (i + 1).toLong() * frameSize
+                    val now = System.currentTimeMillis()
+                    if (now - lastLogTime >= 1000) {
+                        val intervalBytes = bytesSent - lastLogBytes
+                        val intervalSec = (now - lastLogTime) / 1000.0
+                        val mbps = intervalBytes / intervalSec / (1024 * 1024)
+                        Log.i(TAG, "WS source: ${"%.1f".format(mbps)} MB/s (${i+1} frames, ${bytesSent / (1024*1024)} MB)")
+                        lastLogTime = now
+                        lastLogBytes = bytesSent
+                    }
+                }
+
+                val elapsed = System.currentTimeMillis() - startTime
+                val totalBytes = frameCount.toLong() * frameSize
+                val mbps = if (elapsed > 0) totalBytes / (elapsed / 1000.0) / (1024 * 1024) else 0.0
+                Log.i(TAG, "WS source done: ${totalBytes / (1024*1024)} MB in ${elapsed}ms = ${"%.1f".format(mbps)} MB/s")
+
+                if (conn.isOpen) {
+                    conn.send("done:$elapsed:$totalBytes:${"%.1f".format(mbps)}")
+                }
+                sourceSessions.remove(conn)
+            }
+            return
+        }
+
         // Text messages not used in binary protocol
         Log.w(TAG, "Unexpected text message: $message")
     }
@@ -182,12 +339,30 @@ private class InnerServer(
             Log.e(TAG, "Server error: ${ex.message}")
         } else {
             Log.e(TAG, "Connection error: ${ex.message}")
-            sessions.remove(conn)?.wsSession?.onClose()
+            ioSessions.remove(conn)?.wsSession?.onClose()
+            controlSessions.remove(conn)?.wsSession?.onClose()
         }
     }
 
-    private data class SessionState(
+    private data class IoSessionState(
         val wsSession: JavaWebSocketSession,
         val handler: IoWebSocketHandler
     )
+
+    private data class ControlSessionState(
+        val wsSession: JavaWebSocketSession,
+        val handler: ControlWebSocketHandler
+    )
+
+    /** Sink session for throughput testing - just counts bytes */
+    private class SinkSession {
+        val startTime = System.currentTimeMillis()
+        var totalBytes = 0L
+        var frameCount = 0
+        var lastLogTime = startTime
+        var lastLogBytes = 0L
+    }
+
+    /** Source session for throughput testing - marker class */
+    private class SourceSession
 }

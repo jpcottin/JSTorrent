@@ -3,10 +3,8 @@
 package com.jstorrent.companion.server
 
 import android.util.Log
-import com.jstorrent.companion.server.websocket.KtorWebSocketSession
 import com.jstorrent.companion.server.websocket.WebSocketSession
 import com.jstorrent.io.protocol.Protocol
-import io.ktor.server.websocket.DefaultWebSocketServerSession
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import java.util.concurrent.atomic.AtomicLong
@@ -37,11 +35,6 @@ class ControlWebSocketHandler(
 
     // Outgoing message queue
     private val outgoing = Channel<ByteArray>(100)
-
-    // Expose the WebSocket session for external close (e.g., unpair)
-    // Only works with KtorWebSocketSession; returns null for other implementations
-    val webSocketSession: DefaultWebSocketServerSession?
-        get() = (session as? KtorWebSocketSession)?.underlying
 
     // Session statistics
     private val dropCount = AtomicLong(0)

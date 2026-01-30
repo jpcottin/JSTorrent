@@ -178,11 +178,41 @@ export class DaemonConnection {
     }
   }
 
+  // Send stats for backpressure monitoring
+  private sendStats = {
+    count: 0,
+    totalBuffered: 0,
+    maxBuffered: 0,
+    lastLogTime: Date.now(),
+  }
+
   sendFrame(frame: ArrayBuffer) {
     if (!this.ready || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('Daemon connection not ready')
     }
     this.ws.send(frame)
+
+    // Track bufferedAmount for backpressure detection
+    const buffered = this.ws.bufferedAmount
+    this.sendStats.count++
+    this.sendStats.totalBuffered += buffered
+    if (buffered > this.sendStats.maxBuffered) {
+      this.sendStats.maxBuffered = buffered
+    }
+
+    // Log every 5 seconds
+    const now = Date.now()
+    if (now - this.sendStats.lastLogTime >= 5000 && this.sendStats.count > 0) {
+      const avgBuffered = Math.round(this.sendStats.totalBuffered / this.sendStats.count)
+      console.log(
+        `[DaemonConnection] WS send stats: ${this.sendStats.count} frames, ` +
+          `bufferedAmount avg=${avgBuffered}, max=${this.sendStats.maxBuffered}`,
+      )
+      this.sendStats.count = 0
+      this.sendStats.totalBuffered = 0
+      this.sendStats.maxBuffered = 0
+      this.sendStats.lastLogTime = now
+    }
   }
 
   private sendFrameInternal(frame: ArrayBuffer) {

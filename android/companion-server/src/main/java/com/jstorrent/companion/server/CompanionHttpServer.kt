@@ -41,7 +41,9 @@ private data class StatusRequest(
 @Serializable
 private data class StatusResponse(
     val port: Int,
-    val ioPort: Int? = null,  // Separate WebSocket port for /io (high-throughput)
+    val ioPort: Int? = null,  // WebSocket port for /io and /control (high-throughput server)
+    val tcpSinkPort: Int? = null,  // Raw TCP sink for throughput testing
+    val nettyHttpPort: Int? = null,  // Minimal Netty HTTP for throughput testing
     val paired: Boolean,
     val extensionId: String? = null,
     val installId: String? = null,
@@ -88,9 +90,11 @@ private val json = Json {
  * HTTP/WebSocket server for the companion mode.
  *
  * Provides:
- * - HTTP endpoints for status, pairing, roots, file I/O
- * - WebSocket /io endpoint for socket operations
- * - WebSocket /control endpoint for control plane broadcasts
+ * - HTTP endpoints for status, pairing, roots, file I/O (Ktor on port 7800)
+ * - WebSocket /io and /control on JavaWebSocketServer (port 7801, high throughput)
+ * - WebSocket /control also on Ktor (port 7800, backwards compatibility)
+ *
+ * Extensions should connect /control to ioPort (7801) for better performance.
  */
 class CompanionHttpServer(
     private val deps: CompanionServerDeps,
@@ -102,6 +106,12 @@ class CompanionHttpServer(
     // High-throughput java-websocket server for /io endpoint (separate port)
     private var ioServer: JavaWebSocketServer? = null
 
+    // Raw TCP sink for throughput testing (no protocol overhead)
+    private var tcpSinkServer: TcpSinkServer? = null
+
+    // Minimal Netty HTTP server for throughput testing (no Ktor overhead)
+    private var nettyHttpSinkServer: NettyHttpSinkServer? = null
+
     // Connected WebSocket sessions for control broadcasts
     private val controlSessions = CopyOnWriteArrayList<ControlWebSocketHandler>()
 
@@ -111,6 +121,8 @@ class CompanionHttpServer(
 
     val port: Int get() = if (actualPort > 0) actualPort else 7800
     val ioPort: Int get() = ioServer?.port ?: 0
+    val tcpSinkPort: Int get() = tcpSinkServer?.boundPort ?: 0
+    val nettyHttpPort: Int get() = nettyHttpSinkServer?.boundPort ?: 0
     val isRunning: Boolean get() = server != null && actualPort > 0
 
     fun start(preferredPort: Int = 7800) {
@@ -141,15 +153,40 @@ class CompanionHttpServer(
                 actualPort = port
                 Log.i(TAG, "Ktor server started on port $actualPort")
 
-                // Start high-throughput java-websocket server for /io on port+1
+                // Start high-throughput java-websocket server for /io and /control on port+1
                 try {
                     val ioSrv = JavaWebSocketServer(deps, fileManager)
+                    // Wire up control session callbacks so broadcasts work for both servers
+                    ioSrv.setControlSessionCallbacks(
+                        onRegistered = { session -> registerControlSession(session) },
+                        onUnregistered = { session -> unregisterControlSession(session) }
+                    )
                     ioSrv.start(preferredPort = port + 1)
                     ioServer = ioSrv
-                    Log.i(TAG, "IO WebSocket server started on port ${ioSrv.port}")
+                    Log.i(TAG, "IO/Control WebSocket server started on port ${ioSrv.port}")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to start IO WebSocket server: ${e.message}")
                     // Continue without IO server - will fall back to Ktor /io route
+                }
+
+                // Start raw TCP sink server for throughput testing on port+2
+                try {
+                    val tcpSink = TcpSinkServer(port + 2)
+                    tcpSink.start()
+                    tcpSinkServer = tcpSink
+                    Log.i(TAG, "TCP sink server started on port ${tcpSink.boundPort}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start TCP sink server: ${e.message}")
+                }
+
+                // Start minimal Netty HTTP server for throughput testing on port+3
+                try {
+                    val nettySink = NettyHttpSinkServer(port + 3)
+                    nettySink.start()
+                    nettyHttpSinkServer = nettySink
+                    Log.i(TAG, "Netty HTTP sink server started on port ${nettySink.boundPort}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start Netty HTTP sink server: ${e.message}")
                 }
 
                 return
@@ -162,7 +199,15 @@ class CompanionHttpServer(
     }
 
     fun stop() {
-        // Stop IO WebSocket server first
+        // Stop Netty HTTP sink server
+        nettyHttpSinkServer?.stop()
+        nettyHttpSinkServer = null
+
+        // Stop TCP sink server
+        tcpSinkServer?.stop()
+        tcpSinkServer = null
+
+        // Stop IO WebSocket server
         ioServer?.stop()
         ioServer = null
 
@@ -314,6 +359,8 @@ class CompanionHttpServer(
                 val response = StatusResponse(
                     port = actualPort,
                     ioPort = if (ioServer?.isRunning == true) ioServer?.port else null,
+                    tcpSinkPort = if (tcpSinkServer?.isRunning == true) tcpSinkServer?.boundPort else null,
+                    nettyHttpPort = if (nettyHttpSinkServer?.isRunning == true) nettyHttpSinkServer?.boundPort else null,
                     paired = deps.tokenStore.hasToken(),
                     extensionId = deps.tokenStore.extensionId,
                     installId = deps.tokenStore.installId,
@@ -411,6 +458,50 @@ class CompanionHttpServer(
                     Log.e(TAG, "WS throughput test error: ${e.message}")
                 }
                 Log.i(TAG, "WebSocket throughput test disconnected")
+            }
+
+            // WebSocket sink - receives data as fast as possible, discards it
+            webSocket("/ws-sink") {
+                Log.i(TAG, "WebSocket sink connected")
+                var totalBytes = 0L
+                var frameCount = 0
+                val startTime = System.currentTimeMillis()
+                var lastLogTime = startTime
+                var lastLogBytes = 0L
+
+                try {
+                    for (frame in incoming) {
+                        when (frame) {
+                            is Frame.Binary -> {
+                                totalBytes += frame.data.size
+                                frameCount++
+                            }
+                            is Frame.Text -> {
+                                val text = frame.readText()
+                                if (text == "done") break
+                            }
+                            else -> {}
+                        }
+
+                        // Log every second
+                        val now = System.currentTimeMillis()
+                        if (now - lastLogTime >= 1000) {
+                            val intervalBytes = totalBytes - lastLogBytes
+                            val intervalSec = (now - lastLogTime) / 1000.0
+                            val mbps = intervalBytes / intervalSec / (1024 * 1024)
+                            Log.i(TAG, "WS sink: ${"%.1f".format(mbps)} MB/s ($frameCount frames, ${totalBytes / (1024*1024)} MB total)")
+                            lastLogTime = now
+                            lastLogBytes = totalBytes
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "WS sink error: ${e.message}")
+                }
+
+                val elapsed = System.currentTimeMillis() - startTime
+                val mbps = if (elapsed > 0) totalBytes / (elapsed / 1000.0) / (1024 * 1024) else 0.0
+                Log.i(TAG, "WS sink done: ${totalBytes / (1024*1024)} MB in ${elapsed}ms = ${"%.1f".format(mbps)} MB/s")
+                send(Frame.Text("done:$elapsed:$totalBytes:${"%.1f".format(mbps)}"))
             }
 
             // Note: /io WebSocket endpoint has been moved to java-websocket server
