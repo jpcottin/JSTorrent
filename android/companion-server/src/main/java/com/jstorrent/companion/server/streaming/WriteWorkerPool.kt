@@ -34,8 +34,8 @@ data class WriteJob(
  */
 class WriteWorkerPool(
     private val fileManager: FileManager,
-    private val workerCount: Int = 4,
-    private val queueCapacity: Int = 8,
+    private val workerCount: Int = 6,
+    private val queueCapacity: Int = 64,
 ) {
     companion object {
         private const val TAG = "WriteWorkerPool"

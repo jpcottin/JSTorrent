@@ -34,8 +34,8 @@ class StreamingWriteServer(
     private val fileManager: FileManager,
     private val rootResolver: (String) -> Uri?,
     private val tokenValidator: (String) -> Boolean,
-    workerCount: Int = 4,
-    queueCapacity: Int = 8,
+    workerCount: Int = 6,
+    queueCapacity: Int = 64,
 ) {
     companion object {
         private const val TAG = "StreamingWriteServer"

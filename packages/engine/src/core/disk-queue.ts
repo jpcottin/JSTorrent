@@ -63,7 +63,8 @@ export interface IDiskQueue {
 }
 
 // Default concurrent disk workers for TorrentDiskQueue (extension/daemon mode)
-const DEFAULT_DISK_WORKERS = 5
+// Match browser connection limit (6) and Kotlin WriteWorkerPool default
+const DEFAULT_DISK_WORKERS = 6
 
 export interface DiskQueueConfig {
   maxWorkers: number
