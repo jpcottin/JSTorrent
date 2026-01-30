@@ -1,6 +1,7 @@
 package com.jstorrent.companion.server
 
 import android.util.Log
+import com.jstorrent.companion.server.streaming.StreamingWriteServer
 import com.jstorrent.companion.server.websocket.JavaWebSocketServer
 import com.jstorrent.io.file.FileManager
 import com.jstorrent.io.protocol.Protocol
@@ -24,6 +25,7 @@ private val json = Json {
  * Architecture (post-Ktor migration):
  * - Port 7800: NettyHttpServer (all HTTP endpoints)
  * - Port 7801: JavaWebSocketServer (/io + /control WebSocket)
+ * - Port 7802: StreamingWriteServer (high-throughput batch writes)
  *
  * This achieves 6-10x better HTTP throughput than Ktor while maintaining
  * all existing functionality.
@@ -38,11 +40,15 @@ class CompanionHttpServer(
     // High-throughput java-websocket server for /io and /control
     private var wsServer: JavaWebSocketServer? = null
 
+    // Streaming write server for high-throughput batch writes (no memory aggregation)
+    private var streamingServer: StreamingWriteServer? = null
+
     // Connected WebSocket sessions for control broadcasts
     private val controlSessions = CopyOnWriteArrayList<ControlWebSocketHandler>()
 
     val port: Int get() = httpServer?.boundPort ?: 0
     val ioPort: Int get() = wsServer?.port ?: 0
+    val streamingPort: Int get() = streamingServer?.let { if (it.isRunning()) httpServer?.boundPort?.plus(2) ?: 0 else 0 } ?: 0
     val isRunning: Boolean get() = httpServer?.isRunning == true
 
     fun start(preferredPort: Int = 7800) {
@@ -82,9 +88,31 @@ class CompanionHttpServer(
             Log.e(TAG, "Failed to start WebSocket server: ${e.message}")
             // Continue without WebSocket server - HTTP endpoints still work
         }
+
+        // Start StreamingWriteServer for high-throughput batch writes on port+2
+        try {
+            val streaming = StreamingWriteServer(
+                port = httpServer!!.boundPort + 2,
+                fileManager = fileManager,
+                rootResolver = { key -> deps.rootStore.resolveKey(key) },
+                tokenValidator = { token -> deps.tokenStore.isTokenValid(token) },
+            )
+            streaming.start()
+            streamingServer = streaming
+            // Set streamingPort on HTTP server so /status response includes it
+            httpServer!!.streamingPort = streaming.let { httpServer!!.boundPort + 2 }
+            Log.i(TAG, "Streaming write server started on port ${httpServer!!.boundPort + 2}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start streaming write server: ${e.message}")
+            // Continue without streaming server - falls back to regular batch writes
+        }
     }
 
     fun stop() {
+        // Stop streaming write server
+        streamingServer?.stop()
+        streamingServer = null
+
         // Stop WebSocket server
         wsServer?.stop()
         wsServer = null

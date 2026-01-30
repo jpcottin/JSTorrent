@@ -390,8 +390,9 @@ async function main() {
 
   console.log(`Connecting to daemon at ${config.host}:${config.port}...`)
 
-  // First, fetch status to discover ioPort (WebSocket port)
+  // First, fetch status to discover ioPort (WebSocket port) and streamingPort (batch writes)
   let ioPort: number | undefined
+  let streamingPort: number | undefined
   if (config.extensionId && config.installId) {
     try {
       console.log('Fetching daemon status...')
@@ -403,7 +404,10 @@ async function main() {
         config.installId,
       )
       ioPort = status.ioPort
-      console.log(`Daemon status: port=${status.port}, ioPort=${ioPort}, paired=${status.paired}`)
+      streamingPort = status.streamingPort
+      console.log(
+        `Daemon status: port=${status.port}, ioPort=${ioPort}, streamingPort=${streamingPort}, paired=${status.paired}`,
+      )
     } catch (e) {
       console.warn(`Could not fetch daemon status: ${e}`)
       // Android companion server typically uses port+1 for WebSocket IO
@@ -429,6 +433,7 @@ async function main() {
       : undefined,
     config.extensionId && config.installId ? undefined : config.token,
     ioPort, // Use separate WebSocket port if available
+    streamingPort, // Use streaming server for batch writes if available
   )
 
   // Connect WebSocket

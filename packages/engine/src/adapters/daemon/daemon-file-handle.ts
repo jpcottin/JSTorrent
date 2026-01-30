@@ -459,6 +459,11 @@ export class DaemonFileHandle implements IFileHandle {
    * All writes share the same rootKey and path (this file handle).
    * Results come back via WebSocket ACK/ERROR frames.
    *
+   * If a streaming port is available, uses the streaming server which:
+   * - Doesn't buffer the entire request in memory
+   * - Processes pieces as they stream in
+   * - Better for high-throughput/concurrent batch writes
+   *
    * @param writes Array of writes, each with offset, data, and expectedHash
    * @returns Promise that resolves when all writes are acknowledged
    * @throws HashMismatchError if any write fails hash verification
@@ -512,15 +517,34 @@ export class DaemonFileHandle implements IFileHandle {
     // Pack all writes into a single binary buffer
     const packed = packVerifiedWriteBatch(packedWrites)
 
-    // Send single HTTP POST
-    const response = await this.connection.requestWithHeaders(
-      'POST',
-      `/write-batch/${this.rootKey}`,
-      {
-        'Content-Type': 'application/octet-stream',
-      },
-      new Uint8Array(packed),
-    )
+    // Try streaming server if available (better memory efficiency)
+    const streamingBaseUrl = this.connection.getStreamingBaseUrl()
+
+    let response: Response
+    if (streamingBaseUrl) {
+      // Send to streaming server
+      const credentials = await this.connection.getCredentialsCached()
+      response = await fetch(`${streamingBaseUrl}/write-batch/${this.rootKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-JST-Auth': credentials.token,
+          'X-JST-ExtensionId': credentials.extensionId,
+          'X-JST-InstallId': credentials.installId,
+        },
+        body: new Uint8Array(packed),
+      })
+    } else {
+      // Fall back to main HTTP server
+      response = await this.connection.requestWithHeaders(
+        'POST',
+        `/write-batch/${this.rootKey}`,
+        {
+          'Content-Type': 'application/octet-stream',
+        },
+        new Uint8Array(packed),
+      )
+    }
 
     if (response.status === 202) {
       // Accepted - wait for all ACKs via WebSocket

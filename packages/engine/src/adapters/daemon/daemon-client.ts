@@ -36,6 +36,7 @@ export async function fetchDaemonRoots(connection: DaemonConnection): Promise<St
 export interface DaemonStatusResponse {
   port: number
   ioPort?: number // WebSocket port for /io endpoint (high-throughput server)
+  streamingPort?: number // Streaming batch write server port (no memory aggregation)
   tcpSinkPort?: number
   nettyHttpPort?: number
   paired: boolean

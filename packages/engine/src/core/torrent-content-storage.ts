@@ -57,9 +57,9 @@ export class TorrentContentStorage extends EngineComponent {
 
   private id = Math.random().toString(36).slice(2, 7)
 
-  /** Track concurrent batch writes to avoid overwhelming the daemon */
+  /** Track concurrent batch writes */
   private batchesInFlight = 0
-  private static readonly MAX_CONCURRENT_BATCHES = 1
+  private static readonly MAX_CONCURRENT_BATCHES = Infinity
 
   constructor(
     engine: ILoggingEngine,

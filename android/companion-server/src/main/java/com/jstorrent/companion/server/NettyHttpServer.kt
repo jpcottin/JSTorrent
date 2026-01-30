@@ -35,6 +35,7 @@ private const val MAX_BODY_SIZE = 64 * 1024 * 1024 // 64MB
 private data class StatusResponse(
     val port: Int,
     val ioPort: Int? = null,
+    val streamingPort: Int? = null,
     val paired: Boolean,
     val extensionId: String? = null,
     val installId: String? = null,
@@ -111,6 +112,10 @@ class NettyHttpServer(
     @Volatile
     var ioPort: Int = 0
 
+    // Streaming write server port (set by CompanionHttpServer after server starts)
+    @Volatile
+    var streamingPort: Int = 0
+
     val boundPort: Int get() = actualPort
     val isRunning: Boolean get() = channel?.isActive == true
 
@@ -142,7 +147,7 @@ class NettyHttpServer(
                 val bootstrap = ServerBootstrap()
                     .group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel::class.java)
-                    .childHandler(NettyHttpChannelInitializer(deps, fileManager, pairingDialogShowing, ioPortProvider = { ioPort }))
+                    .childHandler(NettyHttpChannelInitializer(deps, fileManager, pairingDialogShowing, ioPortProvider = { ioPort }, streamingPortProvider = { streamingPort }))
                     .option(ChannelOption.SO_BACKLOG, 128)
                     .childOption(ChannelOption.SO_KEEPALIVE, true)
                     .childOption(ChannelOption.TCP_NODELAY, true)
@@ -202,7 +207,8 @@ private class NettyHttpChannelInitializer(
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
     private val pairingDialogShowing: AtomicBoolean,
-    private val ioPortProvider: () -> Int
+    private val ioPortProvider: () -> Int,
+    private val streamingPortProvider: () -> Int
 ) : ChannelInitializer<SocketChannel>() {
     override fun initChannel(ch: SocketChannel) {
         ch.pipeline()
@@ -210,7 +216,7 @@ private class NettyHttpChannelInitializer(
             // Aggregate request bodies up to 64MB for most endpoints
             // Throughput test endpoints bypass this by checking before aggregation
             .addLast("aggregator", HttpObjectAggregator(64 * 1024 * 1024))
-            .addLast("handler", NettyHttpHandler(deps, fileManager, pairingDialogShowing, ioPortProvider))
+            .addLast("handler", NettyHttpHandler(deps, fileManager, pairingDialogShowing, ioPortProvider, streamingPortProvider))
     }
 }
 
@@ -228,7 +234,8 @@ private class NettyHttpHandler(
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
     private val pairingDialogShowing: AtomicBoolean,
-    private val ioPortProvider: () -> Int
+    private val ioPortProvider: () -> Int,
+    private val streamingPortProvider: () -> Int
 ) : SimpleChannelInboundHandler<FullHttpRequest>() {
 
     override fun channelRead0(ctx: ChannelHandlerContext, request: FullHttpRequest) {
@@ -366,11 +373,13 @@ private class NettyHttpHandler(
         // Check token validity if provided
         val tokenValid = token?.let { deps.tokenStore.isTokenValid(it) }
 
-        // Build response - include ioPort for WebSocket connections
+        // Build response - include ioPort for WebSocket connections, streamingPort for batch writes
         val currentIoPort = ioPortProvider()
+        val currentStreamingPort = streamingPortProvider()
         val response = StatusResponse(
             port = (ctx.channel().localAddress() as InetSocketAddress).port,
             ioPort = if (currentIoPort > 0) currentIoPort else null,
+            streamingPort = if (currentStreamingPort > 0) currentStreamingPort else null,
             paired = deps.tokenStore.hasToken(),
             extensionId = deps.tokenStore.extensionId,
             installId = deps.tokenStore.installId,

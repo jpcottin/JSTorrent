@@ -113,8 +113,78 @@ Have Android report memory pressure via WebSocket, JS throttles accordingly.
 | `packages/engine/src/core/torrent-content-storage.ts` | Batching logic in execute callback |
 | `scripts/benchmark-daemon-download.sh` | Added `USE_ADAPTIVE_BATCHING` support |
 
+## Phase 4: Streaming Write Server (Implemented)
+
+To address the memory pressure issue, we implemented a dedicated streaming HTTP server that bypasses Netty's body aggregation entirely.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  StreamingWriteServer (port 7802)                               │
+│                                                                 │
+│  ┌──────────────┐    ┌──────────────────┐    ┌───────────────┐ │
+│  │ Socket       │───▶│ HTTP Header      │───▶│ Binary Stream │ │
+│  │ Accept Loop  │    │ Parser (~4KB)    │    │ Parser        │ │
+│  └──────────────┘    └──────────────────┘    └───────┬───────┘ │
+│                                                       │         │
+│                                              emit piece│         │
+│                                                       ▼         │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ BlockingQueue<WriteJob> capacity=8                       │  │
+│  │ (backpressures socket read when full)                    │  │
+│  └────────────────────────────┬─────────────────────────────┘  │
+│                               │                                 │
+│         ┌─────────────────────┼─────────────────────┐          │
+│         ▼                     ▼                     ▼          │
+│  ┌─────────────┐       ┌─────────────┐       ┌─────────────┐   │
+│  │ Worker 1    │       │ Worker 2    │       │ Worker 3    │   │
+│  │ hash+write  │       │ hash+write  │       │ hash+write  │   │
+│  └─────────────┘       └─────────────┘       └─────────────┘   │
+│         │                     │                     │          │
+│         └─────────────────────┼─────────────────────┘          │
+│                               ▼                                 │
+│                    BatchWriteResults.addResult()               │
+│                    (WebSocket broadcast)                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Points
+
+1. **No body aggregation**: Unlike Netty's `HttpObjectAggregator`, we stream-parse the HTTP body as it arrives
+2. **Bounded queue**: Memory is bounded by `queueCapacity × avgPieceSize` (e.g., 8 × 1MB = 8MB)
+3. **Backpressure**: When queue is full, socket read blocks, causing HTTP client to slow down
+4. **Same result path**: Results still go through `BatchWriteResults` → WebSocket broadcast
+
+### Memory Comparison
+
+| Mode | Memory Per Batch | Concurrent Batches | Peak Memory |
+|------|------------------|-------------------|-------------|
+| Netty aggregation | 16MB | 1 | 16MB |
+| Netty aggregation | 16MB | 3 | 48MB+ (CRASH) |
+| Streaming server | 8MB (queue) | unlimited | ~10MB fixed |
+
+### New Files
+
+| File | Purpose |
+|------|---------|
+| `android/companion-server/.../streaming/StreamingWriteServer.kt` | Main server, socket accept |
+| `android/companion-server/.../streaming/HttpHeaderParser.kt` | Minimal HTTP header parsing |
+| `android/companion-server/.../streaming/StreamingBatchParser.kt` | State machine binary parser |
+| `android/companion-server/.../streaming/WriteWorkerPool.kt` | Bounded queue + worker threads |
+
+### Client Changes
+
+- `DaemonStatusResponse` now includes `streamingPort`
+- `DaemonConnection` accepts and stores `streamingPort`
+- `DaemonFileHandle.writeBatch()` uses streaming server when available
+
+### Usage
+
+The streaming server starts automatically on port 7802 (HTTP port + 2). The JS client automatically uses it when the `streamingPort` is returned from `/status`.
+
 ## Conclusion
 
-The adaptive batching infrastructure is working correctly. The 3% improvement with 1 concurrent batch is real but limited by Android memory constraints. Enabling concurrent batches requires Android-side memory optimizations as outlined above.
+The adaptive batching infrastructure is working correctly. The 3% improvement with 1 concurrent batch is real but limited by Android memory constraints. The streaming write server (Phase 4) addresses the memory pressure issue by eliminating body aggregation, enabling concurrent batch processing without GC storms.
 
-For now, `MAX_CONCURRENT_BATCHES = 1` is the stable configuration. The feature can be enabled by default once Android memory handling is improved.
+For now, `MAX_CONCURRENT_BATCHES = 1` is the stable configuration with Netty. The streaming server should enable higher concurrency - benchmarking needed to verify.

@@ -66,8 +66,8 @@ export interface HttpBatchingDiskQueueConfig {
 export class HttpBatchingDiskQueue implements IDiskQueue {
   private pending: PendingVerifiedWrite[] = []
   private currentBatchSize = 0
-  /** Whether a batch HTTP request is currently in-flight */
-  private inFlight = false
+  /** Number of batch HTTP requests currently in-flight (unlimited concurrency) */
+  private inFlightCount = 0
 
   /** Size threshold in bytes to trigger a flush */
   readonly batchSizeThreshold: number
@@ -132,13 +132,13 @@ export class HttpBatchingDiskQueue implements IDiskQueue {
 
       // Check if we should flush
       if (this.currentBatchSize >= this.batchSizeThreshold) {
-        // Batch is full, send even if something already in-flight
+        // Batch is full, send immediately
         this.flushPending('size')
-      } else if (!this.inFlight) {
+      } else if (this.inFlightCount === 0) {
         // Nothing in-flight, send immediately (no added latency)
         this.flushPending('immediate')
       }
-      // Otherwise: already in-flight, writes will batch and flush when current completes
+      // Otherwise: in-flight requests exist, writes will batch and flush when one completes
     })
   }
 
@@ -171,8 +171,8 @@ export class HttpBatchingDiskQueue implements IDiskQueue {
     // TODO: If writes have different rootKeys, we need to split into multiple batches
     const rootKey = writes[0].rootKey
 
-    // Mark batch as in-flight
-    this.inFlight = true
+    // Track in-flight batch count (unlimited concurrency)
+    this.inFlightCount++
 
     // Send HTTP POST asynchronously
     // Results will come back via WebSocket ACK/ERROR frames
@@ -212,7 +212,7 @@ export class HttpBatchingDiskQueue implements IDiskQueue {
       })
       .finally(() => {
         // Batch complete
-        this.inFlight = false
+        this.inFlightCount--
 
         // If writes accumulated while we were in-flight, flush them now
         if (this.pending.length > 0) {

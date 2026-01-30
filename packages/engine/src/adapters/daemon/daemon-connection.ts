@@ -57,8 +57,18 @@ export class DaemonConnection {
     private legacyToken?: string,
     /** Separate port for /io WebSocket endpoint. If set, WebSocket connects to this port instead of main port. */
     private ioPort?: number,
+    /** Separate port for streaming batch writes. If set, batch writes use this server. */
+    private streamingPort?: number,
   ) {
     this.baseUrl = `http://${host}:${port}`
+  }
+
+  /** Get the streaming write server base URL if available */
+  getStreamingBaseUrl(): string | undefined {
+    if (this.streamingPort) {
+      return `http://${this.host}:${this.streamingPort}`
+    }
+    return undefined
   }
 
   // Legacy static factory for backwards compatibility
@@ -421,6 +431,24 @@ export class DaemonConnection {
       headers['X-JST-InstallId'] = this.cachedCredentials.installId
     }
     return headers
+  }
+
+  /**
+   * Get credentials for making direct HTTP requests (e.g., to streaming server).
+   * Returns cached credentials or fetches new ones if not cached.
+   */
+  async getCredentialsCached(): Promise<DaemonCredentials> {
+    if (this.cachedCredentials) {
+      return this.cachedCredentials
+    }
+    if (this.getCredentials) {
+      this.cachedCredentials = await this.getCredentials()
+      return this.cachedCredentials
+    }
+    if (this.legacyToken) {
+      return { token: this.legacyToken, extensionId: '', installId: '' }
+    }
+    throw new Error('No credentials available')
   }
 
   async request<T>(
