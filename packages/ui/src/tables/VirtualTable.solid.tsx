@@ -315,6 +315,13 @@ export function VirtualTable<T>(props: VirtualTableProps<T>) {
     return visibleColumns().reduce((sum, col) => sum + getColumnWidth(col, config), 0)
   })
 
+  // Helper to get column width with reactive dependency on uiScale.
+  // This ensures cells re-render when scale changes.
+  const getScaledWidth = (column: ColumnDef<T>) => {
+    void uiScale() // Read signal to create reactive dependency
+    return getColumnWidth(column, columnConfig())
+  }
+
   // Handle header click for sorting
   const handleHeaderClick = (column: ColumnDef<T>) => {
     if (column.sortable === false) return
@@ -867,7 +874,7 @@ export function VirtualTable<T>(props: VirtualTableProps<T>) {
               return (
                 <div
                   style={{
-                    width: `${getColumnWidth(column, columnConfig())}px`,
+                    width: `${getScaledWidth(column)}px`,
                     padding: 'var(--spacing-sm, 8px) var(--spacing-md, 12px)',
                     'box-sizing': 'border-box',
                     'text-align': column.align ?? 'left',
@@ -1015,7 +1022,7 @@ export function VirtualTable<T>(props: VirtualTableProps<T>) {
                     <div
                       title={column.getCellTitle?.(row())}
                       style={{
-                        width: `${getColumnWidth(column, columnConfig())}px`,
+                        width: `${getScaledWidth(column)}px`,
                         padding: '0 var(--spacing-md, 12px)',
                         'box-sizing': 'border-box',
                         'text-align': column.align ?? 'left',

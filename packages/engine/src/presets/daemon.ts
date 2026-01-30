@@ -6,10 +6,6 @@ import { StorageRootManager, StorageRoot } from '../storage/storage-root-manager
 import { ISessionStore } from '../interfaces/session-store'
 import { LogEntry } from '../logging/logger'
 import type { ConfigHub } from '../config/config-hub'
-import {
-  initHttpBatchingQueue,
-  type HttpBatchingDiskQueueConfig,
-} from '../adapters/daemon/http-batching-disk-queue'
 
 export interface DaemonEngineConfig {
   /**
@@ -38,16 +34,6 @@ export interface DaemonEngineConfig {
    * Use for benchmarking to isolate disk I/O bottlenecks.
    */
   nullStorage?: boolean
-  /**
-   * If true, use HTTP batched writes for improved throughput.
-   * Batches multiple pieces into single HTTP requests with results via WebSocket.
-   * Requires Android companion server with batch write support.
-   */
-  useBatchedWrites?: boolean
-  /**
-   * Configuration for batched writes. Only used when useBatchedWrites is true.
-   */
-  batchConfig?: HttpBatchingDiskQueueConfig
 }
 
 export async function createDaemonEngine(config: DaemonEngineConfig): Promise<BtEngine> {
@@ -68,28 +54,8 @@ export async function createDaemonEngine(config: DaemonEngineConfig): Promise<Bt
     throw new Error('Either daemon or connection must be provided')
   }
 
-  // Initialize HTTP batching queue if enabled
-  const batchingQueue = config.useBatchedWrites
-    ? initHttpBatchingQueue(connection, config.batchConfig)
-    : undefined
-
-  if (batchingQueue) {
-    console.log(
-      `[DaemonEngine] HTTP batched writes enabled (threshold: ${batchingQueue.batchSizeThreshold / (1024 * 1024)}MB, backpressure-based)`,
-    )
-  }
-
   const storageRootManager = new StorageRootManager((root) => {
-    // When batching is enabled, we use WebSocket writes for ACKs (batchingQueue implies WebSocket needed)
-    const useWebSocketWrites = !!batchingQueue
-    return new DaemonFileSystem(
-      connection,
-      root.key,
-      config.nullStorage ?? false,
-      useWebSocketWrites,
-      undefined, // writeConnection
-      batchingQueue,
-    )
+    return new DaemonFileSystem(connection, root.key, config.nullStorage ?? false)
   })
 
   for (const root of config.contentRoots) {

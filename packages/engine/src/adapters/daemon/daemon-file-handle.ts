@@ -2,7 +2,6 @@ import { IFileHandle } from '../../interfaces/filesystem'
 import { toHex } from '../../utils/buffer'
 import { packVerifiedWriteBatch } from './batch-write-utils'
 import { DaemonConnection } from './daemon-connection'
-import type { HttpBatchingDiskQueue } from './http-batching-disk-queue'
 
 /**
  * Error thrown when hash verification fails during a write operation.
@@ -52,6 +51,65 @@ const FIRE_AND_FORGET_WRITES = false
 let totalWritesSent = 0
 let totalWritesAcked = 0
 let maxInFlight = 0
+
+// Histogram for HTTP upload sizes (batch writes)
+// Buckets: 0-16KB, 16-64KB, 64-256KB, 256KB-1MB, 1-4MB, 4-16MB, 16MB+
+const HISTOGRAM_BUCKETS = [
+  16 * 1024,
+  64 * 1024,
+  256 * 1024,
+  1024 * 1024,
+  4 * 1024 * 1024,
+  16 * 1024 * 1024,
+]
+const batchSizeHistogram = new Array(HISTOGRAM_BUCKETS.length + 1).fill(0)
+const batchCountHistogram = new Array(17).fill(0) // 0-16+ writes per batch
+let totalBatchBytes = 0
+let totalBatches = 0
+
+function recordBatchSize(bytes: number, writeCount: number): void {
+  // Size histogram
+  let bucket = HISTOGRAM_BUCKETS.length
+  for (let i = 0; i < HISTOGRAM_BUCKETS.length; i++) {
+    if (bytes < HISTOGRAM_BUCKETS[i]) {
+      bucket = i
+      break
+    }
+  }
+  batchSizeHistogram[bucket]++
+  totalBatchBytes += bytes
+  totalBatches++
+
+  // Count histogram (0-15, then 16+)
+  const countBucket = Math.min(writeCount, 16)
+  batchCountHistogram[countBucket]++
+}
+
+/** Get batch write histogram stats */
+export function getBatchWriteHistogram() {
+  const bucketLabels = ['0-16KB', '16-64KB', '64-256KB', '256KB-1MB', '1-4MB', '4-16MB', '16MB+']
+  const sizeDistribution: Record<string, number> = {}
+  for (let i = 0; i < bucketLabels.length; i++) {
+    if (batchSizeHistogram[i] > 0) {
+      sizeDistribution[bucketLabels[i]] = batchSizeHistogram[i]
+    }
+  }
+
+  const countDistribution: Record<string, number> = {}
+  for (let i = 0; i <= 16; i++) {
+    if (batchCountHistogram[i] > 0) {
+      countDistribution[i === 16 ? '16+' : String(i)] = batchCountHistogram[i]
+    }
+  }
+
+  return {
+    totalBatches,
+    totalBatchBytes,
+    avgBatchBytes: totalBatches > 0 ? Math.round(totalBatchBytes / totalBatches) : 0,
+    sizeDistribution,
+    countDistribution,
+  }
+}
 
 /** Get current in-flight write stats */
 export function getWriteStats() {
@@ -205,17 +263,9 @@ export class DaemonFileHandle implements IFileHandle {
     private path: string,
     private rootKey: string,
     private nullStorage: boolean = false,
-    private useWebSocketWrites: boolean = true,
-    private writeConnection?: DaemonConnection,
-    /** Optional batching queue for HTTP batched writes. When set, verified writes are batched. */
-    private batchingQueue?: HttpBatchingDiskQueue,
   ) {
-    // Register the shared frame handler on the connection that will receive write ACKs
-    // (needed for both WebSocket writes and batched HTTP writes which ACK via WebSocket)
-    if (useWebSocketWrites || batchingQueue) {
-      const ackConnection = writeConnection ?? connection
-      ensureFrameHandler(ackConnection)
-    }
+    // Register the shared frame handler for batch write ACKs (used by adaptive batching)
+    ensureFrameHandler(connection)
   }
 
   /**
@@ -265,43 +315,8 @@ export class DaemonFileHandle implements IFileHandle {
 
     const data = buffer.subarray(offset, offset + length)
 
-    // Use batched HTTP writes if enabled and we have a pending hash
-    // (batching is only for verified writes - reduces HTTP overhead)
-    if (this.batchingQueue && this.pendingHash) {
-      return this.writeViaBatch(data, position)
-    }
-
-    // Use WebSocket write path if enabled and connection is ready
-    if (this.useWebSocketWrites && this.connection.ready) {
-      return this.writeViaWebSocket(data, position)
-    }
-
-    // Fallback to HTTP path
+    // Always use HTTP writes - WebSocket write protocol not supported by all daemons
     return this.writeViaHttp(data, position)
-  }
-
-  /**
-   * Write via batched HTTP with WebSocket ACK.
-   * Queues the write to the batching queue for efficient batch dispatch.
-   * Results come back via WebSocket ACK/ERROR frames.
-   */
-  private writeViaBatch(data: Uint8Array, position: number): Promise<{ bytesWritten: number }> {
-    const expectedHash = this.pendingHash!
-    this.pendingHash = null // Consume it
-
-    // Convert to ArrayBuffer for the batching queue
-    const arrayBuffer = data.buffer.slice(
-      data.byteOffset,
-      data.byteOffset + data.byteLength,
-    ) as ArrayBuffer
-
-    return this.batchingQueue!.queueVerifiedWrite(
-      this.rootKey,
-      this.path,
-      position,
-      arrayBuffer,
-      expectedHash,
-    )
   }
 
   /**
@@ -310,7 +325,10 @@ export class DaemonFileHandle implements IFileHandle {
    *
    * Uses non-zero requestId to receive acknowledgment or error response.
    * Throws HashMismatchError if hash verification fails on the server.
+   *
+   * @deprecated WebSocket upload throughput is poor. Use HTTP writes instead.
    */
+  // @ts-expect-error -- deprecated, kept for reference
   private writeViaWebSocket(data: Uint8Array, position: number): Promise<{ bytesWritten: number }> {
     const encoder = new TextEncoder()
     const rootKeyBytes = encoder.encode(this.rootKey)
@@ -383,13 +401,10 @@ export class DaemonFileHandle implements IFileHandle {
     // data
     bytes.set(data, idx)
 
-    // Use write connection if available and ready, otherwise fall back to main connection
-    const targetConnection = this.writeConnection?.ready ? this.writeConnection : this.connection
-
     // Fire-and-forget mode: send frame and immediately resolve (no ACK wait)
     if (FIRE_AND_FORGET_WRITES) {
       totalWritesSent++
-      targetConnection.sendFrame(frame)
+      this.connection.sendFrame(frame)
       return Promise.resolve({ bytesWritten: data.length })
     }
 
@@ -403,7 +418,7 @@ export class DaemonFileHandle implements IFileHandle {
 
       // Send the frame
       totalWritesSent++
-      targetConnection.sendFrame(frame)
+      this.connection.sendFrame(frame)
 
       // Timeout after 30 seconds (disk operations can be slow)
       setTimeout(() => {
@@ -434,6 +449,9 @@ export class DaemonFileHandle implements IFileHandle {
       headers['X-Expected-SHA1'] = toHex(this.pendingHash)
       this.pendingHash = null // Consume it
     }
+
+    // Record as a single-write "batch" for histogram tracking
+    recordBatchSize(data.length, 1)
 
     const response = await this.connection.requestWithHeaders(
       'POST',
@@ -516,6 +534,9 @@ export class DaemonFileHandle implements IFileHandle {
 
     // Pack all writes into a single binary buffer
     const packed = packVerifiedWriteBatch(packedWrites)
+
+    // Record histogram stats
+    recordBatchSize(packed.byteLength, writes.length)
 
     // Try streaming server if available (better memory efficiency)
     const streamingBaseUrl = this.connection.getStreamingBaseUrl()

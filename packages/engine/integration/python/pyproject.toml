@@ -7,4 +7,6 @@ dependencies = [
     "requests",
     "libtorrent",
     "numpy",
+    "aiohttp",
+    "websockets",
 ]

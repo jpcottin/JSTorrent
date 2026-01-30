@@ -132,8 +132,7 @@ export class AndroidStandaloneEngineManager implements IEngineManager {
 
     // 3. Set up storage root manager
     const srm = new StorageRootManager(
-      // Enable WebSocket writes for companion server (much faster than HTTP POST)
-      (root) => new DaemonFileSystem(this.daemonConnection!, root.key, false, false),
+      (root) => new DaemonFileSystem(this.daemonConnection!, root.key, false),
     )
 
     // 4. Create session store and ConfigHub

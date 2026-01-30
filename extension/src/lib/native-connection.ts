@@ -24,6 +24,8 @@ export interface DaemonInfo {
   capabilities?: DaemonCapabilities
   /** Separate port for /io WebSocket endpoint (high-throughput data plane). If set, /io connects here instead of main port. */
   ioPort?: number
+  /** Separate port for streaming batch writes. Uses memory-efficient streaming instead of buffering entire request. */
+  streamingPort?: number
 }
 
 // Response types from native host

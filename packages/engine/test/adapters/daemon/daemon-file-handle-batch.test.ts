@@ -31,6 +31,12 @@ class MockDaemonConnection {
   requestBinaryWithHeaders = vi.fn()
   request = vi.fn()
   onFrame = vi.fn()
+  getStreamingBaseUrl = vi.fn(() => null)
+  getCredentialsCached = vi.fn(async () => ({
+    token: 'test-token',
+    extensionId: 'test-ext',
+    installId: 'test-install',
+  }))
 }
 
 describe('packVerifiedWriteBatch (batch-write-utils)', () => {

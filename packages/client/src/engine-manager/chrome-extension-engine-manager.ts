@@ -11,8 +11,7 @@ import {
   ISessionStore,
   Torrent,
   toHex,
-  initHttpBatchingQueue,
-  type HttpBatchingDiskQueue,
+  getBatchWriteHistogram,
   type CredentialsGetter,
   type EngineLoggingConfig,
   type ConfigHub,
@@ -32,12 +31,6 @@ const USE_WEBRTC_KEEP_ALIVE = true
 // Toggle: true = writes are discarded (not sent to companion), for benchmarking I/O bottlenecks
 const NULL_STORAGE = false
 
-// Toggle: true = batch HTTP writes when disk queue backs up (ChromeOS only)
-// Reduces HTTP overhead by sending multiple pieces per request
-// Currently disabled - single in-flight batching is slower than 5 parallel workers
-// See docs/performance/http-batched-writes.md for details
-const USE_BATCHED_WRITES = false
-
 // Session store key for default root key
 const DEFAULT_ROOT_KEY_KEY = 'settings:defaultRootKey'
 
@@ -45,6 +38,7 @@ const DEFAULT_ROOT_KEY_KEY = 'settings:defaultRootKey'
 declare global {
   interface Window {
     engine?: unknown
+    getBatchWriteHistogram?: typeof getBatchWriteHistogram
   }
 }
 
@@ -151,7 +145,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
   engine: BtEngine | null = null
   configHub: ConfigHub | null = null
   daemonConnection: DaemonConnection | null = null
-  writeConnection: DaemonConnection | null = null
   logStore: LogStore = globalLogStore
   readonly isStandalone = false
   readonly supportsFileOperations = true
@@ -225,8 +218,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     // On ChromeOS, use credentials getter for fresh token
     // On desktop, use token directly from daemon info
     const isChromeos = daemonInfo.host === '100.115.92.2'
-    // on chromeOs this improves performance? (no seems worse)
-    const USE_WEBSOCKET_WRITES = false
 
     if (isChromeos) {
       this.daemonConnection = new DaemonConnection(
@@ -235,6 +226,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
         createCredentialsGetter(),
         undefined, // legacyToken (not used for ChromeOS)
         daemonInfo.ioPort, // Separate high-throughput port for /io WebSocket
+        daemonInfo.streamingPort, // Streaming batch write server (memory-efficient)
       )
     } else {
       // Desktop - use legacy token directly
@@ -244,6 +236,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
         undefined,
         daemonInfo.token,
         daemonInfo.ioPort, // Separate high-throughput port (if available)
+        daemonInfo.streamingPort, // Streaming batch write server (memory-efficient)
       )
     }
     try {
@@ -268,38 +261,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       this.handleIoReconnect()
     })
 
-    // 2b. Create dedicated write connection on ChromeOS for better throughput
-    // This eliminates contention between TCP recv data and file writes on the same WebSocket
-    if (isChromeos && USE_WEBSOCKET_WRITES) {
-      try {
-        this.writeConnection = new DaemonConnection(
-          daemonInfo.port,
-          daemonInfo.host,
-          createCredentialsGetter(),
-          undefined,
-          daemonInfo.ioPort,
-        )
-        await this.writeConnection.connectWebSocket()
-        console.log('[ChromeExtensionEngineManager] Write connection established')
-
-        // Independent disconnect/reconnect handling for write connection
-        this.writeConnection.onDisconnect((reason) => {
-          console.warn('[ChromeExtensionEngineManager] Write WebSocket disconnected:', reason)
-          // Writes will automatically fall back to main connection
-        })
-        this.writeConnection.onReconnect(() => {
-          console.log('[ChromeExtensionEngineManager] Write WebSocket reconnected')
-        })
-      } catch (error) {
-        console.warn(
-          '[ChromeExtensionEngineManager] Write connection failed, using main connection:',
-          error,
-        )
-        this.writeConnection = null
-        // Continue without dedicated write connection - writes fall back to main connection
-      }
-    }
-
     // 3. Set up storage root manager
     if (NULL_STORAGE) {
       console.warn(
@@ -307,27 +268,8 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       )
     }
 
-    // Initialize HTTP batching queue for ChromeOS (reduces HTTP overhead when disk queue backs up)
-    let batchingQueue: HttpBatchingDiskQueue | undefined
-    if (isChromeos && USE_BATCHED_WRITES) {
-      batchingQueue = initHttpBatchingQueue(this.daemonConnection!)
-      console.log(
-        `[ChromeExtensionEngineManager] HTTP batched writes enabled (threshold: ${batchingQueue.batchSizeThreshold / (1024 * 1024)}MB)`,
-      )
-    }
-
     const srm = new StorageRootManager(
-      // Enable WebSocket writes on ChromeOS (companion server supports it, desktop Rust daemon doesn't)
-      // Batching queue requires WebSocket for ACK frames
-      (root) =>
-        new DaemonFileSystem(
-          this.daemonConnection!,
-          root.key,
-          NULL_STORAGE,
-          USE_WEBSOCKET_WRITES || !!batchingQueue,
-          this.writeConnection ?? undefined,
-          batchingQueue,
-        ),
+      (root) => new DaemonFileSystem(this.daemonConnection!, root.key, NULL_STORAGE),
     )
 
     // 4. Create session store (before registering roots so we can load default)
@@ -394,8 +336,11 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       config: configHub,
       // Async writes disabled - adds complexity without backpressure, caused hash verification bugs
       useAsyncWrites: false,
+      // Adaptive batching only supported by Android companion (ChromeOS)
+      useAdaptiveBatching: isChromeos,
     })
     window.engine = this.engine // expose for debugging
+    window.getBatchWriteHistogram = getBatchWriteHistogram // expose for benchmarking
     console.log('[ChromeExtensionEngineManager] Engine created (suspended)')
 
     // 7. Restore session
@@ -469,7 +414,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     // cause tracker announce('stopped') to fail. The WebSocket will close
     // automatically when the page unloads.
     this.daemonConnection = null
-    this.writeConnection = null
 
     this.initPromise = null
   }
@@ -492,12 +436,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     if (this.daemonConnection) {
       this.daemonConnection.close()
       this.daemonConnection = null
-    }
-
-    // Close write connection
-    if (this.writeConnection) {
-      this.writeConnection.close()
-      this.writeConnection = null
     }
 
     // Destroy engine (will persist session)

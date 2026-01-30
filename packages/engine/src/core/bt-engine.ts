@@ -192,6 +192,13 @@ export interface BtEngineOptions {
   useAsyncWrites?: boolean
 
   /**
+   * Enable adaptive batching for disk writes.
+   * When true, multiple piece writes are batched together when queue has backlog.
+   * Only supported by Android companion app (ChromeOS), not Rust io-daemon (desktop).
+   */
+  useAdaptiveBatching?: boolean
+
+  /**
    * Tick loop ownership mode.
    * - 'js': JS owns the tick loop via setInterval (default, extension/browser)
    * - 'host': Host (Kotlin/Swift) drives the tick loop, calling tick() directly
@@ -231,6 +238,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   public encryptionPolicy: EncryptionPolicy
   public usePassthroughDiskQueue: boolean
   public useAsyncWrites: boolean
+  public useAdaptiveBatching: boolean
 
   /** Optional ConfigHub for reactive configuration (created internally if not provided) */
   public config?: ConfigHub
@@ -398,6 +406,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     this._dhtEnabled = this.config.dhtEnabled.get()
     this.usePassthroughDiskQueue = options.usePassthroughDiskQueue ?? false
     this.useAsyncWrites = options.useAsyncWrites ?? false
+    this.useAdaptiveBatching = options.useAdaptiveBatching ?? false
     this._tickMode = options.tickMode ?? 'js'
 
     // Set up bandwidth limits from config (0 = unlimited)

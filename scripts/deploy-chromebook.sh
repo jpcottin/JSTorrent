@@ -38,10 +38,27 @@ rsync -av --delete \
     extension/dist/ \
     "$CHROMEBOOK_HOST:$REMOTE_PATH/"
 
-echo "Reloading extension..."
-if python extension/tools/reload-extension.py 2>/dev/null; then
-    echo "Done! Extension reloaded."
-else
-    echo "Build deployed but reload failed."
-    echo "   Is the CDP tunnel active? ssh -NL 9222:127.0.0.1:9222 chromeroot"
+# Reload extension via CDP if tunnel is active
+CDP_PORT="${CDP_PORT:-9222}"
+if nc -z localhost "$CDP_PORT" 2>/dev/null; then
+    echo "Reloading extension via CDP..."
+    # Find service worker and trigger reload
+    python3 -c "
+import json
+import urllib.request
+import websocket
+
+# Get targets
+targets = json.loads(urllib.request.urlopen('http://localhost:$CDP_PORT/json').read())
+sw = next((t for t in targets if t.get('type') == 'service_worker' and 'dbokmlpefliilbjldladbimlcfgbolhk' in t.get('url', '')), None)
+if sw:
+    ws = websocket.create_connection(sw['webSocketDebuggerUrl'])
+    ws.send(json.dumps({'id': 1, 'method': 'Runtime.evaluate', 'params': {'expression': 'chrome.runtime.reload()'}}))
+    ws.close()
+    print('Extension reloaded')
+else:
+    print('Service worker not found, skipping reload')
+" 2>/dev/null || echo "CDP reload failed (websocket-client not installed?), manual reload may be needed"
 fi
+
+echo "Done! Extension deployed."

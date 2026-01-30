@@ -11,37 +11,16 @@ import { IDiskQueue, VerifiedWriteBatchData, PendingJob } from './disk-queue'
 
 // Adaptive batching configuration
 // When queue backlog exceeds threshold, workers grab additional jobs and batch them
-const ADAPTIVE_BATCHING_ENABLED =
-  typeof process !== 'undefined' && process.env?.USE_ADAPTIVE_BATCHING === '1'
+// Only supported by Android companion app (ChromeOS), not Rust io-daemon (desktop)
 
 // Queue depth (bytes) below which we send single writes for low latency
-const LOW_BACKLOG_THRESHOLD =
-  (typeof process !== 'undefined' && process.env?.LOW_BACKLOG_MB
-    ? parseInt(process.env.LOW_BACKLOG_MB, 10)
-    : 5) *
-  1024 *
-  1024
+const LOW_BACKLOG_THRESHOLD = 5 * 1024 * 1024 // 5 MB
 
 // Max bytes to grab for a batch
-const MAX_BATCH_BYTES =
-  (typeof process !== 'undefined' && process.env?.MAX_BATCH_MB
-    ? parseInt(process.env.MAX_BATCH_MB, 10)
-    : 16) *
-  1024 *
-  1024
+const MAX_BATCH_BYTES = 16 * 1024 * 1024 // 16 MB
 
 // Max pieces per batch
-const MAX_BATCH_COUNT =
-  typeof process !== 'undefined' && process.env?.MAX_BATCH_COUNT
-    ? parseInt(process.env.MAX_BATCH_COUNT, 10)
-    : 64
-
-// Log configuration at module load
-if (typeof process !== 'undefined' && process.env?.USE_ADAPTIVE_BATCHING) {
-  console.log(
-    `[Adaptive Batching] ENABLED: threshold=${(LOW_BACKLOG_THRESHOLD / 1024 / 1024).toFixed(1)}MB, maxBatch=${(MAX_BATCH_BYTES / 1024 / 1024).toFixed(1)}MB, maxCount=${MAX_BATCH_COUNT}`,
-  )
-}
+const MAX_BATCH_COUNT = 64
 
 export class TorrentContentStorage extends EngineComponent {
   static logName = 'content-storage'
@@ -67,6 +46,8 @@ export class TorrentContentStorage extends EngineComponent {
     private diskQueue?: IDiskQueue,
     /** Enable async writes (fire-and-forget). Used for daemon WebSocket writes to avoid ACK latency. */
     public asyncWrites: boolean = false,
+    /** Enable adaptive batching. Only supported by Android companion (ChromeOS). */
+    private adaptiveBatching: boolean = false,
   ) {
     super(engine)
     this.logger.debug(
@@ -326,7 +307,7 @@ export class TorrentContentStorage extends EngineComponent {
         handle = await this.getFileHandle(singleFile.path)
         if (supportsVerifiedWrite(handle)) {
           fileRelativeOffset = torrentOffset - singleFile.offset
-          canBatch = ADAPTIVE_BATCHING_ENABLED
+          canBatch = this.adaptiveBatching
         }
       }
     }
@@ -372,7 +353,7 @@ export class TorrentContentStorage extends EngineComponent {
     }
 
     // Log batching setup (once per 100 pieces to avoid spam)
-    if (ADAPTIVE_BATCHING_ENABLED && pieceIndex % 100 === 0) {
+    if (this.adaptiveBatching && pieceIndex % 100 === 0) {
       this.logger.info(
         `[Batch] piece=${pieceIndex}: canBatch=${canBatch}, batchData=${!!batchData}, expectedHash=${!!expectedHash}, singleFile=${!!singleFile}, supportsVerified=${handle ? supportsVerifiedWrite(handle) : 'no-handle'}`,
       )

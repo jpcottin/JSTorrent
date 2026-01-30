@@ -1,19 +1,12 @@
 import { IFileSystem, IFileHandle, IFileStat } from '../../interfaces/filesystem'
 import { DaemonConnection } from './daemon-connection'
 import { DaemonFileHandle } from './daemon-file-handle'
-import type { HttpBatchingDiskQueue } from './http-batching-disk-queue'
 
 export class DaemonFileSystem implements IFileSystem {
   constructor(
     private connection: DaemonConnection,
     private rootKey: string,
     private nullStorage: boolean = false,
-    /** Enable WebSocket writes (only supported by Android companion server, not desktop Rust daemon) */
-    private useWebSocketWrites: boolean = false,
-    /** Optional dedicated connection for writes to avoid contention with reads */
-    private writeConnection?: DaemonConnection,
-    /** Optional batching queue for high-throughput HTTP batched writes */
-    private batchingQueue?: HttpBatchingDiskQueue,
   ) {}
 
   async open(path: string, _mode: 'r' | 'w' | 'r+'): Promise<IFileHandle> {
@@ -23,15 +16,7 @@ export class DaemonFileSystem implements IFileSystem {
     // We can just return the handle and let the operations fail if needed,
     // or we could do a stat check here.
     // For now, just return the handle.
-    return new DaemonFileHandle(
-      this.connection,
-      path,
-      this.rootKey,
-      this.nullStorage,
-      this.useWebSocketWrites,
-      this.writeConnection,
-      this.batchingQueue,
-    )
+    return new DaemonFileHandle(this.connection, path, this.rootKey, this.nullStorage)
   }
 
   async stat(path: string): Promise<IFileStat> {

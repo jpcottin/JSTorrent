@@ -47,12 +47,11 @@ export type {
 export { DaemonSocketFactory } from './adapters/daemon/daemon-socket-factory'
 export { DaemonFileSystem } from './adapters/daemon/daemon-filesystem'
 export { DaemonHasher } from './adapters/daemon/daemon-hasher'
-export { getWriteStats, resetWriteStatsMax } from './adapters/daemon/daemon-file-handle'
 export {
-  HttpBatchingDiskQueue,
-  initHttpBatchingQueue,
-  type HttpBatchingDiskQueueConfig,
-} from './adapters/daemon/http-batching-disk-queue'
+  getWriteStats,
+  resetWriteStatsMax,
+  getBatchWriteHistogram,
+} from './adapters/daemon/daemon-file-handle'
 
 // Storage
 export { StorageRootManager, MissingStorageRootError } from './storage/storage-root-manager'
