@@ -1,5 +1,6 @@
 import { IFileHandle } from '../../interfaces/filesystem'
 import { toHex } from '../../utils/buffer'
+import { packVerifiedWriteBatch } from './batch-write-utils'
 import { DaemonConnection } from './daemon-connection'
 import type { HttpBatchingDiskQueue } from './http-batching-disk-queue'
 
@@ -187,6 +188,13 @@ function ensureFrameHandler(connection: DaemonConnection): void {
       }
     }
   })
+}
+
+/** A single write in a batch for writeBatch() */
+export interface BatchWriteItem {
+  offset: number
+  data: Uint8Array
+  expectedHash: Uint8Array
 }
 
 export class DaemonFileHandle implements IFileHandle {
@@ -444,6 +452,88 @@ export class DaemonFileHandle implements IFileHandle {
     }
 
     return { bytesWritten: data.length }
+  }
+
+  /**
+   * Write multiple data chunks to the file in a single HTTP request.
+   * All writes share the same rootKey and path (this file handle).
+   * Results come back via WebSocket ACK/ERROR frames.
+   *
+   * @param writes Array of writes, each with offset, data, and expectedHash
+   * @returns Promise that resolves when all writes are acknowledged
+   * @throws HashMismatchError if any write fails hash verification
+   */
+  async writeBatch(writes: BatchWriteItem[]): Promise<void> {
+    if (writes.length === 0) return
+
+    // Null storage mode: skip request, pretend writes succeeded
+    if (this.nullStorage) {
+      return
+    }
+
+    // Generate callback IDs and create pending write entries
+    const pendingPromises: Array<Promise<{ bytesWritten: number }>> = []
+
+    const packedWrites = writes.map((w) => {
+      const callbackId = `wb_${nextRequestId++}`
+      if (nextRequestId > 0x7fffffff) nextRequestId = 1
+
+      // Create promise for this write's ACK
+      const promise = new Promise<{ bytesWritten: number }>((resolve, reject) => {
+        registerBatchWrite(callbackId, resolve, reject)
+
+        // Timeout after 30 seconds
+        setTimeout(() => {
+          if (unregisterBatchWrite(callbackId)) {
+            reject(new Error('Batch write timed out waiting for server response'))
+          }
+        }, 30000)
+      })
+      pendingPromises.push(promise)
+
+      return {
+        rootKey: this.rootKey,
+        path: this.path,
+        position: w.offset,
+        data: w.data.buffer.slice(
+          w.data.byteOffset,
+          w.data.byteOffset + w.data.byteLength,
+        ) as ArrayBuffer,
+        expectedHashHex: toHex(w.expectedHash),
+        callbackId,
+      }
+    })
+
+    // Pack all writes into a single binary buffer
+    const packed = packVerifiedWriteBatch(packedWrites)
+
+    // Send single HTTP POST
+    const response = await this.connection.requestWithHeaders(
+      'POST',
+      `/write-batch/${this.rootKey}`,
+      {
+        'Content-Type': 'application/octet-stream',
+      },
+      new Uint8Array(packed),
+    )
+
+    if (response.status === 202) {
+      // Accepted - wait for all ACKs via WebSocket
+      await Promise.all(pendingPromises)
+      return
+    }
+
+    // For non-202 responses, unregister callbacks (no WebSocket ACKs expected)
+    for (const w of packedWrites) {
+      unregisterBatchWrite(w.callbackId)
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Batch write failed: ${response.status} ${response.statusText}: ${errorText}`)
+    }
+
+    // 200 OK - writes completed synchronously, no need to wait for ACKs
   }
 
   async truncate(len: number): Promise<void> {

@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import {
-  HttpBatchingDiskQueue,
-  packVerifiedWriteBatch,
-} from '../../../src/adapters/daemon/http-batching-disk-queue'
+import { packVerifiedWriteBatch } from '../../../src/adapters/daemon/batch-write-utils'
+import { HttpBatchingDiskQueue } from '../../../src/adapters/daemon/http-batching-disk-queue'
 
 // Mock DaemonConnection
 class MockDaemonConnection {
