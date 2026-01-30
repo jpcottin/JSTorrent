@@ -87,6 +87,7 @@ export default tseslint.config(
       'packages/engine/src/adapters/node/**/*.{ts,tsx}',
       'packages/engine/src/node-rpc/**/*.{ts,tsx}',
       'packages/engine/src/presets/node*.{ts,tsx}',
+      'packages/engine/src/cmd/**/*.{ts,tsx}',
       'packages/engine/test/**/*.{ts,tsx}',
     ],
     rules: {
