@@ -456,27 +456,28 @@ Use this to measure baseline download throughput when optimizing performance.
 
 **Quick start:**
 ```bash
-# Ensure 1GB seeder is running on 192.168.1.107
-ssh 192.168.1.107 "cd ~/code/jstorrent && pnpm seed-for-test --size 1gb"
-
-# Run benchmark
 ./scripts/benchmark-daemon-download.sh
 ```
 
+**Prerequisites:**
+- Configure `~/.jstorrent-devices` with:
+  ```
+  seeder=<ip>:6881
+  benchmark_host=chromebook
+  ```
+- 1GB test seeder running: `pnpm seed-for-test --size 1gb`
+- Android companion app running on ChromeOS
+- `.env` file configured on chromebook at `~/code/jstorrent/.env`
+
 **What it does:**
-1. Syncs engine code to chromebook
-2. Starts Node.js daemon client with `--no-session` (stateless mode)
-3. Downloads 1GB test torrent via Android companion
-4. Reports time and average speed
-5. Cleans up (removes torrent with data)
+1. Reads `seeder` and `benchmark_host` from `~/.jstorrent-devices`
+2. Syncs engine code to chromebook
+3. Starts Node.js daemon client with `--no-session` (stateless mode)
+4. Downloads 1GB test torrent via Android companion
+5. Reports time and average speed
+6. Cleans up (removes torrent with data)
 
 **Typical results:** ~30 MB/s average
-
-**Options:**
-```bash
-./scripts/benchmark-daemon-download.sh [ssh_host] [seeder_ip:port]
-./scripts/benchmark-daemon-download.sh chromebook 192.168.1.107:6881  # defaults
-```
 
 **Node.js daemon client flags:**
 - `--no-session` - Stateless mode (MemorySessionStore), no persistence between runs

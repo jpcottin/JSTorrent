@@ -45,6 +45,7 @@ function parseArgs(): {
   rpcPort: number
   sessionPath: string
   noSession: boolean
+  useBatchedWrites: boolean
 } {
   const args = process.argv.slice(2)
   let host = process.env.JST_HOST || '127.0.0.1'
@@ -55,6 +56,7 @@ function parseArgs(): {
   let rpcPort = parseInt(process.env.RPC_PORT || '3000', 10)
   let sessionPath = ''
   let noSession = false
+  let useBatchedWrites = process.env.USE_BATCHED_WRITES === '1'
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -82,6 +84,9 @@ function parseArgs(): {
       case '--no-session':
         noSession = true
         break
+      case '--batched-writes':
+        useBatchedWrites = true
+        break
       case '--help':
       case '-h':
         console.log(`Usage: run-daemon-rpc.ts [options]
@@ -95,6 +100,7 @@ Options:
   --rpc-port <port>   HTTP RPC server port (default: 3000, env: RPC_PORT)
   --session-path <p>  Path to session file (default: ~/.config/jstorrent-node-client/session.json)
   --no-session        Disable session persistence (stateless mode for testing)
+  --batched-writes    Enable HTTP batched writes for improved throughput (env: USE_BATCHED_WRITES=1)
   --help, -h          Show this help
 `)
         process.exit(0)
@@ -111,7 +117,17 @@ Options:
     sessionPath = path.join(os.homedir(), '.config', 'jstorrent-node-client', 'session.json')
   }
 
-  return { host, port, token, extensionId, installId, rpcPort, sessionPath, noSession }
+  return {
+    host,
+    port,
+    token,
+    extensionId,
+    installId,
+    rpcPort,
+    sessionPath,
+    noSession,
+    useBatchedWrites,
+  }
 }
 
 // HTTP RPC Server for daemon-backed engine
@@ -447,6 +463,7 @@ async function main() {
     contentRoots: roots,
     defaultContentRoot: roots[0].key,
     sessionStore,
+    useBatchedWrites: config.useBatchedWrites,
     onLog: (entry: LogEntry) => {
       const ts = new Date(entry.timestamp).toISOString().slice(11, 23)
       console.log(`[${ts}] [${entry.level.toUpperCase()}] ${entry.message}`)

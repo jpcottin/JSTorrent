@@ -1,6 +1,7 @@
 import { IFileHandle } from '../../interfaces/filesystem'
 import { toHex } from '../../utils/buffer'
 import { DaemonConnection } from './daemon-connection'
+import type { HttpBatchingDiskQueue } from './http-batching-disk-queue'
 
 /**
  * Error thrown when hash verification fails during a write operation.
@@ -36,6 +37,13 @@ const pendingWrites = new Map<
 let nextRequestId = 1
 const connectionsWithFrameHandler = new Set<DaemonConnection>()
 
+// Batch writes registry (keyed by callbackId string)
+// Used by HttpBatchingDiskQueue (Phase 2) for batch write results
+const pendingBatchWrites = new Map<
+  string,
+  { resolve: (v: { bytesWritten: number }) => void; reject: (e: Error) => void }
+>()
+
 // PERF TEST: Set true to bypass ACK waiting entirely (fire-and-forget writes)
 const FIRE_AND_FORGET_WRITES = false
 
@@ -46,19 +54,41 @@ let maxInFlight = 0
 
 /** Get current in-flight write stats */
 export function getWriteStats() {
-  const inFlight = pendingWrites.size
+  const inFlight = pendingWrites.size + pendingBatchWrites.size
   if (inFlight > maxInFlight) maxInFlight = inFlight
   return {
     inFlight,
     maxInFlight,
     totalSent: totalWritesSent,
     totalAcked: totalWritesAcked,
+    batchInFlight: pendingBatchWrites.size,
   }
 }
 
 /** Reset max in-flight counter (call periodically) */
 export function resetWriteStatsMax() {
-  maxInFlight = pendingWrites.size
+  maxInFlight = pendingWrites.size + pendingBatchWrites.size
+}
+
+/**
+ * Register a pending batch write by callbackId.
+ * Used by HttpBatchingDiskQueue (Phase 2) for batch write tracking.
+ * Results come via WebSocket with requestId=0 and callbackId in payload.
+ */
+export function registerBatchWrite(
+  callbackId: string,
+  resolve: (v: { bytesWritten: number }) => void,
+  reject: (e: Error) => void,
+): void {
+  pendingBatchWrites.set(callbackId, { resolve, reject })
+  totalWritesSent++
+}
+
+/**
+ * Unregister a pending batch write (e.g., on timeout or cancellation).
+ */
+export function unregisterBatchWrite(callbackId: string): boolean {
+  return pendingBatchWrites.delete(callbackId)
 }
 
 /**
@@ -90,8 +120,47 @@ function ensureFrameHandler(connection: DaemonConnection): void {
     }
 
     const requestId = view.getUint32(4, true)
-    if (requestId === 0) return // Fire-and-forget mode (shouldn't happen with our code)
 
+    // requestId === 0 indicates a batch write result with callbackId in payload
+    if (requestId === 0) {
+      // Batch result format: [envelope:8][callbackIdLen:1][callbackId:bytes][bytesWritten:4 LE][resultCode:1]
+      const payload = new Uint8Array(frame, 8)
+      if (payload.length < 6) return // Minimum: 1 + 0 + 4 + 1
+
+      const callbackIdLen = payload[0]
+      if (payload.length < 1 + callbackIdLen + 4 + 1) return
+
+      const callbackIdBytes = payload.subarray(1, 1 + callbackIdLen)
+      const callbackId = new TextDecoder().decode(callbackIdBytes)
+      const bytesWritten = view.getInt32(8 + 1 + callbackIdLen, true)
+      const resultCode = payload[1 + callbackIdLen + 4]
+
+      const pending = pendingBatchWrites.get(callbackId)
+      if (!pending) return // Unknown callbackId (maybe timed out or not ours)
+
+      pendingBatchWrites.delete(callbackId)
+      totalWritesAcked++
+
+      if (resultCode === 0) {
+        pending.resolve({ bytesWritten })
+      } else {
+        // Result codes: 0=SUCCESS, 1=HASH_MISMATCH, 2=IO_ERROR, 3=INVALID_ARGS
+        const errorMessages: Record<number, string> = {
+          1: 'Hash mismatch',
+          2: 'I/O error',
+          3: 'Invalid arguments',
+        }
+        const message = errorMessages[resultCode] ?? `Unknown error code ${resultCode}`
+        if (resultCode === 1) {
+          pending.reject(new HashMismatchError(message))
+        } else {
+          pending.reject(new Error(`Batch write failed: ${message}`))
+        }
+      }
+      return
+    }
+
+    // Regular single-write response (requestId > 0)
     const pending = pendingWrites.get(requestId)
     if (!pending) return // Unknown requestId (maybe already timed out)
 
@@ -130,9 +199,12 @@ export class DaemonFileHandle implements IFileHandle {
     private nullStorage: boolean = false,
     private useWebSocketWrites: boolean = true,
     private writeConnection?: DaemonConnection,
+    /** Optional batching queue for HTTP batched writes. When set, verified writes are batched. */
+    private batchingQueue?: HttpBatchingDiskQueue,
   ) {
     // Register the shared frame handler on the connection that will receive write ACKs
-    if (useWebSocketWrites) {
+    // (needed for both WebSocket writes and batched HTTP writes which ACK via WebSocket)
+    if (useWebSocketWrites || batchingQueue) {
       const ackConnection = writeConnection ?? connection
       ensureFrameHandler(ackConnection)
     }
@@ -185,6 +257,12 @@ export class DaemonFileHandle implements IFileHandle {
 
     const data = buffer.subarray(offset, offset + length)
 
+    // Use batched HTTP writes if enabled and we have a pending hash
+    // (batching is only for verified writes - reduces HTTP overhead)
+    if (this.batchingQueue && this.pendingHash) {
+      return this.writeViaBatch(data, position)
+    }
+
     // Use WebSocket write path if enabled and connection is ready
     if (this.useWebSocketWrites && this.connection.ready) {
       return this.writeViaWebSocket(data, position)
@@ -192,6 +270,30 @@ export class DaemonFileHandle implements IFileHandle {
 
     // Fallback to HTTP path
     return this.writeViaHttp(data, position)
+  }
+
+  /**
+   * Write via batched HTTP with WebSocket ACK.
+   * Queues the write to the batching queue for efficient batch dispatch.
+   * Results come back via WebSocket ACK/ERROR frames.
+   */
+  private writeViaBatch(data: Uint8Array, position: number): Promise<{ bytesWritten: number }> {
+    const expectedHash = this.pendingHash!
+    this.pendingHash = null // Consume it
+
+    // Convert to ArrayBuffer for the batching queue
+    const arrayBuffer = data.buffer.slice(
+      data.byteOffset,
+      data.byteOffset + data.byteLength,
+    ) as ArrayBuffer
+
+    return this.batchingQueue!.queueVerifiedWrite(
+      this.rootKey,
+      this.path,
+      position,
+      arrayBuffer,
+      expectedHash,
+    )
   }
 
   /**

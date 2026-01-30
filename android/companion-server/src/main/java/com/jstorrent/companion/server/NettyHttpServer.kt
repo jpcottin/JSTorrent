@@ -6,6 +6,10 @@ import com.jstorrent.io.file.FileManager
 import com.jstorrent.io.file.FileManagerException
 import com.jstorrent.io.hash.Hasher
 import io.netty.bootstrap.ServerBootstrap
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
 import io.netty.channel.*
@@ -259,6 +263,7 @@ private class NettyHttpHandler(
                 path == "/hash/sha1" && method == HttpMethod.POST -> handleHashSha1(ctx, request)
                 path.startsWith("/read/") && method == HttpMethod.GET -> handleRead(ctx, request, path)
                 path.startsWith("/write/") && method == HttpMethod.POST -> handleWrite(ctx, request, path)
+                path.startsWith("/write-batch/") && method == HttpMethod.POST -> handleWriteBatch(ctx, request, path)
 
                 else -> sendNotFound(ctx, request)
             }
@@ -673,6 +678,108 @@ private class NettyHttpHandler(
         } finally {
             concurrentWrites.decrementAndGet()
         }
+    }
+
+    /**
+     * Handle batched write requests for high-throughput piece writes.
+     *
+     * This endpoint accepts a packed binary batch of verified writes and processes
+     * them in parallel. Results are sent via WebSocket ACK/ERROR frames rather than
+     * in the HTTP response, allowing the client to continue sending batches without
+     * waiting for disk I/O.
+     *
+     * Binary format: See [unpackVerifiedWriteBatch] for details.
+     *
+     * @return 202 Accepted immediately (results come via WebSocket)
+     */
+    private fun handleWriteBatch(ctx: ChannelHandlerContext, request: FullHttpRequest, path: String) {
+        // Auth check (same as handleWrite)
+        if (getExtensionHeaders(request) == null && !isStandaloneAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing extension headers")
+            return
+        }
+        if (!validateAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.UNAUTHORIZED, "Invalid token")
+            return
+        }
+
+        // Extract rootKey from URL (optional, for validation)
+        val urlRootKey = path.removePrefix("/write-batch/").takeIf { it.isNotBlank() }
+
+        // Read packed batch from body
+        val content = request.content()
+        val packed = ByteArray(content.readableBytes())
+        content.readBytes(packed)
+
+        if (packed.isEmpty()) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Empty batch")
+            return
+        }
+
+        // Unpack batch
+        val writes = try {
+            unpackVerifiedWriteBatch(packed)
+        } catch (e: Exception) {
+            Log.e(TAG, "WRITE-BATCH: failed to unpack: ${e.message}")
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid batch format: ${e.message}")
+            return
+        }
+
+        if (writes.isEmpty()) {
+            sendResponse(ctx, request, HttpResponseStatus.ACCEPTED, "text/plain", "Accepted 0 writes")
+            return
+        }
+
+        Log.i(TAG, "WRITE-BATCH: ${writes.size} writes, ${packed.size} bytes")
+
+        // Launch all writes in parallel on IO dispatcher
+        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        for (write in writes) {
+            // Validate rootKey if URL specified one
+            if (urlRootKey != null && write.rootKey != urlRootKey) {
+                Log.w(TAG, "WRITE-BATCH: rootKey mismatch: URL=$urlRootKey, write=${write.rootKey}")
+                BatchWriteResults.addResult(write.callbackId, -1, WriteResultCode.INVALID_ARGS)
+                continue
+            }
+
+            // Resolve root key to SAF URI
+            val rootUri = deps.rootStore.resolveKey(write.rootKey)
+            if (rootUri == null) {
+                Log.w(TAG, "WRITE-BATCH: invalid root key: ${write.rootKey}")
+                BatchWriteResults.addResult(write.callbackId, -1, WriteResultCode.INVALID_ARGS)
+                continue
+            }
+
+            // Validate path (prevent directory traversal)
+            if (write.path.contains("..")) {
+                Log.w(TAG, "WRITE-BATCH: invalid path with ..: ${write.path}")
+                BatchWriteResults.addResult(write.callbackId, -1, WriteResultCode.INVALID_ARGS)
+                continue
+            }
+
+            scope.launch {
+                try {
+                    // Hash verification
+                    val actualHash = Hasher.sha1Hex(write.data)
+                    if (!actualHash.equals(write.expectedHashHex, ignoreCase = true)) {
+                        Log.w(TAG, "WRITE-BATCH: hash mismatch for ${write.path}")
+                        BatchWriteResults.addResult(write.callbackId, -1, WriteResultCode.HASH_MISMATCH)
+                        return@launch
+                    }
+
+                    // Write to disk
+                    fileManager.write(rootUri, write.path, write.position, write.data)
+                    BatchWriteResults.addResult(write.callbackId, write.data.size, WriteResultCode.SUCCESS)
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "WRITE-BATCH: write failed: ${write.path}", e)
+                    BatchWriteResults.addResult(write.callbackId, -1, WriteResultCode.IO_ERROR)
+                }
+            }
+        }
+
+        // Return 202 Accepted immediately (results come via WebSocket)
+        sendResponse(ctx, request, HttpResponseStatus.ACCEPTED, "text/plain", "Accepted ${writes.size} writes")
     }
 
     /**

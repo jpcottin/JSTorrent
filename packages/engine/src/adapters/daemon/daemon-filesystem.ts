@@ -1,6 +1,7 @@
 import { IFileSystem, IFileHandle, IFileStat } from '../../interfaces/filesystem'
 import { DaemonConnection } from './daemon-connection'
 import { DaemonFileHandle } from './daemon-file-handle'
+import type { HttpBatchingDiskQueue } from './http-batching-disk-queue'
 
 export class DaemonFileSystem implements IFileSystem {
   constructor(
@@ -11,6 +12,8 @@ export class DaemonFileSystem implements IFileSystem {
     private useWebSocketWrites: boolean = false,
     /** Optional dedicated connection for writes to avoid contention with reads */
     private writeConnection?: DaemonConnection,
+    /** Optional batching queue for high-throughput HTTP batched writes */
+    private batchingQueue?: HttpBatchingDiskQueue,
   ) {}
 
   async open(path: string, _mode: 'r' | 'w' | 'r+'): Promise<IFileHandle> {
@@ -27,6 +30,7 @@ export class DaemonFileSystem implements IFileSystem {
       this.nullStorage,
       this.useWebSocketWrites,
       this.writeConnection,
+      this.batchingQueue,
     )
   }
 

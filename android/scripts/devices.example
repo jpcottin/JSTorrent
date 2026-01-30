@@ -21,3 +21,7 @@ motog=serial:ZZZZZZZZZ
 # Chromebook with Android container (SSH access required)
 # The adb_path should be the full path to adb on the Chromebook
 chromebook=ssh:chromebook:~/android-sdk/platform-tools/adb
+
+# Benchmark configuration (used by scripts/benchmark-daemon-download.sh)
+# benchmark_host=chromebook
+# seeder=10.0.0.5:6881

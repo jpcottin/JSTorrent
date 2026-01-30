@@ -1,10 +1,15 @@
 package com.jstorrent.companion.server.websocket
 
 import android.util.Log
+import com.jstorrent.companion.server.BatchWriteResults
 import com.jstorrent.companion.server.CompanionServerDeps
 import com.jstorrent.companion.server.ControlWebSocketHandler
 import com.jstorrent.companion.server.IoWebSocketHandler
+import com.jstorrent.companion.server.WriteResult
 import com.jstorrent.io.file.FileManager
+import com.jstorrent.io.protocol.Protocol
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,7 +19,6 @@ import org.java_websocket.WebSocket
 import org.java_websocket.handshake.ClientHandshake
 import org.java_websocket.server.WebSocketServer
 import java.net.InetSocketAddress
-import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -160,7 +164,73 @@ private class InnerServer(
 
     override fun onStart() {
         Log.i(TAG, "WebSocket server started on port $port")
+
+        // Register to receive batch write results for broadcasting
+        BatchWriteResults.setNotifyCallback {
+            drainAndBroadcastResults()
+        }
+
         startLatch.countDown()
+    }
+
+    /**
+     * Drain pending batch write results and broadcast ACK/ERROR frames to all IO sessions.
+     *
+     * This is called when batch writes complete. Each result is packed into a frame
+     * with requestId=0 (to indicate batch result) and callbackId in payload.
+     */
+    private fun drainAndBroadcastResults() {
+        val results = BatchWriteResults.drain()
+        if (results.isEmpty()) return
+
+        Log.d(TAG, "Broadcasting ${results.size} batch write results to ${ioSessions.size} IO sessions")
+
+        for (result in results) {
+            val frame = packBatchResultFrame(result)
+            // Broadcast to all IO sessions
+            for ((conn, _) in ioSessions) {
+                try {
+                    if (conn.isOpen) {
+                        conn.send(frame)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to send batch result to session: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Pack a batch write result into a WebSocket frame.
+     *
+     * Uses existing OP_FILE_WRITE_ACK (0x31) or OP_FILE_WRITE_ERROR (0x32) opcodes
+     * with requestId=0 to indicate batch result. Payload contains callbackId for
+     * JS client to match against pending promises.
+     *
+     * Format: [envelope:8][callbackIdLen:1][callbackId:bytes][bytesWritten:4 LE][resultCode:1]
+     */
+    private fun packBatchResultFrame(result: WriteResult): ByteArray {
+        val opcode = if (result.resultCode == 0) Protocol.OP_FILE_WRITE_ACK else Protocol.OP_FILE_WRITE_ERROR
+        val callbackIdBytes = result.callbackId.toByteArray(Charsets.UTF_8)
+
+        // Envelope (8 bytes) + payload
+        val payloadSize = 1 + callbackIdBytes.size + 4 + 1
+        val frameSize = 8 + payloadSize
+        val buffer = ByteBuffer.allocate(frameSize).order(ByteOrder.LITTLE_ENDIAN)
+
+        // Envelope
+        buffer.put(Protocol.VERSION)
+        buffer.put(opcode)
+        buffer.putShort(0)  // flags
+        buffer.putInt(0)    // requestId = 0 indicates batch result
+
+        // Payload: [callbackIdLen:1][callbackId:bytes][bytesWritten:4 LE][resultCode:1]
+        buffer.put(callbackIdBytes.size.toByte())
+        buffer.put(callbackIdBytes)
+        buffer.putInt(result.bytesWritten)
+        buffer.put(result.resultCode.toByte())
+
+        return buffer.array()
     }
 
     override fun onOpen(conn: WebSocket, handshake: ClientHandshake) {

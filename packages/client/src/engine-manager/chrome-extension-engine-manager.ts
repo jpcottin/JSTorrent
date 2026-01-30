@@ -11,6 +11,8 @@ import {
   ISessionStore,
   Torrent,
   toHex,
+  initHttpBatchingQueue,
+  type HttpBatchingDiskQueue,
   type CredentialsGetter,
   type EngineLoggingConfig,
   type ConfigHub,
@@ -29,6 +31,12 @@ const USE_WEBRTC_KEEP_ALIVE = true
 
 // Toggle: true = writes are discarded (not sent to companion), for benchmarking I/O bottlenecks
 const NULL_STORAGE = false
+
+// Toggle: true = batch HTTP writes when disk queue backs up (ChromeOS only)
+// Reduces HTTP overhead by sending multiple pieces per request
+// Currently disabled - single in-flight batching is slower than 5 parallel workers
+// See docs/performance/http-batched-writes.md for details
+const USE_BATCHED_WRITES = false
 
 // Session store key for default root key
 const DEFAULT_ROOT_KEY_KEY = 'settings:defaultRootKey'
@@ -298,15 +306,27 @@ export class ChromeExtensionEngineManager implements IEngineManager {
         '[ChromeExtensionEngineManager] NULL_STORAGE enabled - writes will be discarded!',
       )
     }
+
+    // Initialize HTTP batching queue for ChromeOS (reduces HTTP overhead when disk queue backs up)
+    let batchingQueue: HttpBatchingDiskQueue | undefined
+    if (isChromeos && USE_BATCHED_WRITES) {
+      batchingQueue = initHttpBatchingQueue(this.daemonConnection!)
+      console.log(
+        `[ChromeExtensionEngineManager] HTTP batched writes enabled (threshold: ${batchingQueue.batchSizeThreshold / (1024 * 1024)}MB)`,
+      )
+    }
+
     const srm = new StorageRootManager(
       // Enable WebSocket writes on ChromeOS (companion server supports it, desktop Rust daemon doesn't)
+      // Batching queue requires WebSocket for ACK frames
       (root) =>
         new DaemonFileSystem(
           this.daemonConnection!,
           root.key,
           NULL_STORAGE,
-          USE_WEBSOCKET_WRITES,
+          USE_WEBSOCKET_WRITES || !!batchingQueue,
           this.writeConnection ?? undefined,
+          batchingQueue,
         ),
     )
 

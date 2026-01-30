@@ -6,36 +6,68 @@
 # Used to measure baseline download throughput for performance optimization.
 #
 # Prerequisites:
-#   - Android companion app running on ChromeOS (at 100.115.92.2:7800)
+#   - Android companion app running on ChromeOS
 #   - .env file configured on chromebook at ~/code/jstorrent/.env
-#   - 1GB test seeder running at 192.168.1.107:6881
+#   - 1GB test seeder running (use: pnpm seed-for-test --size 1gb)
 #   - Node.js v25+ available via nvm on chromebook
+#   - ~/.jstorrent-devices with seeder= and benchmark_host= configured
 #
 # Usage:
-#   ./scripts/benchmark-daemon-download.sh [chromebook_host] [seeder_ip:port]
-#
-# Examples:
-#   ./scripts/benchmark-daemon-download.sh                    # defaults: chromebook, 192.168.1.107:6881
-#   ./scripts/benchmark-daemon-download.sh myhost             # custom SSH host
-#   ./scripts/benchmark-daemon-download.sh chromebook 10.0.0.5:6881  # custom seeder
-#
-# To start the seeder on another machine:
-#   pnpm seed-for-test --size 1gb
+#   ./scripts/benchmark-daemon-download.sh              # Without batching
+#   USE_BATCHED_WRITES=1 ./scripts/benchmark-daemon-download.sh  # With batching
 #
 
 set -e
 
-CHROMEBOOK_HOST="${1:-chromebook}"
-SEEDER="${2:-192.168.1.107:6881}"
+CONFIG_FILE="${HOME}/.jstorrent-devices"
+
+# Read config from ~/.jstorrent-devices
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: $CONFIG_FILE not found"
+    echo ""
+    echo "Create it with:"
+    echo "  seeder=<ip>:6881"
+    echo "  benchmark_host=chromebook"
+    exit 1
+fi
+
+# Parse config file (simple key=value format, ignore comments)
+SEEDER=$(grep -E '^seeder=' "$CONFIG_FILE" | cut -d= -f2 | tr -d ' ')
+CHROMEBOOK_HOST=$(grep -E '^benchmark_host=' "$CONFIG_FILE" | cut -d= -f2 | tr -d ' ')
+
+if [ -z "$SEEDER" ]; then
+    echo "Error: seeder= not configured in $CONFIG_FILE"
+    exit 1
+fi
+
+if [ -z "$CHROMEBOOK_HOST" ]; then
+    echo "Error: benchmark_host= not configured in $CONFIG_FILE"
+    exit 1
+fi
+
 MAGNET="magnet:?xt=urn:btih:18a7aacab6d2bc518e336921ccd4b6cc32a9624b&dn=testdata_1gb.bin&x.pe=${SEEDER}"
 INFOHASH="18a7aacab6d2bc518e336921ccd4b6cc32a9624b"
 RPC_PORT=3000
+
+# Check if batched writes are enabled
+BATCHED_WRITES_FLAG=""
+if [ "${USE_BATCHED_WRITES:-0}" = "1" ]; then
+    BATCHED_WRITES_FLAG="--batched-writes"
+fi
 
 echo "=== Daemon Download Benchmark ==="
 echo "Host: $CHROMEBOOK_HOST"
 echo "Seeder: $SEEDER"
 echo "Torrent: 1GB test file"
+echo "Batched writes: ${USE_BATCHED_WRITES:-0}"
 echo ""
+
+# Check if port is already in use on remote host
+if ssh "$CHROMEBOOK_HOST" "nc -z localhost ${RPC_PORT}" 2>/dev/null; then
+    echo "Error: Port ${RPC_PORT} already in use on ${CHROMEBOOK_HOST}"
+    echo "Kill existing daemon: ssh $CHROMEBOOK_HOST 'pkill -f run-daemon-rpc'"
+    exit 1
+fi
 
 # Sync latest engine code
 echo "Syncing engine source..."
@@ -43,17 +75,32 @@ rsync -az --delete packages/engine/src/ "${CHROMEBOOK_HOST}:~/code/jstorrent/pac
 
 # Start daemon client in background
 echo "Starting daemon client..."
-ssh "$CHROMEBOOK_HOST" "bash -l -c 'export NVM_DIR=~/.nvm && source ~/.nvm/nvm.sh && nvm use 25 && cd ~/code/jstorrent && set -a && source .env && set +a && ./packages/engine/node_modules/.bin/tsx packages/engine/src/cmd/run-daemon-rpc.ts --no-session'" &
+ssh "$CHROMEBOOK_HOST" "bash -l -c 'export NVM_DIR=~/.nvm && source ~/.nvm/nvm.sh && nvm use 25 && cd ~/code/jstorrent && set -a && source .env && set +a && ./packages/engine/node_modules/.bin/tsx packages/engine/src/cmd/run-daemon-rpc.ts --no-session $BATCHED_WRITES_FLAG'" &
 DAEMON_PID=$!
 
 # Wait for RPC server to be ready
 echo "Waiting for RPC server..."
+SERVER_READY=0
 for i in {1..20}; do
+    # Check if daemon process died (e.g., port bind error)
+    if ! kill -0 $DAEMON_PID 2>/dev/null; then
+        echo ""
+        echo "Error: Daemon process died. Check for port conflicts or other errors."
+        exit 1
+    fi
     if ssh "$CHROMEBOOK_HOST" "curl -s http://localhost:${RPC_PORT}/engine/status" 2>/dev/null | grep -q '"running":true'; then
+        SERVER_READY=1
         break
     fi
     sleep 0.5
 done
+
+if [ "$SERVER_READY" != "1" ]; then
+    echo ""
+    echo "Error: RPC server did not start within 10 seconds"
+    kill $DAEMON_PID 2>/dev/null || true
+    exit 1
+fi
 
 # Add torrent
 echo "Adding torrent..."
