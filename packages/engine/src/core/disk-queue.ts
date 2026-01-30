@@ -38,6 +38,19 @@ export interface IDiskQueue {
    * Default implementation is no-op (for non-batching queues).
    */
   flushPending?(): void
+
+  /** Total bytes in pending jobs (jobs waiting for a worker) */
+  readonly pendingBytes: number
+
+  /** Number of jobs waiting for a worker */
+  readonly pendingCount: number
+
+  /**
+   * Atomically dequeue pending jobs up to limits for batching.
+   * Used by workers to grab additional jobs when there's a backlog.
+   * Returns the grabbed PendingJob items so caller can execute them.
+   */
+  grabPending(maxBytes: number, maxCount: number): PendingJob[]
 }
 
 // Default concurrent disk workers for TorrentDiskQueue (extension/daemon mode)
@@ -47,7 +60,7 @@ export interface DiskQueueConfig {
   maxWorkers: number
 }
 
-interface PendingJob {
+export interface PendingJob {
   job: DiskJob
   execute: () => Promise<void>
   reject: (reason: Error) => void
@@ -60,11 +73,22 @@ export class TorrentDiskQueue implements IDiskQueue {
   private draining = false
   private drainResolve: (() => void) | null = null
   private config: DiskQueueConfig
+  private _pendingBytes = 0
 
   constructor(config: Partial<DiskQueueConfig> = {}) {
     this.config = {
       maxWorkers: config.maxWorkers ?? DEFAULT_DISK_WORKERS,
     }
+  }
+
+  /** Total bytes in pending jobs (jobs waiting for a worker) */
+  get pendingBytes(): number {
+    return this._pendingBytes
+  }
+
+  /** Number of jobs waiting for a worker */
+  get pendingCount(): number {
+    return this.pending.length
   }
 
   async enqueue(
@@ -91,6 +115,7 @@ export class TorrentDiskQueue implements IDiskQueue {
           }
         },
       })
+      this._pendingBytes += job.size
       this.schedule()
     })
   }
@@ -104,6 +129,7 @@ export class TorrentDiskQueue implements IDiskQueue {
 
     while (this.running.size < this.config.maxWorkers && this.pending.length > 0) {
       const item = this.pending.shift()!
+      this._pendingBytes -= item.job.size
       this.startJob(item.job, item.execute)
       started++
     }
@@ -165,12 +191,32 @@ export class TorrentDiskQueue implements IDiskQueue {
       item.reject(new Error('Disk queue cleared (torrent stopped)'))
     }
     this.pending = []
+    this._pendingBytes = 0
     // Also reset draining state to clean state
     this.draining = false
     this.drainResolve = null
     if (cleared > 0) {
       console.log(`[DiskQueue] Cleared ${cleared} pending jobs`)
     }
+  }
+
+  /**
+   * Atomically grab pending jobs up to limits for batching.
+   * Used by workers to grab additional jobs when there's a backlog.
+   * Returns the grabbed PendingJob items so caller can execute them.
+   */
+  grabPending(maxBytes: number, maxCount: number): PendingJob[] {
+    const grabbed: PendingJob[] = []
+    let grabbedBytes = 0
+
+    while (this.pending.length > 0 && grabbed.length < maxCount && grabbedBytes < maxBytes) {
+      const item = this.pending.shift()!
+      this._pendingBytes -= item.job.size
+      grabbedBytes += item.job.size
+      grabbed.push(item)
+    }
+
+    return grabbed
   }
 }
 
@@ -209,5 +255,18 @@ export class PassthroughDiskQueue implements IDiskQueue {
 
   clearPending(): void {
     // No-op - nothing queued on JS side
+  }
+
+  // PassthroughDiskQueue has no pending jobs - batching happens at NativeBatchingDiskQueue layer
+  get pendingBytes(): number {
+    return 0
+  }
+
+  get pendingCount(): number {
+    return 0
+  }
+
+  grabPending(_maxBytes: number, _maxCount: number): PendingJob[] {
+    return []
   }
 }

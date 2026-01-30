@@ -11,7 +11,7 @@
  *   4. Results returned via __jstorrent_file_dispatch_batch
  */
 
-import type { IDiskQueue, DiskJob, DiskQueueSnapshot } from '../../core/disk-queue'
+import type { IDiskQueue, DiskJob, DiskQueueSnapshot, PendingJob } from '../../core/disk-queue'
 import { toHex } from '../../utils/buffer'
 import { HashMismatchError } from './native-file-handle'
 import './bindings.d.ts'
@@ -320,6 +320,13 @@ export class NativeBatchingDiskQueue implements IDiskQueue {
   }
 
   /**
+   * Get total bytes in pending writes.
+   */
+  get pendingBytes(): number {
+    return this.pending.reduce((sum, w) => sum + w.data.byteLength, 0)
+  }
+
+  /**
    * Get current metrics snapshot (for debugging/monitoring).
    */
   getMetrics(): Readonly<BatchWriteMetrics> {
@@ -374,5 +381,13 @@ export class NativeBatchingDiskQueue implements IDiskQueue {
     if (cleared > 0) {
       console.log(`[NativeBatchingDiskQueue] Cleared ${cleared} pending writes`)
     }
+  }
+
+  /**
+   * NativeBatchingDiskQueue doesn't support grabPending - it uses its own batching mechanism.
+   * Returns empty array.
+   */
+  grabPending(_maxBytes: number, _maxCount: number): PendingJob[] {
+    return []
   }
 }

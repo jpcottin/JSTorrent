@@ -15,7 +15,7 @@
  * This avoids artificial latency from timeouts while still batching under load.
  */
 
-import type { IDiskQueue, DiskJob, DiskQueueSnapshot } from '../../core/disk-queue'
+import type { IDiskQueue, DiskJob, DiskQueueSnapshot, PendingJob } from '../../core/disk-queue'
 import { toHex } from '../../utils/buffer'
 import { DaemonConnection } from './daemon-connection'
 import { registerBatchWrite, unregisterBatchWrite } from './daemon-file-handle'
@@ -451,6 +451,14 @@ export class HttpBatchingDiskQueue implements IDiskQueue {
     if (cleared > 0) {
       console.log(`[HttpBatchingDiskQueue] Cleared ${cleared} pending writes`)
     }
+  }
+
+  /**
+   * HttpBatchingDiskQueue doesn't support grabPending - it uses its own batching mechanism.
+   * Returns empty array.
+   */
+  grabPending(_maxBytes: number, _maxCount: number): PendingJob[] {
+    return []
   }
 }
 

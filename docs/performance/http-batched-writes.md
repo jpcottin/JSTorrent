@@ -8,13 +8,17 @@ On ChromeOS, the extension communicates with the Android companion app via HTTP.
 
 Batch multiple piece writes into a single HTTP request to reduce per-request overhead. Only batch when the disk queue is backed up (has pending writes) - don't add latency when writes can keep up.
 
-## Current Implementation
+## Current Implementation (BROKEN)
 
-### Files
+**Status:** The current implementation is incorrect and performs worse than no batching.
+
+**Problem:** It replaces the disk queue entirely with a single-in-flight batching queue, which serializes all writes and kills the 5-worker parallelism.
+
+### Files (to be rewritten)
 
 | File | Purpose |
 |------|---------|
-| `packages/engine/src/adapters/daemon/http-batching-disk-queue.ts` | Batching queue implementation |
+| `packages/engine/src/adapters/daemon/http-batching-disk-queue.ts` | Batching queue (wrong approach - replaces disk queue) |
 | `packages/engine/src/adapters/daemon/daemon-file-handle.ts` | Routes writes to batch queue |
 | `packages/engine/src/presets/daemon.ts` | Wires batching for Node.js daemon client |
 | `packages/client/src/engine-manager/chrome-extension-engine-manager.ts` | Wires batching for ChromeOS extension |
@@ -35,23 +39,17 @@ USE_BATCHED_WRITES=1 ./scripts/benchmark-daemon-download.sh
 --batched-writes
 ```
 
-### Config Options
+## Broken Batching Logic (Current)
 
-```typescript
-interface HttpBatchingDiskQueueConfig {
-  batchSizeThreshold?: number  // Bytes, default 16MB - flush when batch reaches this size
-}
-```
-
-## Batching Logic
-
-Current simplified logic (single in-flight):
+The current implementation uses single in-flight, which serializes everything:
 
 1. Write comes in
-2. If no batch in-flight → send immediately (no added latency)
+2. If no batch in-flight → send immediately
 3. If batch in-flight → queue to buffer
-4. When in-flight completes → flush queued batch (backpressure trigger)
-5. If size threshold reached → flush even if already in-flight
+4. When in-flight completes → flush queued batch
+5. Result: Only 1 HTTP request at a time, ~6.5 MB/s throughput
+
+**Why it's slow:** Single in-flight serializes all writes. We don't accumulate enough writes during the ~190ms HTTP window to reach meaningful batch sizes. Non-batched 5-worker parallel achieves 31 MB/s by overlapping HTTP latency.
 
 ## Benchmark
 
@@ -81,63 +79,108 @@ USE_BATCHED_WRITES=1 ./scripts/benchmark-daemon-download.sh
 
 **Batching is currently slower.**
 
-## Issue: Small Batch Sizes
+## Correct Design: Adaptive Batching with Worker Parallelism
 
-With single in-flight batching, batches are tiny:
-- Average 2.4 writes/batch (2-3MB)
-- Average 190ms HTTP latency per batch
-- Effective throughput: ~6.5 MB/s
+The correct design keeps the 5-worker parallelism and adds adaptive batching at the worker level.
 
-The problem: single in-flight serializes all writes. We don't accumulate enough writes during the ~190ms HTTP window to reach meaningful batch sizes (16MB target).
+### Key Principles
 
-Compare to non-batched: 5 workers running in parallel overlap their HTTP latency, achieving better throughput despite per-request overhead.
+1. **Keep TorrentDiskQueue with 5 workers** - Don't replace the queue, augment it
+2. **Batch at worker execution time** - When a worker grabs a job, it can peek at the queue and grab additional pending jobs to batch
+3. **Piece-size-aware** - Small pieces benefit more from batching (higher overhead ratio)
+4. **Backlog-driven** - Only batch when there's actually backlog; don't add artificial delays
+5. **Configurable thresholds** - Tune via benchmarks, not guesswork
 
-### Log Output (batched)
+### Adaptive Batching Logic
+
 ```
-[HttpBatch] 2 writes, 2.00MB data, packed 2048.2KB, pack 1ms, HTTP 147ms, trigger=backpressure
-[HttpBatch] 3 writes, 3.00MB data, packed 3072.3KB, pack 4ms, HTTP 220ms, trigger=backpressure
-[HttpBatch] Stats: 14 batches, 33 writes, 33.00MB total (~6.52MB/s), avg 2.4 writes/batch
+when worker grabs a job:
+  piece_size = job.data.length
+  backlog = queue.pending.length
+
+  if piece_size >= SMALL_PIECE_THRESHOLD and backlog == 0:
+    # Large piece, no backlog - send immediately (single piece)
+    send single
+
+  else if piece_size < SMALL_PIECE_THRESHOLD:
+    # Small piece - always try to batch
+    # Grab more from queue up to minBatchSizeForSmallPieces or maxBatchSize
+    batch = [job] + grab_pending_up_to(minBatchSizeForSmallPieces)
+    send batch
+
+  else:
+    # Large piece with backlog - batch opportunistically
+    batch = [job] + grab_all_pending_up_to(maxBatchSize)
+    send batch
 ```
 
-## Potential Fixes
+### Why Piece Size Matters
 
-### Option 1: Allow Multiple Batches In-Flight
+HTTP overhead is ~7ms per request. The overhead ratio depends on piece size:
 
-Re-add `maxBatchesInFlight` (was 6, matching browser connection limit). This allows parallelism while still batching when capacity is full.
+| Piece Size | Overhead Ratio | Batching Benefit |
+|------------|----------------|------------------|
+| 16 KB | 7ms / ~0.5ms transfer = 1400% | Critical |
+| 256 KB | 7ms / ~8ms transfer = 87% | High |
+| 1 MB | 7ms / ~33ms transfer = 21% | Moderate |
+| 4 MB | 7ms / ~133ms transfer = 5% | Low |
 
-**Pros:** Combines parallelism with batching
-**Cons:** More complex, was considered "wrongheaded"
+Small pieces have catastrophic overhead ratios - batching them is essential. Large pieces can be sent individually without much penalty.
 
-### Option 2: Accumulation Timer
+### Configuration
 
-Add a small delay (e.g., 50ms) before first send to let writes accumulate.
+```typescript
+interface AdaptiveBatchingConfig {
+  /** Below this size, batch aggressively even with minimal backlog */
+  smallPieceThreshold: number  // Default: 1MB (tune via benchmark)
 
-**Pros:** Larger batches
-**Cons:** Adds latency even at low load, which violates "only batch when backed up"
+  /** For small pieces, try to accumulate at least this much before sending */
+  minBatchSizeForSmallPieces: number  // Default: 2MB (tune via benchmark)
 
-### Option 3: Hybrid Approach
+  /** Never exceed this batch size */
+  maxBatchSize: number  // Default: 16MB
 
-- Use normal 5-worker TorrentDiskQueue
-- Batch at the DaemonFileHandle level only when workers are waiting
-- Each worker's batch accumulates while that specific worker is in-flight
+  /** Optional cap on pieces per batch */
+  maxPiecesPerBatch?: number
+}
+```
 
-### Option 4: Abandon Batching
+All thresholds should be tunable via environment variables or CLI flags for benchmarking:
 
-Accept that 5 parallel unbatched HTTP requests is optimal for this scenario. The HTTP overhead (~7ms) may be acceptable when amortized across 5 parallel workers.
+```bash
+SMALL_PIECE_THRESHOLD=512KB MIN_BATCH_SIZE=4MB ./scripts/benchmark-daemon-download.sh
+```
+
+### Implementation Location
+
+The batching logic belongs in the worker's execute callback, NOT in a replacement disk queue:
+
+```
+TorrentDiskQueue.execute() callback:
+  → Check backlog and piece size
+  → Optionally grab more jobs from queue
+  → DaemonFileHandle.write() with batched data
+  → Or: Dedicated batch endpoint that accepts multiple pieces
+```
+
+This preserves the 5-worker parallelism while allowing each worker to independently batch when beneficial.
 
 ## Architecture Notes
 
-### Current Disk Queue Flow
+### Target Disk Queue Flow (Correct Design)
 
 ```
 TorrentContentStorage.writePiece()
   → diskQueue.enqueue(job, execute callback)
-    → DaemonFileHandle.write()
-      → if batchingQueue: queueVerifiedWrite()
-      → else: direct HTTP/WebSocket write
+    → Worker picks up job
+    → Worker peeks queue for additional jobs (based on piece size + backlog)
+    → Worker batches jobs if beneficial
+    → DaemonFileHandle.writeBatch() or write()
+      → HTTP POST /write-batch/{rootKey} (batched)
+      → Or: direct HTTP/WebSocket write (single)
 ```
 
-The disk queue (5 workers) controls concurrency. The batching queue intercepts writes at the file handle level.
+The disk queue (5 workers) controls concurrency. Each worker independently decides whether to batch based on piece size and queue backlog.
 
 ### Why Batching Needs WebSocket
 
