@@ -79,7 +79,7 @@ class SettingsViewModelTest {
     fun `initial state loads roots from store`() {
         whenever(rootStore.refreshAvailability()).thenReturn(listOf(testRoot1, testRoot2))
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
 
         val state = viewModel.uiState.value
         assertEquals(2, state.downloadRoots.size)
@@ -91,7 +91,7 @@ class SettingsViewModelTest {
     fun `initial state with empty roots`() {
         whenever(rootStore.refreshAvailability()).thenReturn(emptyList())
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
 
         val state = viewModel.uiState.value
         assertTrue(state.downloadRoots.isEmpty())
@@ -105,7 +105,7 @@ class SettingsViewModelTest {
     fun `refreshRoots updates state`() {
         whenever(rootStore.refreshAvailability()).thenReturn(listOf(testRoot1))
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
 
         whenever(rootStore.refreshAvailability()).thenReturn(listOf(testRoot1, testRoot2))
 
@@ -124,7 +124,7 @@ class SettingsViewModelTest {
         whenever(rootStore.refreshAvailability()).thenReturn(listOf(testRoot1, testRoot2))
         whenever(rootStore.removeRoot("key1")).thenReturn(true)
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
 
         whenever(rootStore.refreshAvailability()).thenReturn(listOf(testRoot2))
 
@@ -145,7 +145,7 @@ class SettingsViewModelTest {
     fun `showClearConfirmation sets flag`() {
         whenever(rootStore.refreshAvailability()).thenReturn(emptyList())
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
 
         viewModel.showClearConfirmation()
 
@@ -156,7 +156,7 @@ class SettingsViewModelTest {
     fun `dismissClearConfirmation clears flag`() {
         whenever(rootStore.refreshAvailability()).thenReturn(emptyList())
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
         viewModel.showClearConfirmation()
         viewModel.dismissClearConfirmation()
 
@@ -174,7 +174,7 @@ class SettingsViewModelTest {
         whenever(rootStore.removeRoot("key1")).thenReturn(true)
         whenever(rootStore.removeRoot("key2")).thenReturn(true)
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
         viewModel.showClearConfirmation()
 
         whenever(rootStore.refreshAvailability()).thenReturn(emptyList())

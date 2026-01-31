@@ -385,8 +385,10 @@ class TorrentListViewModel(
 
     /**
      * Pause all selected torrents.
+     * Stage 2: Starts engine on demand if not running.
      */
     fun pauseSelected() {
+        onEnsureEngineStarted()
         _selectedTorrents.value.forEach { hash ->
             repository.pauseTorrent(hash)
         }
@@ -395,8 +397,10 @@ class TorrentListViewModel(
 
     /**
      * Resume all selected torrents.
+     * Stage 2: Starts engine on demand if not running.
      */
     fun resumeSelected() {
+        onEnsureEngineStarted()
         _selectedTorrents.value.forEach { hash ->
             repository.resumeTorrent(hash)
         }
@@ -405,8 +409,10 @@ class TorrentListViewModel(
 
     /**
      * Remove all selected torrents.
+     * Stage 2: Starts engine on demand if not running.
      */
     fun removeSelected(deleteFiles: Boolean) {
+        onEnsureEngineStarted()
         _selectedTorrents.value.forEach { hash ->
             repository.removeTorrent(hash, deleteFiles)
         }
