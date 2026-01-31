@@ -7,12 +7,16 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -197,30 +201,13 @@ fun TorrentNavHost(
         // Notifications settings
         composable(Routes.SETTINGS_NOTIFICATIONS) {
             val context = LocalContext.current
+            val lifecycleOwner = LocalLifecycleOwner.current
             val settingsViewModel: SettingsViewModel = viewModel(
                 factory = SettingsViewModel.Factory(context)
             )
 
-            // Notification permission handling
-            val permissionLauncher = rememberLauncherForActivityResult(
-                contract = ActivityResultContracts.RequestPermission()
-            ) { isGranted ->
-                val canRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    val activity = context as? android.app.Activity
-                    activity?.let {
-                        ActivityCompat.shouldShowRequestPermissionRationale(
-                            it,
-                            Manifest.permission.POST_NOTIFICATIONS
-                        )
-                    } ?: true
-                } else {
-                    false
-                }
-                settingsViewModel.updateNotificationPermissionState(isGranted, canRequest)
-            }
-
-            // Check initial permission state
-            LaunchedEffect(Unit) {
+            // Helper function to check and update notification permission state
+            fun refreshNotificationPermissionState() {
                 val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     ContextCompat.checkSelfPermission(
                         context,
@@ -243,6 +230,37 @@ fun TorrentNavHost(
                 }
 
                 settingsViewModel.updateNotificationPermissionState(granted, canRequest || !granted)
+            }
+
+            // Notification permission handling
+            val permissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission()
+            ) { isGranted ->
+                val canRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val activity = context as? android.app.Activity
+                    activity?.let {
+                        ActivityCompat.shouldShowRequestPermissionRationale(
+                            it,
+                            Manifest.permission.POST_NOTIFICATIONS
+                        )
+                    } ?: true
+                } else {
+                    false
+                }
+                settingsViewModel.updateNotificationPermissionState(isGranted, canRequest)
+            }
+
+            // Refresh permission state on resume (e.g., after returning from system settings)
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        refreshNotificationPermissionState()
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                }
             }
 
             NotificationsSettingsScreen(
@@ -279,12 +297,13 @@ fun TorrentNavHost(
         // Power management settings
         composable(Routes.SETTINGS_POWER) {
             val context = LocalContext.current
+            val lifecycleOwner = LocalLifecycleOwner.current
             val settingsViewModel: SettingsViewModel = viewModel(
                 factory = SettingsViewModel.Factory(context)
             )
 
-            // Check initial permission state for background downloads
-            LaunchedEffect(Unit) {
+            // Helper function to check and update notification permission state
+            fun refreshNotificationPermissionState() {
                 val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     ContextCompat.checkSelfPermission(
                         context,
@@ -307,6 +326,19 @@ fun TorrentNavHost(
                 }
 
                 settingsViewModel.updateNotificationPermissionState(granted, canRequest || !granted)
+            }
+
+            // Refresh permission state on resume (e.g., after returning from system settings)
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        refreshNotificationPermissionState()
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                }
             }
 
             PowerManagementSettingsScreen(

@@ -50,8 +50,8 @@ sealed class TorrentListUiState {
 enum class TorrentFilter(val displayName: String) {
     /** Show all torrents */
     ALL("All"),
-    /** Show active torrents (downloading, downloading_metadata, checking) */
-    ACTIVE("Active"),
+    /** Show downloading torrents (downloading, downloading_metadata, checking) */
+    ACTIVE("Downloading"),
     /** Show completed torrents (seeding, stopped with progress = 1.0) */
     FINISHED("Finished")
 }
@@ -149,7 +149,12 @@ data class TorrentDetailUi(
     val addedAt: Long? = null,        // Epoch milliseconds when torrent was added
     val completedAt: Long? = null,    // Epoch milliseconds when completed, null if in progress
     val magnetUrl: String? = null,    // Full magnet URI with trackers
-    val rootKey: String? = null       // Storage root key for file access
+    val rootKey: String? = null,      // Storage root key for file access
+    // Optional metadata from .torrent file (not available for magnets)
+    val comment: String? = null,
+    val createdBy: String? = null,
+    val creationDate: Long? = null,   // Unix timestamp (seconds since epoch)
+    val isPrivate: Boolean = false
 )
 
 /**

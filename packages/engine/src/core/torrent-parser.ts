@@ -12,6 +12,20 @@ export interface ParsedTorrent {
   announce: string[]
   infoBuffer?: Uint8Array
   isPrivate?: boolean
+  // Optional metadata from top-level torrent dict
+  comment?: string
+  createdBy?: string
+  creationDate?: number
+}
+
+/** Safely decode bytes to string, returning undefined on invalid UTF-8 */
+function safeDecodeText(bytes: Uint8Array | undefined): string | undefined {
+  if (!bytes) return undefined
+  try {
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+  } catch {
+    return undefined
+  }
 }
 
 export class TorrentParser {
@@ -28,6 +42,11 @@ export class TorrentParser {
       throw new Error('Invalid torrent: could not extract raw info for hashing')
     }
 
+    // Extract optional metadata from top-level torrent dict
+    const comment = safeDecodeText(decoded.comment)
+    const createdBy = safeDecodeText(decoded['created by'])
+    const creationDate = decoded['creation date'] as number | undefined
+
     const infoHash = await hasher.sha1(infoBuffer)
     return this.parseInfoDictionary(
       info,
@@ -35,6 +54,9 @@ export class TorrentParser {
       decoded['announce-list'],
       decoded.announce,
       infoBuffer,
+      comment,
+      createdBy,
+      creationDate,
     )
   }
 
@@ -51,6 +73,9 @@ export class TorrentParser {
     announceList?: Uint8Array[][],
     announceUrl?: Uint8Array,
     infoBuffer?: Uint8Array,
+    comment?: string,
+    createdBy?: string,
+    creationDate?: number,
   ): ParsedTorrent {
     const name = new TextDecoder().decode(info.name)
     const pieceLength = info['piece length']
@@ -115,6 +140,9 @@ export class TorrentParser {
       announce,
       infoBuffer,
       isPrivate: info.private === 1,
+      comment,
+      createdBy,
+      creationDate,
     }
   }
 }

@@ -45,11 +45,20 @@ data class FileState(
 class TorrentDetailViewModel(
     private val repository: TorrentRepository,
     private val infoHash: String,
-    onEnsureEngineStarted: () -> Unit = {}
+    private val onEnsureEngineStarted: () -> Unit = {}
 ) : ViewModel() {
 
     init {
         // Stage 2: Opening detail view is a trigger point for engine start
+        onEnsureEngineStarted()
+    }
+
+    /**
+     * Ensure the engine is started.
+     * Call this when the screen resumes after being backgrounded, since the engine
+     * may have been shut down for battery saving while the Activity was stopped.
+     */
+    fun ensureEngineStarted() {
         onEnsureEngineStarted()
     }
 
@@ -400,10 +409,9 @@ class TorrentDetailViewModel(
         // Calculate totals from files
         val totalSize = files.sumOf { it.size }
         val downloaded = files.sumOf { it.downloaded }
-        val uploaded = (downloaded * 0.1).toLong() // Placeholder - need real data from engine
 
         // Calculate share ratio
-        val shareRatio = if (downloaded > 0) uploaded.toDouble() / downloaded else 0.0
+        val shareRatio = if (downloaded > 0) summary.uploaded.toDouble() / downloaded else 0.0
 
         return TorrentDetailUi(
             infoHash = summary.infoHash,
@@ -413,7 +421,7 @@ class TorrentDetailViewModel(
             downloadSpeed = summary.downloadSpeed,
             uploadSpeed = summary.uploadSpeed,
             downloaded = downloaded,
-            uploaded = uploaded,
+            uploaded = summary.uploaded,
             size = totalSize,
             peersConnected = peers.count { it.state == "connected" },
             peersTotal = if (summary.swarmPeers > 0) summary.swarmPeers else null,
@@ -433,7 +441,11 @@ class TorrentDetailViewModel(
             addedAt = details?.addedAt,
             completedAt = details?.completedAt,
             magnetUrl = details?.magnetUrl,
-            rootKey = details?.rootKey
+            rootKey = details?.rootKey,
+            comment = details?.comment,
+            createdBy = details?.createdBy,
+            creationDate = details?.creationDate,
+            isPrivate = details?.isPrivate ?: false
         )
     }
 

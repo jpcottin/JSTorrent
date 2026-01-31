@@ -126,7 +126,12 @@ data class TorrentDetails(
     val pieceSize: Long,            // Piece size in bytes
     val pieceCount: Int,            // Total number of pieces
     val magnetUrl: String,          // Full magnet URI with trackers
-    val rootKey: String? = null     // Storage root key for file access
+    val rootKey: String? = null,    // Storage root key for file access
+    // Optional metadata from .torrent file (not available for magnets)
+    val comment: String? = null,
+    val createdBy: String? = null,
+    val creationDate: Long? = null, // Unix timestamp (seconds since epoch)
+    val isPrivate: Boolean = false
 )
 
 /**
@@ -156,7 +161,8 @@ data class TorrentSummary(
     val numPeers: Int = 0,
     val swarmPeers: Int = 0,
     val skippedFilesCount: Int = 0,
-    val hasMetadata: Boolean = true // false for magnets before metadata is fetched
+    val hasMetadata: Boolean = true, // false for magnets before metadata is fetched
+    val uploaded: Long = 0
 )
 
 /**

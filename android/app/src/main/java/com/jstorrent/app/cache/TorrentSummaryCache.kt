@@ -76,6 +76,7 @@ open class TorrentSummaryCache(context: Context?) {
      * Call this on app startup before engine initialization.
      */
     open suspend fun load(): List<CachedTorrentSummary> = withContext(Dispatchers.IO) {
+        Log.d(TAG, "load() called, current _isLoaded=${_isLoaded.value}, current summaries count=${_cachedSummaries.value.size}")
         val summaries = mutableListOf<CachedTorrentSummary>()
         val localPrefs = prefs
 
@@ -83,25 +84,35 @@ open class TorrentSummaryCache(context: Context?) {
             try {
                 // Load the torrent list index
                 val torrentListJson = getSessionJson("torrents")
+                Log.d(TAG, "torrentListJson: ${torrentListJson?.take(100)}...")
                 if (torrentListJson != null) {
                     val torrentList = json.decodeFromString<TorrentListData>(torrentListJson)
+                    Log.d(TAG, "Parsed ${torrentList.torrents.size} torrent entries")
 
                     for (entry in torrentList.torrents) {
                         try {
                             val summary = loadTorrentSummary(entry)
                             if (summary != null) {
+                                Log.d(TAG, "Loaded summary: ${summary.name}, status=${summary.status}, progress=${summary.progress}")
                                 summaries.add(summary)
+                            } else {
+                                Log.w(TAG, "loadTorrentSummary returned null for ${entry.infoHash}")
                             }
                         } catch (e: Exception) {
                             Log.w(TAG, "Failed to load cached summary for ${entry.infoHash}: ${e.message}")
                         }
                     }
+                } else {
+                    Log.d(TAG, "No torrent list found in session")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load torrent list", e)
             }
+        } else {
+            Log.w(TAG, "SharedPreferences is null")
         }
 
+        Log.d(TAG, "Setting _cachedSummaries to ${summaries.size} items, _isLoaded=true")
         _cachedSummaries.value = summaries
         _isLoaded.value = true
         summaries

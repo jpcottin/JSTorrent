@@ -66,3 +66,21 @@ export function toInfoHashString(buffer: Uint8Array): string {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
 }
+
+/**
+ * Check if a string looks like a bare info hash (40 hex chars).
+ * Returns true if the string appears to be just a hash without the magnet wrapper.
+ */
+export function looksLikeBareInfoHash(input: string): boolean {
+  const trimmed = input.trim()
+  // 40 hex chars (SHA1)
+  return /^[0-9a-fA-F]{40}$/.test(trimmed)
+}
+
+/**
+ * Convert a bare info hash to a magnet link.
+ * Supports both 40 hex chars and 32 base32 chars.
+ */
+export function bareHashToMagnet(hash: string): string {
+  return `magnet:?xt=urn:btih:${hash.trim()}`
+}

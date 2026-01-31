@@ -2,7 +2,12 @@ import { IHasher } from '../interfaces/hasher'
 import { parseMagnet } from '../utils/magnet'
 import { TorrentParser, ParsedTorrent } from './torrent-parser'
 import { fromHex, toBase64 } from '../utils/buffer'
-import { InfoHashHex, infoHashFromBytes } from '../utils/infohash'
+import {
+  InfoHashHex,
+  infoHashFromBytes,
+  looksLikeBareInfoHash,
+  bareHashToMagnet,
+} from '../utils/infohash'
 import type { PeerAddress } from './swarm'
 
 /**
@@ -37,15 +42,21 @@ export async function parseTorrentInput(
   hasher: IHasher,
 ): Promise<ParsedTorrentInput> {
   if (typeof magnetOrBuffer === 'string') {
+    // Convert bare info hash to magnet link if needed
+    let magnetLink = magnetOrBuffer
+    if (looksLikeBareInfoHash(magnetOrBuffer)) {
+      magnetLink = bareHashToMagnet(magnetOrBuffer)
+    }
+
     // Parse magnet link
-    const parsed = parseMagnet(magnetOrBuffer)
+    const parsed = parseMagnet(magnetLink)
     const infoHash = fromHex(parsed.infoHash)
 
     return {
       infoHash,
       infoHashStr: parsed.infoHash,
       announce: parsed.announce || [],
-      magnetLink: magnetOrBuffer,
+      magnetLink,
       magnetDisplayName: parsed.name,
       magnetPeerHints: parsed.peers,
     }

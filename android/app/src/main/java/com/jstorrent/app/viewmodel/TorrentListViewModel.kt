@@ -79,10 +79,16 @@ class TorrentListViewModel(
         _filter,
         _sortOrder
     ) { dataSource, filter, sortOrder ->
+        android.util.Log.d("TorrentListVM", "uiState: engineLoaded=${dataSource.isLoaded}, " +
+            "engineTorrents=${dataSource.state?.torrents?.size ?: 0}, " +
+            "cachedSummaries=${dataSource.cachedSummaries.size}, " +
+            "cacheIsLoaded=${dataSource.cacheIsLoaded}, error=${dataSource.error}")
         when {
             // Error state (only show if engine hasn't loaded yet)
-            dataSource.error != null && !dataSource.isLoaded ->
+            dataSource.error != null && !dataSource.isLoaded -> {
+                android.util.Log.d("TorrentListVM", "-> Error state")
                 TorrentListUiState.Error(dataSource.error)
+            }
 
             // Engine is loaded - use live state (engine wins)
             dataSource.isLoaded -> {
@@ -90,6 +96,7 @@ class TorrentListViewModel(
                 val filteredTorrents = torrents
                     .filterByStatus(filter)
                     .sortByOrder(sortOrder)
+                android.util.Log.d("TorrentListVM", "-> Live state, ${filteredTorrents.size} torrents")
                 TorrentListUiState.Loaded(
                     torrents = filteredTorrents,
                     filter = filter,
@@ -106,6 +113,7 @@ class TorrentListViewModel(
                 val filteredTorrents = torrents
                     .filterByStatus(filter)
                     .sortByOrder(sortOrder)
+                android.util.Log.d("TorrentListVM", "-> Cache state, ${filteredTorrents.size} torrents")
                 TorrentListUiState.Loaded(
                     torrents = filteredTorrents,
                     filter = filter,
@@ -116,6 +124,7 @@ class TorrentListViewModel(
 
             // Cache has loaded but is empty - show empty list (not live)
             dataSource.cacheIsLoaded -> {
+                android.util.Log.d("TorrentListVM", "-> Cache loaded but EMPTY")
                 TorrentListUiState.Loaded(
                     torrents = emptyList(),
                     filter = filter,
@@ -125,7 +134,10 @@ class TorrentListViewModel(
             }
 
             // Cache still loading - show loading spinner
-            else -> TorrentListUiState.Loading
+            else -> {
+                android.util.Log.d("TorrentListVM", "-> Loading state")
+                TorrentListUiState.Loading
+            }
         }
     }.stateIn(
         scope = viewModelScope,
@@ -318,6 +330,28 @@ class TorrentListViewModel(
      */
     fun isPaused(torrent: TorrentSummary): Boolean {
         return torrent.status == "stopped"
+    }
+
+    /**
+     * Refresh the cache from persisted session state.
+     * Call this when the Activity resumes to pick up any changes that occurred
+     * while the screen was off (e.g., background downloads completing).
+     *
+     * If any torrents are active (not paused), automatically starts the engine
+     * so the user sees live state instead of stale cached "stopped" status.
+     */
+    fun refreshCache() {
+        cache?.let { summaryCache ->
+            viewModelScope.launch {
+                val summaries = summaryCache.load()
+                // If any torrents are active (userState == "active"), start the engine
+                // so user sees live state instead of cached "stopped" status
+                val hasActiveTorrents = summaries.any { it.userState == "active" }
+                if (hasActiveTorrents) {
+                    onEnsureEngineStarted()
+                }
+            }
+        }
     }
 
     // =========================================================================

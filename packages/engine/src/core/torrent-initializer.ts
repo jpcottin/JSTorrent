@@ -55,6 +55,11 @@ export async function initializeTorrentMetadata(
     torrent.isPrivate = true
   }
 
+  // Set optional metadata fields (only available from .torrent files, not magnets)
+  if (parsedTorrent.comment) torrent.comment = parsedTorrent.comment
+  if (parsedTorrent.createdBy) torrent.createdBy = parsedTorrent.createdBy
+  if (parsedTorrent.creationDate) torrent.creationDate = parsedTorrent.creationDate
+
   // Initialize bitfield (torrent owns the bitfield)
   torrent.initBitfield(parsedTorrent.pieces.length)
   torrent.initPieceAvailability(parsedTorrent.pieces.length)

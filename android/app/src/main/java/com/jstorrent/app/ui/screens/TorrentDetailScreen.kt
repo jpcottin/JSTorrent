@@ -83,8 +83,11 @@ fun TorrentDetailScreen(
     val selectedTab by viewModel.selectedTab.collectAsState()
 
     // Re-sync pieces when app resumes from background to catch any updates
-    // that were missed while the app was suspended
+    // that were missed while the app was suspended.
+    // Also ensure engine is started - it may have been shut down for battery
+    // saving while the screen was off.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.ensureEngineStarted()
         viewModel.resyncPieces()
     }
 

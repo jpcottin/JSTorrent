@@ -1,6 +1,10 @@
 package com.jstorrent.app.viewmodel
 
+import android.Manifest
 import android.content.Context
+import android.os.Build
+import androidx.core.content.ContextCompat
+import androidx.core.content.PermissionChecker
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.jstorrent.app.JSTorrentApplication
@@ -50,7 +54,8 @@ data class SettingsUiState(
     // Notifications
     val notificationPermissionGranted: Boolean = false,
     val canRequestNotificationPermission: Boolean = true,
-    val showNotificationRequiredDialog: Boolean = false
+    val showNotificationRequiredDialog: Boolean = false,
+    val showKeepSeedingWarningDialog: Boolean = false
 )
 
 /**
@@ -60,10 +65,13 @@ data class SettingsUiState(
 class SettingsViewModel(
     private val app: JSTorrentApplication,
     private val rootStore: RootStore,
-    private val settingsStore: SettingsStore
+    private val settingsStore: SettingsStore,
+    initialNotificationPermissionGranted: Boolean
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(SettingsUiState())
+    private val _uiState = MutableStateFlow(
+        SettingsUiState(notificationPermissionGranted = initialNotificationPermissionGranted)
+    )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
@@ -75,6 +83,17 @@ class SettingsViewModel(
      */
     fun refreshAllSettings() {
         val roots = rootStore.refreshAvailability()
+
+        // Check notification permission at init time to avoid UI flicker
+        val notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                app,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PermissionChecker.PERMISSION_GRANTED
+        } else {
+            true
+        }
+
         _uiState.value = _uiState.value.copy(
             downloadRoots = roots,
             defaultRootKey = settingsStore.defaultRootKey,
@@ -95,7 +114,8 @@ class SettingsViewModel(
             backgroundDownloadsEnabled = settingsStore.backgroundDownloadsEnabled,
             cpuWakeLockEnabled = settingsStore.cpuWakeLockEnabled,
             shutdownOnLowBatteryEnabled = settingsStore.shutdownOnLowBatteryEnabled,
-            shutdownOnLowBatteryThreshold = settingsStore.shutdownOnLowBatteryThreshold
+            shutdownOnLowBatteryThreshold = settingsStore.shutdownOnLowBatteryThreshold,
+            notificationPermissionGranted = notificationGranted
         )
         // Also refresh UPnP status from engine
         refreshUpnpStatus()
@@ -272,6 +292,31 @@ class SettingsViewModel(
     // =========================================================================
 
     /**
+     * Request to enable keep seeding mode. Shows warning dialog first.
+     */
+    fun requestEnableKeepSeeding() {
+        _uiState.value = _uiState.value.copy(showKeepSeedingWarningDialog = true)
+    }
+
+    /**
+     * Dismiss the keep seeding warning dialog.
+     */
+    fun dismissKeepSeedingWarningDialog() {
+        _uiState.value = _uiState.value.copy(showKeepSeedingWarningDialog = false)
+    }
+
+    /**
+     * Confirm enabling keep seeding mode after user acknowledges the warning.
+     */
+    fun confirmKeepSeeding() {
+        settingsStore.whenDownloadsComplete = "keep_seeding"
+        _uiState.value = _uiState.value.copy(
+            whenDownloadsComplete = "keep_seeding",
+            showKeepSeedingWarningDialog = false
+        )
+    }
+
+    /**
      * Set behavior when downloads complete.
      */
     fun setWhenDownloadsComplete(mode: String) {
@@ -421,10 +466,22 @@ class SettingsViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(SettingsViewModel::class.java)) {
                 val app = context.applicationContext as JSTorrentApplication
+
+                // Check notification permission upfront to avoid UI flicker
+                val notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == PermissionChecker.PERMISSION_GRANTED
+                } else {
+                    true
+                }
+
                 return SettingsViewModel(
                     app,
                     RootStore(context),
-                    SettingsStore(context)
+                    SettingsStore(context),
+                    notificationGranted
                 ) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")

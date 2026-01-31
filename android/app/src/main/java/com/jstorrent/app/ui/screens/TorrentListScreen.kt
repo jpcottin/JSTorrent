@@ -48,6 +48,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -97,6 +99,12 @@ fun TorrentListScreen(
     val selectedTorrents by viewModel.selectedTorrents.collectAsState()
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val filterCounts by viewModel.filterCounts.collectAsState()
+
+    // Refresh cache when resuming to pick up any changes that occurred while
+    // the screen was off (e.g., background downloads completing)
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.refreshCache()
+    }
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }

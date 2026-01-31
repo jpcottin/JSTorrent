@@ -181,7 +181,7 @@ private fun SpeedSection(
 }
 
 /**
- * Peers section with seeder/leecher counts and swarm size.
+ * Peers section with connected and known peer counts.
  */
 @Composable
 private fun PeersSection(
@@ -190,21 +190,10 @@ private fun PeersSection(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         StatRowPair(
-            leftLabel = "Seeders",
-            leftValue = formatPeerCount(
-                torrent.seedersConnected,
-                torrent.seedersTotal
-            ),
-            rightLabel = "Leechers",
-            rightValue = formatPeerCount(
-                torrent.leechersConnected,
-                torrent.leechersTotal
-            )
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        StatRow(
-            label = "Peers",
-            value = formatPeerCount(torrent.peersConnected, torrent.peersTotal)
+            leftLabel = "Connected Peers",
+            leftValue = "${torrent.peersConnected}",
+            rightLabel = "Known Peers",
+            rightValue = torrent.peersTotal?.toString() ?: "-"
         )
     }
 }
@@ -276,16 +265,6 @@ private fun FilesSection(
     }
 }
 
-/**
- * Format peer count with optional total.
- */
-private fun formatPeerCount(connected: Int?, total: Int?): String {
-    return when {
-        connected == null -> "-"
-        total != null && total > connected -> "$connected ($total)"
-        else -> "$connected"
-    }
-}
 
 // =============================================================================
 // Previews

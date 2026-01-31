@@ -18,6 +18,7 @@ import type { ConfigKey } from '../../config'
 import { toHex } from '../../utils/buffer'
 import { generateMagnet } from '../../utils/magnet'
 import type { InfoHashHex } from '../../utils/infohash'
+import { looksLikeBareInfoHash, bareHashToMagnet } from '../../utils/infohash'
 import type { NativeConfigHub } from './native-config-hub'
 import type { TrafficCategory } from '../../core/bandwidth-tracker'
 import './bindings.d.ts'
@@ -79,16 +80,23 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
       return { ok: false, error: 'Engine not ready' }
     }
 
-    console.log(
-      `[controller] addTorrent called: ${magnetOrBase64.startsWith('magnet:') ? 'magnet link' : 'base64 data'}`,
-    )
+    // Detect input type
+    const isMagnet = magnetOrBase64.startsWith('magnet:')
+    const isBareHash = !isMagnet && looksLikeBareInfoHash(magnetOrBase64)
+    const inputType = isMagnet ? 'magnet link' : isBareHash ? 'bare hash' : 'base64 data'
+    console.log(`[controller] addTorrent called: ${inputType}`)
 
     try {
       let result: { torrent: Torrent | null; isDuplicate: boolean }
 
-      if (magnetOrBase64.startsWith('magnet:')) {
+      if (isMagnet) {
         console.log('[controller] Adding magnet link...')
         result = await engine.addTorrent(magnetOrBase64)
+      } else if (isBareHash) {
+        // Convert bare info hash to magnet link
+        const magnetLink = bareHashToMagnet(magnetOrBase64)
+        console.log('[controller] Adding bare hash as magnet...')
+        result = await engine.addTorrent(magnetLink)
       } else {
         // Assume base64-encoded .torrent file
         console.log('[controller] Adding base64 torrent file...')
@@ -693,6 +701,11 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
       pieceCount: torrent.piecesCount,
       magnetUrl,
       rootKey,
+      // Optional metadata from .torrent file (not available for magnets)
+      comment: torrent.comment ?? null,
+      createdBy: torrent.createdBy ?? null,
+      creationDate: torrent.creationDate ?? null,
+      isPrivate: torrent.isPrivate,
     })
   }
 
@@ -946,6 +959,7 @@ export function startStatePushLoop(engine: BtEngine): () => void {
           numPeers: t.numPeers,
           swarmPeers: t.swarm.total,
           skippedFilesCount: t.filePriorities.filter((p) => p === 1).length,
+          uploaded: t.totalUploaded,
         })),
         pieceChanges: Object.keys(pieceChanges).length > 0 ? pieceChanges : undefined,
       })

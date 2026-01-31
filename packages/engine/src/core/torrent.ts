@@ -373,6 +373,8 @@ export class Torrent extends EngineComponent {
 
   public isPrivate: boolean = false
   public creationDate?: number
+  public comment?: string
+  public createdBy?: string
 
   // We need to re-implement EventEmitter methods if we don't extend it.
   // Or I can modify EngineComponent to extend EventEmitter.

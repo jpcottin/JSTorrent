@@ -78,6 +78,18 @@ fun DetailsTab(
             pieceCount = torrent.piecesTotal
         )
 
+        // Torrent metadata section (only show if any metadata is available)
+        if (torrent.comment != null || torrent.createdBy != null ||
+            torrent.creationDate != null || torrent.isPrivate) {
+            HorizontalDivider()
+            TorrentMetadataSection(
+                comment = torrent.comment,
+                createdBy = torrent.createdBy,
+                creationDate = torrent.creationDate,
+                isPrivate = torrent.isPrivate
+            )
+        }
+
         HorizontalDivider()
 
         // Copy Magnet URL button
@@ -170,6 +182,58 @@ private fun SizeSection(
             label = "Piece Count",
             value = pieceCount?.let { Formatters.formatNumber(it) } ?: "Unknown"
         )
+    }
+}
+
+@Composable
+private fun TorrentMetadataSection(
+    comment: String?,
+    createdBy: String?,
+    creationDate: Long?,
+    isPrivate: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Comment (can be multi-line)
+        if (comment != null) {
+            Text(
+                text = "COMMENT",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = comment,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        // Created By
+        if (createdBy != null) {
+            StatRow(
+                label = "Created By",
+                value = createdBy
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        // Creation Date
+        if (creationDate != null) {
+            StatRow(
+                label = "Creation Date",
+                value = Formatters.formatDateTime(creationDate * 1000) // Convert seconds to millis
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        // Private flag
+        if (isPrivate) {
+            StatRow(
+                label = "Private Torrent",
+                value = "Yes"
+            )
+        }
     }
 }
 

@@ -127,8 +127,8 @@ fun AddTorrentContent(
             value = magnetLink,
             onValueChange = onMagnetLinkChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Magnet link") },
-            placeholder = { Text("magnet:?xt=urn:btih:...") },
+            label = { Text("Magnet link or info hash") },
+            placeholder = { Text("magnet:?xt=urn:btih:... or 40-char hash") },
             singleLine = false,
             maxLines = 3,
             trailingIcon = {
@@ -205,6 +205,22 @@ fun AddTorrentContent(
  */
 fun isValidMagnetLink(input: String): Boolean {
     return input.trim().startsWith("magnet:?xt=urn:btih:", ignoreCase = true)
+}
+
+/**
+ * Validates if a string looks like a bare info hash (40 hex chars).
+ */
+fun isValidInfoHash(input: String): Boolean {
+    val trimmed = input.trim()
+    // 40 hex chars (SHA1)
+    return trimmed.matches(Regex("^[0-9a-fA-F]{40}$"))
+}
+
+/**
+ * Validates if a string is a valid torrent input (magnet link or bare info hash).
+ */
+fun isValidTorrentInput(input: String): Boolean {
+    return isValidMagnetLink(input) || isValidInfoHash(input)
 }
 
 // =============================================================================

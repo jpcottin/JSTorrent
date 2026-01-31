@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -44,7 +43,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -59,7 +57,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -542,6 +539,7 @@ fun PowerManagementSettingsScreen(
                     onCpuWakeLockChange = { viewModel.setCpuWakeLockEnabled(it) },
                     whenDownloadsComplete = uiState.whenDownloadsComplete,
                     onWhenDownloadsCompleteChange = { viewModel.setWhenDownloadsComplete(it) },
+                    onKeepSeedingRequested = { viewModel.requestEnableKeepSeeding() },
                     shutdownOnLowBatteryEnabled = uiState.shutdownOnLowBatteryEnabled,
                     onShutdownOnLowBatteryChange = { viewModel.setShutdownOnLowBatteryEnabled(it) },
                     shutdownOnLowBatteryThreshold = uiState.shutdownOnLowBatteryThreshold,
@@ -559,6 +557,14 @@ fun PowerManagementSettingsScreen(
                 onOpenNotificationSettings()
             },
             onDismiss = { viewModel.dismissNotificationRequiredDialog() }
+        )
+    }
+
+    // Keep seeding battery warning dialog
+    if (uiState.showKeepSeedingWarningDialog) {
+        KeepSeedingWarningDialog(
+            onConfirm = { viewModel.confirmKeepSeeding() },
+            onDismiss = { viewModel.dismissKeepSeedingWarningDialog() }
         )
     }
 }
@@ -850,19 +856,29 @@ private fun BandwidthSection(
             .padding(horizontal = 16.dp)
     ) {
         SpeedLimitRow(
-            label = "Max download speed",
-            unlimited = downloadUnlimited,
-            currentValue = downloadLimit,
-            onUnlimitedChange = onDownloadUnlimitedChange,
-            onValueChange = onDownloadLimitChange
+            label = "Download",
+            currentValue = if (downloadUnlimited) 0 else downloadLimit,
+            onValueChange = { value ->
+                if (value == 0) {
+                    onDownloadUnlimitedChange(true)
+                } else {
+                    onDownloadUnlimitedChange(false)
+                    onDownloadLimitChange(value)
+                }
+            }
         )
         Spacer(modifier = Modifier.height(8.dp))
         SpeedLimitRow(
-            label = "Max upload speed",
-            unlimited = uploadUnlimited,
-            currentValue = uploadLimit,
-            onUnlimitedChange = onUploadUnlimitedChange,
-            onValueChange = onUploadLimitChange
+            label = "Upload",
+            currentValue = if (uploadUnlimited) 0 else uploadLimit,
+            onValueChange = { value ->
+                if (value == 0) {
+                    onUploadUnlimitedChange(true)
+                } else {
+                    onUploadUnlimitedChange(false)
+                    onUploadLimitChange(value)
+                }
+            }
         )
     }
 }
@@ -870,89 +886,50 @@ private fun BandwidthSection(
 @Composable
 private fun SpeedLimitRow(
     label: String,
-    unlimited: Boolean,
     currentValue: Int,
-    onUnlimitedChange: (Boolean) -> Unit,
     onValueChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
-    // Filter out the "Unlimited" preset since we have a separate switch
-    val limitPresets = speedPresets.filter { it.bytesPerSec > 0 }
-    val currentPreset = limitPresets.find { it.bytesPerSec == currentValue }
+    val currentPreset = speedPresets.find { it.bytesPerSec == currentValue }
         ?: SpeedPreset(currentValue, formatSpeed(currentValue))
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        // Unlimited toggle
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onUnlimitedChange(!unlimited) }
-                .padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Box {
+            OutlinedCard(
+                modifier = Modifier.clickable { expanded = true }
             ) {
                 Text(
-                    text = "Unlimited",
+                    text = currentPreset.label,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Switch(
-                    checked = unlimited,
-                    onCheckedChange = onUnlimitedChange
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
-        }
-
-        // Speed preset dropdown (only shown when not unlimited)
-        if (!unlimited) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp, horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
             ) {
-                Text(
-                    text = "Limit",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Box {
-                    OutlinedCard(
-                        modifier = Modifier.clickable { expanded = true }
-                    ) {
-                        Text(
-                            text = currentPreset.label,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false }
-                    ) {
-                        limitPresets.forEach { preset ->
-                            DropdownMenuItem(
-                                text = { Text(preset.label) },
-                                onClick = {
-                                    onValueChange(preset.bytesPerSec)
-                                    expanded = false
-                                },
-                                trailingIcon = if (preset.bytesPerSec == currentValue) {
-                                    { Icon(Icons.Default.Check, contentDescription = "Selected") }
-                                } else null
-                            )
-                        }
-                    }
+                speedPresets.forEach { preset ->
+                    DropdownMenuItem(
+                        text = { Text(preset.label) },
+                        onClick = {
+                            onValueChange(preset.bytesPerSec)
+                            expanded = false
+                        },
+                        trailingIcon = if (preset.bytesPerSec == currentValue) {
+                            { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                        } else null
+                    )
                 }
             }
         }
@@ -1235,6 +1212,7 @@ private fun PowerManagementSection(
     onCpuWakeLockChange: (Boolean) -> Unit,
     whenDownloadsComplete: String,
     onWhenDownloadsCompleteChange: (String) -> Unit,
+    onKeepSeedingRequested: () -> Unit,
     shutdownOnLowBatteryEnabled: Boolean,
     onShutdownOnLowBatteryChange: (Boolean) -> Unit,
     shutdownOnLowBatteryThreshold: Int,
@@ -1298,40 +1276,18 @@ private fun PowerManagementSection(
         HorizontalDivider()
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            text = "When downloads complete",
-            style = MaterialTheme.typography.bodyLarge
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-
-        val options = listOf(
-            "stop_and_close" to "Stop and close app",
-            "keep_seeding" to "Keep seeding in background"
-        )
-
-        options.forEach { (value, label) ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .selectable(
-                        selected = whenDownloadsComplete == value,
-                        onClick = { onWhenDownloadsCompleteChange(value) },
-                        role = Role.RadioButton
-                    )
-                    .padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RadioButton(
-                    selected = whenDownloadsComplete == value,
-                    onClick = null
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyLarge
-                )
+        SettingToggleRow(
+            label = "Keep seeding when done",
+            description = "Continue seeding after downloads complete. Uses significant battery.",
+            checked = whenDownloadsComplete == "keep_seeding",
+            onCheckedChange = { enabled ->
+                if (enabled) {
+                    onKeepSeedingRequested()
+                } else {
+                    onWhenDownloadsCompleteChange("stop_and_close")
+                }
             }
-        }
+        )
     }
 }
 
@@ -1729,6 +1685,37 @@ private fun ClearConfirmationDialog(
                     text = "Clear",
                     color = MaterialTheme.colorScheme.error
                 )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun KeepSeedingWarningDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.BatteryChargingFull,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error
+            )
+        },
+        title = { Text("Battery warning") },
+        text = {
+            Text("Keeping the app running to seed after downloads complete will use significant battery power. Your device may drain faster, especially when not plugged in.")
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Enable anyway")
             }
         },
         dismissButton = {
