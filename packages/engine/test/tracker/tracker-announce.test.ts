@@ -217,21 +217,31 @@ describe('Tracker Integration', () => {
     console.log('Adding torrent to Client B')
     const { torrent: torrentB } = await clientB.addTorrent(magnetLink)
 
-    // Wait for B to connect to A and handshake to complete
+    // Wait for B to connect to A and handshake to complete on both sides
     await new Promise<void>((resolve, reject) => {
       const check = setInterval(() => {
-        if (torrentB.numPeers > 0) {
-          const peers = torrentB.peers
-          if (peers.length > 0 && peers[0].handshakeReceived) {
-            clearInterval(check)
-            resolve()
-          }
+        // Check B's side received A's handshake
+        const bHasHandshake =
+          torrentB.numPeers > 0 && torrentB.peers.length > 0 && torrentB.peers[0].handshakeReceived
+
+        // Check A's side received B's handshake (has B's peerId)
+        const aHasBsPeerId =
+          torrentA.numPeers > 0 &&
+          torrentA.peers.some(
+            (p: PeerConnection) =>
+              p.peerId &&
+              Buffer.from(p.peerId).toString('hex') === Buffer.from(clientB.peerId).toString('hex'),
+          )
+
+        if (bHasHandshake && aHasBsPeerId) {
+          clearInterval(check)
+          resolve()
         }
       }, 100)
 
       setTimeout(() => {
         clearInterval(check)
-        reject(new Error('Handshake did not complete'))
+        reject(new Error('Handshake did not complete on both sides'))
       }, 20000) // 20 second timeout
     })
 
