@@ -2,16 +2,23 @@
 
 # JSTorrent
 
-A modern, full-featured BitTorrent client for Chrome and other MV3-compatible browsers.
+A modern, full-featured BitTorrent client built on a shared TypeScript engine that runs everywhere.
 
-**[Install from Chrome Web Store](https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk)** | **[new.jstorrent.com](https://new.jstorrent.com)**
+**[Chrome Web Store](https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk)** | **[new.jstorrent.com](https://new.jstorrent.com)**
 
+## Platforms
 
-Works on ChromeOS, Mac, Windows, and Linux.
+| Platform | Status | Notes |
+|----------|--------|-------|
+| **Chrome Extension** | ✅ Available | Chrome, Edge, Brave, and other Chromium browsers |
+| **Android** | ✅ Available | Native app with QuickJS engine |
+| **Desktop** | ✅ Available | Rust native host for high-performance I/O |
+| **ChromeOS** | ✅ Available | Extension + Android companion app |
+| **iOS** | 🚧 Planned | Sideload only |
 
-## Status
+## Architecture
 
-Open beta release.
+One TypeScript BitTorrent engine powers all platforms. Platform-specific native code handles networking and disk I/O, while the core protocol logic remains shared and tested across environments.
 
 ## Features
 
@@ -55,7 +62,7 @@ Open beta release.
 
 ## About
 
-This is an open-source rewrite of the original JSTorrent Chrome App, rebuilt as a Chrome Extension after Chrome Apps were deprecated. The BitTorrent engine runs entirely in the browser.
+JSTorrent started as a Chrome App, was rebuilt as a Chrome Extension when Apps were deprecated, and has since expanded to Android and desktop platforms—all sharing the same TypeScript engine.
 
 Written in TypeScript with comprehensive test coverage, including integration tests against libtorrent.
 
@@ -65,4 +72,4 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for build instructions and project structur
 
 ## License
 
-Open source.
+MIT
