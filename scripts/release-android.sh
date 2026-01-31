@@ -14,8 +14,34 @@ if [[ ! "$VERSION" =~ ^[0-9] ]]; then
 fi
 
 TAG="android-v${VERSION}"
+BUILD_GRADLE="android/app/build.gradle.kts"
 
+# Check that changelog has been updated
+if ! grep -q "## \[${VERSION}\]" android/CHANGELOG.md 2>/dev/null; then
+  echo "Warning: android/CHANGELOG.md doesn't have an entry for version ${VERSION}"
+  echo "Please update the changelog before releasing."
+  read -p "Continue anyway? [y/N] " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    exit 1
+  fi
+fi
+
+# Get current versionCode and increment
+CURRENT_CODE=$(grep -o 'versionCode = [0-9]*' "$BUILD_GRADLE" | grep -o '[0-9]*')
+NEW_CODE=$((CURRENT_CODE + 1))
+
+echo "Updating version: $CURRENT_CODE -> $NEW_CODE, versionName: $VERSION"
+
+# Update build.gradle.kts
+sed -i '' "s/versionCode = $CURRENT_CODE/versionCode = $NEW_CODE/" "$BUILD_GRADLE"
+sed -i '' "s/versionName = \"[^\"]*\"/versionName = \"$VERSION\"/" "$BUILD_GRADLE"
+
+# Commit, tag, and push
+git add "$BUILD_GRADLE"
+git commit -m "Release Android v${VERSION}"
 git tag "$TAG"
-git push origin "$TAG"
+git push origin main "$TAG"
 
-echo "Created and pushed tag $TAG"
+echo "Released Android v${VERSION} (versionCode: $NEW_CODE)"
+echo "CI will build the signed APK: https://github.com/kzahel/jstorrent/actions"

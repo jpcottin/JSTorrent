@@ -48,19 +48,22 @@ Push to main - the website auto-deploys via GitHub Pages.
 
 Android is versioned **independently** due to Play Store review cycles.
 
-### Version numbers
+### Changelog
 
-Edit `android/app/build.gradle.kts`:
-- `versionCode`: Integer, must increment for each Play Store upload
-- `versionName`: User-facing string (e.g., "1.0.4")
+Update `android/CHANGELOG.md` with user-facing changes before releasing. This is used for Play Store release notes.
 
 ### Release process
 
 ```bash
-./scripts/release-android.sh 1.0.4
+./scripts/release-android.sh 1.0.8
 ```
 
-This creates tag `android-v1.0.4` and triggers CI to build a signed APK.
+This will:
+- Increment `versionCode` in `android/app/build.gradle.kts`
+- Set `versionName` to match (e.g., "1.0.8")
+- Commit and push to main
+- Create and push tag `android-v1.0.8`
+- Trigger CI to build a signed APK
 
 The signed APK is uploaded to GitHub Releases. From there, manually upload to Play Store.
 
