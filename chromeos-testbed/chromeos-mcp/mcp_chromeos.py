@@ -12,6 +12,7 @@ import json
 import base64
 import os
 import signal
+import subprocess
 import sys
 from io import BytesIO
 
@@ -22,6 +23,23 @@ from mcp.types import TextContent, ImageContent, Tool
 
 # Parent PID at startup - used to detect orphaned process
 _PARENT_PID = os.getppid()
+
+
+def _get_ppid_of(pid: int) -> int | None:
+    """Get the parent PID of a process using ps command."""
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "ppid=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return int(result.stdout.strip())
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        pass
+    return None
+
 
 SSH_HOST = "chromeroot"
 CLIENT_PATH = "/mnt/stateful_partition/c2/client.py"
@@ -290,13 +308,23 @@ def signal_handler(signum, frame):
 async def parent_monitor():
     """Monitor parent process and exit if orphaned.
 
-    When parent dies, PPID becomes 1 (init/launchd). This catches cases
-    where the parent is killed abruptly and stdin doesn't close cleanly.
+    Process hierarchy: Claude Code -> uv run -> python mcp_*.py
+
+    When Claude Code dies, `uv run` gets reparented to PID 1 (launchd).
+    We detect this by checking if our parent's parent becomes 1.
+    Also check if our direct parent changes (belt and suspenders).
     """
     while True:
         await asyncio.sleep(2)
+        # Check if direct parent changed
         if os.getppid() != _PARENT_PID:
             print("Parent process died, exiting...", file=sys.stderr)
+            conn.cleanup()
+            os._exit(0)
+        # Check if parent (uv) was reparented to init/launchd (PID 1)
+        grandparent = _get_ppid_of(_PARENT_PID)
+        if grandparent == 1:
+            print("Grandparent process died (uv reparented to init), exiting...", file=sys.stderr)
             conn.cleanup()
             os._exit(0)
 
