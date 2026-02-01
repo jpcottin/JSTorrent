@@ -132,18 +132,21 @@ class TcpSocketServiceTest {
         val port = startTestServer()
         val dataReceived = CountDownLatch(1)
         val receivedData = AtomicReference<ByteArray>()
-
-        service.setCallback(object : TcpSocketCallback {
-            override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int, errorMessage: String?) {}
-            override fun onTcpData(socketId: Int, data: ByteArray) {
-                receivedData.set(data)
-                dataReceived.countDown()
-            }
-            override fun onTcpClose(socketId: Int, hadError: Boolean, errorCode: Int) {}
-            override fun onTcpSecured(socketId: Int, success: Boolean) {}
-        })
-
         val connected = CountDownLatch(1)
+
+        // Start server thread BEFORE connecting - it needs to accept() the connection
+        Thread {
+            try {
+                val clientSocket = testServer!!.accept()
+                val output = clientSocket.getOutputStream()
+                output.write("Hello from server".toByteArray())
+                output.flush()
+                // Keep connection open briefly so data can be received
+                Thread.sleep(100)
+                clientSocket.close()
+            } catch (_: Exception) {}
+        }.start()
+
         service.setCallback(object : TcpSocketCallback {
             override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int, errorMessage: String?) {
                 connected.countDown()
@@ -159,21 +162,8 @@ class TcpSocketServiceTest {
         service.connect(1, "127.0.0.1", port)
         assertTrue(connected.await(5, TimeUnit.SECONDS))
 
-        // Send data from server side
-        Thread {
-            try {
-                val clientSocket = testServer!!.accept()
-                val output = clientSocket.getOutputStream()
-                output.write("Hello from server".toByteArray())
-                output.flush()
-                // Keep connection open briefly so data can be received
-                Thread.sleep(100)
-                clientSocket.close()
-            } catch (_: Exception) {}
-        }.start()
-
-        // Trigger activation by sending
-        service.send(1, "trigger".toByteArray())
+        // Activate the connection to start the read loop
+        service.activate(1)
 
         assertTrue(dataReceived.await(5, TimeUnit.SECONDS), "Data should be received")
         assertEquals("Hello from server", String(receivedData.get()))

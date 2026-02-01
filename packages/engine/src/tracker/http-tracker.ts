@@ -10,7 +10,7 @@ import { ISocketFactory } from '../interfaces/socket'
 import { MinimalHttpClient } from '../utils/minimal-http-client'
 import { EngineComponent, ILoggingEngine } from '../logging/logger'
 import type { BandwidthTracker } from '../core/bandwidth-tracker'
-import { parseCompactPeers } from '../core/swarm'
+import { parseCompactPeers, detectAddressFamily, type AddressFamily } from '../core/swarm'
 
 const ANNOUNCE_TIMEOUT_MS = 30000
 
@@ -45,6 +45,10 @@ export class HttpTracker extends EngineComponent implements ITracker {
   private _lastFailureTime: number | null = null
   /** BEP 31: Tracker-specified retry delay in seconds (overrides backoff) */
   private _retryIn: number | null = null
+  /** Address family of the last successful connection */
+  private _connectionFamily: AddressFamily | null = null
+  /** Remote IP address of the last successful connection */
+  private _connectionAddress: string | null = null
 
   get interval(): number {
     return this._interval
@@ -95,7 +99,7 @@ export class HttpTracker extends EngineComponent implements ITracker {
     })
 
     try {
-      const responseBody = await Promise.race([this.httpClient.get(url), timeoutPromise])
+      const response = await Promise.race([this.httpClient.get(url), timeoutPromise])
 
       // Clear timeout on success
       if (this.announceTimeoutId) {
@@ -103,12 +107,21 @@ export class HttpTracker extends EngineComponent implements ITracker {
         this.announceTimeoutId = null
       }
 
-      this.logger.debug(`HttpTracker: Received ${responseBody.length} bytes response`)
+      // Track connection address family
+      if (response.remoteAddress) {
+        this._connectionAddress = response.remoteAddress
+        this._connectionFamily = detectAddressFamily(response.remoteAddress)
+        this.logger.debug(
+          `HttpTracker: Connected via ${this._connectionFamily} (${response.remoteAddress})`,
+        )
+      }
+
+      this.logger.debug(`HttpTracker: Received ${response.body.length} bytes response`)
 
       // Record tracker download bytes
-      this.bandwidthTracker?.record('tracker:http', responseBody.length, 'down')
+      this.bandwidthTracker?.record('tracker:http', response.body.length, 'down')
 
-      this.handleBody(responseBody)
+      this.handleBody(response.body)
     } catch (err) {
       // Clear timeout on error
       if (this.announceTimeoutId) {
@@ -361,6 +374,8 @@ export class HttpTracker extends EngineComponent implements ITracker {
       uniquePeersDiscovered: this._knownPeers.size,
       lastError: this._lastError,
       nextAnnounce,
+      connectionFamily: this._connectionFamily ?? undefined,
+      connectionAddress: this._connectionAddress ?? undefined,
     }
   }
 

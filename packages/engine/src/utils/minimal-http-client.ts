@@ -1,4 +1,19 @@
-import type { ISocketFactory, ITcpSocket, SocketPurpose } from '../interfaces/socket'
+import type {
+  ISocketFactory,
+  ITcpSocket,
+  SocketPurpose,
+  AddressFamilyPreference,
+} from '../interfaces/socket'
+import { PREFERRED_ADDRESS_FAMILY } from '../interfaces/socket'
+
+/**
+ * Response from MinimalHttpClient including connection metadata.
+ */
+export interface HttpResponse {
+  body: Uint8Array
+  /** Remote IP address of the connection (if available) */
+  remoteAddress?: string
+}
 import { Logger } from '../logging/logger'
 import { concat, fromString, toString } from './buffer'
 
@@ -47,13 +62,16 @@ export class MinimalHttpClient {
   /** Track active socket for cleanup on abort */
   private activeSocket: ITcpSocket | null = null
   private purpose?: SocketPurpose
+  private addressFamily: AddressFamilyPreference
 
   constructor(
     private socketFactory: ISocketFactory,
     private logger?: Logger,
     purpose?: SocketPurpose,
+    addressFamily?: AddressFamilyPreference,
   ) {
     this.purpose = purpose
+    this.addressFamily = addressFamily ?? PREFERRED_ADDRESS_FAMILY
   }
 
   /**
@@ -65,7 +83,7 @@ export class MinimalHttpClient {
     this.activeSocket = null
   }
 
-  async get(url: string, headers: Record<string, string> = {}): Promise<Uint8Array> {
+  async get(url: string, headers: Record<string, string> = {}): Promise<HttpResponse> {
     const urlObj = parseUrl(url)
     const host = urlObj.hostname
     const isHttps = urlObj.protocol === 'https:'
@@ -73,15 +91,17 @@ export class MinimalHttpClient {
     const path = urlObj.pathname + urlObj.search
 
     this.logger?.debug(
-      `MinimalHttpClient: GET ${urlObj.protocol}//${host}:${port}${urlObj.pathname}`,
+      `MinimalHttpClient: GET ${urlObj.protocol}//${host}:${port}${urlObj.pathname} (prefer ${this.addressFamily})`,
     )
 
     const socket = await this.socketFactory.createTcpSocket({
       host,
       port,
       purpose: this.purpose,
+      addressFamily: this.addressFamily,
     })
     this.activeSocket = socket
+    const remoteAddress = socket.remoteAddress
 
     // Upgrade to TLS for HTTPS
     if (isHttps) {
@@ -94,7 +114,7 @@ export class MinimalHttpClient {
       }
     }
 
-    return new Promise<Uint8Array>((resolve, reject) => {
+    return new Promise<HttpResponse>((resolve, reject) => {
       const requestLines = [
         `GET ${path} HTTP/1.1`,
         `Host: ${host}`,
@@ -135,9 +155,11 @@ export class MinimalHttpClient {
       const succeed = (body: Uint8Array) => {
         if (!resolved) {
           resolved = true
-          this.logger?.debug(`MinimalHttpClient: Response received, ${body.length} bytes`)
+          this.logger?.debug(
+            `MinimalHttpClient: Response received, ${body.length} bytes from ${remoteAddress ?? 'unknown'}`,
+          )
           cleanup()
-          resolve(body)
+          resolve({ body, remoteAddress })
         }
       }
 
@@ -275,7 +297,11 @@ export class MinimalHttpClient {
     })
   }
 
-  async post(url: string, body: string, headers: Record<string, string> = {}): Promise<Uint8Array> {
+  async post(
+    url: string,
+    body: string,
+    headers: Record<string, string> = {},
+  ): Promise<HttpResponse> {
     const urlObj = parseUrl(url)
     const host = urlObj.hostname
     const isHttps = urlObj.protocol === 'https:'
@@ -283,15 +309,17 @@ export class MinimalHttpClient {
     const path = urlObj.pathname + urlObj.search
 
     this.logger?.debug(
-      `MinimalHttpClient: POST ${urlObj.protocol}//${host}:${port}${urlObj.pathname}`,
+      `MinimalHttpClient: POST ${urlObj.protocol}//${host}:${port}${urlObj.pathname} (prefer ${this.addressFamily})`,
     )
 
     const socket = await this.socketFactory.createTcpSocket({
       host,
       port,
       purpose: this.purpose,
+      addressFamily: this.addressFamily,
     })
     this.activeSocket = socket
+    const remoteAddress = socket.remoteAddress
 
     // Upgrade to TLS for HTTPS
     if (isHttps) {
@@ -306,7 +334,7 @@ export class MinimalHttpClient {
 
     const bodyBytes = fromString(body)
 
-    return new Promise<Uint8Array>((resolve, reject) => {
+    return new Promise<HttpResponse>((resolve, reject) => {
       const requestLines = [
         `POST ${path} HTTP/1.1`,
         `Host: ${host}`,
@@ -348,9 +376,11 @@ export class MinimalHttpClient {
       const succeed = (responseBody: Uint8Array) => {
         if (!resolved) {
           resolved = true
-          this.logger?.debug(`MinimalHttpClient: Response received, ${responseBody.length} bytes`)
+          this.logger?.debug(
+            `MinimalHttpClient: Response received, ${responseBody.length} bytes from ${remoteAddress ?? 'unknown'}`,
+          )
           cleanup()
-          resolve(responseBody)
+          resolve({ body: responseBody, remoteAddress })
         }
       }
 

@@ -8,7 +8,12 @@ import fs from 'fs'
 import os from 'os'
 import * as crypto from 'crypto'
 import * as net from 'net'
-import { ISocketFactory, ITcpSocket, IUdpSocket } from '../../src/interfaces/socket'
+import {
+  ISocketFactory,
+  ITcpSocket,
+  IUdpSocket,
+  TcpSocketOptions,
+} from '../../src/interfaces/socket'
 import { PeerConnection } from '../../src/core/peer-connection'
 
 class NodeTcpSocket implements ITcpSocket {
@@ -57,13 +62,17 @@ class NodeTcpSocket implements ITcpSocket {
   get localPort() {
     return this.socket.localPort
   }
+
+  get remoteAddress() {
+    return this.socket.remoteAddress
+  }
 }
 
 class NodeSocketFactory implements ISocketFactory {
-  async createTcpSocket(host?: string, port?: number): Promise<ITcpSocket> {
+  async createTcpSocket(options?: TcpSocketOptions): Promise<ITcpSocket> {
     const socket = new NodeTcpSocket()
-    if (host && port) {
-      await socket.connect(port, host)
+    if (options?.host && options?.port) {
+      await socket.connect(options.port, options.host)
     }
     return socket
   }

@@ -250,12 +250,24 @@ private fun TrackerItem(
 
         // Tracker info
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = tracker.url,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = tracker.url,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                // Show connection family badge if available
+                tracker.connectionFamily?.let { family ->
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = family.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             // Show message or status-based subtext
             val subtext = tracker.message
                 ?: if (tracker.status == TrackerStatus.UPDATING) "Announcing..." else null
@@ -310,28 +322,32 @@ private fun TrackersTabPreview() {
                     status = TrackerStatus.OK,
                     message = null,
                     peers = 1500,
-                    peersReceived = 50
+                    peersReceived = 50,
+                    connectionFamily = "ipv4"
                 ),
                 TrackerUi(
                     url = "udp://tracker.openbittorrent.com:6969/announce",
                     status = TrackerStatus.OK,
                     message = null,
                     peers = 890,
-                    peersReceived = 1  // Shows the issue: tracker says 890 but only gave 1
+                    peersReceived = 1,  // Shows the issue: tracker says 890 but only gave 1
+                    connectionFamily = "ipv6"
                 ),
                 TrackerUi(
                     url = "http://tracker.example.com/announce",
                     status = TrackerStatus.ERROR,
                     message = "Connection refused",
                     peers = null,
-                    peersReceived = null
+                    peersReceived = null,
+                    connectionFamily = null
                 ),
                 TrackerUi(
                     url = "udp://tracker.updating.org:1337/announce",
                     status = TrackerStatus.UPDATING,
                     message = null,
                     peers = null,
-                    peersReceived = null
+                    peersReceived = null,
+                    connectionFamily = null
                 )
             ),
             dhtEnabled = true,

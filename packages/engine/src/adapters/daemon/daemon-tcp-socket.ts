@@ -73,7 +73,17 @@ export class DaemonTcpSocket implements ITcpSocket {
 
     this.daemon.sendFrame(this.manager.packEnvelope(OP_TCP_CONNECT, reqId, new Uint8Array(buffer)))
 
-    await this.manager.waitForResponse(reqId)
+    const response = await this.manager.waitForResponse(reqId)
+    // Parse remote address from response
+    // Response: socketId(4), status(1), errno(4), addr_len(2), addr(string)
+    if (response.byteLength >= 11) {
+      const respView = new DataView(response.buffer, response.byteOffset, response.byteLength)
+      const addrLen = respView.getUint16(9, true)
+      if (response.byteLength >= 11 + addrLen) {
+        this.remoteAddress = new TextDecoder().decode(response.subarray(11, 11 + addrLen))
+        this.remotePort = port
+      }
+    }
   }
 
   async secure(hostname: string, options?: { skipValidation?: boolean }): Promise<void> {

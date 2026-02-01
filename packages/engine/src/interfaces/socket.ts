@@ -133,10 +133,25 @@ export type SocketPurpose =
   | 'upnp' // UPnP SSDP discovery (UDP multicast) - not proxied
   | 'lpd' // Local peer discovery (UDP multicast) - not proxied
 
+/**
+ * Preferred address family for outgoing connections.
+ * Currently defaults to IPv4 since Android has limited IPv6 support.
+ * This can be toggled to test IPv6 connectivity.
+ */
+export type AddressFamilyPreference = 'ipv4' | 'ipv6' | 'any'
+
+/**
+ * Default address family preference.
+ * Set to 'ipv4' for maximum compatibility (especially Android).
+ */
+export const PREFERRED_ADDRESS_FAMILY: AddressFamilyPreference = 'ipv4'
+
 export interface TcpSocketOptions {
   host?: string
   port?: number
   purpose?: SocketPurpose
+  /** Preferred address family for DNS resolution. Defaults to PREFERRED_ADDRESS_FAMILY. */
+  addressFamily?: AddressFamilyPreference
 }
 
 export interface UdpSocketOptions {

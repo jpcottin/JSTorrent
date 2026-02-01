@@ -35,6 +35,12 @@ const trackerColumns: ColumnDef<TrackerStats>[] = [
     width: 50,
   },
   {
+    id: 'family',
+    header: 'IP',
+    getValue: (t) => t.connectionFamily ?? '-',
+    width: 40,
+  },
+  {
     id: 'status',
     header: 'Status',
     getValue: (t) => t.status,

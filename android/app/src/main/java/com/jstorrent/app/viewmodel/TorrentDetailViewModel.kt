@@ -20,6 +20,7 @@ import com.jstorrent.quickjs.model.TorrentSummary
 import com.jstorrent.quickjs.model.FileInfo
 import com.jstorrent.quickjs.model.PeerInfo
 import com.jstorrent.quickjs.model.TrackerInfo
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -145,6 +146,23 @@ class TorrentDetailViewModel(
                 }
             }
         }
+
+        // Periodic tracker refresh - needed because tracker status changes
+        // (e.g., timeout from 'announcing' to 'error') don't trigger main state updates.
+        // The engine only pushes state when torrent progress/speeds change, but when
+        // waiting for trackers with no peer activity, the state stays the same.
+        viewModelScope.launch {
+            while (true) {
+                delay(2000) // Refresh every 2 seconds
+                // Only refresh if engine is loaded and torrent exists
+                if (repository.isLoaded.value) {
+                    val trackers = repository.getTrackers(infoHash)
+                    if (trackers.isNotEmpty()) {
+                        _cachedTrackers.value = trackers
+                    }
+                }
+            }
+        }
     }
 
     // Combined UI state
@@ -178,9 +196,20 @@ class TorrentDetailViewModel(
         @Suppress("UNCHECKED_CAST")
         val peers = values[8] as List<PeerInfo>
         val pieces = values[9] as? PieceInfo
-        val bitfield = values[10] as? BitSet
+        var bitfield = values[10] as? BitSet
         val details = values[11] as? TorrentDetails
         val isRemoving = values[12] as Boolean
+
+        // Apply piece diffs synchronously here to avoid race condition with activePieceStates.
+        // Previously, pieceChanges was processed in a separate collector, causing a frame
+        // where activePiecesResponded was cleared but bitfield wasn't updated yet (flickering).
+        val diffs = state?.pieceChanges?.get(infoHash)
+        if (!diffs.isNullOrEmpty() && bitfield != null) {
+            // Clone to avoid mutating the original
+            bitfield = (bitfield.clone() as BitSet).apply {
+                diffs.forEach { pieceIndex -> set(pieceIndex) }
+            }
+        }
 
         // Use pending state if available, otherwise use applied state
         val effectiveFileState = pendingState ?: appliedState
@@ -408,7 +437,8 @@ class TorrentDetailViewModel(
                 status = mapTrackerStatus(tracker.status),
                 message = tracker.lastError,
                 peers = (tracker.seeders ?: 0) + (tracker.leechers ?: 0),
-                peersReceived = tracker.lastPeersReceived
+                peersReceived = tracker.lastPeersReceived,
+                connectionFamily = tracker.connectionFamily
             )
         }
 

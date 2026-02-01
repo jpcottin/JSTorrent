@@ -1,4 +1,5 @@
 import { EventEmitter } from '../utils/event-emitter'
+import type { AddressFamily } from '../core/swarm'
 
 export interface PeerInfo {
   ip: string
@@ -41,6 +42,10 @@ export interface TrackerStats {
   lastError: string | null
   /** Timestamp (ms) when next announce should occur, or null if not yet announced */
   nextAnnounce: number | null
+  /** Address family used for the last successful connection (ipv4 or ipv6) */
+  connectionFamily?: AddressFamily
+  /** Remote IP address of the last successful connection */
+  connectionAddress?: string
 }
 
 export interface ITracker extends EventEmitter {

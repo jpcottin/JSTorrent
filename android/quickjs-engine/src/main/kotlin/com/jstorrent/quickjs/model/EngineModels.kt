@@ -60,7 +60,8 @@ data class TrackerInfo(
     val leechers: Int? = null,
     val lastPeersReceived: Int? = null,
     val uniquePeersDiscovered: Int? = null,
-    val lastError: String? = null
+    val lastError: String? = null,
+    val connectionFamily: String? = null // 'ipv4' | 'ipv6' | null
 )
 
 /**

@@ -47,7 +47,10 @@ describe('HttpTracker', () => {
   })
 
   it('should construct correct announce URL', async () => {
-    mockHttpClient.get.mockResolvedValue(Buffer.from(Bencode.encode({ interval: 1800, peers: [] })))
+    mockHttpClient.get.mockResolvedValue({
+      body: Buffer.from(Bencode.encode({ interval: 1800, peers: [] })),
+      remoteAddress: '127.0.0.1',
+    })
 
     await tracker.announce('started')
 
@@ -74,7 +77,10 @@ describe('HttpTracker', () => {
       peers: peersCompact,
     }
 
-    mockHttpClient.get.mockResolvedValue(Buffer.from(Bencode.encode(response)))
+    mockHttpClient.get.mockResolvedValue({
+      body: Buffer.from(Bencode.encode(response)),
+      remoteAddress: '127.0.0.1',
+    })
 
     const peersSpy = vi.fn()
     tracker.on('peersDiscovered', peersSpy)
@@ -85,9 +91,10 @@ describe('HttpTracker', () => {
   })
 
   it('should handle tracker errors', async () => {
-    mockHttpClient.get.mockResolvedValue(
-      Buffer.from(Bencode.encode({ 'failure reason': 'Invalid info_hash' })),
-    )
+    mockHttpClient.get.mockResolvedValue({
+      body: Buffer.from(Bencode.encode({ 'failure reason': 'Invalid info_hash' })),
+      remoteAddress: '127.0.0.1',
+    })
 
     const errorSpy = vi.fn()
     tracker.on('error', errorSpy)

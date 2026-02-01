@@ -596,6 +596,7 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
         lastPeersReceived: t.lastPeersReceived,
         uniquePeersDiscovered: t.uniquePeersDiscovered,
         lastError: t.lastError,
+        connectionFamily: t.connectionFamily, // 'ipv4' | 'ipv6' | undefined
       })),
     })
   }

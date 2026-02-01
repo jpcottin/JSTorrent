@@ -32,8 +32,8 @@ export class GatewayDevice {
   async init(): Promise<boolean> {
     try {
       // Fetch device description
-      const descData = await this.http.get(this.location)
-      const descXml = new TextDecoder().decode(descData)
+      const descResponse = await this.http.get(this.location)
+      const descXml = new TextDecoder().decode(descResponse.body)
 
       // Parse services (simple XML parsing)
       this.services = this.parseServices(descXml)
@@ -209,11 +209,11 @@ ${args.map(([k, v]) => `<${k}>${v}</${k}>`).join('\n')}
 </s:Body>
 </s:Envelope>`
 
-    const responseBytes = await this.http.post(controlUrl, body, {
+    const response = await this.http.post(controlUrl, body, {
       'Content-Type': 'text/xml; charset="utf-8"',
       SOAPAction: `"${this.selectedService.serviceType}#${action}"`,
     })
 
-    return new TextDecoder().decode(responseBytes)
+    return new TextDecoder().decode(response.body)
   }
 }

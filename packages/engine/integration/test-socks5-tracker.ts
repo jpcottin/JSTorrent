@@ -4,18 +4,17 @@
  * Tests HTTP, HTTPS, and UDP tracker announces through a SOCKS5 proxy.
  *
  * Prerequisites:
- * - SSH SOCKS5 proxy for TCP tests: ssh -vND 0.0.0.0:8080 localhost
- *
- * For UDP tests, the SSH proxy doesn't support UDP ASSOCIATE, so we include
- * a simple mock SOCKS5 server that supports it.
+ * - For TCP tests: ssh -vND 0.0.0.0:8080 localhost
+ * - For UDP tests with real proxy: gost -L socks5://:8080 (supports UDP ASSOCIATE)
  *
  * Run with: npx tsx integration/test-socks5-tracker.ts
  *
  * Options:
- *   --http-only     Only test HTTP tracker
- *   --https-only    Only test HTTPS tracker
- *   --udp-only      Only test UDP tracker
- *   --proxy-port=N  Use different proxy port (default: 8080)
+ *   --http-only       Only test HTTP tracker
+ *   --https-only      Only test HTTPS tracker
+ *   --udp-only        Only test UDP tracker
+ *   --proxy-port=N    Use different proxy port (default: 8080)
+ *   --real-udp-proxy  Use the real proxy for UDP tests (requires UDP ASSOCIATE support like gost)
  */
 
 import * as net from 'net'
@@ -41,6 +40,7 @@ const args = process.argv.slice(2)
 const httpOnly = args.includes('--http-only')
 const httpsOnly = args.includes('--https-only')
 const udpOnly = args.includes('--udp-only')
+const realUdpProxy = args.includes('--real-udp-proxy')
 const proxyPortArg = args.find((a) => a.startsWith('--proxy-port='))
 if (proxyPortArg) {
   PROXY_PORT = parseInt(proxyPortArg.split('=')[1], 10)
@@ -564,23 +564,37 @@ async function testHttpsTracker(proxyPort: number): Promise<boolean> {
 
 /**
  * Test UDP tracker through SOCKS5 proxy (requires UDP ASSOCIATE support)
+ *
+ * @param proxyPort - Proxy port to use for UDP tests
+ * @param useRealProxy - If true, uses the real proxy at proxyPort instead of mock SOCKS5
  */
-async function testUdpTracker(_proxyPort: number): Promise<boolean> {
+async function testUdpTracker(proxyPort: number, useRealProxy: boolean): Promise<boolean> {
   console.log('\n' + yellow('Testing UDP Tracker through SOCKS5 with UDP ASSOCIATE...'))
 
-  // Create mock UDP tracker and SOCKS5 server
+  // Create mock UDP tracker
   const mockTracker = await createMockUdpTracker()
   console.log(`  Mock UDP tracker on port ${mockTracker.port}`)
 
-  // For UDP, we need our own mock SOCKS5 server since SSH doesn't support UDP ASSOCIATE
-  const mockSocks5 = await createMockSocks5Server()
-  console.log(`  Mock SOCKS5 server on port ${mockSocks5.port}`)
+  // For UDP, we can use either:
+  // - A mock SOCKS5 server (if SSH proxy or no real UDP ASSOCIATE support)
+  // - A real proxy like gost that supports UDP ASSOCIATE
+  let mockSocks5: { server: net.Server; udpRelay: dgram.Socket; port: number } | null = null
+  let actualProxyPort: number
+
+  if (useRealProxy) {
+    console.log(`  Using real SOCKS5 proxy on port ${proxyPort} (must support UDP ASSOCIATE)`)
+    actualProxyPort = proxyPort
+  } else {
+    mockSocks5 = await createMockSocks5Server()
+    console.log(`  Mock SOCKS5 server on port ${mockSocks5.port}`)
+    actualProxyPort = mockSocks5.port
+  }
 
   try {
     const nodeFactory = new NodeSocketFactory()
     const socks5Factory = new Socks5SocketFactory(
       nodeFactory,
-      { host: PROXY_HOST, port: mockSocks5.port }, // Use our mock SOCKS5 for UDP
+      { host: PROXY_HOST, port: actualProxyPort },
       { proxyHttpTrackers: false, proxyUdpTrackers: true, proxyPeerConnections: false },
     )
 
@@ -619,8 +633,10 @@ async function testUdpTracker(_proxyPort: number): Promise<boolean> {
 
     tracker.destroy()
     mockTracker.socket.close()
-    mockSocks5.server.close()
-    mockSocks5.udpRelay.close()
+    if (mockSocks5) {
+      mockSocks5.server.close()
+      mockSocks5.udpRelay.close()
+    }
 
     if (stats.status === 'ok' && peersReceived > 0 && !gotError) {
       console.log(green('  UDP Tracker Test: PASSED'))
@@ -638,8 +654,10 @@ async function testUdpTracker(_proxyPort: number): Promise<boolean> {
       red(`  UDP Tracker Test: FAILED - ${err instanceof Error ? err.message : String(err)}`),
     )
     mockTracker.socket.close()
-    mockSocks5.server.close()
-    mockSocks5.udpRelay.close()
+    if (mockSocks5) {
+      mockSocks5.server.close()
+      mockSocks5.udpRelay.close()
+    }
     return false
   }
 }
@@ -706,6 +724,11 @@ async function main() {
   console.log('SOCKS5 Tracker Integration Tests')
   console.log('=================================')
   console.log(`Proxy: ${PROXY_HOST}:${PROXY_PORT}`)
+  if (realUdpProxy) {
+    console.log(`UDP Mode: Real proxy (gost or similar with UDP ASSOCIATE support)`)
+  } else {
+    console.log(`UDP Mode: Mock SOCKS5 server`)
+  }
   console.log('')
 
   const results: { test: string; passed: boolean }[] = []
@@ -724,7 +747,8 @@ async function main() {
   }
 
   if (!httpOnly && !httpsOnly) {
-    results.push({ test: 'UDP via SOCKS5', passed: await testUdpTracker(PROXY_PORT) })
+    const testName = realUdpProxy ? 'UDP via gost SOCKS5' : 'UDP via mock SOCKS5'
+    results.push({ test: testName, passed: await testUdpTracker(PROXY_PORT, realUdpProxy) })
   }
 
   // Summary

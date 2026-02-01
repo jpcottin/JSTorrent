@@ -287,6 +287,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
                         match connect_result {
                             Ok(stream) => {
+                                // Get remote address before moving stream
+                                let remote_addr = stream.peer_addr()
+                                    .map(|a| a.ip().to_string())
+                                    .unwrap_or_default();
+
                                 // Store in pending_tcp - don't start read/write tasks yet
                                 // This allows for TLS upgrade before activation
                                 {
@@ -300,10 +305,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                 stats_clone.pending_tcp.fetch_add(1, Ordering::Relaxed);
 
                                 // Send TCP_CONNECTED
-                                // Payload: socketId(4), status(1 byte=0), errno(4 bytes=0)
+                                // Payload: socketId(4), status(1 byte=0), errno(4 bytes=0), addr_len(2), addr(string)
                                 let mut resp = socket_id.to_le_bytes().to_vec();
                                 resp.push(0); // Success
                                 resp.extend_from_slice(&0u32.to_le_bytes());
+                                resp.extend_from_slice(&(remote_addr.len() as u16).to_le_bytes());
+                                resp.extend_from_slice(remote_addr.as_bytes());
 
                                 let env = Envelope::new(OP_TCP_CONNECTED, req_id);
                                 let mut data = env.to_bytes().to_vec();

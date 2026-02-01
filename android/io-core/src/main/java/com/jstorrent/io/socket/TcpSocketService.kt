@@ -56,6 +56,7 @@ class TcpSocketService(
     // Socket state
     private val pendingConnects = ConcurrentHashMap<Int, Job>()
     private val pendingConnections = ConcurrentHashMap<Int, PendingConnection>()
+    private val pendingReaders = ConcurrentHashMap<Int, Job>()  // Read loops for pending NIO channels
     private val activeConnections = ConcurrentHashMap<Int, TcpConnectionBase>()
 
     // Server state
@@ -145,9 +146,12 @@ class TcpSocketService(
                     return@launch
                 }
 
-                // Store in pending - don't start read/write tasks yet
+                // Store in pending
                 pendingConnections[socketId] = PendingConnection.NioChannel(channel)
                 Log.d(TAG, "Socket $socketId connected via NIO to $host:$port")
+
+                // Start reading from pending channel (needed for SOCKS5 handshake)
+                startPendingReader(socketId, channel)
 
                 // Notify success
                 socketCallback?.onTcpConnected(socketId, true, 0)
@@ -205,6 +209,9 @@ class TcpSocketService(
     override fun close(socketId: Int) {
         // Cancel any pending connect
         pendingConnects.remove(socketId)?.cancel()
+
+        // Cancel pending reader
+        pendingReaders.remove(socketId)?.cancel()
 
         // Close pending connection (connected but not activated)
         pendingConnections.remove(socketId)?.let { pending ->
@@ -296,6 +303,9 @@ class TcpSocketService(
     override fun activate(socketId: Int) {
         val pending = pendingConnections.remove(socketId) ?: return
 
+        // Cancel pending reader - TcpConnectionNio will start its own
+        pendingReaders.remove(socketId)?.cancel()
+
         val connection = createConnectionFromPending(socketId, pending)
         activeConnections[socketId] = connection
         connection.activate()
@@ -362,6 +372,10 @@ class TcpSocketService(
         pendingConnects.values.forEach { it.cancel() }
         pendingConnects.clear()
 
+        // Cancel all pending readers
+        pendingReaders.values.forEach { it.cancel() }
+        pendingReaders.clear()
+
         // Close pending connections
         pendingConnections.values.forEach { closePendingConnection(it) }
         pendingConnections.clear()
@@ -378,6 +392,61 @@ class TcpSocketService(
     // ============================================================
     // Internal helpers
     // ============================================================
+
+    /**
+     * Start a read loop for a pending NIO channel.
+     *
+     * This enables SOCKS5 handshake on pending connections before activation.
+     * The reader is simple and delivers data through onTcpData callback.
+     * When activate() is called, this reader is cancelled and replaced by
+     * TcpConnectionNio's full-featured reader.
+     */
+    private fun startPendingReader(socketId: Int, channel: SocketChannel) {
+        val job = scope.launch {
+            val buffer = ByteBuffer.allocate(8192)  // Small buffer for handshake
+            try {
+                while (isActive) {
+                    buffer.clear()
+                    val bytesRead = try {
+                        channel.read(buffer)
+                    } catch (_: IOException) {
+                        -1
+                    }
+
+                    if (bytesRead < 0) {
+                        // EOF - connection closed by peer
+                        Log.d(TAG, "Socket $socketId: pending reader EOF")
+                        // Only fire close if still pending (not activated)
+                        if (pendingConnections.containsKey(socketId)) {
+                            pendingConnections.remove(socketId)
+                            pendingReaders.remove(socketId)
+                            try { channel.close() } catch (_: Exception) {}
+                            socketCallback?.onTcpClose(socketId, false, 0)
+                        }
+                        break
+                    }
+                    if (bytesRead == 0) continue
+
+                    // Deliver data through callback
+                    buffer.flip()
+                    val data = ByteArray(bytesRead)
+                    buffer.get(data)
+                    Log.d(TAG, "Socket $socketId: pending reader got $bytesRead bytes")
+                    socketCallback?.onTcpData(socketId, data)
+                }
+            } catch (e: IOException) {
+                Log.d(TAG, "Socket $socketId: pending reader error: ${e.message}")
+                // Only fire close if still pending
+                if (pendingConnections.containsKey(socketId)) {
+                    pendingConnections.remove(socketId)
+                    pendingReaders.remove(socketId)
+                    try { channel.close() } catch (_: Exception) {}
+                    socketCallback?.onTcpClose(socketId, true, 1)
+                }
+            }
+        }
+        pendingReaders[socketId] = job
+    }
 
     /**
      * Configure a SocketChannel with optimal settings.
