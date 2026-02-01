@@ -12,6 +12,8 @@ import { NativeSessionStore } from '../adapters/native/native-session-store'
 import { NativeHasher } from '../adapters/native/native-hasher'
 import { flushBatchedWrites } from '../adapters/native/native-batching-disk-queue'
 import { StorageRootManager, StorageRoot } from '../storage/storage-root-manager'
+import { Socks5SocketFactory } from '../proxy'
+import type { ISocketFactory } from '../interfaces/socket'
 import type { NetworkInterface } from '../upnp/upnp-manager'
 import type { LogEntry } from '../logging/logger'
 import type { ConfigHub } from '../config/config-hub'
@@ -101,8 +103,25 @@ export function createNativeEngine(config: NativeEngineConfig): BtEngine {
     storageRootManager.setDefaultRoot(config.defaultContentRoot)
   }
 
+  // Create socket factory, optionally wrapped with SOCKS5 proxy
+  let socketFactory: ISocketFactory = new NativeSocketFactory()
+  if (config.config) {
+    const proxyEnabled = config.config.proxyEnabled.get()
+    const proxyHost = config.config.proxyHost.get()
+    const proxyPort = config.config.proxyPort.get()
+
+    if (proxyEnabled && proxyHost) {
+      socketFactory = new Socks5SocketFactory(socketFactory, {
+        host: proxyHost,
+        port: proxyPort,
+        username: config.config.proxyUsername.get() ?? undefined,
+        password: config.config.proxyPassword.get() ?? undefined,
+      })
+    }
+  }
+
   return new BtEngine({
-    socketFactory: new NativeSocketFactory(),
+    socketFactory,
     storageRootManager,
     sessionStore: new NativeSessionStore(),
     hasher: new NativeHasher(),

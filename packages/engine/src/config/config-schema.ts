@@ -222,6 +222,57 @@ export const configSchema = {
   },
 
   // ===========================================================================
+  // Settings: Proxy
+  // ===========================================================================
+
+  /** Whether SOCKS5 proxy is enabled for outbound connections. */
+  proxyEnabled: {
+    type: 'boolean',
+    category: 'setting',
+    storage: 'sync',
+    default: false,
+    restartRequired: true,
+  },
+
+  /** SOCKS5 proxy server hostname or IP. */
+  proxyHost: {
+    type: 'string',
+    category: 'setting',
+    storage: 'sync',
+    default: null,
+    restartRequired: true,
+  },
+
+  /** SOCKS5 proxy server port. */
+  proxyPort: {
+    type: 'number',
+    category: 'setting',
+    storage: 'sync',
+    default: 1080,
+    min: 1,
+    max: 65535,
+    restartRequired: true,
+  },
+
+  /** SOCKS5 proxy username (optional, for authenticated proxies). */
+  proxyUsername: {
+    type: 'string',
+    category: 'setting',
+    storage: 'sync',
+    default: null,
+    restartRequired: true,
+  },
+
+  /** SOCKS5 proxy password (optional, for authenticated proxies). */
+  proxyPassword: {
+    type: 'string',
+    category: 'setting',
+    storage: 'sync',
+    default: null,
+    restartRequired: true,
+  },
+
+  // ===========================================================================
   // Settings: Features
   // ===========================================================================
 

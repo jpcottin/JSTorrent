@@ -897,6 +897,68 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
 }
 
 /**
+ * Enable sending active piece states (partial/requested/responded) to native layer.
+ * Set to false to disable if there are performance concerns.
+ */
+const ENABLE_ACTIVE_PIECE_STATES = true
+
+/**
+ * Pack active piece states into a compact binary format (hex-encoded).
+ *
+ * Format: [partialCount:u16][requestedCount:u16][respondedCount:u16][indices:u16[]]
+ * - Counts are little-endian u16
+ * - Indices are little-endian u16, grouped by state
+ *
+ * States are implicit from position:
+ * - First group: partial pieces (has unrequested blocks)
+ * - Second group: fully requested (all blocks requested, not all received)
+ * - Third group: fully responded (all blocks received, awaiting verification)
+ *
+ * @returns Hex-encoded binary string, or undefined if no active pieces
+ */
+function packActivePieceStates(torrent: Torrent): string | undefined {
+  const manager = torrent.getActivePieceManager()
+  if (!manager || manager.activeCount === 0) {
+    return undefined
+  }
+
+  const partial = [...manager.partialKeys()]
+  const requested = [...manager.fullyRequestedKeys()]
+  const responded = [...manager.fullyRespondedKeys()]
+
+  const totalCount = partial.length + requested.length + responded.length
+  if (totalCount === 0) {
+    return undefined
+  }
+
+  // 6 bytes header (3 x u16 counts) + 2 bytes per index
+  const buf = new Uint8Array(6 + totalCount * 2)
+  const view = new DataView(buf.buffer)
+
+  // Write counts (u16 little-endian)
+  view.setUint16(0, partial.length, true)
+  view.setUint16(2, requested.length, true)
+  view.setUint16(4, responded.length, true)
+
+  // Write indices (u16 little-endian)
+  let offset = 6
+  for (const idx of partial) {
+    view.setUint16(offset, idx, true)
+    offset += 2
+  }
+  for (const idx of requested) {
+    view.setUint16(offset, idx, true)
+    offset += 2
+  }
+  for (const idx of responded) {
+    view.setUint16(offset, idx, true)
+    offset += 2
+  }
+
+  return toHex(buf)
+}
+
+/**
  * Start the state push loop.
  * Pushes compact state to native layer every 500ms (only if changed).
  * Tracks piece completions and sends diffs.
@@ -948,6 +1010,20 @@ export function startStatePushLoop(engine: BtEngine): () => void {
         }
       }
 
+      // Collect active piece states (packed binary, hex-encoded)
+      let activePieceStates: Record<string, string> | undefined
+      if (ENABLE_ACTIVE_PIECE_STATES) {
+        for (const t of engine.torrents) {
+          const packed = packActivePieceStates(t)
+          if (packed) {
+            if (!activePieceStates) {
+              activePieceStates = {}
+            }
+            activePieceStates[toHex(t.infoHash)] = packed
+          }
+        }
+      }
+
       const state = JSON.stringify({
         torrents: engine.torrents.map((t) => ({
           infoHash: toHex(t.infoHash),
@@ -966,6 +1042,7 @@ export function startStatePushLoop(engine: BtEngine): () => void {
           errorMessage: t.errorMessage,
         })),
         pieceChanges: Object.keys(pieceChanges).length > 0 ? pieceChanges : undefined,
+        activePieceStates,
       })
 
       // Only push if changed

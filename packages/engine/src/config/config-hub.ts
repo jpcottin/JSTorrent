@@ -83,6 +83,25 @@ export interface ConfigHub {
   readonly listeningPort: ConfigValue<number>
 
   // ===========================================================================
+  // Settings: Proxy
+  // ===========================================================================
+
+  /** Whether SOCKS5 proxy is enabled for outbound connections. Restart required to apply. */
+  readonly proxyEnabled: ConfigValue<boolean>
+
+  /** SOCKS5 proxy server hostname or IP. */
+  readonly proxyHost: ConfigValue<string | null>
+
+  /** SOCKS5 proxy server port. */
+  readonly proxyPort: ConfigValue<number>
+
+  /** SOCKS5 proxy username (optional, for authenticated proxies). */
+  readonly proxyUsername: ConfigValue<string | null>
+
+  /** SOCKS5 proxy password (optional, for authenticated proxies). */
+  readonly proxyPassword: ConfigValue<string | null>
+
+  // ===========================================================================
   // Settings: Features
   // ===========================================================================
 

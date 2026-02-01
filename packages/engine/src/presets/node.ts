@@ -6,6 +6,8 @@ import {
   NodeHasher,
 } from '../adapters/node'
 import { StorageRootManager } from '../storage/storage-root-manager'
+import { Socks5SocketFactory } from '../proxy'
+import type { ISocketFactory } from '../interfaces/socket'
 import { ISessionStore } from '../interfaces/session-store'
 import { LogEntry } from '../logging/logger'
 import * as path from 'path'
@@ -34,8 +36,25 @@ export function createNodeEngine(config: NodeEngineConfig): BtEngine {
   })
   storageRootManager.setDefaultRoot(config.downloadPath)
 
+  // Create socket factory, optionally wrapped with SOCKS5 proxy
+  let socketFactory: ISocketFactory = new NodeSocketFactory()
+  if (config.config) {
+    const proxyEnabled = config.config.proxyEnabled.get()
+    const proxyHost = config.config.proxyHost.get()
+    const proxyPort = config.config.proxyPort.get()
+
+    if (proxyEnabled && proxyHost) {
+      socketFactory = new Socks5SocketFactory(socketFactory, {
+        host: proxyHost,
+        port: proxyPort,
+        username: config.config.proxyUsername.get() ?? undefined,
+        password: config.config.proxyPassword.get() ?? undefined,
+      })
+    }
+  }
+
   return new BtEngine({
-    socketFactory: new NodeSocketFactory(),
+    socketFactory,
     storageRootManager,
     sessionStore,
     hasher: new NodeHasher(),

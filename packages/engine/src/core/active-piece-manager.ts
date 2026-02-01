@@ -396,10 +396,26 @@ export class ActivePieceManager extends EngineComponent {
   }
 
   /**
+   * Returns an iterator over partial piece indices.
+   * O(1) to get iterator - used for efficient state serialization.
+   */
+  partialKeys(): IterableIterator<number> {
+    return this._partialPieces.keys()
+  }
+
+  /**
    * Returns an iterator over ONLY fullyRequested pieces (all blocks requested, not all received).
    */
   fullyRequestedValues(): IterableIterator<ActivePiece> {
     return this._fullyRequestedPieces.values()
+  }
+
+  /**
+   * Returns an iterator over fullyRequested piece indices.
+   * O(1) to get iterator - used for efficient state serialization.
+   */
+  fullyRequestedKeys(): IterableIterator<number> {
+    return this._fullyRequestedPieces.keys()
   }
 
   /**
@@ -516,6 +532,14 @@ export class ActivePieceManager extends EngineComponent {
    */
   fullyRespondedValues(): IterableIterator<ActivePiece> {
     return this._fullyRespondedPieces.values()
+  }
+
+  /**
+   * Returns an iterator over fullyResponded piece indices.
+   * O(1) to get iterator - used for efficient state serialization.
+   */
+  fullyRespondedKeys(): IterableIterator<number> {
+    return this._fullyRespondedPieces.keys()
   }
 
   /**

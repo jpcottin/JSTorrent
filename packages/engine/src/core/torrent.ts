@@ -938,6 +938,14 @@ export class Torrent extends EngineComponent {
     return this.activePieces?.activePieces ?? []
   }
 
+  /**
+   * Get the active piece manager for efficient state serialization.
+   * Returns undefined if not downloading.
+   */
+  getActivePieceManager(): ActivePieceManager | undefined {
+    return this.activePieces
+  }
+
   get isComplete(): boolean {
     return this.isDownloadComplete
   }

@@ -5,6 +5,8 @@ import { DaemonSocketFactory } from '../adapters/daemon/daemon-socket-factory'
 import { StorageRootManager, StorageRoot } from '../storage/storage-root-manager'
 import { ISessionStore } from '../interfaces/session-store'
 import { LogEntry } from '../logging/logger'
+import { Socks5SocketFactory } from '../proxy'
+import type { ISocketFactory } from '../interfaces/socket'
 import type { ConfigHub } from '../config/config-hub'
 
 export interface DaemonEngineConfig {
@@ -66,8 +68,25 @@ export async function createDaemonEngine(config: DaemonEngineConfig): Promise<Bt
     storageRootManager.setDefaultRoot(config.defaultContentRoot)
   }
 
+  // Create socket factory, optionally wrapped with SOCKS5 proxy
+  let socketFactory: ISocketFactory = new DaemonSocketFactory(connection)
+  if (config.config) {
+    const proxyEnabled = config.config.proxyEnabled.get()
+    const proxyHost = config.config.proxyHost.get()
+    const proxyPort = config.config.proxyPort.get()
+
+    if (proxyEnabled && proxyHost) {
+      socketFactory = new Socks5SocketFactory(socketFactory, {
+        host: proxyHost,
+        port: proxyPort,
+        username: config.config.proxyUsername.get() ?? undefined,
+        password: config.config.proxyPassword.get() ?? undefined,
+      })
+    }
+  }
+
   return new BtEngine({
-    socketFactory: new DaemonSocketFactory(connection),
+    socketFactory,
     storageRootManager,
     sessionStore: config.sessionStore,
     port: config.port,

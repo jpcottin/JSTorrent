@@ -133,7 +133,11 @@ data class TorrentDetailUi(
     val piecesCompleted: Int?,
     val piecesTotal: Int?,
     val pieceSize: Long?,
-    val pieceBitfield: BitSet?, // Which pieces are complete
+    val pieceBitfield: BitSet?, // Which pieces are complete (verified)
+    // Active piece states for download visualization (O(1) lookup per piece)
+    val activePiecesPartial: Set<Int>? = null,   // Has unrequested blocks
+    val activePiecesRequested: Set<Int>? = null, // All blocks requested, awaiting data
+    val activePiecesResponded: Set<Int>? = null, // All blocks received, awaiting verification
     val files: List<TorrentFileUi>,
     val trackers: List<TrackerUi>,
     val peers: List<PeerUi>,

@@ -29,16 +29,30 @@ import kotlin.math.min
  * - Large (> 1000): Small squares, many rows
  *
  * Uses BitSet for accurate piece-by-piece visualization.
+ *
+ * Color coding (priority order):
+ * - Completed (verified): primary color (blue)
+ * - Responded (all blocks received, awaiting verification): green
+ * - Requested (all blocks requested, waiting for data): cyan/light blue
+ * - Partial (has unrequested blocks): orange
+ * - Missing: surfaceVariant (gray)
  */
 @Composable
 fun PieceMap(
     piecesTotal: Int,
     bitfield: BitSet?,
     modifier: Modifier = Modifier,
-    piecesCompleted: Int = bitfield?.cardinality() ?: 0
+    piecesCompleted: Int = bitfield?.cardinality() ?: 0,
+    activePiecesPartial: Set<Int>? = null,
+    activePiecesRequested: Set<Int>? = null,
+    activePiecesResponded: Set<Int>? = null
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
     val emptyColor = MaterialTheme.colorScheme.surfaceVariant
+    // Active piece state colors
+    val partialColor = Color(0xFFFF9800)   // Orange - has unrequested blocks
+    val requestedColor = Color(0xFF00BCD4) // Cyan - all blocks requested
+    val respondedColor = Color(0xFF4CAF50) // Green - all blocks received
 
     // Dynamic grid sizing based on piece count
     val (columns, cellSizeDp) = remember(piecesTotal) {
@@ -73,13 +87,15 @@ fun PieceMap(
             val col = i % columns
             val row = i / columns
 
-            // Check if piece is complete using bitfield or fallback to count
-            val isComplete = if (bitfield != null) {
-                bitfield.get(i)
-            } else {
-                i < piecesCompleted
+            // Determine piece color based on state (priority: completed > responded > requested > partial > missing)
+            val color = when {
+                bitfield?.get(i) == true -> primaryColor  // Verified complete
+                activePiecesResponded?.contains(i) == true -> respondedColor  // All blocks received
+                activePiecesRequested?.contains(i) == true -> requestedColor  // All blocks requested
+                activePiecesPartial?.contains(i) == true -> partialColor      // Has unrequested blocks
+                bitfield == null && i < piecesCompleted -> primaryColor       // Fallback mode
+                else -> emptyColor  // Missing
             }
-            val color = if (isComplete) primaryColor else emptyColor
 
             val x = col * actualCellWidth + gap
             val y = row * actualCellHeight + gap

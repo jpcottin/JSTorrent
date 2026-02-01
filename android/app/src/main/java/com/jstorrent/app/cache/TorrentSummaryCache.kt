@@ -216,9 +216,9 @@ open class TorrentSummaryCache(context: Context?) {
             0.0
         }
 
-        // Map userState to status
+        // Map userState to status - show expected state before engine starts
         val status = when (state?.userState) {
-            "active" -> if (progress >= 1.0) "seeding" else "stopped" // Will become "downloading" when engine starts
+            "active" -> if (progress >= 1.0) "seeding" else "downloading"
             "inactive", "paused" -> "stopped"
             else -> "stopped"
         }

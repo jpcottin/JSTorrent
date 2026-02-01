@@ -200,7 +200,7 @@ private fun PowerManagementSection(
 
         SettingToggleRow(
             label = "Keep seeding when done",
-            description = "Continue seeding after downloads complete. Uses significant battery.",
+            description = "Keep the app running in the background to seed, even when there are no active downloads. Uses significant battery.",
             checked = whenDownloadsComplete == "keep_seeding",
             onCheckedChange = { enabled ->
                 if (enabled) {

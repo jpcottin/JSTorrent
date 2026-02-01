@@ -13,6 +13,7 @@ import com.jstorrent.app.model.TorrentFileUi
 import com.jstorrent.app.model.TrackerStatus
 import com.jstorrent.app.model.TrackerUi
 import com.jstorrent.app.model.toUi
+import com.jstorrent.quickjs.model.ActivePieceStates
 import com.jstorrent.quickjs.model.PieceInfo
 import com.jstorrent.quickjs.model.TorrentDetails
 import com.jstorrent.quickjs.model.TorrentSummary
@@ -179,6 +180,11 @@ class TorrentDetailViewModel(
         // Use pending state if available, otherwise use applied state
         val effectiveFileState = pendingState ?: appliedState
 
+        // Decode active piece states from hex-encoded binary
+        val activePieceStates = state?.activePieceStates?.get(infoHash)?.let {
+            ActivePieceStates.fromHex(it)
+        }
+
         when {
             error != null && !isLoaded -> TorrentDetailUiState.Error(error)
             !isLoaded -> TorrentDetailUiState.Loading
@@ -188,7 +194,7 @@ class TorrentDetailViewModel(
                     TorrentDetailUiState.Error("Torrent not found")
                 } else {
                     TorrentDetailUiState.Loaded(
-                        torrent = createTorrentDetailUi(torrent, effectiveFileState, files, trackers, peers, pieces, bitfield, details),
+                        torrent = createTorrentDetailUi(torrent, effectiveFileState, files, trackers, peers, pieces, bitfield, details, activePieceStates),
                         selectedTab = tab,
                         hasPendingFileChanges = pendingState != null
                     )
@@ -372,7 +378,8 @@ class TorrentDetailViewModel(
         peers: List<PeerInfo>,
         pieces: PieceInfo?,
         bitfield: BitSet?,
-        details: TorrentDetails?
+        details: TorrentDetails?,
+        activePieceStates: ActivePieceStates?
     ): TorrentDetailUi {
         val fileUis = files.map { file ->
             // Use pending state if exists, otherwise use engine's actual priority
@@ -435,6 +442,9 @@ class TorrentDetailViewModel(
             piecesTotal = pieces?.piecesTotal,
             pieceSize = pieces?.pieceSize,
             pieceBitfield = bitfield,
+            activePiecesPartial = activePieceStates?.partial?.toSet(),
+            activePiecesRequested = activePieceStates?.requested?.toSet(),
+            activePiecesResponded = activePieceStates?.responded?.toSet(),
             files = fileUis,
             trackers = trackerUis,
             peers = peerUis,

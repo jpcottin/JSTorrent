@@ -372,7 +372,10 @@ private fun DetailContent(
                     piecesCompleted = torrent.piecesCompleted,
                     piecesTotal = torrent.piecesTotal,
                     pieceSize = torrent.pieceSize,
-                    bitfield = torrent.pieceBitfield
+                    bitfield = torrent.pieceBitfield,
+                    activePiecesPartial = torrent.activePiecesPartial,
+                    activePiecesRequested = torrent.activePiecesRequested,
+                    activePiecesResponded = torrent.activePiecesResponded
                 )
             }
         }

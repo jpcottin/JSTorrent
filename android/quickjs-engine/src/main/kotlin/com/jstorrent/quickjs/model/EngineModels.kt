@@ -141,8 +141,72 @@ data class TorrentDetails(
 @Serializable
 data class EngineState(
     val torrents: List<TorrentSummary>,
-    val pieceChanges: Map<String, List<Int>>? = null // infoHash -> newly completed piece indices
+    val pieceChanges: Map<String, List<Int>>? = null, // infoHash -> newly completed piece indices
+    val activePieceStates: Map<String, String>? = null // infoHash -> hex-encoded binary (see below)
 )
+
+/**
+ * Active piece states packed in binary format (hex-encoded string).
+ *
+ * Format: [partialCount:u16][requestedCount:u16][respondedCount:u16][indices:u16[]]
+ * - All values are little-endian
+ * - Counts indicate how many indices follow in each group
+ * - Indices are piece numbers in each state
+ *
+ * States:
+ * - Partial: has unrequested blocks (still waiting for more requests)
+ * - Requested: all blocks requested but not all received (in-flight)
+ * - Responded: all blocks received, awaiting hash verification
+ */
+data class ActivePieceStates(
+    val partial: List<Int>,
+    val requested: List<Int>,
+    val responded: List<Int>
+) {
+    companion object {
+        /**
+         * Decode hex-encoded binary format to ActivePieceStates.
+         * Returns null if the input is invalid.
+         */
+        fun fromHex(hex: String): ActivePieceStates? {
+            if (hex.length < 12) return null // Minimum: 6 bytes header = 12 hex chars
+
+            try {
+                val bytes = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                if (bytes.size < 6) return null
+
+                // Read counts (u16 little-endian)
+                val partialCount = (bytes[0].toInt() and 0xFF) or ((bytes[1].toInt() and 0xFF) shl 8)
+                val requestedCount = (bytes[2].toInt() and 0xFF) or ((bytes[3].toInt() and 0xFF) shl 8)
+                val respondedCount = (bytes[4].toInt() and 0xFF) or ((bytes[5].toInt() and 0xFF) shl 8)
+
+                val totalIndices = partialCount + requestedCount + respondedCount
+                val expectedSize = 6 + totalIndices * 2
+                if (bytes.size < expectedSize) return null
+
+                // Read indices (u16 little-endian)
+                var offset = 6
+                fun readIndices(count: Int): List<Int> {
+                    val list = mutableListOf<Int>()
+                    repeat(count) {
+                        val idx = (bytes[offset].toInt() and 0xFF) or ((bytes[offset + 1].toInt() and 0xFF) shl 8)
+                        list.add(idx)
+                        offset += 2
+                    }
+                    return list
+                }
+
+                return ActivePieceStates(
+                    partial = readIndices(partialCount),
+                    requested = readIndices(requestedCount),
+                    responded = readIndices(respondedCount)
+                )
+            } catch (e: Exception) {
+                return null
+            }
+        }
+    }
+}
 
 /**
  * Summary torrent info for state updates (compact).

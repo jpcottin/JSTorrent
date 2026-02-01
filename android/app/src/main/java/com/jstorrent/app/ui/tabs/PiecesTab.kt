@@ -25,6 +25,11 @@ import java.util.BitSet
 
 /**
  * Pieces tab showing piece completion status and visual map.
+ *
+ * Active piece states show download progress:
+ * - Partial (orange): has unrequested blocks
+ * - Requested (cyan): all blocks requested, awaiting data
+ * - Responded (green): all blocks received, awaiting verification
  */
 @Composable
 fun PiecesTab(
@@ -32,7 +37,10 @@ fun PiecesTab(
     piecesTotal: Int?,
     pieceSize: Long?,
     bitfield: BitSet?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    activePiecesPartial: Set<Int>? = null,
+    activePiecesRequested: Set<Int>? = null,
+    activePiecesResponded: Set<Int>? = null
 ) {
     if (piecesTotal == null || piecesTotal == 0) {
         NoPiecesState(modifier = modifier)
@@ -79,6 +87,9 @@ fun PiecesTab(
                 piecesTotal = piecesTotal,
                 bitfield = bitfield,
                 piecesCompleted = piecesCompleted ?: 0,
+                activePiecesPartial = activePiecesPartial,
+                activePiecesRequested = activePiecesRequested,
+                activePiecesResponded = activePiecesResponded,
                 modifier = Modifier.padding(top = 4.dp)
             )
         }

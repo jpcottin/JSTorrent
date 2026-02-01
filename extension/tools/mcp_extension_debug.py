@@ -47,24 +47,8 @@ from mcp.types import ImageContent, TextContent, Tool
 from PIL import Image
 import pytesseract
 
-# Parent PID at startup - used to detect orphaned process
-_PARENT_PID = os.getppid()
-
-
-def _get_ppid_of(pid: int) -> int | None:
-    """Get the parent PID of a process using ps command."""
-    try:
-        result = subprocess.run(
-            ["ps", "-o", "ppid=", "-p", str(pid)],
-            capture_output=True,
-            text=True,
-            timeout=1,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return int(result.stdout.strip())
-    except (subprocess.TimeoutExpired, ValueError, OSError):
-        pass
-    return None
+# Capture the original parent PID at startup
+_ORIGINAL_PPID = os.getppid()
 
 # Configuration
 DEFAULT_HOST = "localhost"
@@ -1227,46 +1211,101 @@ async def async_cleanup():
 # Main
 # =============================================================================
 
+def _get_process_ancestors(pid: int) -> list[int]:
+    """Get list of ancestor PIDs by walking up the process tree.
+
+    Returns list from immediate parent to init (PID 1).
+    Uses /proc on Linux or ps on macOS.
+    """
+    ancestors = []
+    current = pid
+    seen = set()
+
+    while current and current != 1 and current not in seen:
+        seen.add(current)
+        try:
+            # Try /proc first (Linux)
+            try:
+                with open(f"/proc/{current}/stat") as f:
+                    stat = f.read().split()
+                    ppid = int(stat[3])
+            except FileNotFoundError:
+                # Fall back to ps (macOS)
+                result = subprocess.run(
+                    ["ps", "-o", "ppid=", "-p", str(current)],
+                    capture_output=True,
+                    text=True,
+                    timeout=1,
+                )
+                if result.returncode != 0 or not result.stdout.strip():
+                    break
+                ppid = int(result.stdout.strip())
+
+            if ppid > 0:
+                ancestors.append(ppid)
+                current = ppid
+            else:
+                break
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            break
+
+    return ancestors
+
+
 async def parent_monitor():
-    """Monitor parent process and exit if orphaned.
+    """Monitor for orphaned process and exit.
 
-    Process hierarchy: Claude Code -> uv run -> python mcp_*.py
+    Checks multiple conditions:
+    1. Direct parent PID changed (process was reparented)
+    2. Any ancestor in the original chain is now PID 1 (launchd/init)
+    3. Original parent no longer exists
 
-    When Claude Code dies, `uv run` gets reparented to PID 1 (launchd).
-    We detect this by checking if our parent's parent becomes 1.
-    Also check if our direct parent changes (belt and suspenders).
+    On macOS, when Claude Code dies:
+    - The 'uv run' process becomes orphaned and gets reparented to PID 1
+    - This python process's parent (uv) still exists but its parent is now 1
     """
     while True:
         await asyncio.sleep(2)
-        # Check if direct parent changed
-        if os.getppid() != _PARENT_PID:
-            print("Parent process died, exiting...", file=sys.stderr)
+
+        current_ppid = os.getppid()
+
+        # Check 1: Direct parent changed
+        if current_ppid != _ORIGINAL_PPID:
+            print(
+                f"Parent PID changed from {_ORIGINAL_PPID} to {current_ppid}, exiting...",
+                file=sys.stderr,
+            )
             await async_cleanup()
             os._exit(0)
-        # Check if parent (uv) was reparented to init/launchd (PID 1)
-        grandparent = _get_ppid_of(_PARENT_PID)
-        if grandparent == 1:
-            print("Grandparent process died (uv reparented to init), exiting...", file=sys.stderr)
+
+        # Check 2: Our parent (uv run) was reparented to init/launchd
+        if current_ppid != 1:
+            parent_ancestors = _get_process_ancestors(current_ppid)
+            if parent_ancestors and parent_ancestors[0] == 1:
+                # Our parent's parent is now init - we're orphaned
+                print(
+                    "Parent process was reparented to init, exiting...",
+                    file=sys.stderr,
+                )
+                await async_cleanup()
+                os._exit(0)
+
+        # Check 3: Verify original parent still exists
+        try:
+            os.kill(_ORIGINAL_PPID, 0)  # Signal 0 just checks if process exists
+        except ProcessLookupError:
+            print(
+                f"Original parent {_ORIGINAL_PPID} no longer exists, exiting...",
+                file=sys.stderr,
+            )
             await async_cleanup()
             os._exit(0)
+        except PermissionError:
+            # Process exists but we can't signal it - that's fine
+            pass
 
 
 async def main():
-    loop = asyncio.get_running_loop()
-
-    def handle_signal():
-        """Schedule async cleanup and exit."""
-        asyncio.create_task(shutdown())
-
-    async def shutdown():
-        """Async shutdown handler."""
-        await async_cleanup()
-        loop.stop()
-
-    # Set up signal handlers for graceful shutdown (async-safe)
-    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-        loop.add_signal_handler(sig, handle_signal)
-
     init_connections()
 
     # Start parent monitor to detect orphaned process
@@ -1281,5 +1320,30 @@ async def main():
         await async_cleanup()
 
 
+def _sync_cleanup():
+    """Synchronous cleanup for signal handlers."""
+    global _shutting_down
+    if _shutting_down:
+        return
+    _shutting_down = True
+
+    for conn in state.connections.values():
+        if conn.sw_log_collector_task and not conn.sw_log_collector_task.done():
+            conn.sw_log_collector_task.cancel()
+        if conn.page_log_collector_task and not conn.page_log_collector_task.done():
+            conn.page_log_collector_task.cancel()
+
+
+def _sync_signal_handler(signum, frame):
+    """Handle termination signals synchronously."""
+    _sync_cleanup()
+    os._exit(0)
+
+
 if __name__ == "__main__":
+    # Set up signal handlers for graceful shutdown
+    signal.signal(signal.SIGTERM, _sync_signal_handler)
+    signal.signal(signal.SIGINT, _sync_signal_handler)
+    signal.signal(signal.SIGHUP, _sync_signal_handler)
+
     asyncio.run(main())

@@ -6,12 +6,14 @@ import {
   DaemonHasher,
   StorageRootManager,
   ExternalChromeStorageSessionStore,
+  Socks5SocketFactory,
   globalLogStore,
   LogStore,
   ISessionStore,
   Torrent,
   toHex,
   getBatchWriteHistogram,
+  type ISocketFactory,
   type CredentialsGetter,
   type EngineLoggingConfig,
   type ConfigHub,
@@ -325,8 +327,25 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     // 6. Create engine (suspended) with ConfigHub
     // Engine will auto-apply settings and subscribe to changes via ConfigHub
     const hasher = new DaemonHasher(this.daemonConnection)
+
+    // Create socket factory, optionally wrapped with SOCKS5 proxy
+    let socketFactory: ISocketFactory = new DaemonSocketFactory(this.daemonConnection)
+    const proxyEnabled = configHub.proxyEnabled.get()
+    const proxyHost = configHub.proxyHost.get()
+    const proxyPort = configHub.proxyPort.get()
+
+    if (proxyEnabled && proxyHost) {
+      socketFactory = new Socks5SocketFactory(socketFactory, {
+        host: proxyHost,
+        port: proxyPort,
+        username: configHub.proxyUsername.get() ?? undefined,
+        password: configHub.proxyPassword.get() ?? undefined,
+      })
+      console.log(`[ChromeExtensionEngineManager] SOCKS5 proxy enabled: ${proxyHost}:${proxyPort}`)
+    }
+
     this.engine = new BtEngine({
-      socketFactory: new DaemonSocketFactory(this.daemonConnection),
+      socketFactory,
       storageRootManager: srm,
       sessionStore: this.sessionStore,
       hasher,

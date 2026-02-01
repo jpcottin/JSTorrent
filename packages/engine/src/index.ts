@@ -53,6 +53,10 @@ export {
   getBatchWriteHistogram,
 } from './adapters/daemon/daemon-file-handle'
 
+// Proxy
+export { Socks5SocketFactory } from './proxy'
+export { Socks5Socket, type Socks5ProxyConfig } from './proxy'
+
 // Storage
 export { StorageRootManager, MissingStorageRootError } from './storage/storage-root-manager'
 export type { StorageRoot } from './storage/storage-root-manager'
