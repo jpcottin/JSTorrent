@@ -230,9 +230,9 @@ class TcpSocketService(
             return
         }
 
-        // Get the underlying socket from the pending connection
-        val socket = when (pending) {
-            is PendingConnection.NioChannel -> pending.channel.socket()
+        // Get the NIO channel - we need it for the socket and to stop the pending reader
+        val channel = when (pending) {
+            is PendingConnection.NioChannel -> pending.channel
             is PendingConnection.TlsSocket -> {
                 // Already TLS - shouldn't happen but handle gracefully
                 socketCallback?.onTcpSecured(socketId, false)
@@ -242,6 +242,26 @@ class TcpSocketService(
 
         scope.launch {
             try {
+                // Stop pending reader FIRST - it races with TLS handshake.
+                // The pending reader is doing blocking channel.read(), so we need to:
+                // 1. Cancel the job (sets isActive=false)
+                // 2. Configure socket timeout so read() doesn't block forever
+                // 3. Wait for the reader to actually stop
+                val pendingReaderJob = pendingReaders.remove(socketId)
+                if (pendingReaderJob != null) {
+                    // Set a short timeout so the blocking read returns quickly
+                    try {
+                        channel.socket().soTimeout = 100  // 100ms timeout
+                    } catch (_: Exception) {}
+
+                    pendingReaderJob.cancel()
+                    pendingReaderJob.join()  // Wait for reader to actually stop
+
+                    Log.d(TAG, "Socket $socketId: pending reader stopped, proceeding with TLS")
+                }
+
+                val socket = channel.socket()
+
                 // Create SSLSocketFactory
                 val sslSocketFactory = if (skipValidation) {
                     InsecureTrustManager.createInsecureSocketFactory()
@@ -293,7 +313,7 @@ class TcpSocketService(
                 Log.e(TAG, "Socket $socketId TLS handshake failed: $errorDetails")
                 Log.e(TAG, "Socket $socketId TLS error stack trace:", e)
                 try {
-                    socket.close()
+                    channel.close()
                 } catch (_: Exception) {}
                 socketCallback?.onTcpSecured(socketId, false)
             }

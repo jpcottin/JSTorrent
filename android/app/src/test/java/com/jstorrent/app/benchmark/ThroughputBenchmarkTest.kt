@@ -77,6 +77,7 @@ class ThroughputBenchmarkTest {
      * Uses embedded JVM server - no external daemon needed.
      */
     @Test
+    @Ignore("Heavy benchmark - run manually")
     fun standalone_100MB() {
         runStandaloneBenchmark(
             label = "java-websocket",
@@ -90,6 +91,7 @@ class ThroughputBenchmarkTest {
      * Standalone benchmark: Quick 10 MB test.
      */
     @Test
+    @Ignore("Heavy benchmark - run manually")
     fun standalone_10MB() {
         runStandaloneBenchmark(
             label = "java-websocket",
@@ -103,6 +105,7 @@ class ThroughputBenchmarkTest {
      * Standalone benchmark: 100 MB with larger 64 KB chunks.
      */
     @Test
+    @Ignore("Heavy benchmark - run manually")
     fun standalone_LargeChunks() {
         runStandaloneBenchmark(
             label = "java-websocket",
@@ -116,6 +119,7 @@ class ThroughputBenchmarkTest {
      * Compare different TCP read buffer sizes to find optimal.
      */
     @Test
+    @Ignore("Heavy benchmark - run manually")
     fun standalone_VaryBufferSizes() {
         val totalBytes = 50L * 1024 * 1024 // 50 MB for faster iteration
         val chunkSize = 16 * 1024
@@ -148,6 +152,7 @@ class ThroughputBenchmarkTest {
      * Bypasses Ktor entirely for direct Netty performance measurement.
      */
     @Test
+    @Ignore("Heavy benchmark - run manually")
     fun netty_100MB() {
         runNettyBenchmark(
             totalBytes = 100L * 1024 * 1024,
@@ -160,6 +165,7 @@ class ThroughputBenchmarkTest {
      * Raw Netty benchmark: Quick 10 MB test.
      */
     @Test
+    @Ignore("Heavy benchmark - run manually")
     fun netty_10MB() {
         runNettyBenchmark(
             totalBytes = 10L * 1024 * 1024,
@@ -172,6 +178,7 @@ class ThroughputBenchmarkTest {
      * Raw Netty benchmark: 100 MB with 64 KB chunks.
      */
     @Test
+    @Ignore("Heavy benchmark - run manually")
     fun netty_LargeChunks() {
         runNettyBenchmark(
             totalBytes = 100L * 1024 * 1024,
@@ -201,6 +208,7 @@ class ThroughputBenchmarkTest {
      * Isolates Ktor WebSocket layer performance on JVM.
      */
     @Test
+    @Ignore("Heavy benchmark - run manually")
     fun ktor_100MB() {
         runKtorBenchmark(
             totalBytes = 100L * 1024 * 1024,
@@ -213,6 +221,7 @@ class ThroughputBenchmarkTest {
      * Ktor benchmark: Quick 10 MB test.
      */
     @Test
+    @Ignore("Heavy benchmark - run manually")
     fun ktor_10MB() {
         runKtorBenchmark(
             totalBytes = 10L * 1024 * 1024,
@@ -225,6 +234,7 @@ class ThroughputBenchmarkTest {
      * Ktor benchmark: 100 MB with 64 KB chunks.
      */
     @Test
+    @Ignore("Heavy benchmark - run manually")
     fun ktor_LargeChunks() {
         runKtorBenchmark(
             totalBytes = 100L * 1024 * 1024,
@@ -267,6 +277,7 @@ class ThroughputBenchmarkTest {
      * Runs both servers and reports relative performance.
      */
     @Test
+    @Ignore("Heavy benchmark - run manually")
     fun ktor_vs_JavaWebSocket() {
         val totalBytes = 100L * 1024 * 1024
         val chunkSize = 16 * 1024
@@ -306,6 +317,7 @@ class ThroughputBenchmarkTest {
      * This is the key Phase 3 benchmark to determine if raw Netty improves on Ktor.
      */
     @Test
+    @Ignore("Heavy benchmark - run manually")
     fun all_servers_comparison() {
         val totalBytes = 100L * 1024 * 1024
         val chunkSize = 16 * 1024

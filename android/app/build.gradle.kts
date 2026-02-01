@@ -1,3 +1,5 @@
+import java.time.Duration
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -164,4 +166,9 @@ dependencies {
     androidTestImplementation(libs.okhttp)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// Configure test timeouts to fail fast on stuck tests
+tasks.withType<Test> {
+    timeout = Duration.ofMinutes(5)
 }
