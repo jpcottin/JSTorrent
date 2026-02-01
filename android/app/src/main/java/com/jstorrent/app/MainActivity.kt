@@ -71,10 +71,12 @@ class MainActivity : ComponentActivity() {
         val isChromebook = ModeDetector.isChromebook(this)
         Log.i(TAG, "Running on Chromebook: $isChromebook")
 
-        // Non-Chromebook: launch standalone mode based on setting
+        // Non-Chromebook: launch standalone mode
+        // Release builds always use native; debug builds respect user preference
         // Note: Magnet/torrent links go through LinkHandlerActivity, not here
         if (!isChromebook) {
-            val targetActivity = when (tokenStore.standaloneMode) {
+            val effectiveMode = if (BuildConfig.DEBUG) tokenStore.standaloneMode else StandaloneMode.NATIVE
+            val targetActivity = when (effectiveMode) {
                 StandaloneMode.NATIVE -> {
                     Log.i(TAG, "Not a Chromebook - launching native standalone mode")
                     NativeStandaloneActivity::class.java
@@ -143,7 +145,9 @@ class MainActivity : ComponentActivity() {
                         backgroundModeEnabled.value = false
                     },
                     onLaunchStandalone = {
-                        val targetActivity = when (standaloneMode.value) {
+                        // Release builds always use native; debug builds respect user preference
+                        val effectiveMode = if (BuildConfig.DEBUG) standaloneMode.value else StandaloneMode.NATIVE
+                        val targetActivity = when (effectiveMode) {
                             StandaloneMode.NATIVE -> NativeStandaloneActivity::class.java
                             StandaloneMode.WEBVIEW -> StandaloneActivity::class.java
                         }
@@ -396,36 +400,38 @@ fun MainScreen(
 
                             Spacer(modifier = Modifier.height(12.dp))
 
-                            // Mode toggle
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Use Native UI",
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                    Text(
-                                        text = if (standaloneMode == StandaloneMode.NATIVE)
-                                            "Compose UI with QuickJS engine"
-                                        else
-                                            "WebView-based UI",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Switch(
-                                    checked = standaloneMode == StandaloneMode.NATIVE,
-                                    onCheckedChange = { isNative ->
-                                        onStandaloneModeChange(
-                                            if (isNative) StandaloneMode.NATIVE else StandaloneMode.WEBVIEW
+                            // Mode toggle - only show in debug builds
+                            if (BuildConfig.DEBUG) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Use Native UI",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Text(
+                                            text = if (standaloneMode == StandaloneMode.NATIVE)
+                                                "Compose UI with QuickJS engine"
+                                            else
+                                                "WebView-based UI",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                )
-                            }
+                                    Switch(
+                                        checked = standaloneMode == StandaloneMode.NATIVE,
+                                        onCheckedChange = { isNative ->
+                                            onStandaloneModeChange(
+                                                if (isNative) StandaloneMode.NATIVE else StandaloneMode.WEBVIEW
+                                            )
+                                        }
+                                    )
+                                }
 
-                            Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
                             OutlinedButton(onClick = onLaunchStandalone) {
                                 Text("Launch Standalone Mode")
                             }

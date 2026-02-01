@@ -167,21 +167,6 @@ private fun DhtStatsContent(
 }
 
 @Composable
-private fun SectionHeader(
-    title: String,
-    modifier: Modifier = Modifier
-) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    )
-}
-
-@Composable
 private fun StatusSection(stats: DhtStats) {
     val context = LocalContext.current
 

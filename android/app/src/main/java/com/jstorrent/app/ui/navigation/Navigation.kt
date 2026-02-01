@@ -24,6 +24,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.jstorrent.app.MainActivity
+import com.jstorrent.app.mode.ModeDetector
 import com.jstorrent.app.ui.screens.AdvancedSettingsScreen
 import com.jstorrent.app.ui.screens.BandwidthSettingsScreen
 import com.jstorrent.app.ui.screens.ConnectionLimitsSettingsScreen
@@ -357,9 +359,20 @@ fun TorrentNavHost(
             val settingsViewModel: SettingsViewModel = viewModel(
                 factory = SettingsViewModel.Factory(context)
             )
+            val isChromebook = ModeDetector.isChromebook(context)
             AdvancedSettingsScreen(
                 viewModel = settingsViewModel,
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                isChromebook = isChromebook,
+                onSwitchToCompanionMode = if (isChromebook) {
+                    {
+                        // Launch MainActivity (companion mode) and finish standalone
+                        val intent = Intent(context, MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                        }
+                        context.startActivity(intent)
+                    }
+                } else null
             )
         }
 
