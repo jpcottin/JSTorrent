@@ -1,14 +1,12 @@
 package com.jstorrent.quickjs.bindings
 
 import android.content.Context
-import android.content.SharedPreferences
 import com.jstorrent.quickjs.QuickJsContext
+import com.jstorrent.quickjs.storage.SqliteKVStore
 import org.json.JSONArray
 
-private const val PREFS_NAME = "jstorrent_session"
-
 /**
- * Storage bindings for QuickJS using Android SharedPreferences.
+ * Storage bindings for QuickJS using SQLite KV store.
  *
  * Implements the following native functions:
  * - __jstorrent_storage_get(key) -> string | null
@@ -16,12 +14,16 @@ private const val PREFS_NAME = "jstorrent_session"
  * - __jstorrent_storage_delete(key) -> void
  * - __jstorrent_storage_keys(prefix) -> string (JSON array)
  *
+ * Uses SQLite instead of SharedPreferences to handle large values
+ * (torrent infodicts, bitfields) efficiently without loading everything
+ * into memory.
+ *
  * All operations are synchronous - they block the JS thread until complete.
- * SharedPreferences operations are generally very fast.
+ * SQLite operations are generally very fast for this use case.
  */
 class StorageBindings(context: Context) {
 
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val store = SqliteKVStore(context)
 
     /**
      * Register all storage bindings on the given context.
@@ -30,7 +32,7 @@ class StorageBindings(context: Context) {
         // __jstorrent_storage_get(key: string): string | null
         ctx.setGlobalFunction("__jstorrent_storage_get") { args ->
             val key = args.getOrNull(0) ?: return@setGlobalFunction null
-            prefs.getString(key, null)
+            store.get(key)
         }
 
         // __jstorrent_storage_set(key: string, value: string): void
@@ -39,10 +41,7 @@ class StorageBindings(context: Context) {
             val value = args.getOrNull(1)
 
             if (key != null && value != null) {
-                // Use commit() for synchronous write to ensure data is persisted
-                // before the JS call returns. This prevents data loss if the app
-                // is closed shortly after adding a torrent.
-                prefs.edit().putString(key, value).commit()
+                store.set(key, value)
             }
             null
         }
@@ -52,7 +51,7 @@ class StorageBindings(context: Context) {
             val key = args.getOrNull(0)
 
             if (key != null) {
-                prefs.edit().remove(key).commit()
+                store.delete(key)
             }
             null
         }
@@ -61,7 +60,7 @@ class StorageBindings(context: Context) {
         ctx.setGlobalFunction("__jstorrent_storage_keys") { args ->
             val prefix = args.getOrNull(0) ?: ""
 
-            val keys = prefs.all.keys.filter { it.startsWith(prefix) }
+            val keys = store.keys(prefix)
 
             JSONArray().apply {
                 keys.forEach { put(it) }

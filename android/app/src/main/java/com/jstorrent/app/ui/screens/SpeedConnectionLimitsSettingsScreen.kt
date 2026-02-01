@@ -34,7 +34,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.viewmodel.SettingsViewModel
 
 private data class SpeedPreset(val bytesPerSec: Int, val label: String)
@@ -96,12 +98,12 @@ fun SpeedConnectionLimitsSettingsScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Speed & Connection Limits") },
+                title = { Text(stringResource(R.string.settings_speed_limits_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.back)
                         )
                     }
                 }
@@ -115,7 +117,7 @@ fun SpeedConnectionLimitsSettingsScreen(
         ) {
             // Speed Limits Section
             item {
-                SectionHeader(title = "Speed Limits")
+                SectionHeader(title = stringResource(R.string.settings_speed_limits_section))
             }
 
             item {
@@ -133,7 +135,7 @@ fun SpeedConnectionLimitsSettingsScreen(
 
             // Connection Limits Section
             item {
-                SectionHeader(title = "Connection Limits")
+                SectionHeader(title = stringResource(R.string.settings_speed_connection_limits_section))
             }
 
             item {
@@ -170,7 +172,7 @@ private fun SpeedLimitsSection(
             .padding(horizontal = 16.dp)
     ) {
         SpeedLimitRow(
-            label = "Download",
+            label = stringResource(R.string.settings_speed_download_label),
             currentValue = if (downloadUnlimited) 0 else downloadLimit,
             onValueChange = { value ->
                 if (value == 0) {
@@ -183,7 +185,7 @@ private fun SpeedLimitsSection(
         )
         Spacer(modifier = Modifier.height(8.dp))
         SpeedLimitRow(
-            label = "Upload",
+            label = stringResource(R.string.settings_speed_upload_label),
             currentValue = if (uploadUnlimited) 0 else uploadLimit,
             onValueChange = { value ->
                 if (value == 0) {
@@ -241,7 +243,7 @@ private fun SpeedLimitRow(
                             expanded = false
                         },
                         trailingIcon = if (preset.bytesPerSec == currentValue) {
-                            { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                            { Icon(Icons.Default.Check, contentDescription = stringResource(R.string.selected)) }
                         } else null
                     )
                 }
@@ -268,24 +270,24 @@ private fun ConnectionLimitsSection(
             .padding(horizontal = 16.dp)
     ) {
         ConnectionLimitRow(
-            label = "Max peers per torrent",
-            description = "Maximum connections per torrent",
+            label = stringResource(R.string.settings_speed_max_peers_per_torrent_label),
+            description = stringResource(R.string.settings_speed_max_peers_per_torrent_description),
             currentValue = maxPeersPerTorrent,
             presets = maxPeersPerTorrentPresets,
             onValueChange = onMaxPeersPerTorrentChange
         )
         Spacer(modifier = Modifier.height(8.dp))
         ConnectionLimitRow(
-            label = "Max global peers",
-            description = "Maximum total connections",
+            label = stringResource(R.string.settings_speed_max_global_peers_label),
+            description = stringResource(R.string.settings_speed_max_global_peers_description),
             currentValue = maxGlobalPeers,
             presets = maxGlobalPeersPresets,
             onValueChange = onMaxGlobalPeersChange
         )
         Spacer(modifier = Modifier.height(8.dp))
         ConnectionLimitRow(
-            label = "Max upload slots",
-            description = "Simultaneous upload connections",
+            label = stringResource(R.string.settings_speed_max_upload_slots_label),
+            description = stringResource(R.string.settings_speed_max_upload_slots_description),
             currentValue = maxUploadSlots,
             presets = maxUploadSlotsPresets,
             onValueChange = onMaxUploadSlotsChange
@@ -294,14 +296,14 @@ private fun ConnectionLimitsSection(
         HorizontalDivider()
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "Advanced",
+            text = stringResource(R.string.settings_speed_advanced_section),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary
         )
         Spacer(modifier = Modifier.height(8.dp))
         ConnectionLimitRow(
-            label = "Pipeline depth",
-            description = "Outstanding block requests per peer. Higher values improve speed on high-latency connections but use more memory.",
+            label = stringResource(R.string.settings_speed_pipeline_depth_label),
+            description = stringResource(R.string.settings_speed_pipeline_depth_description),
             currentValue = maxPipelineDepth,
             presets = maxPipelineDepthPresets,
             onValueChange = onMaxPipelineDepthChange
@@ -364,7 +366,7 @@ private fun ConnectionLimitRow(
                                 expanded = false
                             },
                             trailingIcon = if (preset.value == currentValue) {
-                                { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                                { Icon(Icons.Default.Check, contentDescription = stringResource(R.string.selected)) }
                             } else null
                         )
                     }

@@ -43,6 +43,14 @@ class TokenStore(context: Context) {
         get() = prefs.getBoolean(KEY_BACKGROUND_MODE, false)
         set(value) = prefs.edit { putBoolean(KEY_BACKGROUND_MODE, value) }
 
+    /**
+     * When true, ChromeOS launches will go directly to standalone mode
+     * instead of companion mode.
+     */
+    var preferStandaloneOnChromebook: Boolean
+        get() = prefs.getBoolean(KEY_PREFER_STANDALONE, false)
+        set(value) = prefs.edit { putBoolean(KEY_PREFER_STANDALONE, value) }
+
     var uiMode: String
         get() = prefs.getString(KEY_UI_MODE, "standalone") ?: "standalone"
         set(value) = prefs.edit { putString(KEY_UI_MODE, value) }
@@ -57,6 +65,14 @@ class TokenStore(context: Context) {
             else -> StandaloneMode.NATIVE
         }
         set(value) = prefs.edit { putString(KEY_UI_MODE, value.value) }
+
+    /**
+     * Convenience property for "prefer native standalone" setting.
+     * When true, Chromebook users who launch standalone mode will get native UI.
+     */
+    var preferNativeStandalone: Boolean
+        get() = standaloneMode == StandaloneMode.NATIVE
+        set(value) { standaloneMode = if (value) StandaloneMode.NATIVE else StandaloneMode.WEBVIEW }
 
     /**
      * Token for standalone mode (local WebView).
@@ -120,6 +136,7 @@ class TokenStore(context: Context) {
         private const val KEY_INSTALL_ID = "install_id"
         private const val KEY_EXTENSION_ID = "extension_id"
         private const val KEY_BACKGROUND_MODE = "background_mode_enabled"
+        private const val KEY_PREFER_STANDALONE = "prefer_standalone_on_chromebook"
         private const val KEY_STANDALONE_TOKEN = "standalone_token"
         private const val KEY_UI_MODE = "ui_mode"
     }

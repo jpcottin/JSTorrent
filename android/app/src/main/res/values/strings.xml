@@ -2,4 +2,266 @@
     <string name="app_name">JSTorrent</string>
     <string name="file_handler_standalone">JSTorrent (Standalone)</string>
     <string name="file_handler_extension">JSTorrent (Extension)</string>
+
+    <!-- TorrentListScreen -->
+    <string name="torrent_list_engine_error">Engine error: check logs for details</string>
+    <string name="torrent_list_sort">Sort</string>
+    <string name="torrent_list_menu">Menu</string>
+    <string name="torrent_list_pause_all">Pause All</string>
+    <string name="torrent_list_resume_all">Resume All</string>
+    <string name="torrent_list_add_download_folder">Add Download Folder</string>
+    <string name="torrent_list_add_torrent">Add torrent</string>
+    <string name="torrent_list_loading">Loading…</string>
+    <string name="torrent_list_error">Error</string>
+    <string name="torrent_list_empty_all">No torrents yet</string>
+    <string name="torrent_list_empty_active">No active torrents</string>
+    <string name="torrent_list_empty_finished">No completed torrents</string>
+    <string name="torrent_list_hint_all">Tap + to add a magnet link</string>
+    <string name="torrent_list_hint_active">Downloading torrents will appear here</string>
+    <string name="torrent_list_hint_finished">Completed torrents will appear here</string>
+
+    <!-- Sort order -->
+    <string name="sort_name">Name</string>
+    <string name="sort_date_added">Date Added</string>
+    <string name="sort_download_speed">Download Speed</string>
+
+    <!-- Filter tabs -->
+    <string name="filter_all">All</string>
+    <string name="filter_active">Active</string>
+    <string name="filter_finished">Finished</string>
+
+    <!-- Debug menu (not translated in production) -->
+    <string name="debug_add_test_100mb">Add Test Torrent (100MB)</string>
+    <string name="debug_add_test_1gb">Add Test Torrent (1GB)</string>
+    <string name="debug_add_ubuntu">Add Ubuntu Server Torrent</string>
+    <string name="debug_add_bunny">Add Big Buck Bunny</string>
+
+    <!-- AddTorrentDialog -->
+    <string name="dialog_add_torrent_title">Add Torrent</string>
+    <string name="dialog_add_torrent_magnet_label">Magnet link</string>
+    <string name="dialog_add_torrent_magnet_hint">magnet:?xt=urn:btih:…</string>
+    <string name="dialog_add_torrent_paste_button">Paste from clipboard</string>
+    <string name="dialog_add_torrent_cancel_button">Cancel</string>
+    <string name="dialog_add_torrent_add_button">Add</string>
+    <string name="dialog_add_torrent_or_divider">OR</string>
+    <string name="dialog_add_torrent_browse_button">Browse for .torrent file</string>
+
+    <!-- RemoveTorrentDialog -->
+    <string name="dialog_remove_title">Remove torrent?</string>
+    <string name="dialog_remove_delete_files_label">Also delete downloaded files</string>
+    <string name="dialog_remove_confirm_button">Remove</string>
+    <string name="dialog_remove_cancel_button">Cancel</string>
+
+    <!-- BulkRemoveTorrentDialog -->
+    <string name="dialog_bulk_remove_message_one">This will remove this torrent from the list.</string>
+    <string name="dialog_bulk_remove_message_other">This will remove these torrents from the list.</string>
+    <string name="dialog_bulk_remove_delete_files_label">Also delete downloaded files</string>
+    <string name="dialog_bulk_remove_confirm_button">Remove</string>
+    <string name="dialog_bulk_remove_cancel_button">Cancel</string>
+
+    <!-- TorrentDetailScreen -->
+    <string name="torrent_detail_back_button">Back</string>
+    <string name="torrent_detail_resume_button">Resume</string>
+    <string name="torrent_detail_pause_button">Pause</string>
+    <string name="torrent_detail_menu_button">Menu</string>
+    <string name="torrent_detail_remove_button">Remove torrent</string>
+    <string name="torrent_detail_error_title">Error</string>
+    <string name="torrent_detail_file_not_downloaded">File is not fully downloaded yet</string>
+    <string name="torrent_detail_storage_unknown">Storage location unknown</string>
+    <string name="torrent_detail_storage_root_not_found">Storage root not found</string>
+    <string name="torrent_detail_file_not_found">File not found</string>
+    <string name="torrent_detail_open_with">Open with</string>
+    <string name="torrent_detail_open_file_error">Could not open file: %1$s</string>
+
+    <!-- SettingsScreen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_back_button">Back</string>
+    <string name="settings_storage_title">Storage</string>
+    <string name="settings_storage_description">Download folders</string>
+    <string name="settings_speed_limits_title">Speed &amp; Connection Limits</string>
+    <string name="settings_speed_limits_description">Download/upload speeds, peer limits</string>
+    <string name="settings_notifications_title">Notifications</string>
+    <string name="settings_notifications_description">Permission and alerts</string>
+    <string name="settings_network_title">Network &amp; Privacy</string>
+    <string name="settings_network_description">DHT, UPnP, encryption, proxy</string>
+    <string name="settings_power_title">Power Management</string>
+    <string name="settings_power_description">Background downloads, seeding</string>
+    <string name="settings_advanced_title">Advanced</string>
+    <string name="settings_advanced_description">Reset settings</string>
+
+    <!-- Common -->
+    <string name="back">Back</string>
+    <string name="selected">Selected</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+
+    <!-- NetworkSettingsScreen -->
+    <string name="settings_network_connection_section">Connection</string>
+    <string name="settings_network_wifi_only_label">WiFi only</string>
+    <string name="settings_network_wifi_only_description">Only download when connected to WiFi</string>
+    <string name="settings_network_vpn_only_label">VPN only</string>
+    <string name="settings_network_vpn_only_description">Only download when connected to a VPN</string>
+    <string name="settings_network_encryption_label">Protocol encryption</string>
+    <string name="settings_network_encryption_disabled">Disabled</string>
+    <string name="settings_network_encryption_allow">Allow</string>
+    <string name="settings_network_encryption_prefer">Prefer</string>
+    <string name="settings_network_encryption_required">Required</string>
+    <string name="settings_network_dht_label">DHT</string>
+    <string name="settings_network_dht_description">Distributed Hash Table for finding peers</string>
+    <string name="settings_network_view_dht_info">View DHT Info</string>
+    <string name="settings_network_pex_label">PEX (Peer Exchange)</string>
+    <string name="settings_network_pex_description">Share peer lists with other clients</string>
+    <string name="settings_network_upnp_label">UPnP Port Forwarding</string>
+    <string name="settings_network_upnp_description">Automatically configure router port forwarding</string>
+    <string name="settings_network_upnp_discovering">Discovering…</string>
+    <string name="settings_network_upnp_unavailable">No UPnP gateway found</string>
+    <string name="settings_network_upnp_failed">Port mapping failed</string>
+    <string name="settings_network_upnp_unknown">Unknown</string>
+    <string name="settings_network_incoming_verified">Incoming: verified</string>
+    <string name="settings_network_incoming_not_verified">Incoming: not yet verified</string>
+    <string name="settings_network_proxy_label">SOCKS5 Proxy</string>
+    <string name="settings_network_proxy_description">Route traffic through a SOCKS5 proxy</string>
+    <string name="settings_network_proxy_disabled">Disabled</string>
+    <string name="settings_network_proxy_enable_label">Enable proxy</string>
+    <string name="settings_network_proxy_host_label">Host</string>
+    <string name="settings_network_proxy_host_placeholder">proxy.example.com</string>
+    <string name="settings_network_proxy_port_label">Port</string>
+    <string name="settings_network_proxy_port_placeholder">1080</string>
+    <string name="settings_network_proxy_username_label">Username (optional)</string>
+    <string name="settings_network_proxy_password_label">Password (optional)</string>
+    <string name="settings_network_proxy_route_section">Route through proxy</string>
+    <string name="settings_network_proxy_http_trackers">HTTP trackers</string>
+    <string name="settings_network_proxy_udp_trackers">UDP trackers</string>
+    <string name="settings_network_proxy_udp_note">Requires proxy UDP support</string>
+    <string name="settings_network_proxy_peer_connections">Peer connections</string>
+
+    <!-- SpeedConnectionLimitsSettingsScreen -->
+    <string name="settings_speed_limits_section">Speed Limits</string>
+    <string name="settings_speed_download_label">Download</string>
+    <string name="settings_speed_upload_label">Upload</string>
+    <string name="settings_speed_connection_limits_section">Connection Limits</string>
+    <string name="settings_speed_max_peers_per_torrent_label">Max peers per torrent</string>
+    <string name="settings_speed_max_peers_per_torrent_description">Maximum connections per torrent</string>
+    <string name="settings_speed_max_global_peers_label">Max global peers</string>
+    <string name="settings_speed_max_global_peers_description">Maximum total connections</string>
+    <string name="settings_speed_max_upload_slots_label">Max upload slots</string>
+    <string name="settings_speed_max_upload_slots_description">Simultaneous upload connections</string>
+    <string name="settings_speed_advanced_section">Advanced</string>
+    <string name="settings_speed_pipeline_depth_label">Pipeline depth</string>
+    <string name="settings_speed_pipeline_depth_description">Outstanding block requests per peer. Higher values improve speed on high-latency connections but use more memory.</string>
+
+    <!-- StorageSettingsScreen -->
+    <string name="settings_storage_download_folders_section">Download Folders</string>
+    <string name="settings_storage_no_folder_configured">No download folder configured</string>
+    <string name="settings_storage_tap_to_add">Tap to add a download folder</string>
+    <string name="settings_storage_default_folder">Default folder</string>
+    <string name="settings_storage_unavailable">Unavailable</string>
+    <string name="settings_storage_default">Default</string>
+    <string name="settings_storage_removable">Removable storage</string>
+    <string name="settings_storage_internal">Internal storage</string>
+    <string name="settings_storage_set_as_default">Set as default</string>
+    <string name="settings_storage_remove_folder">Remove folder</string>
+    <string name="settings_storage_add_folder">Add download folder</string>
+
+    <!-- PowerManagementSettingsScreen -->
+    <string name="settings_power_background_section">Background Activity</string>
+    <string name="settings_power_background_downloads_label">Download in background</string>
+    <string name="settings_power_background_downloads_description">Continue downloads when app is closed</string>
+    <string name="settings_power_background_downloads_requires_permission">Requires notification permission</string>
+    <string name="settings_power_prevent_sleep_label">Prevent sleep while downloading</string>
+    <string name="settings_power_prevent_sleep_description">Keep CPU and WiFi active. Increases battery usage.</string>
+    <string name="settings_power_prevent_sleep_requires_background">Requires background downloads to be enabled.</string>
+    <string name="settings_power_battery_section">Battery</string>
+    <string name="settings_power_shutdown_low_battery_label">Shutdown on low battery</string>
+    <string name="settings_power_shutdown_low_battery_description">Automatically stop downloads when battery is low</string>
+    <string name="settings_power_shutdown_threshold_label">Shutdown threshold</string>
+    <string name="settings_power_keep_seeding_label">Keep seeding when done</string>
+    <string name="settings_power_keep_seeding_description">Keep the app running in the background to seed, even when there are no active downloads. Uses significant battery.</string>
+    <string name="settings_power_battery_warning_title">Battery warning</string>
+    <string name="settings_power_battery_warning_message">Keeping the app running to seed after downloads complete will use significant battery power. Your device may drain faster, especially when not plugged in.</string>
+    <string name="settings_power_enable_anyway">Enable anyway</string>
+
+    <!-- AdvancedSettingsScreen -->
+    <string name="settings_advanced_mode_section">Mode</string>
+    <string name="settings_advanced_companion_mode_label">Switch to Companion Mode</string>
+    <string name="settings_advanced_companion_mode_description">Use with Chrome extension instead</string>
+    <string name="settings_advanced_reset_section">Reset</string>
+    <string name="settings_advanced_clear_settings_label">Clear all settings</string>
+    <string name="settings_advanced_clear_settings_description">Remove all download folders</string>
+    <string name="settings_advanced_clear_confirm_title">Clear all settings?</string>
+    <string name="settings_advanced_clear_confirm_message">This will remove all download folders. Your downloaded files will not be deleted.</string>
+    <string name="settings_advanced_clear_confirm_button">Clear</string>
+
+    <!-- StatusTab -->
+    <string name="tab_status_partial_suffix"> (partial)</string>
+    <string name="tab_status_download_label">DOWNLOAD</string>
+    <string name="tab_status_upload_label">UPLOAD</string>
+    <string name="tab_status_eta_label">ETA</string>
+    <string name="tab_status_eta_complete">Complete</string>
+    <string name="tab_status_connected_peers_label">Connected Peers</string>
+    <string name="tab_status_known_peers_label">Known Peers</string>
+    <string name="tab_status_uploaded_label">Uploaded</string>
+    <string name="tab_status_share_ratio_label">Share Ratio</string>
+    <string name="tab_status_pieces_label">Pieces</string>
+    <string name="tab_status_files_label">Files</string>
+    <string name="tab_status_skipped_label">Skipped</string>
+    <string name="tab_status_files_of_total">%1$d of %2$d</string>
+
+    <!-- FilesTab -->
+    <string name="tab_files_select_all_button">Select All</string>
+    <string name="tab_files_select_none_button">Select None</string>
+    <string name="tab_files_cancel_button">Cancel</string>
+    <string name="tab_files_apply_button">Apply</string>
+    <string name="tab_files_selection_changed">File selection changed</string>
+    <string name="tab_files_empty_title">No files</string>
+    <string name="tab_files_empty_description">File information not yet available</string>
+
+    <!-- PeersTab -->
+    <string name="tab_peers_empty_title">No peers connected</string>
+    <string name="tab_peers_empty_description">Peers will appear here when connected</string>
+
+    <!-- TrackersTab -->
+    <string name="tab_trackers_add_button">Add tracker</string>
+    <string name="tab_trackers_section_title">TRACKERS</string>
+    <string name="tab_trackers_empty">No trackers</string>
+    <string name="tab_trackers_peer_discovery_title">PEER DISCOVERY</string>
+    <string name="tab_trackers_status_ok">OK</string>
+    <string name="tab_trackers_status_updating">Updating</string>
+    <string name="tab_trackers_status_error">Error</string>
+    <string name="tab_trackers_status_disabled">Disabled</string>
+    <string name="tab_trackers_announcing">Announcing…</string>
+    <string name="tab_trackers_peers_received">%1$d received</string>
+    <string name="tab_trackers_peers_count">%1$d peers</string>
+    <string name="tab_trackers_peers_received_of_total">%1$d / %2$d</string>
+
+    <!-- PlayPauseButton -->
+    <string name="component_play_pause_resume_description">Resume torrent</string>
+    <string name="component_play_pause_pause_description">Pause torrent</string>
+
+    <!-- TorrentCard -->
+    <string name="component_torrent_card_unknown_name">Unknown</string>
+    <string name="component_torrent_card_partial_suffix">(partial)</string>
+    <string name="component_torrent_card_eta_prefix">ETA: %1$s</string>
+
+    <!-- StatusBadge / Formatters status strings -->
+    <string name="status_downloading">Downloading</string>
+    <string name="status_downloading_metadata">Getting metadata...</string>
+    <string name="status_seeding">Seeding</string>
+    <string name="status_paused">Paused</string>
+    <string name="status_checking">Checking...</string>
+    <string name="status_error">Error</string>
+    <string name="status_queued">Queued</string>
+
+    <!-- SharedMenuItems -->
+    <string name="component_shared_menu_speed">Speed</string>
+    <string name="component_shared_menu_dht_info">DHT Info</string>
+    <string name="component_shared_menu_settings">Settings</string>
+    <string name="component_shared_menu_shutdown">Shutdown</string>
+
+    <!-- SelectionActionBar -->
+    <string name="component_selection_bar_clear_description">Clear selection</string>
+    <string name="component_selection_bar_selected_count">%1$d selected</string>
+    <string name="component_selection_bar_start_all_description">Start all selected</string>
+    <string name="component_selection_bar_stop_all_description">Stop all selected</string>
+    <string name="component_selection_bar_delete_all_description">Delete all selected</string>
 </resources>

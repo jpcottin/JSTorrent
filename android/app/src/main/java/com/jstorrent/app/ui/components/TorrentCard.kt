@@ -1,5 +1,13 @@
 package com.jstorrent.app.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -18,11 +26,14 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 import com.jstorrent.app.util.Formatters
 import com.jstorrent.quickjs.model.TorrentSummary
@@ -58,6 +69,17 @@ fun TorrentCard(
 ) {
     val isPaused = torrent.status == "stopped"
 
+    // Animate card background color for selection
+    val cardBackgroundColor by animateColorAsState(
+        targetValue = if (isSelected) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        animationSpec = tween(durationMillis = 150),
+        label = "cardBackground"
+    )
+
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -66,11 +88,7 @@ fun TorrentCard(
                 onLongClick = onLongClick
             ),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
+            containerColor = cardBackgroundColor
         )
     ) {
         Row(
@@ -79,18 +97,27 @@ fun TorrentCard(
                 .padding(start = 0.dp, top = 12.dp, bottom = 12.dp, end = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Selection checkbox OR Play/Pause button on left
-            if (isSelectionMode) {
-                Checkbox(
-                    checked = isSelected,
-                    onCheckedChange = null, // Click handled by card
-                    modifier = Modifier.size(44.dp)
-                )
-            } else {
-                CompactPlayPauseButton(
-                    isPaused = isPaused,
-                    onToggle = if (isPaused) onResume else onPause
-                )
+            // Selection checkbox OR Play/Pause button on left (animated swap)
+            AnimatedContent(
+                targetState = isSelectionMode,
+                transitionSpec = {
+                    (fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.8f))
+                        .togetherWith(fadeOut(animationSpec = tween(150)) + scaleOut(targetScale = 0.8f))
+                },
+                label = "buttonCheckboxSwap"
+            ) { selectionMode ->
+                if (selectionMode) {
+                    Checkbox(
+                        checked = isSelected,
+                        onCheckedChange = null, // Click handled by card
+                        modifier = Modifier.size(44.dp)
+                    )
+                } else {
+                    CompactPlayPauseButton(
+                        isPaused = isPaused,
+                        onToggle = if (isPaused) onResume else onPause
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -98,8 +125,9 @@ fun TorrentCard(
             // Torrent info
             Column(modifier = Modifier.weight(1f)) {
                 // Torrent name
+                val unknownName = stringResource(R.string.component_torrent_card_unknown_name)
                 Text(
-                    text = torrent.name.ifEmpty { "Unknown" },
+                    text = torrent.name.ifEmpty { unknownName },
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -136,6 +164,7 @@ fun TorrentCard(
                                 overflow = TextOverflow.Ellipsis
                             )
                         } else {
+                            val partialSuffix = stringResource(R.string.component_torrent_card_partial_suffix)
                             Text(
                                 text = if (!torrent.hasMetadata) {
                                     "—" // Unknown progress for magnets without metadata
@@ -144,7 +173,7 @@ fun TorrentCard(
                                         append(Formatters.formatPercent(torrent.progress))
                                         // Show "(partial)" when seeding with skipped files
                                         if (torrent.progress >= 0.999 && torrent.skippedFilesCount > 0) {
-                                            append(" (partial)")
+                                            append(" $partialSuffix")
                                         }
                                     }
                                 },
@@ -158,7 +187,10 @@ fun TorrentCard(
                         torrent.eta?.let { eta ->
                             if (eta > 0 && torrent.progress < 0.999) {
                                 Text(
-                                    text = "ETA: ${Formatters.formatEta(eta)}",
+                                    text = stringResource(
+                                        R.string.component_torrent_card_eta_prefix,
+                                        Formatters.formatEta(eta)
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -225,8 +257,9 @@ fun SimpleTorrentCard(
                 .padding(12.dp)
         ) {
             // Torrent name
+            val unknownName = stringResource(R.string.component_torrent_card_unknown_name)
             Text(
-                text = torrent.name.ifEmpty { "Unknown" },
+                text = torrent.name.ifEmpty { unknownName },
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis

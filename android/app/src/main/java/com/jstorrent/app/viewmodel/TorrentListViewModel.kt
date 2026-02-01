@@ -31,7 +31,8 @@ import kotlinx.coroutines.launch
 class TorrentListViewModel(
     private val repository: TorrentRepository,
     private val cache: TorrentSummaryCache? = null,
-    private val onEnsureEngineStarted: () -> Unit = {}
+    private val onEnsureEngineStarted: () -> Unit = {},
+    private val onTorrentAdded: () -> Unit = {}
 ) : ViewModel() {
 
     init {
@@ -286,6 +287,7 @@ class TorrentListViewModel(
         if (magnetOrBase64.isBlank()) return
         onEnsureEngineStarted()
         repository.addTorrent(magnetOrBase64)
+        onTorrentAdded()
     }
 
     /**
@@ -302,6 +304,7 @@ class TorrentListViewModel(
         viewModelScope.launch {
             repository.replaceAndAddTorrent(magnetOrBase64, infoHash)
         }
+        onTorrentAdded()
     }
 
     companion object {
@@ -489,10 +492,12 @@ class TorrentListViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(TorrentListViewModel::class.java)) {
                 val app = application as com.jstorrent.app.JSTorrentApplication
+                val metricsStore = com.jstorrent.app.settings.MetricsStore(application)
                 return TorrentListViewModel(
                     repository = EngineServiceRepository(application),
                     cache = app.torrentSummaryCache,
-                    onEnsureEngineStarted = { app.ensureEngineStarted() }
+                    onEnsureEngineStarted = { app.ensureEngineStarted() },
+                    onTorrentAdded = { metricsStore.incrementTorrentsAdded() }
                 ) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")

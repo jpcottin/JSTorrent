@@ -589,6 +589,7 @@ export class Torrent extends EngineComponent {
     return {
       // State queries
       isPrivate: () => this.isPrivate,
+      isPexEnabled: () => this.btEngine.config?.pexEnabled.get() ?? true,
       isComplete: () => this.isComplete,
       hasMetadata: () => this.hasMetadata,
       getPeerId: () => this.peerId,

@@ -16,8 +16,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.model.FilePriority
 import com.jstorrent.app.model.TorrentDetailUi
 import com.jstorrent.app.model.TorrentFileUi
@@ -95,7 +97,7 @@ private fun ProgressSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            StatusBadge(status = torrent.status, suffix = if (isPartial) " (partial)" else null)
+            StatusBadge(status = torrent.status, suffix = if (isPartial) stringResource(R.string.tab_status_partial_suffix) else null)
             Text(
                 text = Formatters.formatPercent(torrent.progress),
                 style = MaterialTheme.typography.titleLarge,
@@ -138,7 +140,7 @@ private fun SpeedSection(
             // Download speed
             Column {
                 Text(
-                    text = "DOWNLOAD",
+                    text = stringResource(R.string.tab_status_download_label),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -153,7 +155,7 @@ private fun SpeedSection(
             // Upload speed
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "UPLOAD",
+                    text = stringResource(R.string.tab_status_upload_label),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -169,10 +171,11 @@ private fun SpeedSection(
         Spacer(modifier = Modifier.height(12.dp))
 
         // ETA
+        val etaComplete = stringResource(R.string.tab_status_eta_complete)
         StatRow(
-            label = "ETA",
+            label = stringResource(R.string.tab_status_eta_label),
             value = if (torrent.progress >= 0.999) {
-                "Complete"
+                etaComplete
             } else {
                 torrent.eta?.let { Formatters.formatEta(it) } ?: "\u221e"
             }
@@ -190,9 +193,9 @@ private fun PeersSection(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         StatRowPair(
-            leftLabel = "Connected Peers",
+            leftLabel = stringResource(R.string.tab_status_connected_peers_label),
             leftValue = "${torrent.peersConnected}",
-            rightLabel = "Known Peers",
+            rightLabel = stringResource(R.string.tab_status_known_peers_label),
             rightValue = torrent.peersTotal?.toString() ?: "-"
         )
     }
@@ -208,9 +211,9 @@ private fun DataSection(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         StatRowPair(
-            leftLabel = "Uploaded",
+            leftLabel = stringResource(R.string.tab_status_uploaded_label),
             leftValue = Formatters.formatBytes(torrent.uploaded),
-            rightLabel = "Share Ratio",
+            rightLabel = stringResource(R.string.tab_status_share_ratio_label),
             rightValue = Formatters.formatRatio(torrent.shareRatio)
         )
     }
@@ -226,7 +229,7 @@ private fun PiecesSection(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         StatRow(
-            label = "Pieces",
+            label = stringResource(R.string.tab_status_pieces_label),
             value = Formatters.formatPieces(
                 torrent.piecesCompleted ?: 0,
                 torrent.piecesTotal ?: 0,
@@ -251,14 +254,14 @@ private fun FilesSection(
     Column(modifier = modifier.fillMaxWidth()) {
         if (skippedFiles > 0) {
             StatRowPair(
-                leftLabel = "Files",
-                leftValue = "$selectedFiles of $totalFiles",
-                rightLabel = "Skipped",
+                leftLabel = stringResource(R.string.tab_status_files_label),
+                leftValue = stringResource(R.string.tab_status_files_of_total, selectedFiles, totalFiles),
+                rightLabel = stringResource(R.string.tab_status_skipped_label),
                 rightValue = "$skippedFiles"
             )
         } else {
             StatRow(
-                label = "Files",
+                label = stringResource(R.string.tab_status_files_label),
                 value = "$totalFiles"
             )
         }

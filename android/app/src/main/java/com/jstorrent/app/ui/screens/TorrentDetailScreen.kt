@@ -44,9 +44,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.model.DetailTab
 import com.jstorrent.app.model.FilePriority
 import com.jstorrent.app.model.TorrentDetailUi
@@ -124,7 +126,7 @@ fun TorrentDetailScreen(
                             IconButton(onClick = onNavigateBack) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back"
+                                    contentDescription = stringResource(R.string.torrent_detail_back_button)
                                 )
                             }
                         },
@@ -137,7 +139,10 @@ fun TorrentDetailScreen(
                             ) {
                                 Icon(
                                     imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                                    contentDescription = if (isPaused) "Resume" else "Pause"
+                                    contentDescription = stringResource(
+                                        if (isPaused) R.string.torrent_detail_resume_button
+                                        else R.string.torrent_detail_pause_button
+                                    )
                                 )
                             }
 
@@ -145,7 +150,7 @@ fun TorrentDetailScreen(
                             IconButton(onClick = { showMenu = true }) {
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Menu"
+                                    contentDescription = stringResource(R.string.torrent_detail_menu_button)
                                 )
                             }
                             DropdownMenu(
@@ -154,7 +159,7 @@ fun TorrentDetailScreen(
                             ) {
                                 // Screen-specific items at top
                                 DropdownMenuItem(
-                                    text = { Text("Remove torrent") },
+                                    text = { Text(stringResource(R.string.torrent_detail_remove_button)) },
                                     onClick = {
                                         showMenu = false
                                         showRemoveDialog = true
@@ -244,12 +249,12 @@ private fun ErrorContent(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Error") },
+                title = { Text(stringResource(R.string.torrent_detail_error_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.torrent_detail_back_button)
                         )
                     }
                 }
@@ -402,7 +407,7 @@ private fun openFile(
     if (file.progress < 0.999) {
         Toast.makeText(
             context,
-            "File is not fully downloaded yet",
+            context.getString(R.string.torrent_detail_file_not_downloaded),
             Toast.LENGTH_SHORT
         ).show()
         return
@@ -412,7 +417,7 @@ private fun openFile(
     if (rootKey == null) {
         Toast.makeText(
             context,
-            "Storage location unknown",
+            context.getString(R.string.torrent_detail_storage_unknown),
             Toast.LENGTH_SHORT
         ).show()
         return
@@ -424,7 +429,7 @@ private fun openFile(
     if (rootUri == null) {
         Toast.makeText(
             context,
-            "Storage root not found",
+            context.getString(R.string.torrent_detail_storage_root_not_found),
             Toast.LENGTH_SHORT
         ).show()
         return
@@ -443,7 +448,7 @@ private fun openFile(
     if (docFile == null || !docFile.exists()) {
         Toast.makeText(
             context,
-            "File not found",
+            context.getString(R.string.torrent_detail_file_not_found),
             Toast.LENGTH_SHORT
         ).show()
         return
@@ -456,12 +461,12 @@ private fun openFile(
         }
 
         // Create chooser for "Open with..." dialog
-        val chooser = Intent.createChooser(intent, "Open with")
+        val chooser = Intent.createChooser(intent, context.getString(R.string.torrent_detail_open_with))
         context.startActivity(chooser)
     } catch (e: Exception) {
         Toast.makeText(
             context,
-            "Could not open file: ${e.message}",
+            context.getString(R.string.torrent_detail_open_file_error, e.message),
             Toast.LENGTH_SHORT
         ).show()
     }

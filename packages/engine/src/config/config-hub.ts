@@ -28,6 +28,14 @@ import type { StorageRoot } from '../storage/types'
 export type AnyConfigChangeCallback = (key: ConfigKey, value: unknown, oldValue: unknown) => void
 
 /**
+ * Mapped type for indexable access to ConfigHub by ConfigKey.
+ * This allows `config[key]` where key is a ConfigKey.
+ */
+export type ConfigValueMap = {
+  readonly [K in ConfigKey]: ConfigValue<ConfigType[K]>
+}
+
+/**
  * ConfigHub interface.
  *
  * Design notes:
@@ -35,8 +43,10 @@ export type AnyConfigChangeCallback = (key: ConfigKey, value: unknown, oldValue:
  * - set() updates cache immediately, persists asynchronously
  * - Subscribers are notified after cache update, before persistence completes
  * - Must call init() before using (loads persisted values)
+ *
+ * Extends ConfigValueMap to allow indexing by ConfigKey (e.g., config[key]).
  */
-export interface ConfigHub {
+export interface ConfigHub extends ConfigValueMap {
   // ===========================================================================
   // Settings: Rate Limiting
   // ===========================================================================
@@ -116,6 +126,9 @@ export interface ConfigHub {
 
   /** Whether DHT is enabled for trackerless peer discovery. */
   readonly dhtEnabled: ConfigValue<boolean>
+
+  /** Whether Peer Exchange (PEX) is enabled for peer discovery. */
+  readonly pexEnabled: ConfigValue<boolean>
 
   /** Whether UPnP port mapping is enabled. */
   readonly upnpEnabled: ConfigValue<boolean>

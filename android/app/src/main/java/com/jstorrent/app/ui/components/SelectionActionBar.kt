@@ -16,6 +16,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import com.jstorrent.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -52,11 +54,11 @@ fun SelectionActionBar(
                 IconButton(onClick = onClearSelection) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Clear selection"
+                        contentDescription = stringResource(R.string.component_selection_bar_clear_description)
                     )
                 }
                 Text(
-                    text = "$selectedCount selected",
+                    text = stringResource(R.string.component_selection_bar_selected_count, selectedCount),
                     style = MaterialTheme.typography.titleMedium
                 )
             }
@@ -66,19 +68,19 @@ fun SelectionActionBar(
                 IconButton(onClick = onStartAll) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Start all selected"
+                        contentDescription = stringResource(R.string.component_selection_bar_start_all_description)
                     )
                 }
                 IconButton(onClick = onStopAll) {
                     Icon(
                         imageVector = Icons.Default.Pause,
-                        contentDescription = "Stop all selected"
+                        contentDescription = stringResource(R.string.component_selection_bar_stop_all_description)
                     )
                 }
                 IconButton(onClick = onDeleteAll) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete all selected",
+                        contentDescription = stringResource(R.string.component_selection_bar_delete_all_description),
                         tint = MaterialTheme.colorScheme.error
                     )
                 }

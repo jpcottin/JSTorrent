@@ -58,6 +58,12 @@ class RepositoryAsyncTest {
 
     @After
     fun teardown() {
+        // Give pending fire-and-forget operations time to complete.
+        // Tests using runTest have virtual time, so async operations may still
+        // be in flight when the test completes. A small real delay prevents
+        // "Engine closed while awaiting promise" errors.
+        Thread.sleep(100)
+
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val app = context.applicationContext as JSTorrentApplication
         app.shutdownEngine()

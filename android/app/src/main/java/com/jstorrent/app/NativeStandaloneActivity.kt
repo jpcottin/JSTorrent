@@ -35,6 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import com.jstorrent.app.service.ForegroundNotificationService
+import com.jstorrent.app.service.IoDaemonService
+import com.jstorrent.app.settings.MetricsStore
 import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.app.storage.RootStore
 import com.jstorrent.app.ui.dialogs.NotificationPermissionDialog
@@ -55,6 +57,7 @@ class NativeStandaloneActivity : ComponentActivity() {
 
     private lateinit var rootStore: RootStore
     private lateinit var settingsStore: SettingsStore
+    private lateinit var metricsStore: MetricsStore
 
     // Access Application for engine initialization
     private val app: JSTorrentApplication
@@ -95,9 +98,17 @@ class NativeStandaloneActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Mutual exclusion: Stop companion mode services when entering standalone mode
+        // This prevents confusion from having two separate torrent lists (extension vs standalone)
+        IoDaemonService.stop(this)
+
         rootStore = RootStore(this)
         settingsStore = SettingsStore(this)
+        metricsStore = MetricsStore(this)
         hasRoots.value = rootStore.listRoots().isNotEmpty()
+
+        // Track session start for metrics (used for review prompt timing)
+        metricsStore.incrementSessionsStarted()
 
         // Handle incoming intent (magnet link or torrent file)
         // Note: Stage 2 (lazy engine startup) - engine is NOT started here anymore.

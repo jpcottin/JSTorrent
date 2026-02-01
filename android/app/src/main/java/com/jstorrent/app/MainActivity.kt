@@ -11,14 +11,22 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Launch
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -26,11 +34,14 @@ import com.jstorrent.app.auth.StandaloneMode
 import com.jstorrent.app.auth.TokenStore
 import com.jstorrent.app.mode.ModeDetector
 import com.jstorrent.app.service.IoDaemonService
+import com.jstorrent.app.ui.screens.SectionHeader
+import com.jstorrent.app.ui.screens.SettingToggleRow
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 import kotlinx.coroutines.launch
 
 private const val TAG = "MainActivity"
 private const val FALLBACK_URL = "https://new.jstorrent.com/launch"
+private const val CHROME_WEB_STORE_URL = "https://chrome.google.com/webstore/detail/jstorrent/anhdpjpojoipgpmfanmedjghaligalgb"
 
 class MainActivity : ComponentActivity() {
 
@@ -39,6 +50,7 @@ class MainActivity : ComponentActivity() {
     private var backgroundModeEnabled = mutableStateOf(false)
     private var hasNotificationPermission = mutableStateOf(false)
     private var standaloneMode = mutableStateOf(StandaloneMode.WEBVIEW)
+    private var preferStandaloneOnChromebook = mutableStateOf(false)
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -66,23 +78,32 @@ class MainActivity : ComponentActivity() {
         backgroundModeEnabled.value = tokenStore.backgroundModeEnabled
         hasNotificationPermission.value = checkNotificationPermission()
         standaloneMode.value = tokenStore.standaloneMode
+        preferStandaloneOnChromebook.value = tokenStore.preferStandaloneOnChromebook
 
         // Check if running on Chromebook
         val isChromebook = ModeDetector.isChromebook(this)
         Log.i(TAG, "Running on Chromebook: $isChromebook")
 
-        // Non-Chromebook: launch standalone mode
+        // Check if launched from extension with force_companion flag
+        val forceCompanion = intent?.getStringExtra("force_companion") == "true"
+        if (forceCompanion) {
+            Log.i(TAG, "Launched from extension with force_companion flag")
+        }
+
+        // Non-Chromebook OR user prefers standalone: launch standalone mode
         // Release builds always use native; debug builds respect user preference
         // Note: Magnet/torrent links go through LinkHandlerActivity, not here
-        if (!isChromebook) {
+        // Exception: if launched from extension (force_companion=true), always use companion mode
+        val preferStandalone = isChromebook && tokenStore.preferStandaloneOnChromebook && !forceCompanion
+        if (!isChromebook || preferStandalone) {
             val effectiveMode = if (BuildConfig.DEBUG) tokenStore.standaloneMode else StandaloneMode.NATIVE
             val targetActivity = when (effectiveMode) {
                 StandaloneMode.NATIVE -> {
-                    Log.i(TAG, "Not a Chromebook - launching native standalone mode")
+                    Log.i(TAG, "${if (preferStandalone) "Chromebook prefers standalone" else "Not a Chromebook"} - launching native standalone mode")
                     NativeStandaloneActivity::class.java
                 }
                 StandaloneMode.WEBVIEW -> {
-                    Log.i(TAG, "Not a Chromebook - launching WebView standalone mode")
+                    Log.i(TAG, "${if (preferStandalone) "Chromebook prefers standalone" else "Not a Chromebook"} - launching WebView standalone mode")
                     StandaloneActivity::class.java
                 }
             }
@@ -94,9 +115,13 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Chromebook: handle pairing intent and start service
+        // Chromebook companion mode: handle pairing intent and start service
         handleIntent()
         IoDaemonService.start(this)
+
+        // Mutual exclusion: Shutdown standalone engine when entering companion mode
+        // This prevents confusion from having two separate torrent lists (extension vs standalone)
+        (application as JSTorrentApplication).shutdownEngine()
 
         setContent {
             JSTorrentTheme {
@@ -104,7 +129,7 @@ class MainActivity : ComponentActivity() {
                     isPaired = isPaired.value,
                     backgroundModeEnabled = backgroundModeEnabled.value,
                     hasNotificationPermission = hasNotificationPermission.value,
-                    standaloneMode = standaloneMode.value,
+                    preferStandaloneOnChromebook = preferStandaloneOnChromebook.value,
                     onBackgroundModeToggle = { enabled ->
                         if (enabled) {
                             // Request permission when enabling
@@ -116,9 +141,13 @@ class MainActivity : ComponentActivity() {
                             IoDaemonService.instance?.setForegroundMode(false)
                         }
                     },
-                    onStandaloneModeChange = { mode ->
-                        tokenStore.standaloneMode = mode
-                        standaloneMode.value = mode
+                    onPreferStandaloneChange = { prefer ->
+                        tokenStore.preferStandaloneOnChromebook = prefer
+                        preferStandaloneOnChromebook.value = prefer
+                    },
+                    onLaunchStandalone = {
+                        // Always use native standalone on Chromebook
+                        startActivity(Intent(this@MainActivity, NativeStandaloneActivity::class.java))
                     },
                     onBackToJSTorrent = {
                         // Check actual current state before deciding to close
@@ -144,18 +173,28 @@ class MainActivity : ComponentActivity() {
                         isPaired.value = false
                         backgroundModeEnabled.value = false
                     },
-                    onLaunchStandalone = {
-                        // Release builds always use native; debug builds respect user preference
-                        val effectiveMode = if (BuildConfig.DEBUG) standaloneMode.value else StandaloneMode.NATIVE
-                        val targetActivity = when (effectiveMode) {
-                            StandaloneMode.NATIVE -> NativeStandaloneActivity::class.java
-                            StandaloneMode.WEBVIEW -> StandaloneActivity::class.java
-                        }
-                        startActivity(Intent(this@MainActivity, targetActivity))
+                    onOpenExtensionPage = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(CHROME_WEB_STORE_URL))
+                        startActivity(intent)
+                    },
+                    onQuit = {
+                        quit()
                     }
                 )
             }
         }
+    }
+
+    private fun quit() {
+        Log.i(TAG, "Quitting companion app")
+        // Close all WebSocket connections
+        lifecycleScope.launch {
+            IoDaemonService.instance?.closeAllSessions()
+        }
+        // Stop the service
+        IoDaemonService.stop(this)
+        // Close the activity and remove from recents
+        finishAndRemoveTask()
     }
 
     override fun onResume() {
@@ -246,19 +285,123 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     isPaired: Boolean,
     backgroundModeEnabled: Boolean,
     hasNotificationPermission: Boolean,
-    standaloneMode: StandaloneMode,
+    preferStandaloneOnChromebook: Boolean,
     onBackgroundModeToggle: (Boolean) -> Unit,
-    onStandaloneModeChange: (StandaloneMode) -> Unit,
+    onPreferStandaloneChange: (Boolean) -> Unit,
+    onLaunchStandalone: () -> Unit,
     onBackToJSTorrent: () -> Unit,
     onUnpair: () -> Unit,
-    onLaunchStandalone: () -> Unit
+    onOpenExtensionPage: () -> Unit,
+    onQuit: () -> Unit
 ) {
-    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+    var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showQuitDialog by rememberSaveable { mutableStateOf(false) }
+
+    // Show settings screen or main screen
+    if (showSettings) {
+        CompanionSettingsScreen(
+            onNavigateBack = { showSettings = false },
+            backgroundModeEnabled = backgroundModeEnabled,
+            hasNotificationPermission = hasNotificationPermission,
+            preferStandaloneOnChromebook = preferStandaloneOnChromebook,
+            onBackgroundModeToggle = onBackgroundModeToggle,
+            onPreferStandaloneChange = onPreferStandaloneChange,
+            onLaunchStandalone = {
+                showSettings = false
+                onLaunchStandalone()
+            },
+            onOpenExtensionPage = onOpenExtensionPage,
+            onQuit = { showQuitDialog = true }
+        )
+    } else {
+        CompanionMainScreen(
+            isPaired = isPaired,
+            backgroundModeEnabled = backgroundModeEnabled,
+            hasNotificationPermission = hasNotificationPermission,
+            onSettingsClick = { showSettings = true },
+            onBackToJSTorrent = onBackToJSTorrent,
+            onUnpair = onUnpair,
+            onQuit = { showQuitDialog = true }
+        )
+    }
+
+    // Quit confirmation dialog
+    if (showQuitDialog) {
+        QuitConfirmationDialog(
+            onConfirm = {
+                showQuitDialog = false
+                onQuit()
+            },
+            onDismiss = { showQuitDialog = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CompanionMainScreen(
+    isPaired: Boolean,
+    backgroundModeEnabled: Boolean,
+    hasNotificationPermission: Boolean,
+    onSettingsClick: () -> Unit,
+    onBackToJSTorrent: () -> Unit,
+    onUnpair: () -> Unit,
+    onQuit: () -> Unit
+) {
+    var showOverflowMenu by remember { mutableStateOf(false) }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text("JSTorrent Companion")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onSettingsClick) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Quit") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.PowerSettingsNew,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onQuit()
+                                }
+                            )
+                        }
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -268,23 +411,12 @@ fun MainScreen(
             verticalArrangement = Arrangement.Center
         ) {
             if (isPaired) {
-                // Paired state header - centered text with small check to the left
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = "✓",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Paired",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
+                // Paired state header
+                Text(
+                    text = "Paired",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -298,7 +430,7 @@ fun MainScreen(
                 // Status message based on background mode
                 if (backgroundModeEnabled && hasNotificationPermission) {
                     Text(
-                        text = "✅ Running in background",
+                        text = "Running in background",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -310,7 +442,7 @@ fun MainScreen(
                     )
                 } else {
                     Text(
-                        text = "⚠️ Keep this window open while",
+                        text = "Keep this window open while",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.error
                     )
@@ -321,40 +453,7 @@ fun MainScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
-
-                HorizontalDivider()
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Background mode checkbox - entire row is clickable
-                val isBackgroundActive = backgroundModeEnabled && hasNotificationPermission
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onBackgroundModeToggle(!isBackgroundActive) },
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Checkbox(
-                        checked = isBackgroundActive,
-                        onCheckedChange = { checked -> onBackgroundModeToggle(checked) }
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = "Run in background",
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Allows you to close this window. Shows a persistent notification.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
                 // Buttons
                 Button(onClick = onBackToJSTorrent) {
@@ -366,82 +465,10 @@ fun MainScreen(
                 OutlinedButton(onClick = onUnpair) {
                     Text("Unpair")
                 }
-
-                // More Options section (collapsed by default)
-                var showMoreOptions by remember { mutableStateOf(false) }
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                TextButton(onClick = { showMoreOptions = !showMoreOptions }) {
-                    Text(if (showMoreOptions) "Hide Options" else "More Options")
-                }
-
-                if (showMoreOptions) {
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = "Experimental: Standalone Mode",
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Run JSTorrent directly in this app without the browser extension. " +
-                                       "Downloads will only work while this app is open.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // Mode toggle - only show in debug builds
-                            if (BuildConfig.DEBUG) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Use Native UI",
-                                            style = MaterialTheme.typography.bodyMedium
-                                        )
-                                        Text(
-                                            text = if (standaloneMode == StandaloneMode.NATIVE)
-                                                "Compose UI with QuickJS engine"
-                                            else
-                                                "WebView-based UI",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Switch(
-                                        checked = standaloneMode == StandaloneMode.NATIVE,
-                                        onCheckedChange = { isNative ->
-                                            onStandaloneModeChange(
-                                                if (isNative) StandaloneMode.NATIVE else StandaloneMode.WEBVIEW
-                                            )
-                                        }
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(12.dp))
-                            }
-                            OutlinedButton(onClick = onLaunchStandalone) {
-                                Text("Launch Standalone Mode")
-                            }
-                        }
-                    }
-                }
             } else {
                 // Unpaired state
                 Text(
-                    text = "JSTorrent System Bridge",
+                    text = "JSTorrent Companion",
                     style = MaterialTheme.typography.headlineMedium
                 )
 
@@ -453,12 +480,207 @@ fun MainScreen(
                     color = MaterialTheme.colorScheme.outline
                 )
 
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Open JSTorrent in Chrome to pair.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Button(onClick = onBackToJSTorrent) {
-                    Text("Back to JSTorrent")
+                    Text("Open JSTorrent")
                 }
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CompanionSettingsScreen(
+    onNavigateBack: () -> Unit,
+    backgroundModeEnabled: Boolean,
+    hasNotificationPermission: Boolean,
+    preferStandaloneOnChromebook: Boolean,
+    onBackgroundModeToggle: (Boolean) -> Unit,
+    onPreferStandaloneChange: (Boolean) -> Unit,
+    onLaunchStandalone: () -> Unit,
+    onOpenExtensionPage: () -> Unit,
+    onQuit: () -> Unit
+) {
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            // Background section
+            SectionHeader("Background")
+            SettingToggleRow(
+                label = "Run in background",
+                description = "Shows persistent notification, keeps running when window is closed",
+                checked = backgroundModeEnabled && hasNotificationPermission,
+                onCheckedChange = onBackgroundModeToggle,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Standalone section
+            SectionHeader("Standalone Mode")
+            SettingToggleRow(
+                label = "Prefer standalone",
+                description = "Launch standalone mode by default instead of companion mode",
+                checked = preferStandaloneOnChromebook,
+                onCheckedChange = onPreferStandaloneChange,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Launch Standalone option
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onLaunchStandalone() }
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Launch,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Launch Standalone Now",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = "Open standalone mode without changing default",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            HorizontalDivider()
+
+            // Chrome extension link
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenExtensionPage() }
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.OpenInNew,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Chrome Extension",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = "Open in Chrome Web Store",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            HorizontalDivider()
+
+            // Quit option
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onQuit() }
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.PowerSettingsNew,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Quit",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        text = "Stop service and close app",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            HorizontalDivider()
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Version info at bottom
+            Text(
+                text = "Version ${BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuitConfirmationDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                Icons.Default.PowerSettingsNew,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error
+            )
+        },
+        title = { Text("Quit JSTorrent?") },
+        text = {
+            Text("This will stop the background service. The Chrome extension will disconnect.")
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Quit", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

@@ -20,6 +20,7 @@ import type { BandwidthTracker } from './bandwidth-tracker'
 export interface PeerHandlerCallbacks {
   // State queries
   isPrivate(): boolean
+  isPexEnabled(): boolean
   isComplete(): boolean
   hasMetadata(): boolean
   getPeerId(): Uint8Array
@@ -87,9 +88,9 @@ export class TorrentPeerHandler extends EngineComponent {
    * This is called after a connection is established and before the handshake.
    */
   setupListeners(peer: PeerConnection): void {
-    // BEP 11: Enable PEX for non-private torrents
+    // BEP 11: Enable PEX for non-private torrents when PEX is enabled
     // PexHandler listens for extended messages and emits 'pex_peers' events
-    if (!this.callbacks.isPrivate()) {
+    if (!this.callbacks.isPrivate() && this.callbacks.isPexEnabled()) {
       new PexHandler(peer)
     }
 
@@ -261,7 +262,8 @@ export class TorrentPeerHandler extends EngineComponent {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(peer as any).on('pex_peers', (peers: PeerAddress[]) => {
       // BEP 27: Private torrents must not use PEX
-      if (this.callbacks.isPrivate()) {
+      // Also respect the global pexEnabled setting
+      if (this.callbacks.isPrivate() || !this.callbacks.isPexEnabled()) {
         return
       }
       const added = this.callbacks.getSwarm().addPeers(peers, 'pex')

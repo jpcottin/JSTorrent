@@ -31,7 +31,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,12 +51,12 @@ fun AdvancedSettingsScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Advanced") },
+                title = { Text(stringResource(R.string.settings_advanced_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.back)
                         )
                     }
                 }
@@ -69,7 +71,7 @@ fun AdvancedSettingsScreen(
             // Chromebook-only: Switch to Companion Mode
             if (isChromebook && onSwitchToCompanionMode != null) {
                 item {
-                    SectionHeader(title = "Mode")
+                    SectionHeader(title = stringResource(R.string.settings_advanced_mode_section))
                 }
 
                 item {
@@ -78,7 +80,7 @@ fun AdvancedSettingsScreen(
             }
 
             item {
-                SectionHeader(title = "Reset")
+                SectionHeader(title = stringResource(R.string.settings_advanced_reset_section))
             }
 
             item {
@@ -128,12 +130,12 @@ private fun SwitchToCompanionModeButton(
             Spacer(modifier = Modifier.width(12.dp))
             Column {
                 Text(
-                    text = "Switch to Companion Mode",
+                    text = stringResource(R.string.settings_advanced_companion_mode_label),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "Use with Chrome extension instead",
+                    text = stringResource(R.string.settings_advanced_companion_mode_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -180,7 +182,7 @@ private fun ClearSettingsButton(
             Spacer(modifier = Modifier.width(12.dp))
             Column {
                 Text(
-                    text = "Clear all settings",
+                    text = stringResource(R.string.settings_advanced_clear_settings_label),
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (enabled) {
                         MaterialTheme.colorScheme.error
@@ -189,7 +191,7 @@ private fun ClearSettingsButton(
                     }
                 )
                 Text(
-                    text = "Remove all download folders",
+                    text = stringResource(R.string.settings_advanced_clear_settings_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = if (enabled) {
                         MaterialTheme.colorScheme.onErrorContainer
@@ -216,21 +218,21 @@ private fun ClearConfirmationDialog(
                 tint = MaterialTheme.colorScheme.error
             )
         },
-        title = { Text("Clear all settings?") },
+        title = { Text(stringResource(R.string.settings_advanced_clear_confirm_title)) },
         text = {
-            Text("This will remove all download folders. Your downloaded files will not be deleted.")
+            Text(stringResource(R.string.settings_advanced_clear_confirm_message))
         },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(
-                    text = "Clear",
+                    text = stringResource(R.string.settings_advanced_clear_confirm_button),
                     color = MaterialTheme.colorScheme.error
                 )
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.cancel))
             }
         }
     )

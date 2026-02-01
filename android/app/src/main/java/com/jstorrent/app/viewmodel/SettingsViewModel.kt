@@ -12,6 +12,7 @@ import com.jstorrent.app.service.ForegroundNotificationService
 import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.app.storage.DownloadRoot
 import com.jstorrent.app.storage.RootStore
+import com.jstorrent.quickjs.storage.AndroidConfigHub
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,7 +34,7 @@ data class SettingsUiState(
     val maxPeersPerTorrent: Int = 20,
     val maxGlobalPeers: Int = 200,
     val maxUploadSlots: Int = 4,
-    val maxPipelineDepth: Int = SettingsStore.DEFAULT_MAX_PIPELINE_DEPTH,
+    val maxPipelineDepth: Int = AndroidConfigHub.DEFAULT_MAX_PIPELINE_DEPTH,
     // Behavior
     val whenDownloadsComplete: String = "stop_and_close",
     // Network
@@ -72,11 +73,17 @@ data class SettingsUiState(
 /**
  * ViewModel for the settings screen.
  * Manages storage roots and app settings.
+ *
+ * Settings are split between two stores:
+ * - configHub (AndroidConfigHub): Engine settings shared with JS engine via SQLite
+ *   Automatically handles persistence and JS engine notification
+ * - settingsStore (SharedPreferences): Android-only settings
  */
 class SettingsViewModel(
     private val app: JSTorrentApplication,
     private val rootStore: RootStore,
     private val settingsStore: SettingsStore,
+    private val configHub: AndroidConfigHub,
     initialNotificationPermissionGranted: Boolean
 ) : ViewModel() {
 
@@ -107,30 +114,32 @@ class SettingsViewModel(
 
         _uiState.value = _uiState.value.copy(
             downloadRoots = roots,
-            defaultRootKey = settingsStore.defaultRootKey,
-            downloadSpeedUnlimited = settingsStore.downloadSpeedUnlimited,
-            downloadSpeedLimit = settingsStore.downloadSpeedLimit,
-            uploadSpeedUnlimited = settingsStore.uploadSpeedUnlimited,
-            uploadSpeedLimit = settingsStore.uploadSpeedLimit,
-            maxPeersPerTorrent = settingsStore.maxPeersPerTorrent,
-            maxGlobalPeers = settingsStore.maxGlobalPeers,
-            maxUploadSlots = settingsStore.maxUploadSlots,
-            maxPipelineDepth = settingsStore.maxPipelineDepth,
+            // Engine settings (from AndroidConfigHub / SQLite KV)
+            defaultRootKey = configHub.defaultRootKey,
+            downloadSpeedUnlimited = configHub.downloadSpeedUnlimited,
+            downloadSpeedLimit = configHub.downloadSpeedLimit,
+            uploadSpeedUnlimited = configHub.uploadSpeedUnlimited,
+            uploadSpeedLimit = configHub.uploadSpeedLimit,
+            maxPeersPerTorrent = configHub.maxPeersPerTorrent,
+            maxGlobalPeers = configHub.maxGlobalPeers,
+            maxUploadSlots = configHub.maxUploadSlots,
+            maxPipelineDepth = configHub.maxPipelineDepth,
+            dhtEnabled = configHub.dhtEnabled,
+            pexEnabled = configHub.pexEnabled,
+            upnpEnabled = configHub.upnpEnabled,
+            encryptionPolicy = configHub.encryptionPolicy,
+            proxyEnabled = configHub.proxyEnabled,
+            proxyHost = configHub.proxyHost,
+            proxyPort = configHub.proxyPort,
+            proxyUsername = configHub.proxyUsername,
+            proxyPassword = configHub.proxyPassword,
+            proxyHttpTrackers = configHub.proxyHttpTrackers,
+            proxyUdpTrackers = configHub.proxyUdpTrackers,
+            proxyPeerConnections = configHub.proxyPeerConnections,
+            // Android-only settings (from SharedPreferences)
             whenDownloadsComplete = settingsStore.whenDownloadsComplete,
             wifiOnlyEnabled = settingsStore.wifiOnlyEnabled,
             vpnOnlyEnabled = settingsStore.vpnOnlyEnabled,
-            dhtEnabled = settingsStore.dhtEnabled,
-            pexEnabled = settingsStore.pexEnabled,
-            upnpEnabled = settingsStore.upnpEnabled,
-            encryptionPolicy = settingsStore.encryptionPolicy,
-            proxyEnabled = settingsStore.proxyEnabled,
-            proxyHost = settingsStore.proxyHost,
-            proxyPort = settingsStore.proxyPort,
-            proxyUsername = settingsStore.proxyUsername,
-            proxyPassword = settingsStore.proxyPassword,
-            proxyHttpTrackers = settingsStore.proxyHttpTrackers,
-            proxyUdpTrackers = settingsStore.proxyUdpTrackers,
-            proxyPeerConnections = settingsStore.proxyPeerConnections,
             backgroundDownloadsEnabled = settingsStore.backgroundDownloadsEnabled,
             cpuWakeLockEnabled = settingsStore.cpuWakeLockEnabled,
             shutdownOnLowBatteryEnabled = settingsStore.shutdownOnLowBatteryEnabled,
@@ -163,7 +172,7 @@ class SettingsViewModel(
         val roots = rootStore.refreshAvailability()
         _uiState.value = _uiState.value.copy(
             downloadRoots = roots,
-            defaultRootKey = settingsStore.defaultRootKey
+            defaultRootKey = configHub.defaultRootKey
         )
     }
 
@@ -175,7 +184,7 @@ class SettingsViewModel(
      * Set the default download folder.
      */
     fun setDefaultRoot(key: String) {
-        settingsStore.defaultRootKey = key
+        configHub.defaultRootKey = key
         _uiState.value = _uiState.value.copy(defaultRootKey = key)
     }
 
@@ -184,9 +193,9 @@ class SettingsViewModel(
      */
     fun removeRoot(key: String) {
         // If removing the default, clear the default
-        if (settingsStore.defaultRootKey == key) {
+        if (configHub.defaultRootKey == key) {
             val remainingRoots = rootStore.listRoots().filter { it.key != key }
-            settingsStore.defaultRootKey = remainingRoots.firstOrNull()?.key
+            configHub.defaultRootKey = remainingRoots.firstOrNull()?.key
         }
         rootStore.removeRoot(key)
         refreshRoots()
@@ -214,7 +223,7 @@ class SettingsViewModel(
         for (root in roots) {
             rootStore.removeRoot(root.key)
         }
-        settingsStore.defaultRootKey = null
+        configHub.defaultRootKey = null
         refreshRoots()
         dismissClearConfirmation()
     }
@@ -225,45 +234,37 @@ class SettingsViewModel(
 
     /**
      * Set download speed unlimited flag.
+     * AndroidConfigHub handles persistence and JS engine notification.
      */
     fun setDownloadSpeedUnlimited(unlimited: Boolean) {
-        settingsStore.downloadSpeedUnlimited = unlimited
-        val effectiveLimit = if (unlimited) 0 else settingsStore.downloadSpeedLimit
-        app.engineController?.getConfigBridge()?.setDownloadSpeedLimit(effectiveLimit)
+        configHub.downloadSpeedUnlimited = unlimited
         _uiState.value = _uiState.value.copy(downloadSpeedUnlimited = unlimited)
     }
 
     /**
      * Set download speed limit value.
+     * AndroidConfigHub handles persistence and JS engine notification.
      */
     fun setDownloadSpeedLimit(bytesPerSec: Int) {
-        settingsStore.downloadSpeedLimit = bytesPerSec
-        // Only update engine if not unlimited
-        if (!settingsStore.downloadSpeedUnlimited) {
-            app.engineController?.getConfigBridge()?.setDownloadSpeedLimit(bytesPerSec)
-        }
+        configHub.downloadSpeedLimit = bytesPerSec
         _uiState.value = _uiState.value.copy(downloadSpeedLimit = bytesPerSec)
     }
 
     /**
      * Set upload speed unlimited flag.
+     * AndroidConfigHub handles persistence and JS engine notification.
      */
     fun setUploadSpeedUnlimited(unlimited: Boolean) {
-        settingsStore.uploadSpeedUnlimited = unlimited
-        val effectiveLimit = if (unlimited) 0 else settingsStore.uploadSpeedLimit
-        app.engineController?.getConfigBridge()?.setUploadSpeedLimit(effectiveLimit)
+        configHub.uploadSpeedUnlimited = unlimited
         _uiState.value = _uiState.value.copy(uploadSpeedUnlimited = unlimited)
     }
 
     /**
      * Set upload speed limit value.
+     * AndroidConfigHub handles persistence and JS engine notification.
      */
     fun setUploadSpeedLimit(bytesPerSec: Int) {
-        settingsStore.uploadSpeedLimit = bytesPerSec
-        // Only update engine if not unlimited
-        if (!settingsStore.uploadSpeedUnlimited) {
-            app.engineController?.getConfigBridge()?.setUploadSpeedLimit(bytesPerSec)
-        }
+        configHub.uploadSpeedLimit = bytesPerSec
         _uiState.value = _uiState.value.copy(uploadSpeedLimit = bytesPerSec)
     }
 
@@ -275,8 +276,7 @@ class SettingsViewModel(
      * Set maximum peers per torrent.
      */
     fun setMaxPeersPerTorrent(max: Int) {
-        settingsStore.maxPeersPerTorrent = max
-        app.engineController?.getConfigBridge()?.setMaxPeersPerTorrent(max)
+        configHub.maxPeersPerTorrent = max
         _uiState.value = _uiState.value.copy(maxPeersPerTorrent = max)
     }
 
@@ -284,8 +284,7 @@ class SettingsViewModel(
      * Set maximum global peers across all torrents.
      */
     fun setMaxGlobalPeers(max: Int) {
-        settingsStore.maxGlobalPeers = max
-        app.engineController?.getConfigBridge()?.setMaxGlobalPeers(max)
+        configHub.maxGlobalPeers = max
         _uiState.value = _uiState.value.copy(maxGlobalPeers = max)
     }
 
@@ -293,8 +292,7 @@ class SettingsViewModel(
      * Set maximum upload slots.
      */
     fun setMaxUploadSlots(max: Int) {
-        settingsStore.maxUploadSlots = max
-        app.engineController?.getConfigBridge()?.setMaxUploadSlots(max)
+        configHub.maxUploadSlots = max
         _uiState.value = _uiState.value.copy(maxUploadSlots = max)
     }
 
@@ -302,8 +300,7 @@ class SettingsViewModel(
      * Set maximum pipeline depth.
      */
     fun setMaxPipelineDepth(depth: Int) {
-        settingsStore.maxPipelineDepth = depth
-        app.engineController?.getConfigBridge()?.setMaxPipelineDepth(depth)
+        configHub.maxPipelineDepth = depth
         _uiState.value = _uiState.value.copy(maxPipelineDepth = depth)
     }
 
@@ -374,8 +371,7 @@ class SettingsViewModel(
      * Set DHT enabled state.
      */
     fun setDhtEnabled(enabled: Boolean) {
-        settingsStore.dhtEnabled = enabled
-        app.engineController?.getConfigBridge()?.setDhtEnabled(enabled)
+        configHub.dhtEnabled = enabled
         _uiState.value = _uiState.value.copy(dhtEnabled = enabled)
     }
 
@@ -383,8 +379,7 @@ class SettingsViewModel(
      * Set PEX enabled state.
      */
     fun setPexEnabled(enabled: Boolean) {
-        settingsStore.pexEnabled = enabled
-        app.engineController?.getConfigBridge()?.setPexEnabled(enabled)
+        configHub.pexEnabled = enabled
         _uiState.value = _uiState.value.copy(pexEnabled = enabled)
     }
 
@@ -392,8 +387,7 @@ class SettingsViewModel(
      * Set UPnP enabled state.
      */
     fun setUpnpEnabled(enabled: Boolean) {
-        settingsStore.upnpEnabled = enabled
-        app.engineController?.getConfigBridge()?.setUpnpEnabled(enabled)
+        configHub.upnpEnabled = enabled
         _uiState.value = _uiState.value.copy(upnpEnabled = enabled)
         // Status will be updated via refreshUpnpStatus when status changes
     }
@@ -402,8 +396,7 @@ class SettingsViewModel(
      * Set encryption policy.
      */
     fun setEncryptionPolicy(policy: String) {
-        settingsStore.encryptionPolicy = policy
-        app.engineController?.getConfigBridge()?.setEncryptionPolicy(policy)
+        configHub.encryptionPolicy = policy
         _uiState.value = _uiState.value.copy(encryptionPolicy = policy)
     }
 
@@ -429,13 +422,13 @@ class SettingsViewModel(
      * Set proxy enabled state.
      */
     fun setProxyEnabled(enabled: Boolean) {
-        settingsStore.proxyEnabled = enabled
-        app.engineController?.getConfigBridge()?.setProxyEnabled(enabled)
+        configHub.proxyEnabled = enabled
         _uiState.value = _uiState.value.copy(proxyEnabled = enabled)
     }
 
     /**
      * Save proxy configuration.
+     * Uses batch update for efficiency - single JS notification for all changes.
      * @param host Proxy host
      * @param port Proxy port
      * @param username Optional username
@@ -453,28 +446,26 @@ class SettingsViewModel(
         udpTrackers: Boolean,
         peerConnections: Boolean
     ) {
-        settingsStore.proxyHost = host.ifBlank { null }
-        settingsStore.proxyPort = port
-        settingsStore.proxyUsername = username?.ifBlank { null }
-        settingsStore.proxyPassword = password?.ifBlank { null }
-        settingsStore.proxyHttpTrackers = httpTrackers
-        settingsStore.proxyUdpTrackers = udpTrackers
-        settingsStore.proxyPeerConnections = peerConnections
+        val hostValue = host.ifBlank { null }
+        val usernameValue = username?.ifBlank { null }
+        val passwordValue = password?.ifBlank { null }
 
-        val configBridge = app.engineController?.getConfigBridge()
-        configBridge?.setProxyHost(host.ifBlank { null })
-        configBridge?.setProxyPort(port)
-        configBridge?.setProxyUsername(username?.ifBlank { null })
-        configBridge?.setProxyPassword(password?.ifBlank { null })
-        configBridge?.setProxyHttpTrackers(httpTrackers)
-        configBridge?.setProxyUdpTrackers(udpTrackers)
-        configBridge?.setProxyPeerConnections(peerConnections)
+        // Use batch update for efficiency
+        configHub.batch(mapOf(
+            "proxyHost" to hostValue,
+            "proxyPort" to port,
+            "proxyUsername" to usernameValue,
+            "proxyPassword" to passwordValue,
+            "proxyHttpTrackers" to httpTrackers,
+            "proxyUdpTrackers" to udpTrackers,
+            "proxyPeerConnections" to peerConnections
+        ))
 
         _uiState.value = _uiState.value.copy(
-            proxyHost = host.ifBlank { null },
+            proxyHost = hostValue,
             proxyPort = port,
-            proxyUsername = username?.ifBlank { null },
-            proxyPassword = password?.ifBlank { null },
+            proxyUsername = usernameValue,
+            proxyPassword = passwordValue,
             proxyHttpTrackers = httpTrackers,
             proxyUdpTrackers = udpTrackers,
             proxyPeerConnections = peerConnections,
@@ -583,10 +574,14 @@ class SettingsViewModel(
                     true
                 }
 
+                // Get or create the shared AndroidConfigHub
+                val configHub = app.getConfigHub()
+
                 return SettingsViewModel(
                     app,
                     RootStore(context),
                     SettingsStore(context),
+                    configHub,
                     notificationGranted
                 ) as T
             }

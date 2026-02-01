@@ -22,9 +22,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.model.FilePriority
 import com.jstorrent.app.model.TorrentFileUi
 import com.jstorrent.app.ui.components.FileTreeItem
@@ -116,7 +118,7 @@ private fun SelectionHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         TextButton(onClick = onSelectAll) {
-            Text("Select All")
+            Text(stringResource(R.string.tab_files_select_all_button))
         }
         Spacer(modifier = Modifier.width(8.dp))
         Text(
@@ -125,7 +127,7 @@ private fun SelectionHeader(
         )
         Spacer(modifier = Modifier.width(8.dp))
         TextButton(onClick = onSelectNone) {
-            Text("Select None")
+            Text(stringResource(R.string.tab_files_select_none_button))
         }
     }
 }
@@ -155,7 +157,7 @@ private fun PendingChangesSnackbar(
                         contentColor = accentColor
                     )
                 ) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.tab_files_cancel_button))
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
@@ -165,14 +167,14 @@ private fun PendingChangesSnackbar(
                         contentColor = Color.White
                     )
                 ) {
-                    Text("Apply")
+                    Text(stringResource(R.string.tab_files_apply_button))
                 }
             }
         },
         containerColor = snackbarBackground,
         contentColor = snackbarContent
     ) {
-        Text("File selection changed")
+        Text(stringResource(R.string.tab_files_selection_changed))
     }
 }
 
@@ -190,12 +192,12 @@ private fun EmptyFilesState(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(32.dp)
         ) {
             Text(
-                text = "No files",
+                text = stringResource(R.string.tab_files_empty_title),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = "File information not yet available",
+                text = stringResource(R.string.tab_files_empty_description),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -17,7 +17,7 @@ export class PowerManager {
 
   private async loadSettings(): Promise<void> {
     try {
-      const result = await chrome.storage.sync.get(SETTING_KEY)
+      const result = await chrome.storage.local.get(SETTING_KEY)
       if (SETTING_KEY in result) {
         const value = result[SETTING_KEY]
         if (typeof value === 'string') {
@@ -35,7 +35,7 @@ export class PowerManager {
 
   private setupSettingsListener(): void {
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'sync') return
+      if (areaName !== 'local') return
 
       if (changes[SETTING_KEY]) {
         const newValue = changes[SETTING_KEY].newValue

@@ -97,6 +97,7 @@ export abstract class BaseConfigHub implements ConfigHub {
 
   // Settings: Features
   readonly dhtEnabled = createConfigValue(this, 'dhtEnabled')
+  readonly pexEnabled = createConfigValue(this, 'pexEnabled')
   readonly upnpEnabled = createConfigValue(this, 'upnpEnabled')
 
   // Settings: Advanced

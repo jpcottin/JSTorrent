@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- BulkRemoveTorrentDialog -->
+    <plurals name="dialog_bulk_remove_title">
+        <item quantity="one">Remove %d torrent?</item>
+        <item quantity="other">Remove %d torrents?</item>
+    </plurals>
+</resources>

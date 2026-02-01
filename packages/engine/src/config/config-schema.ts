@@ -311,6 +311,14 @@ export const configSchema = {
     default: true,
   },
 
+  /** Whether Peer Exchange (PEX) is enabled for peer discovery. */
+  pexEnabled: {
+    type: 'boolean',
+    category: 'setting',
+    storage: 'sync',
+    default: true,
+  },
+
   /** Whether UPnP port mapping is enabled. */
   upnpEnabled: {
     type: 'boolean',

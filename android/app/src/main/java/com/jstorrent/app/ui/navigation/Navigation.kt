@@ -352,8 +352,10 @@ fun TorrentNavHost(
                 onSwitchToCompanionMode = if (isChromebook) {
                     {
                         // Launch MainActivity (companion mode) and finish standalone
+                        // Use force_companion to override preferStandaloneOnChromebook setting
                         val intent = Intent(context, MainActivity::class.java).apply {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                            putExtra("force_companion", "true")
                         }
                         context.startActivity(intent)
                     }

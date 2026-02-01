@@ -13,7 +13,7 @@ export interface ProgressStats {
   singleTorrentName?: string // set when activeCount === 1
 }
 
-// Settings keys (prefixed as stored in chrome.storage.sync)
+// Settings keys (prefixed as stored in chrome.storage.local)
 // Must match the keys from @jstorrent/engine config-schema.ts
 const SETTING_KEYS = {
   onTorrentComplete: 'settings:notifyOnTorrentComplete',
@@ -57,7 +57,7 @@ export class NotificationManager {
   async loadSettings(): Promise<void> {
     try {
       const keys = Object.values(SETTING_KEYS)
-      const result = await chrome.storage.sync.get(keys)
+      const result = await chrome.storage.local.get(keys)
 
       // Get stored values (may be raw values or JSON strings)
       const getValue = <T>(key: string, defaultValue: T): T => {
@@ -96,7 +96,7 @@ export class NotificationManager {
 
   private setupSettingsListener(): void {
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'sync') return
+      if (areaName !== 'local') return
 
       for (const [key, change] of Object.entries(changes)) {
         const parseValue = <T>(defaultValue: T): T => {

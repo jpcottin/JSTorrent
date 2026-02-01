@@ -36,7 +36,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.ui.dialogs.NotificationRequiredDialog
 import com.jstorrent.app.viewmodel.SettingsViewModel
 
@@ -65,12 +67,12 @@ fun PowerManagementSettingsScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Power Management") },
+                title = { Text(stringResource(R.string.settings_power_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.back)
                         )
                     }
                 }
@@ -83,7 +85,7 @@ fun PowerManagementSettingsScreen(
                 .padding(innerPadding)
         ) {
             item {
-                SectionHeader(title = "Background Activity")
+                SectionHeader(title = stringResource(R.string.settings_power_background_section))
             }
 
             item {
@@ -141,17 +143,22 @@ private fun PowerManagementSection(
     onShutdownOnLowBatteryThresholdChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val backgroundDescriptionEnabled = stringResource(R.string.settings_power_background_downloads_description)
+    val backgroundDescriptionDisabled = stringResource(R.string.settings_power_background_downloads_requires_permission)
+    val preventSleepDescriptionEnabled = stringResource(R.string.settings_power_prevent_sleep_description)
+    val preventSleepDescriptionDisabled = stringResource(R.string.settings_power_prevent_sleep_requires_background)
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
     ) {
         SettingToggleRow(
-            label = "Download in background",
+            label = stringResource(R.string.settings_power_background_downloads_label),
             description = if (notificationPermissionGranted) {
-                "Continue downloads when app is closed"
+                backgroundDescriptionEnabled
             } else {
-                "Requires notification permission"
+                backgroundDescriptionDisabled
             },
             checked = backgroundDownloadsEnabled,
             onCheckedChange = onBackgroundDownloadsChange
@@ -160,11 +167,11 @@ private fun PowerManagementSection(
         Spacer(modifier = Modifier.height(8.dp))
 
         SettingToggleRow(
-            label = "Prevent sleep while downloading",
+            label = stringResource(R.string.settings_power_prevent_sleep_label),
             description = if (backgroundDownloadsEnabled) {
-                "Keep CPU and WiFi active. Increases battery usage."
+                preventSleepDescriptionEnabled
             } else {
-                "Requires background downloads to be enabled."
+                preventSleepDescriptionDisabled
             },
             checked = cpuWakeLockEnabled,
             onCheckedChange = onCpuWakeLockChange,
@@ -176,7 +183,7 @@ private fun PowerManagementSection(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Battery",
+            text = stringResource(R.string.settings_power_battery_section),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary
         )
@@ -185,8 +192,8 @@ private fun PowerManagementSection(
 
         // Shutdown on low battery toggle
         SettingToggleRow(
-            label = "Shutdown on low battery",
-            description = "Automatically stop downloads when battery is low",
+            label = stringResource(R.string.settings_power_shutdown_low_battery_label),
+            description = stringResource(R.string.settings_power_shutdown_low_battery_description),
             checked = shutdownOnLowBatteryEnabled,
             onCheckedChange = onShutdownOnLowBatteryChange
         )
@@ -204,8 +211,8 @@ private fun PowerManagementSection(
         Spacer(modifier = Modifier.height(16.dp))
 
         SettingToggleRow(
-            label = "Keep seeding when done",
-            description = "Keep the app running in the background to seed, even when there are no active downloads. Uses significant battery.",
+            label = stringResource(R.string.settings_power_keep_seeding_label),
+            description = stringResource(R.string.settings_power_keep_seeding_description),
             checked = whenDownloadsComplete == "keep_seeding",
             onCheckedChange = { enabled ->
                 if (enabled) {
@@ -236,7 +243,7 @@ private fun BatteryThresholdRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "Shutdown threshold",
+            text = stringResource(R.string.settings_power_shutdown_threshold_label),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -262,7 +269,7 @@ private fun BatteryThresholdRow(
                             expanded = false
                         },
                         trailingIcon = if (preset.value == currentThreshold) {
-                            { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                            { Icon(Icons.Default.Check, contentDescription = stringResource(R.string.selected)) }
                         } else null
                     )
                 }
@@ -285,18 +292,18 @@ private fun KeepSeedingWarningDialog(
                 tint = MaterialTheme.colorScheme.error
             )
         },
-        title = { Text("Battery warning") },
+        title = { Text(stringResource(R.string.settings_power_battery_warning_title)) },
         text = {
-            Text("Keeping the app running to seed after downloads complete will use significant battery power. Your device may drain faster, especially when not plugged in.")
+            Text(stringResource(R.string.settings_power_battery_warning_message))
         },
         confirmButton = {
             TextButton(onClick = onConfirm) {
-                Text("Enable anyway")
+                Text(stringResource(R.string.settings_power_enable_anyway))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.cancel))
             }
         }
     )

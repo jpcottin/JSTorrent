@@ -188,8 +188,9 @@ export class DaemonBridge {
     if (this.state.platform !== 'chromeos') return false
 
     try {
-      // Launch intent - just starts the app, no token
-      const intentUrl = 'intent://launch#Intent;scheme=jstorrent;package=com.jstorrent.app;end'
+      // Launch intent - starts the app in companion mode
+      const intentUrl =
+        'intent://launch#Intent;scheme=jstorrent;package=com.jstorrent.app;S.force_companion=true;end'
 
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
       if (tab?.id) {

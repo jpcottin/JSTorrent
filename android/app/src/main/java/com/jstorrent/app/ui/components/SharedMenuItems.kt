@@ -9,7 +9,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import com.jstorrent.app.R
 
 /**
  * Common menu items shared across overflow menus in the app.
@@ -26,7 +27,7 @@ object SharedMenuItems {
         onDismiss: () -> Unit
     ) {
         DropdownMenuItem(
-            text = { Text("Speed") },
+            text = { Text(stringResource(R.string.component_shared_menu_speed)) },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.Speed,
@@ -49,7 +50,7 @@ object SharedMenuItems {
         onDismiss: () -> Unit
     ) {
         DropdownMenuItem(
-            text = { Text("DHT Info") },
+            text = { Text(stringResource(R.string.component_shared_menu_dht_info)) },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.Hub,
@@ -72,7 +73,7 @@ object SharedMenuItems {
         onDismiss: () -> Unit
     ) {
         DropdownMenuItem(
-            text = { Text("Settings") },
+            text = { Text(stringResource(R.string.component_shared_menu_settings)) },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.Settings,
@@ -95,7 +96,7 @@ object SharedMenuItems {
         onDismiss: () -> Unit
     ) {
         DropdownMenuItem(
-            text = { Text("Shutdown") },
+            text = { Text(stringResource(R.string.component_shared_menu_shutdown)) },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.PowerSettingsNew,

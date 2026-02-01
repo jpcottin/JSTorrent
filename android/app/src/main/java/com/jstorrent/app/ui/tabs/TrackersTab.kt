@@ -31,9 +31,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.model.TrackerStatus
 import com.jstorrent.app.model.TrackerUi
 import com.jstorrent.app.ui.theme.JSTorrentTheme
@@ -58,7 +60,7 @@ fun TrackersTab(
                     onClick = onAddTracker,
                     containerColor = MaterialTheme.colorScheme.primary
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add tracker")
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.tab_trackers_add_button))
                 }
             }
         }
@@ -88,7 +90,7 @@ fun TrackersTab(
             // Trackers section header
             item {
                 Text(
-                    text = "TRACKERS",
+                    text = stringResource(R.string.tab_trackers_section_title),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -98,7 +100,7 @@ fun TrackersTab(
             if (trackers.isEmpty()) {
                 item {
                     Text(
-                        text = "No trackers",
+                        text = stringResource(R.string.tab_trackers_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -124,7 +126,7 @@ private fun DhtLsdPexSection(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
-            text = "PEER DISCOVERY",
+            text = stringResource(R.string.tab_trackers_peer_discovery_title),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -221,25 +223,25 @@ private fun TrackerItem(
             when (tracker.status) {
                 TrackerStatus.OK -> Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "OK",
+                    contentDescription = stringResource(R.string.tab_trackers_status_ok),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(16.dp)
                 )
                 TrackerStatus.UPDATING -> Icon(
                     imageVector = Icons.Default.Sync,
-                    contentDescription = "Updating",
+                    contentDescription = stringResource(R.string.tab_trackers_status_updating),
                     tint = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.size(16.dp)
                 )
                 TrackerStatus.ERROR -> Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "Error",
+                    contentDescription = stringResource(R.string.tab_trackers_status_error),
                     tint = MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(16.dp)
                 )
                 TrackerStatus.DISABLED -> Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "Disabled",
+                    contentDescription = stringResource(R.string.tab_trackers_status_disabled),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp)
                 )
@@ -269,8 +271,9 @@ private fun TrackerItem(
                 }
             }
             // Show message or status-based subtext
+            val announcingText = stringResource(R.string.tab_trackers_announcing)
             val subtext = tracker.message
-                ?: if (tracker.status == TrackerStatus.UPDATING) "Announcing..." else null
+                ?: if (tracker.status == TrackerStatus.UPDATING) announcingText else null
             if (subtext != null) {
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
@@ -288,21 +291,25 @@ private fun TrackerItem(
         }
 
         // Peer count: show "received / total" if we have received count
-        val peerText = when {
+        when {
             tracker.peersReceived != null && tracker.peers != null && tracker.peers > 0 ->
-                "${tracker.peersReceived} / ${tracker.peers}"
+                Text(
+                    text = stringResource(R.string.tab_trackers_peers_received_of_total, tracker.peersReceived, tracker.peers),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             tracker.peersReceived != null && tracker.peersReceived > 0 ->
-                "${tracker.peersReceived} received"
+                Text(
+                    text = stringResource(R.string.tab_trackers_peers_received, tracker.peersReceived),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             tracker.peers != null && tracker.peers > 0 ->
-                "${tracker.peers} peers"
-            else -> null
-        }
-        if (peerText != null) {
-            Text(
-                text = peerText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+                Text(
+                    text = stringResource(R.string.tab_trackers_peers_count, tracker.peers),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
         }
     }
 }

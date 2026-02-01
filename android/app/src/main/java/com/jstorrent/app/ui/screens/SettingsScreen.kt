@@ -31,8 +31,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 
 /**
@@ -54,12 +56,12 @@ fun SettingsScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.settings_back_button)
                         )
                     }
                 }
@@ -74,48 +76,48 @@ fun SettingsScreen(
             item {
                 SettingsNavItem(
                     icon = Icons.Default.Folder,
-                    title = "Storage",
-                    subtitle = "Download folders",
+                    title = stringResource(R.string.settings_storage_title),
+                    subtitle = stringResource(R.string.settings_storage_description),
                     onClick = onNavigateToStorage
                 )
             }
             item {
                 SettingsNavItem(
                     icon = Icons.Default.Speed,
-                    title = "Speed & Connection Limits",
-                    subtitle = "Download/upload speeds, peer limits",
+                    title = stringResource(R.string.settings_speed_limits_title),
+                    subtitle = stringResource(R.string.settings_speed_limits_description),
                     onClick = onNavigateToSpeedConnectionLimits
                 )
             }
             item {
                 SettingsNavItem(
                     icon = Icons.Default.Notifications,
-                    title = "Notifications",
-                    subtitle = "Permission and alerts",
+                    title = stringResource(R.string.settings_notifications_title),
+                    subtitle = stringResource(R.string.settings_notifications_description),
                     onClick = onNavigateToNotifications
                 )
             }
             item {
                 SettingsNavItem(
                     icon = Icons.Default.Wifi,
-                    title = "Network & Privacy",
-                    subtitle = "DHT, UPnP, encryption, proxy",
+                    title = stringResource(R.string.settings_network_title),
+                    subtitle = stringResource(R.string.settings_network_description),
                     onClick = onNavigateToNetwork
                 )
             }
             item {
                 SettingsNavItem(
                     icon = Icons.Default.BatteryChargingFull,
-                    title = "Power Management",
-                    subtitle = "Background downloads, seeding",
+                    title = stringResource(R.string.settings_power_title),
+                    subtitle = stringResource(R.string.settings_power_description),
                     onClick = onNavigateToPower
                 )
             }
             item {
                 SettingsNavItem(
                     icon = Icons.Default.Settings,
-                    title = "Advanced",
-                    subtitle = "Reset settings",
+                    title = stringResource(R.string.settings_advanced_title),
+                    subtitle = stringResource(R.string.settings_advanced_description),
                     onClick = onNavigateToAdvanced
                 )
             }

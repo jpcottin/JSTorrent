@@ -36,8 +36,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.storage.DownloadRoot
 import com.jstorrent.app.viewmodel.SettingsViewModel
 
@@ -55,12 +57,12 @@ fun StorageSettingsScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Storage") },
+                title = { Text(stringResource(R.string.settings_storage_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.back)
                         )
                     }
                 }
@@ -73,7 +75,7 @@ fun StorageSettingsScreen(
                 .padding(innerPadding)
         ) {
             item {
-                SectionHeader(title = "Download Folders")
+                SectionHeader(title = stringResource(R.string.settings_storage_download_folders_section))
             }
 
             if (uiState.downloadRoots.isEmpty()) {
@@ -127,13 +129,13 @@ private fun EmptyStorageState(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "No download folder configured",
+                text = stringResource(R.string.settings_storage_no_folder_configured),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Tap to add a download folder",
+                text = stringResource(R.string.settings_storage_tap_to_add),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -193,7 +195,7 @@ private fun DownloadRootItem(
                         Spacer(modifier = Modifier.width(8.dp))
                         Icon(
                             imageVector = Icons.Filled.Star,
-                            contentDescription = "Default folder",
+                            contentDescription = stringResource(R.string.settings_storage_default_folder),
                             modifier = Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.primary
                         )
@@ -205,19 +207,19 @@ private fun DownloadRootItem(
                     if (!root.lastStatOk) {
                         Icon(
                             imageVector = Icons.Default.Warning,
-                            contentDescription = "Unavailable",
+                            contentDescription = stringResource(R.string.settings_storage_unavailable),
                             modifier = Modifier.size(14.dp),
                             tint = MaterialTheme.colorScheme.error
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "Unavailable",
+                            text = stringResource(R.string.settings_storage_unavailable),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
                     } else {
                         Text(
-                            text = if (isDefault) "Default" else if (root.removable) "Removable storage" else "Internal storage",
+                            text = if (isDefault) stringResource(R.string.settings_storage_default) else if (root.removable) stringResource(R.string.settings_storage_removable) else stringResource(R.string.settings_storage_internal),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -228,7 +230,7 @@ private fun DownloadRootItem(
                 IconButton(onClick = onSetDefault) {
                     Icon(
                         imageVector = Icons.Outlined.StarOutline,
-                        contentDescription = "Set as default",
+                        contentDescription = stringResource(R.string.settings_storage_set_as_default),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -236,7 +238,7 @@ private fun DownloadRootItem(
             IconButton(onClick = onRemove) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "Remove folder",
+                    contentDescription = stringResource(R.string.settings_storage_remove_folder),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -269,7 +271,7 @@ private fun AddFolderButton(
             )
             Spacer(modifier = Modifier.width(12.dp))
             Text(
-                text = "Add download folder",
+                text = stringResource(R.string.settings_storage_add_folder),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.primary
             )

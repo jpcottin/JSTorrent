@@ -2,6 +2,7 @@ package com.jstorrent.quickjs
 
 import android.util.Log
 import com.jstorrent.quickjs.model.ContentRoot
+import com.jstorrent.quickjs.storage.ConfigBridgeInterface
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -12,6 +13,9 @@ private const val TAG = "ConfigBridge"
  *
  * Provides type-safe setters for each config key and syncs changes to the
  * JS engine via __jstorrent_config_set / __jstorrent_config_set_roots.
+ *
+ * Implements ConfigBridgeInterface so AndroidConfigHub can use it without
+ * circular dependencies.
  *
  * Usage:
  * ```kotlin
@@ -24,7 +28,7 @@ private const val TAG = "ConfigBridge"
  */
 class ConfigBridge(
     private val engine: QuickJsEngine,
-) {
+) : ConfigBridgeInterface {
     private val json = Json {
         encodeDefaults = true
         ignoreUnknownKeys = true
@@ -39,7 +43,7 @@ class ConfigBridge(
      * Also sets downloadSpeedUnlimited flag based on whether limit is 0.
      * @param bytesPerSec Speed limit, or 0 for unlimited
      */
-    fun setDownloadSpeedLimit(bytesPerSec: Int) {
+    override fun setDownloadSpeedLimit(bytesPerSec: Int) {
         // Set unlimited flag first, then the value
         // When bytesPerSec == 0: unlimited = true (limit ignored)
         // When bytesPerSec > 0: unlimited = false, limit applied
@@ -54,7 +58,7 @@ class ConfigBridge(
      * Also sets uploadSpeedUnlimited flag based on whether limit is 0.
      * @param bytesPerSec Speed limit, or 0 for unlimited
      */
-    fun setUploadSpeedLimit(bytesPerSec: Int) {
+    override fun setUploadSpeedLimit(bytesPerSec: Int) {
         // Set unlimited flag first, then the value
         setConfig("uploadSpeedUnlimited", bytesPerSec == 0)
         if (bytesPerSec > 0) {
@@ -69,21 +73,21 @@ class ConfigBridge(
     /**
      * Set maximum peers per torrent.
      */
-    fun setMaxPeersPerTorrent(max: Int) {
+    override fun setMaxPeersPerTorrent(max: Int) {
         setConfig("maxPeersPerTorrent", max)
     }
 
     /**
      * Set maximum global peers across all torrents.
      */
-    fun setMaxGlobalPeers(max: Int) {
+    override fun setMaxGlobalPeers(max: Int) {
         setConfig("maxGlobalPeers", max)
     }
 
     /**
      * Set maximum upload slots.
      */
-    fun setMaxUploadSlots(max: Int) {
+    override fun setMaxUploadSlots(max: Int) {
         setConfig("maxUploadSlots", max)
     }
 
@@ -91,7 +95,7 @@ class ConfigBridge(
      * Set maximum pipeline depth (outstanding block requests per peer).
      * Higher values improve throughput on high-latency connections.
      */
-    fun setMaxPipelineDepth(depth: Int) {
+    override fun setMaxPipelineDepth(depth: Int) {
         setConfig("maxPipelineDepth", depth)
     }
 
@@ -102,21 +106,21 @@ class ConfigBridge(
     /**
      * Enable or disable DHT.
      */
-    fun setDhtEnabled(enabled: Boolean) {
+    override fun setDhtEnabled(enabled: Boolean) {
         setConfig("dhtEnabled", enabled)
     }
 
     /**
      * Enable or disable PEX (Peer Exchange).
      */
-    fun setPexEnabled(enabled: Boolean) {
+    override fun setPexEnabled(enabled: Boolean) {
         setConfig("pexEnabled", enabled)
     }
 
     /**
      * Enable or disable UPnP port mapping.
      */
-    fun setUpnpEnabled(enabled: Boolean) {
+    override fun setUpnpEnabled(enabled: Boolean) {
         setConfig("upnpEnabled", enabled)
     }
 
@@ -128,7 +132,7 @@ class ConfigBridge(
      * Set encryption policy.
      * @param policy One of: "disabled", "allow", "prefer", "required"
      */
-    fun setEncryptionPolicy(policy: String) {
+    override fun setEncryptionPolicy(policy: String) {
         setConfig("encryptionPolicy", policy)
     }
 
@@ -166,14 +170,14 @@ class ConfigBridge(
     /**
      * Enable or disable SOCKS5 proxy.
      */
-    fun setProxyEnabled(enabled: Boolean) {
+    override fun setProxyEnabled(enabled: Boolean) {
         setConfig("proxyEnabled", enabled)
     }
 
     /**
      * Set SOCKS5 proxy host.
      */
-    fun setProxyHost(host: String?) {
+    override fun setProxyHost(host: String?) {
         if (host != null) {
             setConfig("proxyHost", host)
         }
@@ -182,14 +186,14 @@ class ConfigBridge(
     /**
      * Set SOCKS5 proxy port.
      */
-    fun setProxyPort(port: Int) {
+    override fun setProxyPort(port: Int) {
         setConfig("proxyPort", port)
     }
 
     /**
      * Set SOCKS5 proxy username (optional).
      */
-    fun setProxyUsername(username: String?) {
+    override fun setProxyUsername(username: String?) {
         if (username != null) {
             setConfig("proxyUsername", username)
         }
@@ -198,7 +202,7 @@ class ConfigBridge(
     /**
      * Set SOCKS5 proxy password (optional).
      */
-    fun setProxyPassword(password: String?) {
+    override fun setProxyPassword(password: String?) {
         if (password != null) {
             setConfig("proxyPassword", password)
         }
@@ -207,21 +211,21 @@ class ConfigBridge(
     /**
      * Set whether to route HTTP tracker requests through the proxy.
      */
-    fun setProxyHttpTrackers(enabled: Boolean) {
+    override fun setProxyHttpTrackers(enabled: Boolean) {
         setConfig("proxyHttpTrackers", enabled)
     }
 
     /**
      * Set whether to route UDP tracker requests through the proxy.
      */
-    fun setProxyUdpTrackers(enabled: Boolean) {
+    override fun setProxyUdpTrackers(enabled: Boolean) {
         setConfig("proxyUdpTrackers", enabled)
     }
 
     /**
      * Set whether to route peer connections through the proxy.
      */
-    fun setProxyPeerConnections(enabled: Boolean) {
+    override fun setProxyPeerConnections(enabled: Boolean) {
         setConfig("proxyPeerConnections", enabled)
     }
 
@@ -245,7 +249,7 @@ class ConfigBridge(
      * Set multiple config values at once.
      * @param updates Map of key to value
      */
-    fun batchUpdate(updates: Map<String, Any>) {
+    override fun batchUpdate(updates: Map<String, Any>) {
         try {
             val updatesJson = json.encodeToString(updates)
             engine.callGlobalFunction("__jstorrent_config_batch", updatesJson)

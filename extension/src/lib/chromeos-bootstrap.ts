@@ -136,6 +136,7 @@ export class ChromeOSBootstrap {
 
     const intentUrl =
       'intent://launch#Intent;scheme=jstorrent;package=com.jstorrent.app;' +
+      'S.force_companion=true;' +
       'S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.jstorrent.app;end'
 
     try {

@@ -56,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -114,7 +115,7 @@ fun TorrentListScreen(
         engineError?.let { error ->
             Toast.makeText(
                 context,
-                "Engine error: check logs for details",
+                context.getString(R.string.torrent_list_engine_error),
                 Toast.LENGTH_LONG
             ).show()
             Log.e("TorrentListScreen", "Engine error: $error")
@@ -165,7 +166,7 @@ fun TorrentListScreen(
                                 contentDescription = null,
                                 modifier = Modifier.size(48.dp)
                             )
-                            Text("JSTorrent")
+                            Text(stringResource(R.string.app_name))
                             Spacer(modifier = Modifier.width(8.dp))
                             // Engine status indicator: green dot = live, hollow = cached
                             if (uiState is TorrentListUiState.Loaded) {
@@ -192,7 +193,7 @@ fun TorrentListScreen(
                         IconButton(onClick = { showSortMenu = true }) {
                             Icon(
                                 imageVector = Icons.Default.Sort,
-                                contentDescription = "Sort"
+                                contentDescription = stringResource(R.string.torrent_list_sort)
                             )
                         }
                         DropdownMenu(
@@ -222,7 +223,7 @@ fun TorrentListScreen(
                     IconButton(onClick = { showMenu = true }) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Menu"
+                            contentDescription = stringResource(R.string.torrent_list_menu)
                         )
                     }
                     DropdownMenu(
@@ -231,7 +232,7 @@ fun TorrentListScreen(
                     ) {
                         // Screen-specific items at top
                         DropdownMenuItem(
-                            text = { Text("Pause All") },
+                            text = { Text(stringResource(R.string.torrent_list_pause_all)) },
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.Pause,
@@ -244,7 +245,7 @@ fun TorrentListScreen(
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Resume All") },
+                            text = { Text(stringResource(R.string.torrent_list_resume_all)) },
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.PlayArrow,
@@ -257,7 +258,7 @@ fun TorrentListScreen(
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Add Download Folder") },
+                            text = { Text(stringResource(R.string.torrent_list_add_download_folder)) },
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.CreateNewFolder,
@@ -273,28 +274,28 @@ fun TorrentListScreen(
                         if (BuildConfig.DEBUG) {
                             HorizontalDivider()
                             DropdownMenuItem(
-                                text = { Text("Add Test Torrent (100MB)") },
+                                text = { Text(stringResource(R.string.debug_add_test_100mb)) },
                                 onClick = {
                                     showMenu = false
                                     viewModel.addTorrent(TestTorrentHelper.buildKitchenSinkMagnet100MB())
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Add Test Torrent (1GB)") },
+                                text = { Text(stringResource(R.string.debug_add_test_1gb)) },
                                 onClick = {
                                     showMenu = false
                                     viewModel.addTorrent(TestTorrentHelper.buildKitchenSinkMagnet1GB())
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Add Ubuntu Server Torrent") },
+                                text = { Text(stringResource(R.string.debug_add_ubuntu)) },
                                 onClick = {
                                     showMenu = false
                                     viewModel.addTorrent(TestTorrentHelper.buildUbuntuServerMagnet())
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Add Big Buck Bunny") },
+                                text = { Text(stringResource(R.string.debug_add_bunny)) },
                                 onClick = {
                                     showMenu = false
                                     viewModel.addTorrent(TestTorrentHelper.buildBigBuckBunnyMagnet())
@@ -330,7 +331,7 @@ fun TorrentListScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "Add torrent"
+                        contentDescription = stringResource(R.string.torrent_list_add_torrent)
                     )
                 }
             }
@@ -428,7 +429,7 @@ private fun LoadingContent(modifier: Modifier = Modifier) {
             CircularProgressIndicator()
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Loading...",
+                text = stringResource(R.string.torrent_list_loading),
                 style = MaterialTheme.typography.bodyLarge
             )
         }
@@ -452,7 +453,7 @@ private fun ErrorContent(
             modifier = Modifier.padding(32.dp)
         ) {
             Text(
-                text = "Error",
+                text = stringResource(R.string.torrent_list_error),
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.error
             )
@@ -544,15 +545,16 @@ private fun FilterTabRow(
     ) {
         tabs.forEach { filter ->
             val count = filterCounts[filter] ?: 0
+            val displayName = getFilterDisplayName(filter)
             Tab(
                 selected = filter == currentFilter,
                 onClick = { onFilterChange(filter) },
                 text = {
                     Text(
                         text = if (count > 0) {
-                            "${filter.displayName} ($count)"
+                            "$displayName ($count)"
                         } else {
-                            filter.displayName
+                            displayName
                         }
                     )
                 }
@@ -578,21 +580,21 @@ private fun EmptyState(
             modifier = Modifier.padding(32.dp)
         ) {
             Text(
-                text = when (currentFilter) {
-                    TorrentFilter.ALL -> "No torrents yet"
-                    TorrentFilter.ACTIVE -> "No active torrents"
-                    TorrentFilter.FINISHED -> "No completed torrents"
-                },
+                text = stringResource(when (currentFilter) {
+                    TorrentFilter.ALL -> R.string.torrent_list_empty_all
+                    TorrentFilter.ACTIVE -> R.string.torrent_list_empty_active
+                    TorrentFilter.FINISHED -> R.string.torrent_list_empty_finished
+                }),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = when (currentFilter) {
-                    TorrentFilter.ALL -> "Tap + to add a magnet link"
-                    TorrentFilter.ACTIVE -> "Downloading torrents will appear here"
-                    TorrentFilter.FINISHED -> "Completed torrents will appear here"
-                },
+                text = stringResource(when (currentFilter) {
+                    TorrentFilter.ALL -> R.string.torrent_list_hint_all
+                    TorrentFilter.ACTIVE -> R.string.torrent_list_hint_active
+                    TorrentFilter.FINISHED -> R.string.torrent_list_hint_finished
+                }),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -636,10 +638,23 @@ private fun ErrorContentPreview() {
 /**
  * Get display name for sort order.
  */
+@Composable
 private fun getSortOrderDisplayName(sortOrder: TorrentSortOrder): String {
-    return when (sortOrder) {
-        TorrentSortOrder.NAME -> "Name"
-        TorrentSortOrder.DATE_ADDED -> "Date Added"
-        TorrentSortOrder.DOWNLOAD_SPEED -> "Download Speed"
-    }
+    return stringResource(when (sortOrder) {
+        TorrentSortOrder.NAME -> R.string.sort_name
+        TorrentSortOrder.DATE_ADDED -> R.string.sort_date_added
+        TorrentSortOrder.DOWNLOAD_SPEED -> R.string.sort_download_speed
+    })
+}
+
+/**
+ * Get localized display name for filter.
+ */
+@Composable
+private fun getFilterDisplayName(filter: TorrentFilter): String {
+    return stringResource(when (filter) {
+        TorrentFilter.ALL -> R.string.filter_all
+        TorrentFilter.ACTIVE -> R.string.filter_active
+        TorrentFilter.FINISHED -> R.string.filter_finished
+    })
 }

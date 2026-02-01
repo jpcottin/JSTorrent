@@ -31,8 +31,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 import kotlinx.coroutines.launch
 
@@ -117,7 +119,7 @@ fun AddTorrentContent(
     ) {
         // Title
         Text(
-            text = "Add Torrent",
+            text = stringResource(R.string.dialog_add_torrent_title),
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(bottom = 16.dp)
         )
@@ -127,15 +129,15 @@ fun AddTorrentContent(
             value = magnetLink,
             onValueChange = onMagnetLinkChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Magnet link") },
-            placeholder = { Text("magnet:?xt=urn:btih:...") },
+            label = { Text(stringResource(R.string.dialog_add_torrent_magnet_label)) },
+            placeholder = { Text(stringResource(R.string.dialog_add_torrent_magnet_hint)) },
             singleLine = false,
             maxLines = 3,
             trailingIcon = {
                 IconButton(onClick = onPasteFromClipboard) {
                     Icon(
                         imageVector = Icons.Default.ContentPaste,
-                        contentDescription = "Paste from clipboard"
+                        contentDescription = stringResource(R.string.dialog_add_torrent_paste_button)
                     )
                 }
             }
@@ -152,7 +154,7 @@ fun AddTorrentContent(
                 onClick = onCancel,
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Cancel")
+                Text(stringResource(R.string.dialog_add_torrent_cancel_button))
             }
 
             Spacer(modifier = Modifier.width(16.dp))
@@ -162,7 +164,7 @@ fun AddTorrentContent(
                 modifier = Modifier.weight(1f),
                 enabled = isAddEnabled
             ) {
-                Text("Add")
+                Text(stringResource(R.string.dialog_add_torrent_add_button))
             }
         }
 
@@ -175,7 +177,7 @@ fun AddTorrentContent(
         ) {
             HorizontalDivider(modifier = Modifier.weight(1f))
             Text(
-                text = "OR",
+                text = stringResource(R.string.dialog_add_torrent_or_divider),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp)
@@ -195,7 +197,7 @@ fun AddTorrentContent(
                 contentDescription = null,
                 modifier = Modifier.padding(end = 8.dp)
             )
-            Text("Browse for .torrent file")
+            Text(stringResource(R.string.dialog_add_torrent_browse_button))
         }
     }
 }

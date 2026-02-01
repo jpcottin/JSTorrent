@@ -19,9 +19,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 
 /**
@@ -40,7 +42,7 @@ fun RemoveTorrentDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = modifier,
-        title = { Text("Remove torrent?") },
+        title = { Text(stringResource(R.string.dialog_remove_title)) },
         text = {
             Column {
                 Text(
@@ -62,7 +64,7 @@ fun RemoveTorrentDialog(
                         onCheckedChange = { deleteFiles = it }
                     )
                     Text(
-                        text = "Also delete downloaded files",
+                        text = stringResource(R.string.dialog_remove_delete_files_label),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(start = 8.dp)
                     )
@@ -74,14 +76,14 @@ fun RemoveTorrentDialog(
                 onClick = { onConfirm(deleteFiles) }
             ) {
                 Text(
-                    text = "Remove",
+                    text = stringResource(R.string.dialog_remove_confirm_button),
                     color = MaterialTheme.colorScheme.error
                 )
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.dialog_remove_cancel_button))
             }
         }
     )

@@ -10,6 +10,8 @@ import com.jstorrent.app.service.ServiceLifecycleManager
 import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.app.storage.RootStore
 import com.jstorrent.quickjs.EngineController
+import com.jstorrent.quickjs.storage.AndroidConfigHub
+import com.jstorrent.quickjs.storage.SqliteKVStore
 import com.jstorrent.quickjs.model.ContentRoot
 import com.jstorrent.quickjs.model.EngineConfig
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +50,26 @@ class JSTorrentApplication : Application() {
     val torrentSummaryCache: TorrentSummaryCache by lazy {
         TorrentSummaryCache(this)
     }
+
+    // Shared SQLite KV store for config and session storage
+    private val sqliteKVStore: SqliteKVStore by lazy {
+        SqliteKVStore(this)
+    }
+
+    // AndroidConfigHub - unified configuration for Kotlin and JS
+    // Handles persistence and JS engine notification automatically
+    private val _configHub: AndroidConfigHub by lazy {
+        AndroidConfigHub(sqliteKVStore) {
+            // Lazy provider for ConfigBridge - engine may not be running yet
+            _engineController?.getConfigBridge()
+        }
+    }
+
+    /**
+     * Get the shared AndroidConfigHub instance.
+     * Use this for all engine settings - it handles persistence and JS notification.
+     */
+    fun getConfigHub(): AndroidConfigHub = _configHub
 
     // Service lifecycle management
     lateinit var serviceLifecycleManager: ServiceLifecycleManager
@@ -205,7 +227,6 @@ class JSTorrentApplication : Application() {
             Log.i(TAG, "Initializing engine...")
 
             val rootStore = RootStore(this)
-            val settingsStore = SettingsStore(this)
 
             // Create rootResolver that queries RootStore dynamically
             val rootResolver: (String) -> Uri? = { key ->
@@ -221,7 +242,7 @@ class JSTorrentApplication : Application() {
 
             // Build config from RootStore
             val roots = rootStore.listRoots()
-            val defaultKey = settingsStore.defaultRootKey?.takeIf { key ->
+            val defaultKey = _configHub.defaultRootKey?.takeIf { key ->
                 roots.any { it.key == key }
             } ?: roots.firstOrNull()?.key
 
@@ -244,7 +265,7 @@ class JSTorrentApplication : Application() {
             startTorrentStateObservation(controller)
 
             // Apply saved settings
-            applyEngineSettings(controller, settingsStore)
+            applyEngineSettings(controller)
 
             return controller
         }
@@ -330,24 +351,27 @@ class JSTorrentApplication : Application() {
         }
     }
 
-    private fun applyEngineSettings(controller: EngineController, settingsStore: SettingsStore) {
+    private fun applyEngineSettings(controller: EngineController) {
         val configBridge = controller.getConfigBridge() ?: return
 
+        // Use the shared configHub for consistent settings
+        val configHub = _configHub
+
         // Use 0 for unlimited, otherwise use the configured limit
-        val effectiveDownloadLimit = if (settingsStore.downloadSpeedUnlimited) 0 else settingsStore.downloadSpeedLimit
-        val effectiveUploadLimit = if (settingsStore.uploadSpeedUnlimited) 0 else settingsStore.uploadSpeedLimit
+        val effectiveDownloadLimit = if (configHub.downloadSpeedUnlimited) 0 else configHub.downloadSpeedLimit
+        val effectiveUploadLimit = if (configHub.uploadSpeedUnlimited) 0 else configHub.uploadSpeedLimit
 
         configBridge.setDownloadSpeedLimit(effectiveDownloadLimit)
         configBridge.setUploadSpeedLimit(effectiveUploadLimit)
 
-        configBridge.setDhtEnabled(settingsStore.dhtEnabled)
-        configBridge.setPexEnabled(settingsStore.pexEnabled)
-        configBridge.setUpnpEnabled(settingsStore.upnpEnabled)
-        configBridge.setEncryptionPolicy(settingsStore.encryptionPolicy)
+        configBridge.setDhtEnabled(configHub.dhtEnabled)
+        configBridge.setPexEnabled(configHub.pexEnabled)
+        configBridge.setUpnpEnabled(configHub.upnpEnabled)
+        configBridge.setEncryptionPolicy(configHub.encryptionPolicy)
 
         Log.i(TAG, "Applied engine settings: download=${if (effectiveDownloadLimit == 0) "unlimited" else "${effectiveDownloadLimit}B/s"}, " +
             "upload=${if (effectiveUploadLimit == 0) "unlimited" else "${effectiveUploadLimit}B/s"}, " +
-            "dht=${settingsStore.dhtEnabled}, pex=${settingsStore.pexEnabled}, " +
-            "upnp=${settingsStore.upnpEnabled}, encryption=${settingsStore.encryptionPolicy}")
+            "dht=${configHub.dhtEnabled}, pex=${configHub.pexEnabled}, " +
+            "upnp=${configHub.upnpEnabled}, encryption=${configHub.encryptionPolicy}")
     }
 }

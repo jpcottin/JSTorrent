@@ -1,5 +1,7 @@
 package com.jstorrent.app.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -7,14 +9,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.ui.theme.JSTorrentTheme
-import com.jstorrent.app.util.Formatters
 
 /**
  * Status badge showing torrent state with appropriate color.
@@ -33,14 +37,28 @@ fun StatusBadge(
     style: TextStyle = MaterialTheme.typography.labelMedium,
     suffix: String? = null
 ) {
-    val displayText = Formatters.formatStatus(status) + (suffix ?: "")
-    val color = statusColor(status)
+    val displayText = formatStatusComposable(status) + (suffix ?: "")
+    val targetColor = statusColor(status)
+
+    // Smooth color transition when status changes
+    val color by animateColorAsState(
+        targetValue = targetColor,
+        animationSpec = tween(durationMillis = 250),
+        label = "statusColor"
+    )
 
     if (showBackground) {
+        // Also animate the background color
+        val backgroundColor by animateColorAsState(
+            targetValue = targetColor.copy(alpha = 0.2f),
+            animationSpec = tween(durationMillis = 250),
+            label = "statusBackground"
+        )
+
         Box(
             modifier = modifier
                 .clip(RoundedCornerShape(4.dp))
-                .background(color.copy(alpha = 0.2f))
+                .background(backgroundColor)
                 .padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
             Text(
@@ -57,6 +75,21 @@ fun StatusBadge(
             modifier = modifier
         )
     }
+}
+
+/**
+ * Formats status string to display text using localized string resources.
+ */
+@Composable
+fun formatStatusComposable(status: String): String = when (status) {
+    "downloading" -> stringResource(R.string.status_downloading)
+    "downloading_metadata" -> stringResource(R.string.status_downloading_metadata)
+    "seeding" -> stringResource(R.string.status_seeding)
+    "stopped" -> stringResource(R.string.status_paused)
+    "checking" -> stringResource(R.string.status_checking)
+    "error" -> stringResource(R.string.status_error)
+    "queued" -> stringResource(R.string.status_queued)
+    else -> status.replaceFirstChar { it.uppercase() }
 }
 
 /**

@@ -4,6 +4,7 @@ import com.jstorrent.app.JSTorrentApplication
 import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.app.storage.DownloadRoot
 import com.jstorrent.app.storage.RootStore
+import com.jstorrent.quickjs.storage.AndroidConfigHub
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -27,6 +28,7 @@ class SettingsViewModelTest {
     private lateinit var app: JSTorrentApplication
     private lateinit var rootStore: RootStore
     private lateinit var settingsStore: SettingsStore
+    private lateinit var configHub: AndroidConfigHub
     private lateinit var viewModel: SettingsViewModel
 
     private val testRoot1 = DownloadRoot(
@@ -54,15 +56,39 @@ class SettingsViewModelTest {
             on { engineController } doReturn null
         }
         rootStore = mock()
+        // Android-only settings
         settingsStore = mock {
-            on { defaultRootKey } doReturn null
-            on { downloadSpeedLimit } doReturn 0
-            on { uploadSpeedLimit } doReturn 0
             on { whenDownloadsComplete } doReturn "stop_and_close"
             on { wifiOnlyEnabled } doReturn false
+            on { vpnOnlyEnabled } doReturn false
+            on { backgroundDownloadsEnabled } doReturn false
+            on { cpuWakeLockEnabled } doReturn false
+            on { shutdownOnLowBatteryEnabled } doReturn false
+            on { shutdownOnLowBatteryThreshold } doReturn 15
+        }
+        // Engine settings (from AndroidConfigHub / SQLite KV)
+        configHub = mock {
+            on { defaultRootKey } doReturn null
+            on { downloadSpeedUnlimited } doReturn true
+            on { downloadSpeedLimit } doReturn 1048576
+            on { uploadSpeedUnlimited } doReturn true
+            on { uploadSpeedLimit } doReturn 1048576
+            on { maxPeersPerTorrent } doReturn 20
+            on { maxGlobalPeers } doReturn 200
+            on { maxUploadSlots } doReturn 4
+            on { maxPipelineDepth } doReturn 500
             on { dhtEnabled } doReturn true
             on { pexEnabled } doReturn true
+            on { upnpEnabled } doReturn true
             on { encryptionPolicy } doReturn "allow"
+            on { proxyEnabled } doReturn false
+            on { proxyHost } doReturn null
+            on { proxyPort } doReturn 1080
+            on { proxyUsername } doReturn null
+            on { proxyPassword } doReturn null
+            on { proxyHttpTrackers } doReturn true
+            on { proxyUdpTrackers } doReturn true
+            on { proxyPeerConnections } doReturn true
         }
     }
 
@@ -79,7 +105,7 @@ class SettingsViewModelTest {
     fun `initial state loads roots from store`() {
         whenever(rootStore.refreshAvailability()).thenReturn(listOf(testRoot1, testRoot2))
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, configHub, initialNotificationPermissionGranted = false)
 
         val state = viewModel.uiState.value
         assertEquals(2, state.downloadRoots.size)
@@ -91,7 +117,7 @@ class SettingsViewModelTest {
     fun `initial state with empty roots`() {
         whenever(rootStore.refreshAvailability()).thenReturn(emptyList())
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, configHub, initialNotificationPermissionGranted = false)
 
         val state = viewModel.uiState.value
         assertTrue(state.downloadRoots.isEmpty())
@@ -105,7 +131,7 @@ class SettingsViewModelTest {
     fun `refreshRoots updates state`() {
         whenever(rootStore.refreshAvailability()).thenReturn(listOf(testRoot1))
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, configHub, initialNotificationPermissionGranted = false)
 
         whenever(rootStore.refreshAvailability()).thenReturn(listOf(testRoot1, testRoot2))
 
@@ -124,7 +150,7 @@ class SettingsViewModelTest {
         whenever(rootStore.refreshAvailability()).thenReturn(listOf(testRoot1, testRoot2))
         whenever(rootStore.removeRoot("key1")).thenReturn(true)
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, configHub, initialNotificationPermissionGranted = false)
 
         whenever(rootStore.refreshAvailability()).thenReturn(listOf(testRoot2))
 
@@ -145,7 +171,7 @@ class SettingsViewModelTest {
     fun `showClearConfirmation sets flag`() {
         whenever(rootStore.refreshAvailability()).thenReturn(emptyList())
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, configHub, initialNotificationPermissionGranted = false)
 
         viewModel.showClearConfirmation()
 
@@ -156,7 +182,7 @@ class SettingsViewModelTest {
     fun `dismissClearConfirmation clears flag`() {
         whenever(rootStore.refreshAvailability()).thenReturn(emptyList())
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, configHub, initialNotificationPermissionGranted = false)
         viewModel.showClearConfirmation()
         viewModel.dismissClearConfirmation()
 
@@ -174,7 +200,7 @@ class SettingsViewModelTest {
         whenever(rootStore.removeRoot("key1")).thenReturn(true)
         whenever(rootStore.removeRoot("key2")).thenReturn(true)
 
-        viewModel = SettingsViewModel(app, rootStore, settingsStore, initialNotificationPermissionGranted = false)
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, configHub, initialNotificationPermissionGranted = false)
         viewModel.showClearConfirmation()
 
         whenever(rootStore.refreshAvailability()).thenReturn(emptyList())

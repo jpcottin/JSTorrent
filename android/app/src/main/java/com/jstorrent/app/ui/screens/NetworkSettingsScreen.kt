@@ -39,17 +39,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.viewmodel.SettingsViewModel
 
-private data class EncryptionOption(val value: String, val label: String)
+private data class EncryptionOption(val value: String, val labelResId: Int)
 
 private val encryptionOptions = listOf(
-    EncryptionOption("disabled", "Disabled"),
-    EncryptionOption("allow", "Allow"),
-    EncryptionOption("prefer", "Prefer"),
-    EncryptionOption("required", "Required")
+    EncryptionOption("disabled", R.string.settings_network_encryption_disabled),
+    EncryptionOption("allow", R.string.settings_network_encryption_allow),
+    EncryptionOption("prefer", R.string.settings_network_encryption_prefer),
+    EncryptionOption("required", R.string.settings_network_encryption_required)
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,12 +68,12 @@ fun NetworkSettingsScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Network & Privacy") },
+                title = { Text(stringResource(R.string.settings_network_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.back)
                         )
                     }
                 }
@@ -84,7 +86,7 @@ fun NetworkSettingsScreen(
                 .padding(innerPadding)
         ) {
             item {
-                SectionHeader(title = "Connection")
+                SectionHeader(title = stringResource(R.string.settings_network_connection_section))
             }
 
             item {
@@ -167,8 +169,8 @@ private fun NetworkSection(
     ) {
         // WiFi-only toggle
         SettingToggleRow(
-            label = "WiFi only",
-            description = "Only download when connected to WiFi",
+            label = stringResource(R.string.settings_network_wifi_only_label),
+            description = stringResource(R.string.settings_network_wifi_only_description),
             checked = wifiOnly,
             onCheckedChange = onWifiOnlyChange
         )
@@ -177,8 +179,8 @@ private fun NetworkSection(
 
         // VPN-only toggle
         SettingToggleRow(
-            label = "VPN only",
-            description = "Only download when connected to a VPN",
+            label = stringResource(R.string.settings_network_vpn_only_label),
+            description = stringResource(R.string.settings_network_vpn_only_description),
             checked = vpnOnly,
             onCheckedChange = onVpnOnlyChange
         )
@@ -195,15 +197,15 @@ private fun NetworkSection(
 
         // DHT toggle
         SettingToggleRow(
-            label = "DHT",
-            description = "Distributed Hash Table for finding peers",
+            label = stringResource(R.string.settings_network_dht_label),
+            description = stringResource(R.string.settings_network_dht_description),
             checked = dhtEnabled,
             onCheckedChange = onDhtChange
         )
 
         // DHT info link
         Text(
-            text = "View DHT Info",
+            text = stringResource(R.string.settings_network_view_dht_info),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier
@@ -215,8 +217,8 @@ private fun NetworkSection(
 
         // PEX toggle
         SettingToggleRow(
-            label = "PEX (Peer Exchange)",
-            description = "Share peer lists with other clients",
+            label = stringResource(R.string.settings_network_pex_label),
+            description = stringResource(R.string.settings_network_pex_description),
             checked = pexEnabled,
             onCheckedChange = onPexChange
         )
@@ -255,23 +257,30 @@ private fun UpnpRow(
     onEnabledChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val discoveringText = stringResource(R.string.settings_network_upnp_discovering)
+    val unavailableText = stringResource(R.string.settings_network_upnp_unavailable)
+    val failedText = stringResource(R.string.settings_network_upnp_failed)
+    val unknownText = stringResource(R.string.settings_network_upnp_unknown)
+    val incomingVerifiedText = stringResource(R.string.settings_network_incoming_verified)
+    val incomingNotVerifiedText = stringResource(R.string.settings_network_incoming_not_verified)
+
     // Determine status text and color
     val (statusText, statusColor) = when {
         !enabled -> "" to MaterialTheme.colorScheme.onSurfaceVariant
-        status == "discovering" -> "Discovering..." to MaterialTheme.colorScheme.onSurfaceVariant
+        status == "discovering" -> discoveringText to MaterialTheme.colorScheme.onSurfaceVariant
         status == "mapped" -> {
             val portStr = if (port > 0) ":$port" else ""
-            val ipStr = externalIP ?: "Unknown"
+            val ipStr = externalIP ?: unknownText
             "$ipStr$portStr" to MaterialTheme.colorScheme.primary
         }
-        status == "unavailable" -> "No UPnP gateway found" to MaterialTheme.colorScheme.onSurfaceVariant
-        status == "failed" -> "Port mapping failed" to MaterialTheme.colorScheme.error
+        status == "unavailable" -> unavailableText to MaterialTheme.colorScheme.onSurfaceVariant
+        status == "failed" -> failedText to MaterialTheme.colorScheme.error
         else -> "" to MaterialTheme.colorScheme.onSurfaceVariant
     }
 
     // Incoming connection status (only show when enabled)
     val incomingStatusText = if (enabled && status == "mapped") {
-        if (hasReceivedIncomingConnection) "Incoming: verified" else "Incoming: not yet verified"
+        if (hasReceivedIncomingConnection) incomingVerifiedText else incomingNotVerifiedText
     } else ""
     val incomingStatusColor = if (hasReceivedIncomingConnection) {
         MaterialTheme.colorScheme.primary
@@ -289,11 +298,11 @@ private fun UpnpRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "UPnP Port Forwarding",
+                text = stringResource(R.string.settings_network_upnp_label),
                 style = MaterialTheme.typography.bodyLarge
             )
             Text(
-                text = "Automatically configure router port forwarding",
+                text = stringResource(R.string.settings_network_upnp_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -337,7 +346,7 @@ private fun EncryptionRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "Protocol encryption",
+            text = stringResource(R.string.settings_network_encryption_label),
             style = MaterialTheme.typography.bodyLarge
         )
         Box {
@@ -345,7 +354,7 @@ private fun EncryptionRow(
                 modifier = Modifier.clickable { expanded = true }
             ) {
                 Text(
-                    text = currentOption.label,
+                    text = stringResource(currentOption.labelResId),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
@@ -356,13 +365,13 @@ private fun EncryptionRow(
             ) {
                 encryptionOptions.forEach { option ->
                     DropdownMenuItem(
-                        text = { Text(option.label) },
+                        text = { Text(stringResource(option.labelResId)) },
                         onClick = {
                             onPolicyChange(option.value)
                             expanded = false
                         },
                         trailingIcon = if (option.value == currentPolicy) {
-                            { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                            { Icon(Icons.Default.Check, contentDescription = stringResource(R.string.selected)) }
                         } else null
                     )
                 }
@@ -379,10 +388,11 @@ private fun ProxyRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val disabledText = stringResource(R.string.settings_network_proxy_disabled)
     val statusText = if (enabled && host != null) {
         "$host:$port"
     } else {
-        "Disabled"
+        disabledText
     }
     val statusColor = if (enabled && host != null) {
         MaterialTheme.colorScheme.primary
@@ -400,11 +410,11 @@ private fun ProxyRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "SOCKS5 Proxy",
+                text = stringResource(R.string.settings_network_proxy_label),
                 style = MaterialTheme.typography.bodyLarge
             )
             Text(
-                text = "Route traffic through a SOCKS5 proxy",
+                text = stringResource(R.string.settings_network_proxy_description),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -441,7 +451,7 @@ private fun ProxyConfigDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("SOCKS5 Proxy") },
+        title = { Text(stringResource(R.string.settings_network_proxy_label)) },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -454,7 +464,7 @@ private fun ProxyConfigDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Enable proxy",
+                        text = stringResource(R.string.settings_network_proxy_enable_label),
                         style = MaterialTheme.typography.bodyLarge
                     )
                     Switch(
@@ -467,8 +477,8 @@ private fun ProxyConfigDialog(
                 OutlinedTextField(
                     value = editHost,
                     onValueChange = { editHost = it },
-                    label = { Text("Host") },
-                    placeholder = { Text("proxy.example.com") },
+                    label = { Text(stringResource(R.string.settings_network_proxy_host_label)) },
+                    placeholder = { Text(stringResource(R.string.settings_network_proxy_host_placeholder)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -477,8 +487,8 @@ private fun ProxyConfigDialog(
                 OutlinedTextField(
                     value = editPort,
                     onValueChange = { editPort = it.filter { c -> c.isDigit() } },
-                    label = { Text("Port") },
-                    placeholder = { Text("1080") },
+                    label = { Text(stringResource(R.string.settings_network_proxy_port_label)) },
+                    placeholder = { Text(stringResource(R.string.settings_network_proxy_port_placeholder)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
@@ -488,7 +498,7 @@ private fun ProxyConfigDialog(
                 OutlinedTextField(
                     value = editUsername,
                     onValueChange = { editUsername = it },
-                    label = { Text("Username (optional)") },
+                    label = { Text(stringResource(R.string.settings_network_proxy_username_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -497,7 +507,7 @@ private fun ProxyConfigDialog(
                 OutlinedTextField(
                     value = editPassword,
                     onValueChange = { editPassword = it },
-                    label = { Text("Password (optional)") },
+                    label = { Text(stringResource(R.string.settings_network_proxy_password_label)) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -506,7 +516,7 @@ private fun ProxyConfigDialog(
 
                 // Route through proxy section
                 Text(
-                    text = "Route through proxy",
+                    text = stringResource(R.string.settings_network_proxy_route_section),
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.padding(top = 8.dp)
                 )
@@ -518,7 +528,7 @@ private fun ProxyConfigDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "HTTP trackers",
+                        text = stringResource(R.string.settings_network_proxy_http_trackers),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Switch(
@@ -535,11 +545,11 @@ private fun ProxyConfigDialog(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "UDP trackers",
+                            text = stringResource(R.string.settings_network_proxy_udp_trackers),
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Text(
-                            text = "Requires proxy UDP support",
+                            text = stringResource(R.string.settings_network_proxy_udp_note),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -558,7 +568,7 @@ private fun ProxyConfigDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Peer connections",
+                        text = stringResource(R.string.settings_network_proxy_peer_connections),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Switch(
@@ -583,12 +593,12 @@ private fun ProxyConfigDialog(
                     )
                 }
             ) {
-                Text("Save")
+                Text(stringResource(R.string.save))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.cancel))
             }
         }
     )

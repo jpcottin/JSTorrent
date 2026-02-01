@@ -18,9 +18,11 @@ import com.jstorrent.app.network.NetworkMonitor
 import com.jstorrent.app.power.DozeMonitor
 import com.jstorrent.app.notification.ForegroundNotificationManager
 import com.jstorrent.app.notification.TorrentNotificationManager
+import com.jstorrent.app.settings.MetricsStore
 import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.app.storage.RootStore
 import com.jstorrent.quickjs.EngineController
+import com.jstorrent.quickjs.storage.AndroidConfigHub
 import com.jstorrent.quickjs.model.EngineState
 import com.jstorrent.quickjs.model.FileInfo
 import com.jstorrent.quickjs.model.TorrentInfo
@@ -64,6 +66,8 @@ class ForegroundNotificationService : Service() {
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var rootStore: RootStore
     private lateinit var settingsStore: SettingsStore
+    private lateinit var configHub: AndroidConfigHub
+    private lateinit var metricsStore: MetricsStore
 
     // Access engine from Application (engine lives for process lifetime)
     private val app: JSTorrentApplication
@@ -147,6 +151,8 @@ class ForegroundNotificationService : Service() {
         // Initialize remaining dependencies
         rootStore = RootStore(this)
         settingsStore = SettingsStore(this)
+        configHub = app.getConfigHub()
+        metricsStore = MetricsStore(this)
         torrentNotificationManager = TorrentNotificationManager(this)
         networkMonitor = NetworkMonitor(this)
         dozeMonitor = DozeMonitor(this)
@@ -339,12 +345,11 @@ class ForegroundNotificationService : Service() {
      * @param bytesPerSec Limit in bytes/sec (0 = unlimited)
      */
     fun setDownloadSpeedLimit(bytesPerSec: Int) {
-        // Update both unlimited flag and limit value for consistent persistence
-        settingsStore.downloadSpeedUnlimited = (bytesPerSec == 0)
+        // AndroidConfigHub handles persistence and JS engine notification
+        configHub.downloadSpeedUnlimited = (bytesPerSec == 0)
         if (bytesPerSec > 0) {
-            settingsStore.downloadSpeedLimit = bytesPerSec
+            configHub.downloadSpeedLimit = bytesPerSec
         }
-        controller?.getConfigBridge()?.setDownloadSpeedLimit(bytesPerSec)
         Log.i(TAG, "Download limit set: ${if (bytesPerSec == 0) "unlimited" else "$bytesPerSec B/s"}")
     }
 
@@ -353,12 +358,11 @@ class ForegroundNotificationService : Service() {
      * @param bytesPerSec Limit in bytes/sec (0 = unlimited)
      */
     fun setUploadSpeedLimit(bytesPerSec: Int) {
-        // Update both unlimited flag and limit value for consistent persistence
-        settingsStore.uploadSpeedUnlimited = (bytesPerSec == 0)
+        // AndroidConfigHub handles persistence and JS engine notification
+        configHub.uploadSpeedUnlimited = (bytesPerSec == 0)
         if (bytesPerSec > 0) {
-            settingsStore.uploadSpeedLimit = bytesPerSec
+            configHub.uploadSpeedLimit = bytesPerSec
         }
-        controller?.getConfigBridge()?.setUploadSpeedLimit(bytesPerSec)
         Log.i(TAG, "Upload limit set: ${if (bytesPerSec == 0) "unlimited" else "$bytesPerSec B/s"}")
     }
 
@@ -367,14 +371,14 @@ class ForegroundNotificationService : Service() {
      * @return Limit in bytes/sec (0 = unlimited)
      */
     fun getDownloadSpeedLimit(): Int =
-        if (settingsStore.downloadSpeedUnlimited) 0 else settingsStore.downloadSpeedLimit
+        if (configHub.downloadSpeedUnlimited) 0 else configHub.downloadSpeedLimit
 
     /**
      * Get the current upload speed limit.
      * @return Limit in bytes/sec (0 = unlimited)
      */
     fun getUploadSpeedLimit(): Int =
-        if (settingsStore.uploadSpeedUnlimited) 0 else settingsStore.uploadSpeedLimit
+        if (configHub.uploadSpeedUnlimited) 0 else configHub.uploadSpeedLimit
 
     // =========================================================================
     // Network Settings API
@@ -382,46 +386,46 @@ class ForegroundNotificationService : Service() {
 
     /**
      * Enable or disable DHT and persist to settings.
+     * AndroidConfigHub handles JS engine notification automatically.
      */
     fun setDhtEnabled(enabled: Boolean) {
-        settingsStore.dhtEnabled = enabled
-        controller?.getConfigBridge()?.setDhtEnabled(enabled)
+        configHub.dhtEnabled = enabled
         Log.i(TAG, "DHT ${if (enabled) "enabled" else "disabled"}")
     }
 
     /**
      * Get whether DHT is enabled.
      */
-    fun getDhtEnabled(): Boolean = settingsStore.dhtEnabled
+    fun getDhtEnabled(): Boolean = configHub.dhtEnabled
 
     /**
      * Enable or disable PEX and persist to settings.
+     * AndroidConfigHub handles JS engine notification automatically.
      */
     fun setPexEnabled(enabled: Boolean) {
-        settingsStore.pexEnabled = enabled
-        controller?.getConfigBridge()?.setPexEnabled(enabled)
+        configHub.pexEnabled = enabled
         Log.i(TAG, "PEX ${if (enabled) "enabled" else "disabled"}")
     }
 
     /**
      * Get whether PEX is enabled.
      */
-    fun getPexEnabled(): Boolean = settingsStore.pexEnabled
+    fun getPexEnabled(): Boolean = configHub.pexEnabled
 
     /**
      * Set encryption policy and persist to settings.
+     * AndroidConfigHub handles JS engine notification automatically.
      * @param policy One of: "disabled", "allow", "prefer", "required"
      */
     fun setEncryptionPolicy(policy: String) {
-        settingsStore.encryptionPolicy = policy
-        controller?.getConfigBridge()?.setEncryptionPolicy(policy)
+        configHub.encryptionPolicy = policy
         Log.i(TAG, "Encryption policy set: $policy")
     }
 
     /**
      * Get the current encryption policy.
      */
-    fun getEncryptionPolicy(): String = settingsStore.encryptionPolicy
+    fun getEncryptionPolicy(): String = configHub.encryptionPolicy
 
     // =========================================================================
     // Notification
@@ -470,6 +474,7 @@ class ForegroundNotificationService : Service() {
 
             // Detect completion: wasn't complete before, now is
             if (torrent.progress >= 1.0 && (prev == null || prev.progress < 1.0)) {
+                metricsStore.incrementCompletedDownloads()
                 showCompletionNotification(torrent)
             }
 
@@ -533,7 +538,7 @@ class ForegroundNotificationService : Service() {
      * Get the URI for the default download folder.
      */
     private fun getDefaultFolderUri(): Uri? {
-        val defaultKey = settingsStore.defaultRootKey
+        val defaultKey = configHub.defaultRootKey
         if (defaultKey != null) {
             return rootStore.resolveKey(defaultKey)
         }

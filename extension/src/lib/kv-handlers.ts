@@ -1,8 +1,8 @@
 /**
  * KV storage handlers for external session store and settings.
  *
- * Supports configurable storage area (local/sync) and key prefix.
- * Defaults to chrome.storage.local with 'session:' prefix for backward compatibility.
+ * Uses chrome.storage.local with configurable key prefix.
+ * Defaults to 'session:' prefix for backward compatibility.
  * Binary values are stored as base64 strings.
  * JSON values are stored directly.
  */
@@ -19,13 +19,12 @@ export function handleKVMessage(
     value?: string | unknown
     prefix?: string
     keyPrefix?: string // The prefix to use for storage keys (defaults to 'session:')
-    area?: 'sync' | 'local' // Storage area (defaults to 'local')
   },
   sendResponse: KVSendResponse,
 ): boolean {
-  // Select storage area and prefix based on message parameters
+  // Select prefix based on message parameters (always use local storage)
   const keyPrefix = message.keyPrefix ?? DEFAULT_PREFIX
-  const storage = message.area === 'sync' ? chrome.storage.sync : chrome.storage.local
+  const storage = chrome.storage.local
 
   function prefixKey(key: string): string {
     return keyPrefix + key
