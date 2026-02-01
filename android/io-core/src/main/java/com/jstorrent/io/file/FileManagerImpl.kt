@@ -9,6 +9,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -97,6 +98,12 @@ class FileManagerImpl(
     private val cacheLock = Any()
 
     /**
+     * Per-path locks to prevent race conditions during file creation.
+     * Multiple concurrent writes to the same path will wait for creation to complete.
+     */
+    private val creationLocks = ConcurrentHashMap<String, ReentrantLock>()
+
+    /**
      * Pool of open file handles for native file:// writes.
      * Key: absolute file path
      */
@@ -166,15 +173,28 @@ class FileManagerImpl(
             var file = getCachedFile(rootUri, relativePath)
 
             if (file == null) {
-                // Not in cache or doesn't exist - create it
-                file = createFile(rootUri, relativePath)
-                    ?: throw FileManagerException.CannotCreateFile(relativePath)
-                // Cache the newly created file
-                cacheFile(rootUri, relativePath, file)
+                // Not in cache - use per-path lock to prevent race condition
+                // where multiple concurrent writes all try to create the same file
+                val cacheKey = "$rootUri|$relativePath"
+                val lock = creationLocks.computeIfAbsent(cacheKey) { ReentrantLock() }
+                lock.withLock {
+                    // Double-check after acquiring lock - another thread may have created it
+                    file = getCachedFile(rootUri, relativePath)
+                    if (file == null) {
+                        file = createFile(rootUri, relativePath)
+                            ?: throw FileManagerException.CannotCreateFile(relativePath)
+                        cacheFile(rootUri, relativePath, file)
+                    }
+                }
+                // Clean up lock if no one else waiting (optional, prevents memory leak)
+                if (!lock.hasQueuedThreads()) {
+                    creationLocks.remove(cacheKey, lock)
+                }
             }
 
             // Use ParcelFileDescriptor for true random access writes
-            context.contentResolver.openFileDescriptor(file.uri, "rw")?.use { pfd ->
+            // file is guaranteed non-null here (either from cache or created above)
+            context.contentResolver.openFileDescriptor(file!!.uri, "rw")?.use { pfd ->
                 FileOutputStream(pfd.fileDescriptor).use { fos ->
                     val channel = fos.channel
                     channel.position(offset)
