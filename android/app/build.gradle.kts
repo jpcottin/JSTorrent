@@ -97,6 +97,14 @@ android {
             java.srcDir("src/sharedTest/java")
         }
     }
+
+    testOptions {
+        unitTests {
+            // Return default values (0, null, false) for unmocked Android framework methods
+            // instead of throwing exceptions. Needed for android.util.Log calls in ViewModels.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
