@@ -108,6 +108,44 @@ class SqliteKVStore(context: Context) : SQLiteOpenHelper(
         return result
     }
 
+    /**
+     * Get multiple values by keys in a single query.
+     * @param keys The keys to retrieve.
+     * @return Map of key to value (null values omitted).
+     */
+    fun getMulti(keys: List<String>): Map<String, String> {
+        if (keys.isEmpty()) return emptyMap()
+
+        val result = mutableMapOf<String, String>()
+        val placeholders = keys.joinToString(",") { "?" }
+        readableDatabase.rawQuery(
+            "SELECT $COLUMN_KEY, $COLUMN_VALUE FROM $TABLE_NAME WHERE $COLUMN_KEY IN ($placeholders)",
+            keys.toTypedArray()
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val key = cursor.getString(0)
+                val value = cursor.getString(1)
+                if (value != null) {
+                    result[key] = value
+                }
+            }
+        }
+        return result
+    }
+
+    /**
+     * Delete all keys matching a prefix.
+     * @param prefix The prefix to match.
+     * @return Number of keys deleted.
+     */
+    fun clear(prefix: String): Int {
+        return writableDatabase.delete(
+            TABLE_NAME,
+            "$COLUMN_KEY LIKE ?",
+            arrayOf("$prefix%")
+        )
+    }
+
     companion object {
         private const val DATABASE_NAME = "jstorrent_kv.db"
         private const val DATABASE_VERSION = 1

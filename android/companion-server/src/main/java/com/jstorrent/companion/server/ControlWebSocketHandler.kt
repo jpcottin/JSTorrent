@@ -7,6 +7,7 @@ import com.jstorrent.companion.server.websocket.WebSocketSession
 import com.jstorrent.io.protocol.Protocol
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.serialization.json.*
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -184,10 +185,161 @@ class ControlWebSocketHandler(
             Protocol.OP_CTRL_OPEN_FOLDER_PICKER -> {
                 deps.openFolderPicker()
             }
+            Protocol.OP_KV_GET -> handleKvGet(envelope, payload)
+            Protocol.OP_KV_GET_MULTI -> handleKvGetMulti(envelope, payload)
+            Protocol.OP_KV_SET -> handleKvSet(envelope, payload)
+            Protocol.OP_KV_DELETE -> handleKvDelete(envelope, payload)
+            Protocol.OP_KV_KEYS -> handleKvKeys(envelope, payload)
+            Protocol.OP_KV_CLEAR -> handleKvClear(envelope, payload)
             else -> {
                 sendError(envelope.requestId, "Unknown opcode: ${envelope.opcode}")
             }
         }
+    }
+
+    // ==========================================================================
+    // KV Storage handlers
+    // ==========================================================================
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private fun handleKvGet(envelope: Protocol.Envelope, payload: ByteArray) {
+        val opcode = Protocol.OP_KV_GET
+        try {
+            val request = json.parseToJsonElement(String(payload)).jsonObject
+            val key = request["key"]?.jsonPrimitive?.content
+                ?: return sendKvError(envelope.requestId, opcode, "Missing key")
+
+            val value = deps.kvStore.get(key)
+            val response = buildJsonObject {
+                put("ok", true)
+                if (value != null) {
+                    put("value", json.parseToJsonElement(value))
+                } else {
+                    put("value", JsonNull)
+                }
+            }
+            sendKvResponse(envelope.requestId, opcode, response)
+        } catch (e: Exception) {
+            Log.e(TAG, "KV_GET error: ${e.message}")
+            sendKvError(envelope.requestId, opcode, e.message ?: "Unknown error")
+        }
+    }
+
+    private fun handleKvGetMulti(envelope: Protocol.Envelope, payload: ByteArray) {
+        val opcode = Protocol.OP_KV_GET_MULTI
+        try {
+            val request = json.parseToJsonElement(String(payload)).jsonObject
+            val keys = request["keys"]?.jsonArray?.map { it.jsonPrimitive.content }
+                ?: return sendKvError(envelope.requestId, opcode, "Missing keys")
+
+            val values = deps.kvStore.getMulti(keys)
+            val response = buildJsonObject {
+                put("ok", true)
+                put("values", buildJsonObject {
+                    for (key in keys) {
+                        val value = values[key]
+                        if (value != null) {
+                            put(key, json.parseToJsonElement(value))
+                        } else {
+                            put(key, JsonNull)
+                        }
+                    }
+                })
+            }
+            sendKvResponse(envelope.requestId, opcode, response)
+        } catch (e: Exception) {
+            Log.e(TAG, "KV_GET_MULTI error: ${e.message}")
+            sendKvError(envelope.requestId, opcode, e.message ?: "Unknown error")
+        }
+    }
+
+    private fun handleKvSet(envelope: Protocol.Envelope, payload: ByteArray) {
+        val opcode = Protocol.OP_KV_SET
+        try {
+            val request = json.parseToJsonElement(String(payload)).jsonObject
+            val key = request["key"]?.jsonPrimitive?.content
+                ?: return sendKvError(envelope.requestId, opcode, "Missing key")
+            val value = request["value"]
+                ?: return sendKvError(envelope.requestId, opcode, "Missing value")
+
+            // Store the JSON-encoded value
+            deps.kvStore.set(key, value.toString())
+
+            val response = buildJsonObject { put("ok", true) }
+            sendKvResponse(envelope.requestId, opcode, response)
+        } catch (e: Exception) {
+            Log.e(TAG, "KV_SET error: ${e.message}")
+            sendKvError(envelope.requestId, opcode, e.message ?: "Unknown error")
+        }
+    }
+
+    private fun handleKvDelete(envelope: Protocol.Envelope, payload: ByteArray) {
+        val opcode = Protocol.OP_KV_DELETE
+        try {
+            val request = json.parseToJsonElement(String(payload)).jsonObject
+            val key = request["key"]?.jsonPrimitive?.content
+                ?: return sendKvError(envelope.requestId, opcode, "Missing key")
+
+            deps.kvStore.delete(key)
+
+            val response = buildJsonObject { put("ok", true) }
+            sendKvResponse(envelope.requestId, opcode, response)
+        } catch (e: Exception) {
+            Log.e(TAG, "KV_DELETE error: ${e.message}")
+            sendKvError(envelope.requestId, opcode, e.message ?: "Unknown error")
+        }
+    }
+
+    private fun handleKvKeys(envelope: Protocol.Envelope, payload: ByteArray) {
+        val opcode = Protocol.OP_KV_KEYS
+        try {
+            val request = json.parseToJsonElement(String(payload)).jsonObject
+            val prefix = request["prefix"]?.jsonPrimitive?.content ?: ""
+
+            val keys = deps.kvStore.keys(prefix)
+
+            val response = buildJsonObject {
+                put("ok", true)
+                put("keys", JsonArray(keys.map { JsonPrimitive(it) }))
+            }
+            sendKvResponse(envelope.requestId, opcode, response)
+        } catch (e: Exception) {
+            Log.e(TAG, "KV_KEYS error: ${e.message}")
+            sendKvError(envelope.requestId, opcode, e.message ?: "Unknown error")
+        }
+    }
+
+    private fun handleKvClear(envelope: Protocol.Envelope, payload: ByteArray) {
+        val opcode = Protocol.OP_KV_CLEAR
+        try {
+            val request = json.parseToJsonElement(String(payload)).jsonObject
+            val prefix = request["prefix"]?.jsonPrimitive?.content ?: ""
+
+            val count = deps.kvStore.clear(prefix)
+
+            val response = buildJsonObject {
+                put("ok", true)
+                put("count", count)
+            }
+            sendKvResponse(envelope.requestId, opcode, response)
+        } catch (e: Exception) {
+            Log.e(TAG, "KV_CLEAR error: ${e.message}")
+            sendKvError(envelope.requestId, opcode, e.message ?: "Unknown error")
+        }
+    }
+
+    private fun sendKvResponse(requestId: Int, opcode: Byte, response: JsonObject) {
+        val payload = response.toString().toByteArray()
+        send(Protocol.createMessage(opcode, requestId, payload))
+    }
+
+    private fun sendKvError(requestId: Int, opcode: Byte, message: String) {
+        val response = buildJsonObject {
+            put("ok", false)
+            put("error", message)
+        }
+        sendKvResponse(requestId, opcode, response)
     }
 
     // ==========================================================================

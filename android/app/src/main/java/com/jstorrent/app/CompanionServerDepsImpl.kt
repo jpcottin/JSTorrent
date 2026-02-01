@@ -13,8 +13,10 @@ import com.jstorrent.app.link.PendingLinkManager
 import com.jstorrent.app.storage.RootStore
 import com.jstorrent.companion.server.CompanionServerDeps
 import com.jstorrent.companion.server.DownloadRoot
+import com.jstorrent.companion.server.KVStoreProvider
 import com.jstorrent.companion.server.RootStoreProvider
 import com.jstorrent.companion.server.TokenStoreProvider
+import com.jstorrent.quickjs.storage.SqliteKVStore
 
 private const val TAG = "CompanionServerDepsImpl"
 
@@ -25,7 +27,8 @@ private const val TAG = "CompanionServerDepsImpl"
 class CompanionServerDepsImpl(
     override val appContext: Context,
     private val tokenStoreImpl: TokenStore,
-    private val rootStoreImpl: RootStore
+    private val rootStoreImpl: RootStore,
+    private val sqliteKVStore: SqliteKVStore
 ) : CompanionServerDeps {
 
     override val versionName: String = BuildConfig.VERSION_NAME
@@ -75,6 +78,15 @@ class CompanionServerDepsImpl(
         override fun removeRoot(key: String): Boolean = rootStoreImpl.removeRoot(key)
 
         override fun resolveKey(key: String): Uri? = rootStoreImpl.resolveKey(key)
+    }
+
+    override val kvStore: KVStoreProvider = object : KVStoreProvider {
+        override fun get(key: String): String? = sqliteKVStore.get(key)
+        override fun getMulti(keys: List<String>): Map<String, String> = sqliteKVStore.getMulti(keys)
+        override fun set(key: String, value: String) = sqliteKVStore.set(key, value)
+        override fun delete(key: String): Boolean = sqliteKVStore.delete(key)
+        override fun keys(prefix: String): List<String> = sqliteKVStore.keys(prefix)
+        override fun clear(prefix: String): Int = sqliteKVStore.clear(prefix)
     }
 
     /**

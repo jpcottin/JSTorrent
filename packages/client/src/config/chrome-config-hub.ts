@@ -48,8 +48,8 @@ interface KVResponse<T = unknown> {
   error?: string
 }
 
-// Settings key prefix for chrome.storage
-const SETTINGS_KEY_PREFIX = 'settings:'
+// Settings key prefix - matches Android/native daemon ('config:')
+const SETTINGS_KEY_PREFIX = 'config:'
 
 /**
  * Send a KV message to the service worker.

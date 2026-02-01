@@ -16,6 +16,7 @@ import com.jstorrent.app.R
 import com.jstorrent.app.auth.TokenStore
 import com.jstorrent.app.storage.RootStore
 import com.jstorrent.companion.server.CompanionHttpServer
+import com.jstorrent.quickjs.storage.SqliteKVStore
 import com.jstorrent.companion.server.DownloadRoot
 import com.jstorrent.io.file.FileManagerImpl
 import kotlinx.serialization.json.JsonElement
@@ -30,6 +31,7 @@ class IoDaemonService : Service() {
 
     private lateinit var tokenStore: TokenStore
     private lateinit var rootStore: RootStore
+    private lateinit var kvStore: SqliteKVStore
     private var httpServer: CompanionHttpServer? = null
 
     override fun onCreate() {
@@ -38,6 +40,7 @@ class IoDaemonService : Service() {
 
         tokenStore = TokenStore(this)
         rootStore = RootStore(this)
+        kvStore = SqliteKVStore(this)
         createNotificationChannel()
 
         // Set singleton for static access
@@ -81,7 +84,7 @@ class IoDaemonService : Service() {
             return
         }
 
-        val deps = CompanionServerDepsImpl(this, tokenStore, rootStore)
+        val deps = CompanionServerDepsImpl(this, tokenStore, rootStore, kvStore)
         val fileManager = FileManagerImpl(this)
         httpServer = CompanionHttpServer(deps, fileManager)
 

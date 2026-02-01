@@ -365,6 +365,116 @@ function handleNotificationMessage(message: NotificationMessage): void {
   }
 }
 
+// KV opcodes for WebSocket protocol (must match Protocol.kt)
+const KV_OPCODES = {
+  KV_GET: 0xe3,
+  KV_GET_MULTI: 0xe4,
+  KV_SET: 0xe5,
+  KV_DELETE: 0xe6,
+  KV_KEYS: 0xe7,
+  KV_CLEAR: 0xe8,
+} as const
+
+// Default key prefix for KV storage (must match kv-handlers.ts)
+const DEFAULT_KV_PREFIX = 'session:'
+
+/**
+ * Handle KV message via WebSocket to Android companion.
+ * Routes settings and session data to Android SQLite instead of chrome.storage.
+ *
+ * Applies same keyPrefix logic as kv-handlers.ts to maintain consistent key namespacing.
+ */
+async function handleKVMessageViaWebSocket(
+  bridge: ReturnType<typeof getDaemonBridge>,
+  message: {
+    type?: string
+    key?: string
+    keys?: string[]
+    value?: unknown
+    prefix?: string
+    keyPrefix?: string
+  },
+  sendResponse: SendResponse,
+): Promise<void> {
+  try {
+    // Apply key prefix (same logic as kv-handlers.ts)
+    const keyPrefix = message.keyPrefix ?? DEFAULT_KV_PREFIX
+
+    function prefixKey(key: string): string {
+      return keyPrefix + key
+    }
+
+    function unprefixKey(key: string): string {
+      return key.startsWith(keyPrefix) ? key.slice(keyPrefix.length) : key
+    }
+
+    let opcode: number
+    let payload: Record<string, unknown>
+
+    switch (message.type) {
+      case 'KV_GET':
+      case 'KV_GET_JSON':
+        opcode = KV_OPCODES.KV_GET
+        payload = { key: prefixKey(message.key!) }
+        break
+      case 'KV_GET_MULTI': {
+        opcode = KV_OPCODES.KV_GET_MULTI
+        payload = { keys: message.keys!.map(prefixKey) }
+        break
+      }
+      case 'KV_SET':
+      case 'KV_SET_JSON':
+        opcode = KV_OPCODES.KV_SET
+        payload = { key: prefixKey(message.key!), value: message.value }
+        break
+      case 'KV_DELETE':
+        opcode = KV_OPCODES.KV_DELETE
+        payload = { key: prefixKey(message.key!) }
+        break
+      case 'KV_KEYS':
+        opcode = KV_OPCODES.KV_KEYS
+        // For KEYS, combine keyPrefix with any additional prefix filter
+        payload = { prefix: keyPrefix + (message.prefix ?? '') }
+        break
+      case 'KV_CLEAR':
+        opcode = KV_OPCODES.KV_CLEAR
+        payload = { prefix: keyPrefix }
+        break
+      default:
+        sendResponse({ ok: false, error: `Unknown KV message type: ${message.type}` })
+        return
+    }
+
+    const response = (await bridge.sendKvRequest(opcode, payload)) as {
+      ok: boolean
+      value?: unknown
+      values?: Record<string, unknown>
+      keys?: string[]
+      error?: string
+    }
+
+    // For KV_GET_MULTI and KV_KEYS, unprefix keys in response
+    if (message.type === 'KV_GET_MULTI' && response.ok && response.values) {
+      const unprefixedValues: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(response.values)) {
+        unprefixedValues[unprefixKey(key)] = value
+      }
+      sendResponse({ ...response, values: unprefixedValues })
+    } else if (message.type === 'KV_KEYS' && response.ok && response.keys) {
+      const unprefixedKeys = response.keys
+        .filter((k: string) => k.startsWith(keyPrefix))
+        .map(unprefixKey)
+        .filter((k: string) => !message.prefix || k.startsWith(message.prefix))
+      sendResponse({ ...response, keys: unprefixedKeys })
+    } else {
+      sendResponse(response)
+    }
+  } catch (e) {
+    console.error('[SW] KV WebSocket error:', e)
+    sendResponse({ ok: false, error: String(e) })
+  }
+}
+
 function handleMessage(
   message: {
     type?: string
@@ -386,7 +496,13 @@ function handleMessage(
   }
 
   // KV operations (external session store)
+  // Route to Android SQLite via WebSocket when connected to Android companion,
+  // otherwise use chrome.storage
   if (message.type?.startsWith('KV_')) {
+    if (bridge.isAndroidCompanion()) {
+      handleKVMessageViaWebSocket(bridge, message, sendResponse)
+      return true
+    }
     return handleKVMessage(message, sendResponse)
   }
 

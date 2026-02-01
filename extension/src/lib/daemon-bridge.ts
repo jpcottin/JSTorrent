@@ -92,6 +92,12 @@ export class DaemonBridge {
   private ws: WebSocket | null = null
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null
 
+  // Pending KV requests (for request/response correlation)
+  private pendingKvRequests = new Map<
+    number,
+    { resolve: (response: unknown) => void; reject: (error: Error) => void }
+  >()
+
   constructor() {
     const platform = detectPlatform()
     this.state = {
@@ -862,6 +868,9 @@ export class DaemonBridge {
         } else if (opcode === 0xe1) {
           // EVENT
           this.handleControlEvent(data)
+        } else if (opcode >= 0xe3 && opcode <= 0xe8) {
+          // KV response opcodes (0xE3-0xE8)
+          this.handleKvResponse(data)
         }
       }
 
@@ -989,6 +998,78 @@ export class DaemonBridge {
     view.setUint32(4, requestId, true)
     frame.set(payload, 8)
     return frame.buffer
+  }
+
+  // ==========================================================================
+  // KV Storage over WebSocket (for Android companion)
+  // ==========================================================================
+
+  /**
+   * Check if connected to Android companion (vs Crostini Rust daemon).
+   * When true, KV operations should go through WebSocket to Android SQLite.
+   */
+  isAndroidCompanion(): boolean {
+    return (
+      this.state.status === 'connected' && this.state.daemonInfo?.host === CHROMEOS_ANDROID_HOST
+    )
+  }
+
+  /**
+   * Send a KV request over WebSocket and wait for response.
+   * Only works when connected to Android companion.
+   */
+  async sendKvRequest(opcode: number, payload: Record<string, unknown>): Promise<unknown> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected')
+    }
+
+    const requestId = Math.floor(Math.random() * 0xffffffff)
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(payload))
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingKvRequests.delete(requestId)
+        reject(new Error('KV request timeout'))
+      }, 10000)
+
+      this.pendingKvRequests.set(requestId, {
+        resolve: (response) => {
+          clearTimeout(timeout)
+          this.pendingKvRequests.delete(requestId)
+          resolve(response)
+        },
+        reject: (error) => {
+          clearTimeout(timeout)
+          this.pendingKvRequests.delete(requestId)
+          reject(error)
+        },
+      })
+
+      this.ws!.send(this.buildFrame(opcode, requestId, payloadBytes))
+    })
+  }
+
+  /**
+   * Handle KV response from WebSocket.
+   */
+  private handleKvResponse(frame: Uint8Array): void {
+    const view = new DataView(frame.buffer)
+    const requestId = view.getUint32(4, true)
+
+    const pending = this.pendingKvRequests.get(requestId)
+    if (!pending) {
+      console.warn('[DaemonBridge] No pending KV request for requestId:', requestId)
+      return
+    }
+
+    try {
+      const payload = frame.slice(8)
+      const json = new TextDecoder().decode(payload)
+      const response = JSON.parse(json)
+      pending.resolve(response)
+    } catch (e) {
+      pending.reject(new Error(`Failed to parse KV response: ${e}`))
+    }
   }
 
   /**

@@ -53,6 +53,14 @@ object Protocol {
     const val OP_CTRL_EVENT: Byte = 0xE1.toByte()
     const val OP_CTRL_OPEN_FOLDER_PICKER: Byte = 0xE2.toByte()
 
+    // KV storage opcodes (0xE3-0xE8) - for extension settings/session sync
+    const val OP_KV_GET: Byte = 0xE3.toByte()
+    const val OP_KV_GET_MULTI: Byte = 0xE4.toByte()
+    const val OP_KV_SET: Byte = 0xE5.toByte()
+    const val OP_KV_DELETE: Byte = 0xE6.toByte()
+    const val OP_KV_KEYS: Byte = 0xE7.toByte()
+    const val OP_KV_CLEAR: Byte = 0xE8.toByte()
+
     // Opcode sets for route validation
     val HANDSHAKE_OPCODES = setOf(
         OP_CLIENT_HELLO, OP_SERVER_HELLO, OP_AUTH, OP_AUTH_RESULT, OP_ERROR
@@ -68,7 +76,8 @@ object Protocol {
     )
 
     val CONTROL_OPCODES = HANDSHAKE_OPCODES + setOf(
-        OP_CTRL_ROOTS_CHANGED, OP_CTRL_EVENT, OP_CTRL_OPEN_FOLDER_PICKER
+        OP_CTRL_ROOTS_CHANGED, OP_CTRL_EVENT, OP_CTRL_OPEN_FOLDER_PICKER,
+        OP_KV_GET, OP_KV_GET_MULTI, OP_KV_SET, OP_KV_DELETE, OP_KV_KEYS, OP_KV_CLEAR
     )
 
     /**

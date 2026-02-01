@@ -64,6 +64,30 @@ interface TokenStoreProvider {
 }
 
 /**
+ * Interface for KV storage operations.
+ * Used by extension to store settings and session data.
+ */
+interface KVStoreProvider {
+    /** Get a value by key */
+    fun get(key: String): String?
+
+    /** Get multiple values by keys */
+    fun getMulti(keys: List<String>): Map<String, String>
+
+    /** Set a value by key */
+    fun set(key: String, value: String)
+
+    /** Delete a key */
+    fun delete(key: String): Boolean
+
+    /** Get all keys matching a prefix */
+    fun keys(prefix: String): List<String>
+
+    /** Clear all keys matching a prefix */
+    fun clear(prefix: String): Int
+}
+
+/**
  * Interface for download root management.
  * Implemented by app module's RootStore.
  */
@@ -94,6 +118,9 @@ interface CompanionServerDeps {
 
     /** Download root management provider */
     val rootStore: RootStoreProvider
+
+    /** KV storage provider for extension settings/session */
+    val kvStore: KVStoreProvider
 
     /** App version name for status responses */
     val versionName: String
