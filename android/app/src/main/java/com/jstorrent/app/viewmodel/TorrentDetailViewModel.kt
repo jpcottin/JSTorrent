@@ -97,6 +97,9 @@ class TorrentDetailViewModel(
     // Local bitfield maintained from initial fetch + diffs
     private val _pieceBitfield = MutableStateFlow<BitSet?>(null)
 
+    // Track when removal has been initiated to avoid showing error during navigation
+    private val _isRemoving = MutableStateFlow(false)
+
     init {
         // Fetch files, trackers, peers, and pieces when engine state changes
         viewModelScope.launch {
@@ -157,7 +160,8 @@ class TorrentDetailViewModel(
         _cachedPeers,
         _cachedPieces,
         _pieceBitfield,
-        _cachedDetails
+        _cachedDetails,
+        _isRemoving
     ) { values ->
         val isLoaded = values[0] as Boolean
         val state = values[1] as? com.jstorrent.quickjs.model.EngineState
@@ -176,6 +180,7 @@ class TorrentDetailViewModel(
         val pieces = values[9] as? PieceInfo
         val bitfield = values[10] as? BitSet
         val details = values[11] as? TorrentDetails
+        val isRemoving = values[12] as Boolean
 
         // Use pending state if available, otherwise use applied state
         val effectiveFileState = pendingState ?: appliedState
@@ -191,7 +196,13 @@ class TorrentDetailViewModel(
             else -> {
                 val torrent = state?.torrents?.find { it.infoHash == infoHash }
                 if (torrent == null) {
-                    TorrentDetailUiState.Error("Torrent not found")
+                    // If we're in the process of removing, show Loading instead of Error
+                    // to avoid jarring "Error" title during navigation transition
+                    if (isRemoving) {
+                        TorrentDetailUiState.Loading
+                    } else {
+                        TorrentDetailUiState.Error("Torrent not found")
+                    }
                 } else {
                     TorrentDetailUiState.Loaded(
                         torrent = createTorrentDetailUi(torrent, effectiveFileState, files, trackers, peers, pieces, bitfield, details, activePieceStates),
@@ -333,6 +344,7 @@ class TorrentDetailViewModel(
      * Remove the current torrent.
      */
     fun remove(deleteFiles: Boolean = false) {
+        _isRemoving.value = true
         repository.removeTorrent(infoHash, deleteFiles)
     }
 

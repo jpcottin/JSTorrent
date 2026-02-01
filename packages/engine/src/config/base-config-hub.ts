@@ -91,6 +91,9 @@ export abstract class BaseConfigHub implements ConfigHub {
   readonly proxyPort = createConfigValue(this, 'proxyPort')
   readonly proxyUsername = createConfigValue(this, 'proxyUsername')
   readonly proxyPassword = createConfigValue(this, 'proxyPassword')
+  readonly proxyHttpTrackers = createConfigValue(this, 'proxyHttpTrackers')
+  readonly proxyUdpTrackers = createConfigValue(this, 'proxyUdpTrackers')
+  readonly proxyPeerConnections = createConfigValue(this, 'proxyPeerConnections')
 
   // Settings: Features
   readonly dhtEnabled = createConfigValue(this, 'dhtEnabled')

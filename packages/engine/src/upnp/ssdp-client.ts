@@ -23,7 +23,11 @@ export class SSDPClient {
 
   async search(timeoutMs = 3000): Promise<SSDPDevice[]> {
     this.devices = []
-    this.socket = await this.socketFactory.createUdpSocket('0.0.0.0', 0)
+    this.socket = await this.socketFactory.createUdpSocket({
+      bindAddr: '0.0.0.0',
+      bindPort: 0,
+      purpose: 'upnp',
+    })
 
     await this.socket.joinMulticast(SSDP_MULTICAST)
 

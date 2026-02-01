@@ -233,6 +233,12 @@ class TorrentListViewModel(
     )
 
     /**
+     * Engine error (e.g., JS initialization failure).
+     * Exposed for UI to show toast notifications.
+     */
+    val engineError: StateFlow<String?> = repository.lastError
+
+    /**
      * Filter counts for each filter type.
      * Exposed as StateFlow so Compose can observe and recompose when counts change.
      * Uses engine state when available, falls back to cached data when engine is off.

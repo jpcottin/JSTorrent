@@ -122,18 +122,41 @@ export interface IUdpSocket {
   leaveMulticast(group: string): Promise<void>
 }
 
+/**
+ * Purpose of a socket, used to determine proxy routing.
+ */
+export type SocketPurpose =
+  | 'peer' // Peer connections (TCP)
+  | 'http-tracker' // HTTP/HTTPS tracker requests (TCP)
+  | 'udp-tracker' // UDP tracker requests (UDP)
+  | 'dht' // DHT KRPC (UDP) - not proxied
+  | 'upnp' // UPnP SSDP discovery (UDP multicast) - not proxied
+  | 'lpd' // Local peer discovery (UDP multicast) - not proxied
+
+export interface TcpSocketOptions {
+  host?: string
+  port?: number
+  purpose?: SocketPurpose
+}
+
+export interface UdpSocketOptions {
+  bindAddr?: string
+  bindPort?: number
+  purpose?: SocketPurpose
+}
+
 export interface ISocketFactory {
   /**
    * Create a new TCP socket.
-   * If host and port are provided, it may attempt to connect immediately
-   * (depending on implementation), or return a socket ready to connect.
+   * @param options - Socket options including host, port, and purpose for proxy routing
    */
-  createTcpSocket(host?: string, port?: number): Promise<ITcpSocket>
+  createTcpSocket(options?: TcpSocketOptions): Promise<ITcpSocket>
 
   /**
    * Create a new UDP socket bound to the specified address and port.
+   * @param options - Socket options including bind address, port, and purpose for proxy routing
    */
-  createUdpSocket(bindAddr?: string, bindPort?: number): Promise<IUdpSocket>
+  createUdpSocket(options?: UdpSocketOptions): Promise<IUdpSocket>
 
   /**
    * Create a TCP server.

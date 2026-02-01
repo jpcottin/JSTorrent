@@ -51,7 +51,7 @@ class TcpSocketServiceTest {
         val success = AtomicBoolean(false)
 
         service.setCallback(object : TcpSocketCallback {
-            override fun onTcpConnected(socketId: Int, successFlag: Boolean, errorCode: Int) {
+            override fun onTcpConnected(socketId: Int, successFlag: Boolean, errorCode: Int, errorMessage: String?) {
                 success.set(successFlag)
                 connected.countDown()
             }
@@ -71,7 +71,7 @@ class TcpSocketServiceTest {
         val success = AtomicBoolean(true)
 
         service.setCallback(object : TcpSocketCallback {
-            override fun onTcpConnected(socketId: Int, successFlag: Boolean, errorCode: Int) {
+            override fun onTcpConnected(socketId: Int, successFlag: Boolean, errorCode: Int, errorMessage: String?) {
                 success.set(successFlag)
                 connected.countDown()
             }
@@ -109,7 +109,7 @@ class TcpSocketServiceTest {
 
         val connected = CountDownLatch(1)
         service.setCallback(object : TcpSocketCallback {
-            override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int) {
+            override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int, errorMessage: String?) {
                 connected.countDown()
             }
             override fun onTcpData(socketId: Int, data: ByteArray) {}
@@ -134,7 +134,7 @@ class TcpSocketServiceTest {
         val receivedData = AtomicReference<ByteArray>()
 
         service.setCallback(object : TcpSocketCallback {
-            override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int) {}
+            override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int, errorMessage: String?) {}
             override fun onTcpData(socketId: Int, data: ByteArray) {
                 receivedData.set(data)
                 dataReceived.countDown()
@@ -145,7 +145,7 @@ class TcpSocketServiceTest {
 
         val connected = CountDownLatch(1)
         service.setCallback(object : TcpSocketCallback {
-            override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int) {
+            override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int, errorMessage: String?) {
                 connected.countDown()
             }
             override fun onTcpData(socketId: Int, data: ByteArray) {
@@ -186,7 +186,7 @@ class TcpSocketServiceTest {
         val connectionResult = AtomicBoolean(true)
 
         service.setCallback(object : TcpSocketCallback {
-            override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int) {
+            override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int, errorMessage: String?) {
                 connectionResult.set(success)
                 connected.countDown()
             }

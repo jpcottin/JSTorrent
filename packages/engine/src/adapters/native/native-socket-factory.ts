@@ -30,11 +30,15 @@ export class NativeSocketFactory implements ISocketFactory {
    * Create a new TCP socket.
    * If host and port are provided, connects immediately.
    */
-  async createTcpSocket(host?: string, port?: number): Promise<ITcpSocket> {
+  async createTcpSocket(options?: {
+    host?: string
+    port?: number
+    purpose?: string
+  }): Promise<ITcpSocket> {
     const socket = new NativeTcpSocket(this.getNextId())
 
-    if (host && port) {
-      await socket.connect(port, host)
+    if (options?.host && options?.port) {
+      await socket.connect(options.port, options.host)
     }
 
     return socket
@@ -43,7 +47,13 @@ export class NativeSocketFactory implements ISocketFactory {
   /**
    * Create a new UDP socket bound to the specified address and port.
    */
-  async createUdpSocket(bindAddr: string = '', bindPort: number = 0): Promise<IUdpSocket> {
+  async createUdpSocket(options?: {
+    bindAddr?: string
+    bindPort?: number
+    purpose?: string
+  }): Promise<IUdpSocket> {
+    const bindAddr = options?.bindAddr ?? ''
+    const bindPort = options?.bindPort ?? 0
     const socketId = this.getNextId()
     const socket = new NativeUdpSocket(socketId)
 

@@ -101,6 +101,15 @@ export interface ConfigHub {
   /** SOCKS5 proxy password (optional, for authenticated proxies). */
   readonly proxyPassword: ConfigValue<string | null>
 
+  /** Whether to route HTTP/HTTPS tracker requests through the proxy. */
+  readonly proxyHttpTrackers: ConfigValue<boolean>
+
+  /** Whether to route UDP tracker requests through the proxy (requires proxy UDP support). */
+  readonly proxyUdpTrackers: ConfigValue<boolean>
+
+  /** Whether to route peer connections through the proxy. */
+  readonly proxyPeerConnections: ConfigValue<boolean>
+
   // ===========================================================================
   // Settings: Features
   // ===========================================================================

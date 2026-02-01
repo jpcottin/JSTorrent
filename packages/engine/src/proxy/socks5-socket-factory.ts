@@ -1,50 +1,116 @@
 /**
  * SOCKS5 Proxy Socket Factory
  *
- * Decorates an existing ISocketFactory to route TCP connections through
- * a SOCKS5 proxy. UDP sockets and TCP servers pass through unchanged.
+ * Decorates an existing ISocketFactory to route connections through
+ * a SOCKS5 proxy based on configurable routing rules.
  */
 
-import type { ISocketFactory, ITcpSocket, IUdpSocket, ITcpServer } from '../interfaces/socket'
+import type {
+  ISocketFactory,
+  ITcpSocket,
+  IUdpSocket,
+  ITcpServer,
+  TcpSocketOptions,
+  UdpSocketOptions,
+} from '../interfaces/socket'
 import { Socks5Socket, Socks5ProxyConfig } from './socks5-socket'
+import { Socks5UdpSocket } from './socks5-udp-socket'
+
+/** Configuration for which traffic types to route through the proxy */
+export interface Socks5RoutingConfig {
+  /** Route HTTP/HTTPS tracker requests through proxy (default: true) */
+  proxyHttpTrackers: boolean
+  /** Route UDP tracker requests through proxy (default: true) */
+  proxyUdpTrackers: boolean
+  /** Route peer connections through proxy (default: true) */
+  proxyPeerConnections: boolean
+}
 
 /**
- * SocksProxySocketFactory decorates an existing ISocketFactory
- * to route TCP connections through a SOCKS5 proxy.
+ * Socks5SocketFactory decorates an existing ISocketFactory
+ * to route connections through a SOCKS5 proxy.
  *
- * UDP sockets and TCP servers are passed through unchanged since
- * SOCKS5 UDP ASSOCIATE is complex and rarely needed for BitTorrent
- * (users can disable DHT if they need full privacy).
+ * Routing is based on the `purpose` option passed to createTcpSocket/createUdpSocket:
+ * - 'peer' -> proxied if proxyPeerConnections is true
+ * - 'http-tracker' -> proxied if proxyHttpTrackers is true
+ * - 'udp-tracker' -> proxied if proxyUdpTrackers is true (requires UDP ASSOCIATE)
+ * - 'dht', 'upnp', 'lpd' -> never proxied (local network / not applicable)
+ *
+ * TCP servers and incoming connections are never proxied.
  */
 export class Socks5SocketFactory implements ISocketFactory {
   private underlying: ISocketFactory
   private proxyConfig: Socks5ProxyConfig
+  private routingConfig: Socks5RoutingConfig
 
-  constructor(underlying: ISocketFactory, proxyConfig: Socks5ProxyConfig) {
+  constructor(
+    underlying: ISocketFactory,
+    proxyConfig: Socks5ProxyConfig,
+    routingConfig: Socks5RoutingConfig = {
+      proxyHttpTrackers: true,
+      proxyUdpTrackers: true,
+      proxyPeerConnections: true,
+    },
+  ) {
     this.underlying = underlying
     this.proxyConfig = proxyConfig
+    this.routingConfig = routingConfig
   }
 
   /**
-   * Create a proxied TCP socket.
+   * Create a TCP socket, optionally proxied based on purpose.
    *
-   * Returns a Socks5Socket that will route through the proxy when connect() is called.
-   * The host/port parameters are ignored - use connect() to specify the target.
+   * @param options - Socket options including purpose for routing decisions
+   * @returns Proxied or direct socket based on routing config
    */
-  async createTcpSocket(_host?: string, _port?: number): Promise<ITcpSocket> {
+  async createTcpSocket(options?: TcpSocketOptions): Promise<ITcpSocket> {
+    const purpose = options?.purpose
+
+    // Check if this traffic should be proxied based on purpose
+    // Only explicitly marked traffic is proxied - undefined purpose = direct connection
+    const shouldProxy =
+      (purpose === 'peer' && this.routingConfig.proxyPeerConnections) ||
+      (purpose === 'http-tracker' && this.routingConfig.proxyHttpTrackers)
+
+    if (!shouldProxy) {
+      // Direct connection
+      return this.underlying.createTcpSocket(options)
+    }
+
     // Create underlying socket (unconnected)
     const rawSocket = await this.underlying.createTcpSocket()
 
     // Wrap with SOCKS5 handler
-    return new Socks5Socket(rawSocket, this.proxyConfig)
+    const socks5Socket = new Socks5Socket(rawSocket, this.proxyConfig)
+
+    // If host and port are provided, connect through the proxy
+    // This matches the behavior of direct socket factories
+    if (options?.host && options?.port) {
+      await socks5Socket.connect(options.port, options.host)
+    }
+
+    return socks5Socket
   }
 
   /**
-   * UDP sockets are not proxied.
-   * Users should disable DHT if they need full privacy through the proxy.
+   * Create a UDP socket, optionally proxied based on purpose.
+   *
+   * @param options - Socket options including purpose for routing decisions
+   * @returns Proxied or direct socket based on routing config
    */
-  async createUdpSocket(bindAddr?: string, bindPort?: number): Promise<IUdpSocket> {
-    return this.underlying.createUdpSocket(bindAddr, bindPort)
+  async createUdpSocket(options?: UdpSocketOptions): Promise<IUdpSocket> {
+    const purpose = options?.purpose
+
+    // Only proxy UDP trackers, and only if enabled
+    if (purpose === 'udp-tracker' && this.routingConfig.proxyUdpTrackers) {
+      // Create a SOCKS5 UDP socket
+      const udpSocket = new Socks5UdpSocket(this.underlying, this.proxyConfig)
+      await udpSocket.init()
+      return udpSocket
+    }
+
+    // Direct UDP for everything else (DHT, UPnP, LPD, etc.)
+    return this.underlying.createUdpSocket(options)
   }
 
   /**

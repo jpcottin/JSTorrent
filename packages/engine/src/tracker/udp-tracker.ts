@@ -75,7 +75,7 @@ export class UdpTracker extends EngineComponent implements ITracker {
     try {
       if (!this.socket) {
         this.logger.debug('UdpTracker: Creating UDP socket')
-        this.socket = await this.socketFactory.createUdpSocket()
+        this.socket = await this.socketFactory.createUdpSocket({ purpose: 'udp-tracker' })
         this.socket.onMessage((rinfo, msg) => {
           this.onMessage(msg, rinfo)
         })

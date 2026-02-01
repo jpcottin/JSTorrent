@@ -541,7 +541,7 @@ export function PieceBar({ getData, height = 16 }: PieceVisualizationProps) {
  */
 export function PieceLegend() {
   const items = [
-    { color: COLORS.completed, label: 'Verified' },
+    { color: COLORS.completed, label: 'Complete' },
     { color: COLORS.fullyResponded, label: 'Verifying' },
     { color: COLORS.fullyRequested, label: 'Receiving' },
     { color: COLORS.partial, label: 'Requesting' },

@@ -110,13 +110,22 @@ describe('SOCKS5 Protocol', () => {
       expect(request[portOffset + 1]).toBe(0xff)
     })
 
-    it('should build CONNECT request with IP address (as domain)', () => {
-      // Even for IP addresses, we use DOMAIN type to keep the code simple
-      // and let the proxy resolve it
+    it('should build CONNECT request with IPv4 address', () => {
       const request = buildConnectRequest('192.168.1.1', 443)
 
-      expect(request[3]).toBe(SOCKS5_ATYP.DOMAIN)
-      expect(request[4]).toBe(11) // "192.168.1.1" length
+      expect(request.length).toBe(10) // Fixed size for IPv4
+      expect(request[0]).toBe(SOCKS5_VERSION)
+      expect(request[1]).toBe(SOCKS5_CMD.CONNECT)
+      expect(request[2]).toBe(0x00) // Reserved
+      expect(request[3]).toBe(SOCKS5_ATYP.IPV4)
+      // IPv4 address bytes
+      expect(request[4]).toBe(192)
+      expect(request[5]).toBe(168)
+      expect(request[6]).toBe(1)
+      expect(request[7]).toBe(1)
+      // Port 443 in big endian
+      expect(request[8]).toBe(0x01)
+      expect(request[9]).toBe(0xbb)
     })
 
     it('should throw for hostname over 255 bytes', () => {

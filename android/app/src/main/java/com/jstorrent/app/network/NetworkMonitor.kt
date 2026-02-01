@@ -26,6 +26,9 @@ class NetworkMonitor(context: Context) {
     private val _isWifiConnected = MutableStateFlow(checkCurrentWifiState())
     val isWifiConnected: StateFlow<Boolean> = _isWifiConnected.asStateFlow()
 
+    private val _isVpnConnected = MutableStateFlow(checkCurrentVpnState())
+    val isVpnConnected: StateFlow<Boolean> = _isVpnConnected.asStateFlow()
+
     private val _isConnected = MutableStateFlow(checkCurrentConnectionState())
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
@@ -89,14 +92,21 @@ class NetworkMonitor(context: Context) {
 
     private fun updateNetworkState() {
         _isWifiConnected.value = checkCurrentWifiState()
+        _isVpnConnected.value = checkCurrentVpnState()
         _isConnected.value = checkCurrentConnectionState()
-        Log.d(TAG, "Network state updated: wifi=${_isWifiConnected.value}, connected=${_isConnected.value}")
+        Log.d(TAG, "Network state updated: wifi=${_isWifiConnected.value}, vpn=${_isVpnConnected.value}, connected=${_isConnected.value}")
     }
 
     private fun checkCurrentWifiState(): Boolean {
         val network = connectivityManager.activeNetwork ?: return false
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
         return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+    }
+
+    private fun checkCurrentVpnState(): Boolean {
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
     }
 
     private fun checkCurrentConnectionState(): Boolean {

@@ -272,6 +272,33 @@ export const configSchema = {
     restartRequired: true,
   },
 
+  /** Whether to route HTTP/HTTPS tracker requests through the proxy. */
+  proxyHttpTrackers: {
+    type: 'boolean',
+    category: 'setting',
+    storage: 'sync',
+    default: true,
+    restartRequired: true,
+  },
+
+  /** Whether to route UDP tracker requests through the proxy (requires proxy UDP support). */
+  proxyUdpTrackers: {
+    type: 'boolean',
+    category: 'setting',
+    storage: 'sync',
+    default: true,
+    restartRequired: true,
+  },
+
+  /** Whether to route peer connections through the proxy. */
+  proxyPeerConnections: {
+    type: 'boolean',
+    category: 'setting',
+    storage: 'sync',
+    default: true,
+    restartRequired: true,
+  },
+
   // ===========================================================================
   // Settings: Features
   // ===========================================================================

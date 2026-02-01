@@ -745,9 +745,9 @@ class IoWebSocketHandler(
     // TcpSocketCallback implementation - translate io-core events to WS frames
     // ==========================================================================
 
-    override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int) {
+    override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int, errorMessage: String?) {
         val requestId = tcpConnectRequests.remove(socketId) ?: 0
-        Log.i(TAG, "TCP_CONNECTED: socketId=$socketId, success=$success, errorCode=$errorCode")
+        Log.i(TAG, "TCP_CONNECTED: socketId=$socketId, success=$success, errorCode=$errorCode, error=$errorMessage")
 
         // Update global stats: pending connect finished
         DaemonStats.pendingConnects.decrementAndGet()

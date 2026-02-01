@@ -37,6 +37,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.jstorrent.app.viewmodel.SettingsViewModel
 
+private data class SpeedPreset(val bytesPerSec: Int, val label: String)
+
+private val speedPresets = listOf(
+    SpeedPreset(0, "Unlimited"),
+    SpeedPreset(102400, "100 KB/s"),
+    SpeedPreset(512000, "500 KB/s"),
+    SpeedPreset(1048576, "1 MB/s"),
+    SpeedPreset(5242880, "5 MB/s"),
+    SpeedPreset(10485760, "10 MB/s")
+)
+
 private data class ConnectionLimitPreset(val value: Int, val label: String)
 
 private val maxPeersPerTorrentPresets = listOf(
@@ -74,7 +85,7 @@ private val maxPipelineDepthPresets = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConnectionLimitsSettingsScreen(
+fun SpeedConnectionLimitsSettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -85,7 +96,7 @@ fun ConnectionLimitsSettingsScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Connection Limits") },
+                title = { Text("Speed & Connection Limits") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
@@ -102,8 +113,27 @@ fun ConnectionLimitsSettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            // Speed Limits Section
             item {
-                SectionHeader(title = "Peer Limits")
+                SectionHeader(title = "Speed Limits")
+            }
+
+            item {
+                SpeedLimitsSection(
+                    downloadUnlimited = uiState.downloadSpeedUnlimited,
+                    downloadLimit = uiState.downloadSpeedLimit,
+                    uploadUnlimited = uiState.uploadSpeedUnlimited,
+                    uploadLimit = uiState.uploadSpeedLimit,
+                    onDownloadUnlimitedChange = { viewModel.setDownloadSpeedUnlimited(it) },
+                    onDownloadLimitChange = { viewModel.setDownloadSpeedLimit(it) },
+                    onUploadUnlimitedChange = { viewModel.setUploadSpeedUnlimited(it) },
+                    onUploadLimitChange = { viewModel.setUploadSpeedLimit(it) }
+                )
+            }
+
+            // Connection Limits Section
+            item {
+                SectionHeader(title = "Connection Limits")
             }
 
             item {
@@ -117,6 +147,104 @@ fun ConnectionLimitsSettingsScreen(
                     onMaxUploadSlotsChange = { viewModel.setMaxUploadSlots(it) },
                     onMaxPipelineDepthChange = { viewModel.setMaxPipelineDepth(it) }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeedLimitsSection(
+    downloadUnlimited: Boolean,
+    downloadLimit: Int,
+    uploadUnlimited: Boolean,
+    uploadLimit: Int,
+    onDownloadUnlimitedChange: (Boolean) -> Unit,
+    onDownloadLimitChange: (Int) -> Unit,
+    onUploadUnlimitedChange: (Boolean) -> Unit,
+    onUploadLimitChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+    ) {
+        SpeedLimitRow(
+            label = "Download",
+            currentValue = if (downloadUnlimited) 0 else downloadLimit,
+            onValueChange = { value ->
+                if (value == 0) {
+                    onDownloadUnlimitedChange(true)
+                } else {
+                    onDownloadUnlimitedChange(false)
+                    onDownloadLimitChange(value)
+                }
+            }
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        SpeedLimitRow(
+            label = "Upload",
+            currentValue = if (uploadUnlimited) 0 else uploadLimit,
+            onValueChange = { value ->
+                if (value == 0) {
+                    onUploadUnlimitedChange(true)
+                } else {
+                    onUploadUnlimitedChange(false)
+                    onUploadLimitChange(value)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SpeedLimitRow(
+    label: String,
+    currentValue: Int,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val currentPreset = speedPresets.find { it.bytesPerSec == currentValue }
+        ?: SpeedPreset(currentValue, formatSpeed(currentValue))
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Box {
+            OutlinedCard(
+                modifier = Modifier.clickable { expanded = true }
+            ) {
+                Text(
+                    text = currentPreset.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                speedPresets.forEach { preset ->
+                    DropdownMenuItem(
+                        text = { Text(preset.label) },
+                        onClick = {
+                            onValueChange(preset.bytesPerSec)
+                            expanded = false
+                        },
+                        trailingIcon = if (preset.bytesPerSec == currentValue) {
+                            { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                        } else null
+                    )
+                }
             }
         }
     }

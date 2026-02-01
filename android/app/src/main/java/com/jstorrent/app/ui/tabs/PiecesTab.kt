@@ -1,19 +1,26 @@
 package com.jstorrent.app.ui.tabs
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.jstorrent.app.ui.components.PieceBar
@@ -22,6 +29,12 @@ import com.jstorrent.app.ui.components.StatRowPair
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 import com.jstorrent.app.util.Formatters
 import java.util.BitSet
+
+// Piece state colors (must match PieceMap.kt)
+private val PartialColor = Color(0xFFFF9800)   // Orange
+private val RequestedColor = Color(0xFF00BCD4) // Cyan
+private val RespondedColor = Color(0xFF4CAF50) // Green
+private val MissingColor = Color(0xFF3A3A3C)   // Dark gray
 
 /**
  * Pieces tab showing piece completion status and visual map.
@@ -71,6 +84,9 @@ fun PiecesTab(
                 piecesTotal = piecesTotal,
                 bitfield = bitfield,
                 piecesCompleted = piecesCompleted ?: 0,
+                activePiecesPartial = activePiecesPartial,
+                activePiecesRequested = activePiecesRequested,
+                activePiecesResponded = activePiecesResponded,
                 modifier = Modifier.padding(top = 4.dp)
             )
 
@@ -92,7 +108,50 @@ fun PiecesTab(
                 activePiecesResponded = activePiecesResponded,
                 modifier = Modifier.padding(top = 4.dp)
             )
+
+            // Legend
+            Spacer(modifier = Modifier.height(8.dp))
+            PieceLegend()
         }
+    }
+}
+
+/**
+ * Legend showing piece state colors.
+ */
+@Composable
+private fun PieceLegend() {
+    val completedColor = MaterialTheme.colorScheme.primary
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        LegendItem(color = completedColor, label = "Complete")
+        LegendItem(color = RespondedColor, label = "Verifying")
+        LegendItem(color = RequestedColor, label = "Receiving")
+        LegendItem(color = PartialColor, label = "Requesting")
+        LegendItem(color = MissingColor, label = "Missing")
+    }
+}
+
+@Composable
+private fun LegendItem(color: Color, label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(color)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

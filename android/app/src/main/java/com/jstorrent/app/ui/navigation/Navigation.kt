@@ -27,9 +27,8 @@ import androidx.navigation.navArgument
 import com.jstorrent.app.MainActivity
 import com.jstorrent.app.mode.ModeDetector
 import com.jstorrent.app.ui.screens.AdvancedSettingsScreen
-import com.jstorrent.app.ui.screens.BandwidthSettingsScreen
-import com.jstorrent.app.ui.screens.ConnectionLimitsSettingsScreen
 import com.jstorrent.app.ui.screens.DhtInfoScreen
+import com.jstorrent.app.ui.screens.SpeedConnectionLimitsSettingsScreen
 import com.jstorrent.app.ui.screens.NetworkSettingsScreen
 import com.jstorrent.app.ui.screens.NotificationsSettingsScreen
 import com.jstorrent.app.ui.screens.PowerManagementSettingsScreen
@@ -52,8 +51,7 @@ object Routes {
     const val TORRENT_DETAIL = "torrent_detail/{infoHash}"
     const val SETTINGS = "settings"
     const val SETTINGS_STORAGE = "settings/storage"
-    const val SETTINGS_BANDWIDTH = "settings/bandwidth"
-    const val SETTINGS_CONNECTION_LIMITS = "settings/connection_limits"
+    const val SETTINGS_SPEED_CONNECTION_LIMITS = "settings/speed_connection_limits"
     const val SETTINGS_NOTIFICATIONS = "settings/notifications"
     const val SETTINGS_NETWORK = "settings/network"
     const val SETTINGS_POWER = "settings/power"
@@ -151,8 +149,7 @@ fun TorrentNavHost(
             SettingsScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToStorage = { navController.navigate(Routes.SETTINGS_STORAGE) },
-                onNavigateToBandwidth = { navController.navigate(Routes.SETTINGS_BANDWIDTH) },
-                onNavigateToConnectionLimits = { navController.navigate(Routes.SETTINGS_CONNECTION_LIMITS) },
+                onNavigateToSpeedConnectionLimits = { navController.navigate(Routes.SETTINGS_SPEED_CONNECTION_LIMITS) },
                 onNavigateToNotifications = { navController.navigate(Routes.SETTINGS_NOTIFICATIONS) },
                 onNavigateToNetwork = { navController.navigate(Routes.SETTINGS_NETWORK) },
                 onNavigateToPower = { navController.navigate(Routes.SETTINGS_POWER) },
@@ -173,25 +170,13 @@ fun TorrentNavHost(
             )
         }
 
-        // Bandwidth settings
-        composable(Routes.SETTINGS_BANDWIDTH) {
+        // Speed & Connection Limits settings
+        composable(Routes.SETTINGS_SPEED_CONNECTION_LIMITS) {
             val context = LocalContext.current
             val settingsViewModel: SettingsViewModel = viewModel(
                 factory = SettingsViewModel.Factory(context)
             )
-            BandwidthSettingsScreen(
-                viewModel = settingsViewModel,
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
-
-        // Connection limits settings
-        composable(Routes.SETTINGS_CONNECTION_LIMITS) {
-            val context = LocalContext.current
-            val settingsViewModel: SettingsViewModel = viewModel(
-                factory = SettingsViewModel.Factory(context)
-            )
-            ConnectionLimitsSettingsScreen(
+            SpeedConnectionLimitsSettingsScreen(
                 viewModel = settingsViewModel,
                 onNavigateBack = { navController.popBackStack() }
             )

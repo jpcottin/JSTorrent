@@ -104,6 +104,10 @@ export class Socks5Socket implements ITcpSocket {
     this.targetHost = host
     this.targetPort = port
 
+    console.log(
+      `[SOCKS5] Connecting to ${host}:${port} via proxy ${this.proxyConfig.host}:${this.proxyConfig.port}`,
+    )
+
     // Set up internal handlers for handshake
     this.socket.onData((data) => this.handleData(data))
     this.socket.onError((err) => this.handleError(err))
@@ -113,7 +117,9 @@ export class Socks5Socket implements ITcpSocket {
     if (!this.socket.connect) {
       throw new Error('Underlying socket does not support connect()')
     }
+    console.log(`[SOCKS5] Connecting to proxy ${this.proxyConfig.host}:${this.proxyConfig.port}...`)
     await this.socket.connect(this.proxyConfig.port, this.proxyConfig.host)
+    console.log(`[SOCKS5] Connected to proxy, starting handshake`)
 
     // Now do SOCKS5 handshake
     return new Promise((resolve, reject) => {
@@ -128,6 +134,7 @@ export class Socks5Socket implements ITcpSocket {
 
       // Start handshake: send greeting
       const hasAuth = !!(this.proxyConfig.username && this.proxyConfig.password)
+      console.log(`[SOCKS5] Sending greeting (hasAuth=${hasAuth})`)
       this.socket.send(buildGreeting(hasAuth))
       this.state = 'greeting_sent'
     })
@@ -168,6 +175,8 @@ export class Socks5Socket implements ITcpSocket {
     const method = parseGreetingResponse(this.handshakeBuffer)
     if (method === null) return // Need more data
 
+    console.log(`[SOCKS5] Received greeting response: method=${method}`)
+
     // Consume the 2-byte response
     this.handshakeBuffer = this.handshakeBuffer.slice(2)
 
@@ -181,9 +190,11 @@ export class Socks5Socket implements ITcpSocket {
         this.failHandshake(new Error('SOCKS5 proxy requires auth but no credentials provided'))
         return
       }
+      console.log(`[SOCKS5] Sending auth request`)
       this.socket.send(buildAuthRequest(this.proxyConfig.username, this.proxyConfig.password))
       this.state = 'auth_sent'
     } else if (method === SOCKS5_AUTH.NONE) {
+      console.log(`[SOCKS5] No auth required, sending CONNECT request`)
       this.sendConnectRequest()
     } else {
       this.failHandshake(new Error(`SOCKS5 proxy selected unknown auth method: ${method}`))
@@ -206,6 +217,7 @@ export class Socks5Socket implements ITcpSocket {
   }
 
   private sendConnectRequest(): void {
+    console.log(`[SOCKS5] Sending CONNECT request for ${this.targetHost}:${this.targetPort}`)
     this.socket.send(buildConnectRequest(this.targetHost!, this.targetPort!))
     this.state = 'connect_sent'
   }
@@ -216,6 +228,8 @@ export class Socks5Socket implements ITcpSocket {
     if (responseLen === null || this.handshakeBuffer.length < responseLen) {
       return // Need more data
     }
+
+    console.log(`[SOCKS5] Received CONNECT response (${this.handshakeBuffer.length} bytes)`)
 
     // Check version
     if (this.handshakeBuffer[0] !== SOCKS5_VERSION) {
@@ -232,9 +246,12 @@ export class Socks5Socket implements ITcpSocket {
 
     const errorMsg = getReplyError(reply)
     if (errorMsg) {
+      console.log(`[SOCKS5] CONNECT failed: ${errorMsg} (reply=${reply})`)
       this.failHandshake(new Error(`SOCKS5 proxy: ${errorMsg}`))
       return
     }
+
+    console.log(`[SOCKS5] CONNECT succeeded for ${this.targetHost}:${this.targetPort}`)
 
     // Consume the response, keep any extra data (could be early application data)
     const extraData = this.handshakeBuffer.slice(responseLen)
@@ -250,6 +267,9 @@ export class Socks5Socket implements ITcpSocket {
   }
 
   private completeHandshake(): void {
+    console.log(
+      `[SOCKS5] Handshake complete, tunnel established to ${this.targetHost}:${this.targetPort}`,
+    )
     this.state = 'connected'
     if (this.handshakeTimeout) {
       clearTimeout(this.handshakeTimeout)

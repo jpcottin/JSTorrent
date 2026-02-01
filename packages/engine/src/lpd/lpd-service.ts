@@ -21,7 +21,11 @@ export class LPDService {
 
   async start(listenPort: number): Promise<void> {
     this.port = listenPort
-    this.socket = await this.socketFactory.createUdpSocket('0.0.0.0', LPD_PORT)
+    this.socket = await this.socketFactory.createUdpSocket({
+      bindAddr: '0.0.0.0',
+      bindPort: LPD_PORT,
+      purpose: 'lpd',
+    })
     await this.socket.joinMulticast(LPD_MULTICAST)
 
     this.socket.onMessage((src, data) => {

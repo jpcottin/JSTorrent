@@ -76,12 +76,20 @@ export async function createDaemonEngine(config: DaemonEngineConfig): Promise<Bt
     const proxyPort = config.config.proxyPort.get()
 
     if (proxyEnabled && proxyHost) {
-      socketFactory = new Socks5SocketFactory(socketFactory, {
-        host: proxyHost,
-        port: proxyPort,
-        username: config.config.proxyUsername.get() ?? undefined,
-        password: config.config.proxyPassword.get() ?? undefined,
-      })
+      socketFactory = new Socks5SocketFactory(
+        socketFactory,
+        {
+          host: proxyHost,
+          port: proxyPort,
+          username: config.config.proxyUsername.get() ?? undefined,
+          password: config.config.proxyPassword.get() ?? undefined,
+        },
+        {
+          proxyHttpTrackers: config.config.proxyHttpTrackers.get(),
+          proxyUdpTrackers: config.config.proxyUdpTrackers.get(),
+          proxyPeerConnections: config.config.proxyPeerConnections.get(),
+        },
+      )
     }
   }
 

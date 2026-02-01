@@ -2,6 +2,7 @@ package com.jstorrent.app.ui.screens
 
 import android.util.Base64
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,6 +44,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -98,11 +100,25 @@ fun TorrentListScreen(
     val selectedTorrents by viewModel.selectedTorrents.collectAsState()
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val filterCounts by viewModel.filterCounts.collectAsState()
+    val engineError by viewModel.engineError.collectAsState()
 
     // Refresh cache when resuming to pick up any changes that occurred while
     // the screen was off (e.g., background downloads completing)
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.refreshCache()
+    }
+
+    // Show toast when engine reports an error (e.g., JS initialization failure)
+    val context = LocalContext.current
+    LaunchedEffect(engineError) {
+        engineError?.let { error ->
+            Toast.makeText(
+                context,
+                "Engine error: check logs for details",
+                Toast.LENGTH_LONG
+            ).show()
+            Log.e("TorrentListScreen", "Engine error: $error")
+        }
     }
 
     var showAddDialog by remember { mutableStateOf(false) }
@@ -111,7 +127,6 @@ fun TorrentListScreen(
     var showBulkDeleteDialog by remember { mutableStateOf(false) }
 
     // File picker for .torrent files
-    val context = LocalContext.current
     val torrentFilePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->

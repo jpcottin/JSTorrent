@@ -81,14 +81,18 @@ class ForegroundNotificationService : Service() {
     )
     private val previousStates = mutableMapOf<String, TorrentStateSnapshot>()
 
-    // Network monitoring for WiFi-only mode
+    // Network monitoring for WiFi-only and VPN-only modes
     private var networkMonitor: NetworkMonitor? = null
     private var wifiMonitorJob: Job? = null
     private var wasPausedByWifi = false  // Track if we paused due to WiFi loss
+    private var vpnMonitorJob: Job? = null
+    private var wasPausedByVpn = false  // Track if we paused due to VPN loss
 
     // Wake locks to prevent deep sleep and WiFi throttling during downloads
+    // Note: Wake locks are only held while actively downloading, not while seeding
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private var hasActiveDownloads = false  // Track if any torrent is downloading
 
     // Doze mode monitoring for debugging power state transitions
     private var dozeMonitor: DozeMonitor? = null
@@ -154,16 +158,26 @@ class ForegroundNotificationService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "Service starting")
 
-        // Start notification updates and WiFi monitoring
+        // Start notification updates and network monitoring
         // Engine is already initialized by Activity before service starts
         startNotificationUpdates()
         if (settingsStore.wifiOnlyEnabled) {
             startWifiMonitoring()
         }
+        if (settingsStore.vpnOnlyEnabled) {
+            startVpnMonitoring()
+        }
 
-        // Acquire wake locks if enabled
+        // Acquire wake locks if enabled AND there are active downloads
+        // (Wake locks are only for downloading, not seeding)
         if (settingsStore.cpuWakeLockEnabled) {
-            acquireWakeLocks()
+            val initialTorrents = state?.value?.torrents ?: emptyList()
+            hasActiveDownloads = initialTorrents.any { torrent ->
+                torrent.status in listOf("downloading", "downloading_metadata", "checking")
+            }
+            if (hasActiveDownloads) {
+                acquireWakeLocks()
+            }
         }
 
         // Always start Doze monitoring for debugging
@@ -181,8 +195,9 @@ class ForegroundNotificationService : Service() {
         Log.i(TAG, "Service destroying")
         instance = null
 
-        // Stop WiFi monitoring
+        // Stop network monitoring
         stopWifiMonitoring()
+        stopVpnMonitoring()
         networkMonitor?.stop()
         networkMonitor = null
 
@@ -436,6 +451,9 @@ class ForegroundNotificationService : Service() {
                 // Check for state transitions
                 checkStateTransitions(torrents)
 
+                // Update wake lock state based on download activity
+                updateWakeLockState(torrents)
+
                 // Update foreground notification
                 notificationManager.updateNotification(torrents)
                 delay(1000)  // Update every 1 second
@@ -651,6 +669,103 @@ class ForegroundNotificationService : Service() {
     }
 
     // =========================================================================
+    // VPN Monitoring for VPN-Only Mode
+    // =========================================================================
+
+    /**
+     * Start monitoring VPN state for VPN-only mode.
+     */
+    private fun startVpnMonitoring() {
+        networkMonitor?.start()
+
+        vpnMonitorJob?.cancel()
+        vpnMonitorJob = ioScope.launch {
+            networkMonitor?.isVpnConnected?.collectLatest { isVpn ->
+                handleVpnStateChange(isVpn)
+            }
+        }
+        Log.i(TAG, "VPN monitoring started")
+    }
+
+    /**
+     * Stop VPN monitoring.
+     */
+    private fun stopVpnMonitoring() {
+        vpnMonitorJob?.cancel()
+        vpnMonitorJob = null
+        Log.i(TAG, "VPN monitoring stopped")
+    }
+
+    /**
+     * Handle VPN state changes when VPN-only mode is enabled.
+     */
+    private fun handleVpnStateChange(isVpnConnected: Boolean) {
+        if (!settingsStore.vpnOnlyEnabled) return
+
+        if (!isVpnConnected && _serviceState.value == ServiceState.RUNNING) {
+            // Lost VPN, pause everything
+            Log.i(TAG, "VPN lost, pausing all torrents")
+            _serviceState.value = ServiceState.PAUSED_VPN
+            wasPausedByVpn = true
+            pauseAllTorrents()
+
+            // Show toast on main thread
+            mainHandler.post {
+                Toast.makeText(
+                    this@ForegroundNotificationService,
+                    "Paused - waiting for VPN",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        } else if (isVpnConnected && _serviceState.value == ServiceState.PAUSED_VPN) {
+            // VPN restored, resume
+            Log.i(TAG, "VPN restored, resuming all torrents")
+            _serviceState.value = ServiceState.RUNNING
+            if (wasPausedByVpn) {
+                resumeAllTorrents()
+                wasPausedByVpn = false
+            }
+
+            mainHandler.post {
+                Toast.makeText(
+                    this@ForegroundNotificationService,
+                    "VPN connected - resuming",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    /**
+     * Enable or disable VPN-only mode at runtime.
+     * Called from SettingsViewModel when user toggles the setting.
+     */
+    fun setVpnOnlyEnabled(enabled: Boolean) {
+        settingsStore.vpnOnlyEnabled = enabled
+
+        if (enabled) {
+            startVpnMonitoring()
+            // Check current state immediately
+            val isVpn = networkMonitor?.isVpnConnected?.value ?: false
+            if (!isVpn) {
+                handleVpnStateChange(false)
+            }
+        } else {
+            // Disable VPN-only: resume if we were paused
+            if (_serviceState.value == ServiceState.PAUSED_VPN) {
+                _serviceState.value = ServiceState.RUNNING
+                if (wasPausedByVpn) {
+                    resumeAllTorrents()
+                    wasPausedByVpn = false
+                }
+            }
+            stopVpnMonitoring()
+        }
+
+        Log.i(TAG, "VPN-only mode ${if (enabled) "enabled" else "disabled"}")
+    }
+
+    // =========================================================================
     // Wake Locks for Preventing Deep Sleep and WiFi Throttling
     // =========================================================================
 
@@ -708,13 +823,38 @@ class ForegroundNotificationService : Service() {
     }
 
     /**
+     * Update wake lock state based on whether any torrent is actively downloading.
+     * Wake locks are only held while downloading, not while seeding.
+     */
+    private fun updateWakeLockState(torrents: List<TorrentSummary>) {
+        if (!settingsStore.cpuWakeLockEnabled) {
+            return  // User has wake locks disabled
+        }
+
+        val nowDownloading = torrents.any { torrent ->
+            torrent.status in listOf("downloading", "downloading_metadata", "checking")
+        }
+
+        if (nowDownloading != hasActiveDownloads) {
+            hasActiveDownloads = nowDownloading
+            if (nowDownloading) {
+                Log.i(TAG, "Downloads active - acquiring wake locks")
+                acquireWakeLocks()
+            } else {
+                Log.i(TAG, "No active downloads (seeding only) - releasing wake locks")
+                releaseWakeLocks()
+            }
+        }
+    }
+
+    /**
      * Enable or disable wake locks at runtime.
      * Called from SettingsViewModel when user toggles the setting.
      */
     fun setCpuWakeLockEnabled(enabled: Boolean) {
         settingsStore.cpuWakeLockEnabled = enabled
 
-        if (enabled) {
+        if (enabled && hasActiveDownloads) {
             acquireWakeLocks()
         } else {
             releaseWakeLocks()

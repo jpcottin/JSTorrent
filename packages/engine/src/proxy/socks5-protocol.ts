@@ -91,7 +91,8 @@ export function buildAuthRequest(username: string, password: string): Uint8Array
 
 /**
  * Build CONNECT request.
- * Uses DOMAINNAME address type to let the proxy resolve DNS (prevents leaks).
+ * Uses IPv4 address type for IP addresses, DOMAINNAME for hostnames
+ * to let the proxy resolve DNS (prevents leaks).
  *
  * @param host - Target hostname or IP address
  * @param port - Target port
@@ -99,6 +100,27 @@ export function buildAuthRequest(username: string, password: string): Uint8Array
  * @throws Error if hostname exceeds 255 bytes
  */
 export function buildConnectRequest(host: string, port: number): Uint8Array {
+  // Check if it's an IPv4 address
+  const ipv4Match = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+
+  if (ipv4Match) {
+    // VER | CMD | RSV | ATYP | DST.ADDR (4 bytes) | DST.PORT (2 bytes)
+    const buffer = new Uint8Array(10)
+    buffer[0] = SOCKS5_VERSION
+    buffer[1] = SOCKS5_CMD.CONNECT
+    buffer[2] = 0x00 // Reserved
+    buffer[3] = SOCKS5_ATYP.IPV4
+    buffer[4] = parseInt(ipv4Match[1])
+    buffer[5] = parseInt(ipv4Match[2])
+    buffer[6] = parseInt(ipv4Match[3])
+    buffer[7] = parseInt(ipv4Match[4])
+    // Port in network byte order (big endian)
+    buffer[8] = (port >> 8) & 0xff
+    buffer[9] = port & 0xff
+    return buffer
+  }
+
+  // Use domain name format for hostnames
   const hostBytes = new TextEncoder().encode(host)
 
   if (hostBytes.length > 255) {
@@ -209,5 +231,223 @@ export function getReplyError(reply: number): string | null {
       return 'Address type not supported'
     default:
       return `Unknown SOCKS5 error (${reply})`
+  }
+}
+
+// ============================================================================
+// UDP ASSOCIATE Support (RFC 1928 Section 7)
+// ============================================================================
+
+/**
+ * Build UDP ASSOCIATE request.
+ * The client specifies the address and port from which it will send UDP datagrams.
+ * Using 0.0.0.0:0 tells the proxy to accept from any address (common for NAT).
+ *
+ * @param clientAddr - Client's expected source address (use "0.0.0.0" for any)
+ * @param clientPort - Client's expected source port (use 0 for any)
+ * @returns UDP ASSOCIATE request message bytes
+ */
+export function buildUdpAssociateRequest(clientAddr: string, clientPort: number): Uint8Array {
+  // Check if it's an IPv4 address
+  const ipv4Match = clientAddr.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+
+  if (ipv4Match) {
+    // VER | CMD | RSV | ATYP | DST.ADDR (4 bytes) | DST.PORT (2 bytes)
+    const buffer = new Uint8Array(10)
+    buffer[0] = SOCKS5_VERSION
+    buffer[1] = SOCKS5_CMD.UDP_ASSOCIATE
+    buffer[2] = 0x00 // Reserved
+    buffer[3] = SOCKS5_ATYP.IPV4
+    buffer[4] = parseInt(ipv4Match[1])
+    buffer[5] = parseInt(ipv4Match[2])
+    buffer[6] = parseInt(ipv4Match[3])
+    buffer[7] = parseInt(ipv4Match[4])
+    buffer[8] = (clientPort >> 8) & 0xff
+    buffer[9] = clientPort & 0xff
+    return buffer
+  }
+
+  // Use domain name format for non-IPv4 addresses
+  const addrBytes = new TextEncoder().encode(clientAddr)
+  if (addrBytes.length > 255) {
+    throw new Error('SOCKS5 address too long (max 255 bytes)')
+  }
+
+  const buffer = new Uint8Array(4 + 1 + addrBytes.length + 2)
+  buffer[0] = SOCKS5_VERSION
+  buffer[1] = SOCKS5_CMD.UDP_ASSOCIATE
+  buffer[2] = 0x00 // Reserved
+  buffer[3] = SOCKS5_ATYP.DOMAIN
+  buffer[4] = addrBytes.length
+  buffer.set(addrBytes, 5)
+  buffer[5 + addrBytes.length] = (clientPort >> 8) & 0xff
+  buffer[6 + addrBytes.length] = clientPort & 0xff
+
+  return buffer
+}
+
+/**
+ * Parse UDP ASSOCIATE response to extract the relay address and port.
+ * The response format is the same as CONNECT response.
+ *
+ * @param data - Response bytes
+ * @returns Relay address and port, or null if invalid/failed
+ */
+export function parseUdpAssociateResponse(
+  data: Uint8Array,
+): { address: string; port: number } | null {
+  // Check minimum length and version
+  if (data.length < 10) return null
+  if (data[0] !== SOCKS5_VERSION) return null
+
+  // Check reply code
+  const reply = data[1]
+  if (reply !== SOCKS5_REPLY.SUCCESS) return null
+
+  const atyp = data[3]
+
+  switch (atyp) {
+    case SOCKS5_ATYP.IPV4: {
+      if (data.length < 10) return null
+      const address = `${data[4]}.${data[5]}.${data[6]}.${data[7]}`
+      const port = (data[8] << 8) | data[9]
+      return { address, port }
+    }
+    case SOCKS5_ATYP.IPV6: {
+      if (data.length < 22) return null
+      // Convert 16 bytes to IPv6 string
+      const parts: string[] = []
+      for (let i = 0; i < 8; i++) {
+        const word = (data[4 + i * 2] << 8) | data[5 + i * 2]
+        parts.push(word.toString(16))
+      }
+      const address = parts.join(':')
+      const port = (data[20] << 8) | data[21]
+      return { address, port }
+    }
+    case SOCKS5_ATYP.DOMAIN: {
+      const domainLen = data[4]
+      if (data.length < 4 + 1 + domainLen + 2) return null
+      const address = new TextDecoder().decode(data.slice(5, 5 + domainLen))
+      const port = (data[5 + domainLen] << 8) | data[6 + domainLen]
+      return { address, port }
+    }
+    default:
+      return null
+  }
+}
+
+/**
+ * Build a UDP datagram with SOCKS5 header for sending through the relay.
+ *
+ * Format:
+ * +----+------+------+----------+----------+----------+
+ * |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
+ * +----+------+------+----------+----------+----------+
+ * | 2  |  1   |  1   | Variable |    2     | Variable |
+ * +----+------+------+----------+----------+----------+
+ *
+ * @param destAddr - Destination address (hostname or IP)
+ * @param destPort - Destination port
+ * @param data - Payload data
+ * @returns Complete UDP packet with SOCKS5 header
+ */
+export function buildUdpPacket(destAddr: string, destPort: number, data: Uint8Array): Uint8Array {
+  // Check if it's an IPv4 address
+  const ipv4Match = destAddr.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+
+  if (ipv4Match) {
+    // RSV(2) + FRAG(1) + ATYP(1) + ADDR(4) + PORT(2) + DATA
+    const buffer = new Uint8Array(10 + data.length)
+    buffer[0] = 0x00 // RSV
+    buffer[1] = 0x00 // RSV
+    buffer[2] = 0x00 // FRAG (0 = standalone datagram, no fragmentation)
+    buffer[3] = SOCKS5_ATYP.IPV4
+    buffer[4] = parseInt(ipv4Match[1])
+    buffer[5] = parseInt(ipv4Match[2])
+    buffer[6] = parseInt(ipv4Match[3])
+    buffer[7] = parseInt(ipv4Match[4])
+    buffer[8] = (destPort >> 8) & 0xff
+    buffer[9] = destPort & 0xff
+    buffer.set(data, 10)
+    return buffer
+  }
+
+  // Use domain name format
+  const addrBytes = new TextEncoder().encode(destAddr)
+  if (addrBytes.length > 255) {
+    throw new Error('SOCKS5 destination address too long (max 255 bytes)')
+  }
+
+  // RSV(2) + FRAG(1) + ATYP(1) + LEN(1) + ADDR(n) + PORT(2) + DATA
+  const buffer = new Uint8Array(4 + 1 + addrBytes.length + 2 + data.length)
+  buffer[0] = 0x00 // RSV
+  buffer[1] = 0x00 // RSV
+  buffer[2] = 0x00 // FRAG
+  buffer[3] = SOCKS5_ATYP.DOMAIN
+  buffer[4] = addrBytes.length
+  buffer.set(addrBytes, 5)
+  buffer[5 + addrBytes.length] = (destPort >> 8) & 0xff
+  buffer[6 + addrBytes.length] = destPort & 0xff
+  buffer.set(data, 7 + addrBytes.length)
+
+  return buffer
+}
+
+/**
+ * Parse a UDP datagram received from the relay to extract source address and payload.
+ *
+ * @param packet - Raw UDP packet from relay
+ * @returns Source address, port, and payload data, or null if invalid
+ */
+export function parseUdpPacket(
+  packet: Uint8Array,
+): { srcAddr: string; srcPort: number; data: Uint8Array } | null {
+  // Minimum: RSV(2) + FRAG(1) + ATYP(1) + at least IPv4(4) + PORT(2) = 10 bytes
+  if (packet.length < 10) return null
+
+  // Check RSV bytes are zero
+  if (packet[0] !== 0 || packet[1] !== 0) return null
+
+  // Check FRAG - we don't support fragmentation
+  const frag = packet[2]
+  if (frag !== 0) {
+    // Fragmented packet - not supported
+    return null
+  }
+
+  const atyp = packet[3]
+
+  switch (atyp) {
+    case SOCKS5_ATYP.IPV4: {
+      if (packet.length < 10) return null
+      const srcAddr = `${packet[4]}.${packet[5]}.${packet[6]}.${packet[7]}`
+      const srcPort = (packet[8] << 8) | packet[9]
+      const data = packet.slice(10)
+      return { srcAddr, srcPort, data }
+    }
+    case SOCKS5_ATYP.IPV6: {
+      if (packet.length < 22) return null
+      const parts: string[] = []
+      for (let i = 0; i < 8; i++) {
+        const word = (packet[4 + i * 2] << 8) | packet[5 + i * 2]
+        parts.push(word.toString(16))
+      }
+      const srcAddr = parts.join(':')
+      const srcPort = (packet[20] << 8) | packet[21]
+      const data = packet.slice(22)
+      return { srcAddr, srcPort, data }
+    }
+    case SOCKS5_ATYP.DOMAIN: {
+      const domainLen = packet[4]
+      const headerLen = 4 + 1 + domainLen + 2
+      if (packet.length < headerLen) return null
+      const srcAddr = new TextDecoder().decode(packet.slice(5, 5 + domainLen))
+      const srcPort = (packet[5 + domainLen] << 8) | packet[6 + domainLen]
+      const data = packet.slice(headerLen)
+      return { srcAddr, srcPort, data }
+    }
+    default:
+      return null
   }
 }

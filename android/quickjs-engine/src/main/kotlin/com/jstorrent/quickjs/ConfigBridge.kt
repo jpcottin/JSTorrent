@@ -160,6 +160,72 @@ class ConfigBridge(
     }
 
     // =========================================================================
+    // SOCKS5 Proxy
+    // =========================================================================
+
+    /**
+     * Enable or disable SOCKS5 proxy.
+     */
+    fun setProxyEnabled(enabled: Boolean) {
+        setConfig("proxyEnabled", enabled)
+    }
+
+    /**
+     * Set SOCKS5 proxy host.
+     */
+    fun setProxyHost(host: String?) {
+        if (host != null) {
+            setConfig("proxyHost", host)
+        }
+    }
+
+    /**
+     * Set SOCKS5 proxy port.
+     */
+    fun setProxyPort(port: Int) {
+        setConfig("proxyPort", port)
+    }
+
+    /**
+     * Set SOCKS5 proxy username (optional).
+     */
+    fun setProxyUsername(username: String?) {
+        if (username != null) {
+            setConfig("proxyUsername", username)
+        }
+    }
+
+    /**
+     * Set SOCKS5 proxy password (optional).
+     */
+    fun setProxyPassword(password: String?) {
+        if (password != null) {
+            setConfig("proxyPassword", password)
+        }
+    }
+
+    /**
+     * Set whether to route HTTP tracker requests through the proxy.
+     */
+    fun setProxyHttpTrackers(enabled: Boolean) {
+        setConfig("proxyHttpTrackers", enabled)
+    }
+
+    /**
+     * Set whether to route UDP tracker requests through the proxy.
+     */
+    fun setProxyUdpTrackers(enabled: Boolean) {
+        setConfig("proxyUdpTrackers", enabled)
+    }
+
+    /**
+     * Set whether to route peer connections through the proxy.
+     */
+    fun setProxyPeerConnections(enabled: Boolean) {
+        setConfig("proxyPeerConnections", enabled)
+    }
+
+    // =========================================================================
     // Logging
     // =========================================================================
 

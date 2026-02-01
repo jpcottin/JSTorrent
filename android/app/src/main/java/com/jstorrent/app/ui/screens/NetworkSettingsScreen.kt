@@ -10,10 +10,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -21,9 +24,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -33,6 +38,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.jstorrent.app.viewmodel.SettingsViewModel
 
@@ -59,7 +66,7 @@ fun NetworkSettingsScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Network") },
+                title = { Text("Network & Privacy") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
@@ -83,6 +90,7 @@ fun NetworkSettingsScreen(
             item {
                 NetworkSection(
                     wifiOnly = uiState.wifiOnlyEnabled,
+                    vpnOnly = uiState.vpnOnlyEnabled,
                     encryptionPolicy = uiState.encryptionPolicy,
                     dhtEnabled = uiState.dhtEnabled,
                     pexEnabled = uiState.pexEnabled,
@@ -91,21 +99,46 @@ fun NetworkSettingsScreen(
                     upnpExternalIP = uiState.upnpExternalIP,
                     upnpPort = uiState.upnpPort,
                     hasReceivedIncomingConnection = uiState.hasReceivedIncomingConnection,
+                    proxyEnabled = uiState.proxyEnabled,
+                    proxyHost = uiState.proxyHost,
+                    proxyPort = uiState.proxyPort,
                     onWifiOnlyChange = { viewModel.setWifiOnly(it) },
+                    onVpnOnlyChange = { viewModel.setVpnOnly(it) },
                     onEncryptionPolicyChange = { viewModel.setEncryptionPolicy(it) },
                     onDhtChange = { viewModel.setDhtEnabled(it) },
                     onPexChange = { viewModel.setPexEnabled(it) },
                     onUpnpChange = { viewModel.setUpnpEnabled(it) },
-                    onDhtInfoClick = onDhtInfoClick
+                    onDhtInfoClick = onDhtInfoClick,
+                    onProxyClick = { viewModel.showProxyDialog() }
                 )
             }
         }
+    }
+
+    // Proxy configuration dialog
+    if (uiState.showProxyDialog) {
+        ProxyConfigDialog(
+            enabled = uiState.proxyEnabled,
+            host = uiState.proxyHost ?: "",
+            port = uiState.proxyPort,
+            username = uiState.proxyUsername ?: "",
+            password = uiState.proxyPassword ?: "",
+            httpTrackers = uiState.proxyHttpTrackers,
+            udpTrackers = uiState.proxyUdpTrackers,
+            peerConnections = uiState.proxyPeerConnections,
+            onDismiss = { viewModel.dismissProxyDialog() },
+            onEnabledChange = { viewModel.setProxyEnabled(it) },
+            onSave = { host, port, username, password, httpTrackers, udpTrackers, peerConnections ->
+                viewModel.saveProxyConfig(host, port, username, password, httpTrackers, udpTrackers, peerConnections)
+            }
+        )
     }
 }
 
 @Composable
 private fun NetworkSection(
     wifiOnly: Boolean,
+    vpnOnly: Boolean,
     encryptionPolicy: String,
     dhtEnabled: Boolean,
     pexEnabled: Boolean,
@@ -114,12 +147,17 @@ private fun NetworkSection(
     upnpExternalIP: String?,
     upnpPort: Int,
     hasReceivedIncomingConnection: Boolean,
+    proxyEnabled: Boolean,
+    proxyHost: String?,
+    proxyPort: Int,
     onWifiOnlyChange: (Boolean) -> Unit,
+    onVpnOnlyChange: (Boolean) -> Unit,
     onEncryptionPolicyChange: (String) -> Unit,
     onDhtChange: (Boolean) -> Unit,
     onPexChange: (Boolean) -> Unit,
     onUpnpChange: (Boolean) -> Unit,
     onDhtInfoClick: () -> Unit,
+    onProxyClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -129,10 +167,20 @@ private fun NetworkSection(
     ) {
         // WiFi-only toggle
         SettingToggleRow(
-            label = "WiFi-only",
-            description = "Pause downloads on mobile data",
+            label = "WiFi only",
+            description = "Only download when connected to WiFi",
             checked = wifiOnly,
             onCheckedChange = onWifiOnlyChange
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // VPN-only toggle
+        SettingToggleRow(
+            label = "VPN only",
+            description = "Only download when connected to a VPN",
+            checked = vpnOnly,
+            onCheckedChange = onVpnOnlyChange
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -183,6 +231,16 @@ private fun NetworkSection(
             port = upnpPort,
             hasReceivedIncomingConnection = hasReceivedIncomingConnection,
             onEnabledChange = onUpnpChange
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // SOCKS5 Proxy row
+        ProxyRow(
+            enabled = proxyEnabled,
+            host = proxyHost,
+            port = proxyPort,
+            onClick = onProxyClick
         )
     }
 }
@@ -311,4 +369,227 @@ private fun EncryptionRow(
             }
         }
     }
+}
+
+@Composable
+private fun ProxyRow(
+    enabled: Boolean,
+    host: String?,
+    port: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val statusText = if (enabled && host != null) {
+        "$host:$port"
+    } else {
+        "Disabled"
+    }
+    val statusColor = if (enabled && host != null) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "SOCKS5 Proxy",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = "Route traffic through a SOCKS5 proxy",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.bodySmall,
+                color = statusColor
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProxyConfigDialog(
+    enabled: Boolean,
+    host: String,
+    port: Int,
+    username: String,
+    password: String,
+    httpTrackers: Boolean,
+    udpTrackers: Boolean,
+    peerConnections: Boolean,
+    onDismiss: () -> Unit,
+    onEnabledChange: (Boolean) -> Unit,
+    onSave: (host: String, port: Int, username: String?, password: String?, httpTrackers: Boolean, udpTrackers: Boolean, peerConnections: Boolean) -> Unit
+) {
+    var editHost by remember { mutableStateOf(host) }
+    var editPort by remember { mutableStateOf(port.toString()) }
+    var editUsername by remember { mutableStateOf(username) }
+    var editPassword by remember { mutableStateOf(password) }
+    var editHttpTrackers by remember { mutableStateOf(httpTrackers) }
+    var editUdpTrackers by remember { mutableStateOf(udpTrackers) }
+    var editPeerConnections by remember { mutableStateOf(peerConnections) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("SOCKS5 Proxy") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Enable/disable toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Enable proxy",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = onEnabledChange
+                    )
+                }
+
+                // Host input
+                OutlinedTextField(
+                    value = editHost,
+                    onValueChange = { editHost = it },
+                    label = { Text("Host") },
+                    placeholder = { Text("proxy.example.com") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Port input
+                OutlinedTextField(
+                    value = editPort,
+                    onValueChange = { editPort = it.filter { c -> c.isDigit() } },
+                    label = { Text("Port") },
+                    placeholder = { Text("1080") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Username input (optional)
+                OutlinedTextField(
+                    value = editUsername,
+                    onValueChange = { editUsername = it },
+                    label = { Text("Username (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Password input (optional)
+                OutlinedTextField(
+                    value = editPassword,
+                    onValueChange = { editPassword = it },
+                    label = { Text("Password (optional)") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Route through proxy section
+                Text(
+                    text = "Route through proxy",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+
+                // HTTP trackers toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "HTTP trackers",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Switch(
+                        checked = editHttpTrackers,
+                        onCheckedChange = { editHttpTrackers = it }
+                    )
+                }
+
+                // UDP trackers toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "UDP trackers",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = "Requires proxy UDP support",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = editUdpTrackers,
+                        onCheckedChange = { editUdpTrackers = it }
+                    )
+                }
+
+                // Peer connections toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Peer connections",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Switch(
+                        checked = editPeerConnections,
+                        onCheckedChange = { editPeerConnections = it }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val portNum = editPort.toIntOrNull() ?: 1080
+                    onSave(
+                        editHost,
+                        portNum,
+                        editUsername.ifBlank { null },
+                        editPassword.ifBlank { null },
+                        editHttpTrackers,
+                        editUdpTrackers,
+                        editPeerConnections
+                    )
+                }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

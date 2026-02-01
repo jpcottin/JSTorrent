@@ -43,8 +43,7 @@ import com.jstorrent.app.ui.theme.JSTorrentTheme
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToStorage: () -> Unit,
-    onNavigateToBandwidth: () -> Unit,
-    onNavigateToConnectionLimits: () -> Unit,
+    onNavigateToSpeedConnectionLimits: () -> Unit,
     onNavigateToNotifications: () -> Unit,
     onNavigateToNetwork: () -> Unit,
     onNavigateToPower: () -> Unit,
@@ -83,17 +82,9 @@ fun SettingsScreen(
             item {
                 SettingsNavItem(
                     icon = Icons.Default.Speed,
-                    title = "Bandwidth",
-                    subtitle = "Speed limits",
-                    onClick = onNavigateToBandwidth
-                )
-            }
-            item {
-                SettingsNavItem(
-                    icon = Icons.Default.People,
-                    title = "Connection Limits",
-                    subtitle = "Peers, upload slots, pipeline",
-                    onClick = onNavigateToConnectionLimits
+                    title = "Speed & Connection Limits",
+                    subtitle = "Download/upload speeds, peer limits",
+                    onClick = onNavigateToSpeedConnectionLimits
                 )
             }
             item {
@@ -107,8 +98,8 @@ fun SettingsScreen(
             item {
                 SettingsNavItem(
                     icon = Icons.Default.Wifi,
-                    title = "Network",
-                    subtitle = "DHT, UPnP, encryption",
+                    title = "Network & Privacy",
+                    subtitle = "DHT, UPnP, encryption, proxy",
                     onClick = onNavigateToNetwork
                 )
             }
@@ -180,8 +171,7 @@ private fun SettingsHubPreview() {
         SettingsScreen(
             onNavigateBack = {},
             onNavigateToStorage = {},
-            onNavigateToBandwidth = {},
-            onNavigateToConnectionLimits = {},
+            onNavigateToSpeedConnectionLimits = {},
             onNavigateToNotifications = {},
             onNavigateToNetwork = {},
             onNavigateToPower = {},

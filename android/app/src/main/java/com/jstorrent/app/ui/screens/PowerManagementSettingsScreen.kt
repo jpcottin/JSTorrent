@@ -160,10 +160,15 @@ private fun PowerManagementSection(
         Spacer(modifier = Modifier.height(8.dp))
 
         SettingToggleRow(
-            label = "Prevent sleep",
-            description = "Keep CPU and WiFi active during downloads. Increases battery usage.",
+            label = "Prevent sleep while downloading",
+            description = if (backgroundDownloadsEnabled) {
+                "Keep CPU and WiFi active. Increases battery usage."
+            } else {
+                "Requires background downloads to be enabled."
+            },
             checked = cpuWakeLockEnabled,
-            onCheckedChange = onCpuWakeLockChange
+            onCheckedChange = onCpuWakeLockChange,
+            enabled = backgroundDownloadsEnabled
         )
 
         Spacer(modifier = Modifier.height(16.dp))

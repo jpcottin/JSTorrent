@@ -11,6 +11,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.nio.ByteBuffer
 import java.nio.channels.SocketChannel
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -107,9 +108,12 @@ class TcpSocketService(
                 // Check if we were cancelled while waiting for semaphore
                 if (!isActive) return@launch
 
-                // Resolve hostname to all addresses, prefer IPv6 for better peer discovery
+                // Resolve hostname to all addresses
+                // Note: sortedBy IPv4 first for better compatibility (many networks lack IPv6)
                 val addresses = InetAddress.getAllByName(host)
-                    .sortedByDescending { it is Inet6Address }
+                    .sortedBy { it is Inet6Address }  // IPv4 first (false < true)
+
+                Log.d(TAG, "Socket $socketId: resolved $host to ${addresses.size} addresses: ${addresses.map { "${it.hostAddress} (${if (it is Inet6Address) "IPv6" else "IPv4"})" }}")
 
                 var channel: SocketChannel? = null
                 var lastException: Exception? = null
@@ -119,10 +123,13 @@ class TcpSocketService(
                     ch.configureBlocking(true)  // Blocking mode for coroutine-based I/O
                     try {
                         configureChannel(ch)
+                        Log.d(TAG, "Socket $socketId: trying ${addr.hostAddress}:$port...")
                         ch.socket().connect(InetSocketAddress(addr, port), CONNECT_TIMEOUT)
+                        Log.d(TAG, "Socket $socketId: connected to ${addr.hostAddress}:$port")
                         channel = ch
                         break
                     } catch (e: Exception) {
+                        Log.w(TAG, "Socket $socketId: failed to connect to ${addr.hostAddress}:$port - ${e.javaClass.simpleName}: ${e.message}")
                         lastException = e
                         ch.close()
                     }
@@ -148,9 +155,11 @@ class TcpSocketService(
             } catch (_: CancellationException) {
                 // Don't send failure - socket was intentionally closed
                 throw CancellationException()
-            } catch (_: Exception) {
-                // Connection failed
-                socketCallback?.onTcpConnected(socketId, false, 1)
+            } catch (e: Exception) {
+                // Connection failed - include actual error message for debugging
+                val errorMessage = "${e.javaClass.simpleName}: ${e.message ?: "Unknown error"}"
+                Log.e(TAG, "Socket $socketId: connection failed - $errorMessage")
+                socketCallback?.onTcpConnected(socketId, false, 1, errorMessage)
             } finally {
                 if (acquiredSemaphore) {
                     connectSemaphore.release()
@@ -164,13 +173,28 @@ class TcpSocketService(
     }
 
     override fun send(socketId: Int, data: ByteArray) {
-        // Check if socket is pending (not yet activated) - auto-activate
-        val pending = pendingConnections.remove(socketId)
+        // First check if socket is pending (not yet activated)
+        // Send without activating - allows SOCKS5 handshake before TLS upgrade
+        val pending = pendingConnections[socketId]
         if (pending != null) {
-            val connection = createConnectionFromPending(socketId, pending)
-            activeConnections[socketId] = connection
-            connection.activate()
-            connection.send(data)
+            scope.launch {
+                try {
+                    when (pending) {
+                        is PendingConnection.NioChannel -> {
+                            val buffer = ByteBuffer.wrap(data)
+                            while (buffer.hasRemaining()) {
+                                pending.channel.write(buffer)
+                            }
+                        }
+                        is PendingConnection.TlsSocket -> {
+                            pending.socket.getOutputStream().write(data)
+                            pending.socket.getOutputStream().flush()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Socket $socketId: send on pending failed: ${e.message}")
+                }
+            }
             return
         }
 
@@ -220,6 +244,11 @@ class TcpSocketService(
 
                 // Create SSLSocket wrapping the existing socket
                 // Note: This transitions from NIO to classic Socket I/O for TLS
+                // The socket is already connected (possibly through a proxy tunnel).
+                // hostname is used for SNI, socket.port is the actual connected port.
+                val remoteAddr = socket.remoteSocketAddress
+                Log.d(TAG, "Socket $socketId: upgrading to TLS - hostname=$hostname, remoteAddr=$remoteAddr, socket.port=${socket.port}")
+
                 val sslSocket = sslSocketFactory.createSocket(
                     socket,
                     hostname,
@@ -227,9 +256,15 @@ class TcpSocketService(
                     true // autoClose
                 ) as SSLSocket
 
-                // Configure and start handshake
+                // Configure TLS
                 sslSocket.useClientMode = true
+
+                // Log supported and enabled protocols/ciphers for debugging
+                Log.d(TAG, "Socket $socketId: TLS protocols enabled: ${sslSocket.enabledProtocols.toList()}")
+
+                Log.d(TAG, "Socket $socketId: starting TLS handshake...")
                 sslSocket.startHandshake()
+                Log.d(TAG, "Socket $socketId: TLS handshake complete, protocol=${sslSocket.session.protocol}, cipher=${sslSocket.session.cipherSuite}")
 
                 Log.d(TAG, "Socket $socketId upgraded to TLS (using classic InputStream)")
 
@@ -239,7 +274,17 @@ class TcpSocketService(
                 socketCallback?.onTcpSecured(socketId, true)
 
             } catch (e: Exception) {
-                Log.e(TAG, "Socket $socketId TLS handshake failed: ${e.message}")
+                // Log detailed TLS error including cause chain
+                val errorDetails = buildString {
+                    append("${e.javaClass.simpleName}: ${e.message}")
+                    var cause = e.cause
+                    while (cause != null) {
+                        append(" -> ${cause.javaClass.simpleName}: ${cause.message}")
+                        cause = cause.cause
+                    }
+                }
+                Log.e(TAG, "Socket $socketId TLS handshake failed: $errorDetails")
+                Log.e(TAG, "Socket $socketId TLS error stack trace:", e)
                 try {
                     socket.close()
                 } catch (_: Exception) {}

@@ -87,11 +87,19 @@ export class MemorySocketFactory implements ISocketFactory {
     return [a, b]
   }
 
-  async createTcpSocket(_host?: string, _port?: number): Promise<ITcpSocket> {
+  async createTcpSocket(_options?: {
+    host?: string
+    port?: number
+    purpose?: string
+  }): Promise<ITcpSocket> {
     return new MemorySocket()
   }
 
-  async createUdpSocket(_bindAddr?: string, _bindPort?: number): Promise<IUdpSocket> {
+  async createUdpSocket(_options?: {
+    bindAddr?: string
+    bindPort?: number
+    purpose?: string
+  }): Promise<IUdpSocket> {
     throw new Error('UDP not supported in MemorySocketFactory yet')
   }
 

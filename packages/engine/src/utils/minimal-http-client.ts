@@ -1,4 +1,4 @@
-import { ISocketFactory, ITcpSocket } from '../interfaces/socket'
+import type { ISocketFactory, ITcpSocket, SocketPurpose } from '../interfaces/socket'
 import { Logger } from '../logging/logger'
 import { concat, fromString, toString } from './buffer'
 
@@ -46,11 +46,15 @@ function parseUrl(url: string): {
 export class MinimalHttpClient {
   /** Track active socket for cleanup on abort */
   private activeSocket: ITcpSocket | null = null
+  private purpose?: SocketPurpose
 
   constructor(
     private socketFactory: ISocketFactory,
     private logger?: Logger,
-  ) {}
+    purpose?: SocketPurpose,
+  ) {
+    this.purpose = purpose
+  }
 
   /**
    * Abort any in-flight request by closing its socket.
@@ -72,7 +76,11 @@ export class MinimalHttpClient {
       `MinimalHttpClient: GET ${urlObj.protocol}//${host}:${port}${urlObj.pathname}`,
     )
 
-    const socket = await this.socketFactory.createTcpSocket(host, port)
+    const socket = await this.socketFactory.createTcpSocket({
+      host,
+      port,
+      purpose: this.purpose,
+    })
     this.activeSocket = socket
 
     // Upgrade to TLS for HTTPS
@@ -278,7 +286,11 @@ export class MinimalHttpClient {
       `MinimalHttpClient: POST ${urlObj.protocol}//${host}:${port}${urlObj.pathname}`,
     )
 
-    const socket = await this.socketFactory.createTcpSocket(host, port)
+    const socket = await this.socketFactory.createTcpSocket({
+      host,
+      port,
+      purpose: this.purpose,
+    })
     this.activeSocket = socket
 
     // Upgrade to TLS for HTTPS

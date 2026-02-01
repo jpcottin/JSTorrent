@@ -65,7 +65,7 @@ export class HttpTracker extends EngineComponent implements ITracker {
     super(engine)
     this._infoHash = infoHash
     this._peerId = peerId
-    this.httpClient = new MinimalHttpClient(socketFactory, this.logger)
+    this.httpClient = new MinimalHttpClient(socketFactory, this.logger, 'http-tracker')
     this.logger.debug(`HttpTracker created for ${announceUrl}`)
   }
 

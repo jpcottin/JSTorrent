@@ -557,12 +557,18 @@ export class Torrent extends EngineComponent {
       emitInvariantViolation: (data) => this.emit('test:invariant_violation', data),
 
       // Batch flush - uses socket factory's batchSend if available (native platforms)
+      // Falls back to per-peer flush for sockets without ids (e.g., SOCKS5 wrapped sockets)
       batchFlushPeers: this.socketFactory.batchSend
         ? (peers) => {
             const sends: Array<{ socketId: number; data: Uint8Array }> = []
             for (const peer of peers) {
               const socketId = peer.getSocketId()
-              if (socketId === undefined) continue
+              if (socketId === undefined) {
+                // Socket doesn't have an id (e.g., SOCKS5 proxy socket)
+                // Fall back to per-peer flush
+                peer.flush()
+                continue
+              }
               const data = peer.getQueuedData()
               if (data === null) continue
               sends.push({ socketId, data })

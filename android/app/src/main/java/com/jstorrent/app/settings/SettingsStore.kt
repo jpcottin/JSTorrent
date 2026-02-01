@@ -65,6 +65,13 @@ class SettingsStore(context: Context) {
         set(value) = prefs.edit { putBoolean(KEY_WIFI_ONLY_ENABLED, value) }
 
     /**
+     * Whether to only download when connected to a VPN.
+     */
+    var vpnOnlyEnabled: Boolean
+        get() = prefs.getBoolean(KEY_VPN_ONLY_ENABLED, false)
+        set(value) = prefs.edit { putBoolean(KEY_VPN_ONLY_ENABLED, value) }
+
+    /**
      * Whether DHT (Distributed Hash Table) is enabled.
      */
     var dhtEnabled: Boolean
@@ -164,6 +171,66 @@ class SettingsStore(context: Context) {
         get() = prefs.getInt(KEY_MAX_PIPELINE_DEPTH, DEFAULT_MAX_PIPELINE_DEPTH)
         set(value) = prefs.edit { putInt(KEY_MAX_PIPELINE_DEPTH, value) }
 
+    // =========================================================================
+    // SOCKS5 Proxy
+    // =========================================================================
+
+    /**
+     * Whether SOCKS5 proxy is enabled.
+     */
+    var proxyEnabled: Boolean
+        get() = prefs.getBoolean(KEY_PROXY_ENABLED, false)
+        set(value) = prefs.edit { putBoolean(KEY_PROXY_ENABLED, value) }
+
+    /**
+     * SOCKS5 proxy host.
+     */
+    var proxyHost: String?
+        get() = prefs.getString(KEY_PROXY_HOST, null)
+        set(value) = prefs.edit { putString(KEY_PROXY_HOST, value) }
+
+    /**
+     * SOCKS5 proxy port.
+     */
+    var proxyPort: Int
+        get() = prefs.getInt(KEY_PROXY_PORT, 1080)
+        set(value) = prefs.edit { putInt(KEY_PROXY_PORT, value) }
+
+    /**
+     * SOCKS5 proxy username (optional).
+     */
+    var proxyUsername: String?
+        get() = prefs.getString(KEY_PROXY_USERNAME, null)
+        set(value) = prefs.edit { putString(KEY_PROXY_USERNAME, value) }
+
+    /**
+     * SOCKS5 proxy password (optional).
+     */
+    var proxyPassword: String?
+        get() = prefs.getString(KEY_PROXY_PASSWORD, null)
+        set(value) = prefs.edit { putString(KEY_PROXY_PASSWORD, value) }
+
+    /**
+     * Whether to route HTTP tracker requests through the proxy.
+     */
+    var proxyHttpTrackers: Boolean
+        get() = prefs.getBoolean(KEY_PROXY_HTTP_TRACKERS, true)
+        set(value) = prefs.edit { putBoolean(KEY_PROXY_HTTP_TRACKERS, value) }
+
+    /**
+     * Whether to route UDP tracker requests through the proxy.
+     */
+    var proxyUdpTrackers: Boolean
+        get() = prefs.getBoolean(KEY_PROXY_UDP_TRACKERS, true)
+        set(value) = prefs.edit { putBoolean(KEY_PROXY_UDP_TRACKERS, value) }
+
+    /**
+     * Whether to route peer connections through the proxy.
+     */
+    var proxyPeerConnections: Boolean
+        get() = prefs.getBoolean(KEY_PROXY_PEER_CONNECTIONS, true)
+        set(value) = prefs.edit { putBoolean(KEY_PROXY_PEER_CONNECTIONS, value) }
+
     companion object {
         private const val PREFS_NAME = "jstorrent_settings"
         private const val KEY_DOWNLOAD_SPEED_UNLIMITED = "download_speed_unlimited"
@@ -173,6 +240,7 @@ class SettingsStore(context: Context) {
         private const val KEY_DEFAULT_ROOT_KEY = "default_root_key"
         private const val KEY_WHEN_DOWNLOADS_COMPLETE = "when_downloads_complete"
         private const val KEY_WIFI_ONLY_ENABLED = "wifi_only_enabled"
+        private const val KEY_VPN_ONLY_ENABLED = "vpn_only_enabled"
         private const val KEY_DHT_ENABLED = "dht_enabled"
         private const val KEY_PEX_ENABLED = "pex_enabled"
         private const val KEY_UPNP_ENABLED = "upnp_enabled"
@@ -187,6 +255,15 @@ class SettingsStore(context: Context) {
         private const val KEY_MAX_GLOBAL_PEERS = "max_global_peers"
         private const val KEY_MAX_UPLOAD_SLOTS = "max_upload_slots"
         private const val KEY_MAX_PIPELINE_DEPTH = "max_pipeline_depth"
+        // SOCKS5 Proxy
+        private const val KEY_PROXY_ENABLED = "proxy_enabled"
+        private const val KEY_PROXY_HOST = "proxy_host"
+        private const val KEY_PROXY_PORT = "proxy_port"
+        private const val KEY_PROXY_USERNAME = "proxy_username"
+        private const val KEY_PROXY_PASSWORD = "proxy_password"
+        private const val KEY_PROXY_HTTP_TRACKERS = "proxy_http_trackers"
+        private const val KEY_PROXY_UDP_TRACKERS = "proxy_udp_trackers"
+        private const val KEY_PROXY_PEER_CONNECTIONS = "proxy_peer_connections"
 
         /** Default max pipeline depth - must match DEFAULT_MAX_PIPELINE_DEPTH in config-schema.ts */
         const val DEFAULT_MAX_PIPELINE_DEPTH = 500

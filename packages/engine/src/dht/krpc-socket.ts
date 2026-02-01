@@ -105,10 +105,11 @@ export class KRPCSocket extends EventEmitter {
       throw new Error('Socket already bound')
     }
 
-    this.socket = await this.socketFactory.createUdpSocket(
-      this.options.bindAddr,
-      this.options.bindPort,
-    )
+    this.socket = await this.socketFactory.createUdpSocket({
+      bindAddr: this.options.bindAddr,
+      bindPort: this.options.bindPort,
+      purpose: 'dht',
+    })
 
     this.socket.onMessage((rinfo, data) => {
       this.handleMessage(data, rinfo)

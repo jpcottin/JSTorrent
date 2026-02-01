@@ -339,16 +339,17 @@ class TcpBindings(
 
     private fun setupNativeCallbacks(ctx: QuickJsContext) {
         tcpManager.setCallback(object : TcpSocketCallback {
-            override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int) {
+            override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int, errorMessage: String?) {
                 if (!hasConnectedCallback) return
 
                 jsThread.post {
-                    val errorMessage = if (!success) "Connection failed (code: $errorCode)" else ""
+                    // Use the actual error message if provided, otherwise fall back to generic
+                    val msg = if (!success) (errorMessage ?: "Connection failed (code: $errorCode)") else ""
                     ctx.callGlobalFunction(
                         "__jstorrent_tcp_dispatch_connected",
                         socketId.toString(),
                         success.toString(),
-                        errorMessage
+                        msg
                     )
                     // Schedule batched job processing to avoid blocking the Handler.
                     // This allows other callbacks to be interleaved with job processing.

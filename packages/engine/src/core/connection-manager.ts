@@ -175,7 +175,7 @@ export class ConnectionManager {
     this.connectTimers.set(key, timer)
 
     // Create socket without connecting - allows cancellation
-    const rawSocket = await this.socketFactory.createTcpSocket()
+    const rawSocket = await this.socketFactory.createTcpSocket({ purpose: 'peer' })
     this.pendingSockets.set(key, rawSocket)
 
     try {

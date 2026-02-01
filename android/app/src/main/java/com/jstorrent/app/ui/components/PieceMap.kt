@@ -110,9 +110,25 @@ fun PieceMap(
 }
 
 /**
+ * Segment state for PieceBar - tracks what fraction of pieces in each state.
+ */
+private data class SegmentState(
+    val completed: Float,   // Fraction of verified pieces
+    val responded: Float,   // Fraction in responded state
+    val requested: Float,   // Fraction in requested state
+    val partial: Float      // Fraction in partial state
+)
+
+/**
  * Single-line piece bar showing download progress.
  * Aggregates pieces into segments for large torrents.
  * Uses BitSet for accurate piece-by-piece visualization.
+ *
+ * Shows active piece states with colored overlays:
+ * - Completed (verified): primary color
+ * - Responded (awaiting verification): green
+ * - Requested (awaiting data): cyan
+ * - Partial (has unrequested blocks): orange
  */
 @Composable
 fun PieceBar(
@@ -121,35 +137,58 @@ fun PieceBar(
     modifier: Modifier = Modifier,
     piecesCompleted: Int = bitfield?.cardinality() ?: 0,
     height: Dp = 12.dp,
-    maxSegments: Int = 200
+    maxSegments: Int = 100,
+    activePiecesPartial: Set<Int>? = null,
+    activePiecesRequested: Set<Int>? = null,
+    activePiecesResponded: Set<Int>? = null
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
     val emptyColor = MaterialTheme.colorScheme.surfaceVariant
+    // Active piece state colors (must match PieceMap)
+    val partialColor = Color(0xFFFF9800)   // Orange
+    val requestedColor = Color(0xFF00BCD4) // Cyan
+    val respondedColor = Color(0xFF4CAF50) // Green
 
-    // Pre-compute segment completion percentages
+    // Pre-compute segment states
     val displaySegments = min(piecesTotal, maxSegments)
-    val segmentCompletions = remember(bitfield, piecesTotal, piecesCompleted) {
-        if (displaySegments == 0) return@remember floatArrayOf()
+    val segmentStates = remember(
+        bitfield,
+        piecesTotal,
+        piecesCompleted,
+        activePiecesPartial,
+        activePiecesRequested,
+        activePiecesResponded
+    ) {
+        if (displaySegments == 0) return@remember emptyList()
 
         val piecesPerSegment = piecesTotal.toFloat() / displaySegments
-        FloatArray(displaySegments) { segmentIndex ->
+        List(displaySegments) { segmentIndex ->
             val startPiece = (segmentIndex * piecesPerSegment).toInt()
             val endPiece = min(((segmentIndex + 1) * piecesPerSegment).toInt(), piecesTotal)
             val segmentSize = endPiece - startPiece
-            if (segmentSize == 0) return@FloatArray 0f
+            if (segmentSize == 0) return@List SegmentState(0f, 0f, 0f, 0f)
 
-            if (bitfield != null) {
-                // Count actual completed pieces in this segment
-                var completed = 0
-                for (i in startPiece until endPiece) {
-                    if (bitfield.get(i)) completed++
+            var completed = 0
+            var responded = 0
+            var requested = 0
+            var partial = 0
+
+            for (i in startPiece until endPiece) {
+                when {
+                    bitfield?.get(i) == true -> completed++
+                    activePiecesResponded?.contains(i) == true -> responded++
+                    activePiecesRequested?.contains(i) == true -> requested++
+                    activePiecesPartial?.contains(i) == true -> partial++
+                    bitfield == null && i < piecesCompleted -> completed++
                 }
-                completed.toFloat() / segmentSize
-            } else {
-                // Fallback: use sequential completion assumption
-                val completedInSegment = (piecesCompleted - startPiece).coerceIn(0, segmentSize)
-                completedInSegment.toFloat() / segmentSize
             }
+
+            SegmentState(
+                completed = completed.toFloat() / segmentSize,
+                responded = responded.toFloat() / segmentSize,
+                requested = requested.toFloat() / segmentSize,
+                partial = partial.toFloat() / segmentSize
+            )
         }
     }
 
@@ -164,7 +203,7 @@ fun PieceBar(
         val gap = if (displaySegments <= 50) 1f else 0.5f
 
         for (i in 0 until displaySegments) {
-            val completion = segmentCompletions[i]
+            val state = segmentStates[i]
             val x = i * segmentWidth
 
             // Draw background (empty)
@@ -174,10 +213,32 @@ fun PieceBar(
                 size = Size(segmentWidth - gap * 2, size.height)
             )
 
-            // Draw completion overlay with alpha based on completion %
-            if (completion > 0f) {
+            // Draw state overlays from bottom to top (most complete first)
+            // Each layer's alpha reflects the fraction in that state
+            if (state.completed > 0f) {
                 drawRect(
-                    color = primaryColor.copy(alpha = 0.3f + completion * 0.7f),
+                    color = primaryColor.copy(alpha = 0.3f + state.completed * 0.7f),
+                    topLeft = Offset(x + gap, 0f),
+                    size = Size(segmentWidth - gap * 2, size.height)
+                )
+            }
+            if (state.responded > 0f) {
+                drawRect(
+                    color = respondedColor.copy(alpha = 0.3f + state.responded * 0.7f),
+                    topLeft = Offset(x + gap, 0f),
+                    size = Size(segmentWidth - gap * 2, size.height)
+                )
+            }
+            if (state.requested > 0f) {
+                drawRect(
+                    color = requestedColor.copy(alpha = 0.3f + state.requested * 0.7f),
+                    topLeft = Offset(x + gap, 0f),
+                    size = Size(segmentWidth - gap * 2, size.height)
+                )
+            }
+            if (state.partial > 0f) {
+                drawRect(
+                    color = partialColor.copy(alpha = 0.3f + state.partial * 0.7f),
                     topLeft = Offset(x + gap, 0f),
                     size = Size(segmentWidth - gap * 2, size.height)
                 )

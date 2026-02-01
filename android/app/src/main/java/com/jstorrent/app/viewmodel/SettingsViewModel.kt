@@ -38,6 +38,7 @@ data class SettingsUiState(
     val whenDownloadsComplete: String = "stop_and_close",
     // Network
     val wifiOnlyEnabled: Boolean = false,
+    val vpnOnlyEnabled: Boolean = false,
     val dhtEnabled: Boolean = true,
     val pexEnabled: Boolean = true,
     val upnpEnabled: Boolean = true,
@@ -46,6 +47,16 @@ data class SettingsUiState(
     val upnpPort: Int = 0,
     val hasReceivedIncomingConnection: Boolean = false,
     val encryptionPolicy: String = "allow",
+    // SOCKS5 Proxy
+    val proxyEnabled: Boolean = false,
+    val proxyHost: String? = null,
+    val proxyPort: Int = 1080,
+    val proxyUsername: String? = null,
+    val proxyPassword: String? = null,
+    val proxyHttpTrackers: Boolean = true,
+    val proxyUdpTrackers: Boolean = true,
+    val proxyPeerConnections: Boolean = true,
+    val showProxyDialog: Boolean = false,
     // Power Management
     val backgroundDownloadsEnabled: Boolean = false,
     val cpuWakeLockEnabled: Boolean = false,
@@ -107,10 +118,19 @@ class SettingsViewModel(
             maxPipelineDepth = settingsStore.maxPipelineDepth,
             whenDownloadsComplete = settingsStore.whenDownloadsComplete,
             wifiOnlyEnabled = settingsStore.wifiOnlyEnabled,
+            vpnOnlyEnabled = settingsStore.vpnOnlyEnabled,
             dhtEnabled = settingsStore.dhtEnabled,
             pexEnabled = settingsStore.pexEnabled,
             upnpEnabled = settingsStore.upnpEnabled,
             encryptionPolicy = settingsStore.encryptionPolicy,
+            proxyEnabled = settingsStore.proxyEnabled,
+            proxyHost = settingsStore.proxyHost,
+            proxyPort = settingsStore.proxyPort,
+            proxyUsername = settingsStore.proxyUsername,
+            proxyPassword = settingsStore.proxyPassword,
+            proxyHttpTrackers = settingsStore.proxyHttpTrackers,
+            proxyUdpTrackers = settingsStore.proxyUdpTrackers,
+            proxyPeerConnections = settingsStore.proxyPeerConnections,
             backgroundDownloadsEnabled = settingsStore.backgroundDownloadsEnabled,
             cpuWakeLockEnabled = settingsStore.cpuWakeLockEnabled,
             shutdownOnLowBatteryEnabled = settingsStore.shutdownOnLowBatteryEnabled,
@@ -340,6 +360,17 @@ class SettingsViewModel(
     }
 
     /**
+     * Set VPN-only mode.
+     * Persists the setting and also notifies running service to start/stop VPN monitoring.
+     */
+    fun setVpnOnly(enabled: Boolean) {
+        settingsStore.vpnOnlyEnabled = enabled
+        // VPN monitoring is handled by ForegroundNotificationService, notify it if running
+        ForegroundNotificationService.instance?.setVpnOnlyEnabled(enabled)
+        _uiState.value = _uiState.value.copy(vpnOnlyEnabled = enabled)
+    }
+
+    /**
      * Set DHT enabled state.
      */
     fun setDhtEnabled(enabled: Boolean) {
@@ -374,6 +405,81 @@ class SettingsViewModel(
         settingsStore.encryptionPolicy = policy
         app.engineController?.getConfigBridge()?.setEncryptionPolicy(policy)
         _uiState.value = _uiState.value.copy(encryptionPolicy = policy)
+    }
+
+    // =========================================================================
+    // SOCKS5 Proxy Settings
+    // =========================================================================
+
+    /**
+     * Show the proxy configuration dialog.
+     */
+    fun showProxyDialog() {
+        _uiState.value = _uiState.value.copy(showProxyDialog = true)
+    }
+
+    /**
+     * Dismiss the proxy configuration dialog.
+     */
+    fun dismissProxyDialog() {
+        _uiState.value = _uiState.value.copy(showProxyDialog = false)
+    }
+
+    /**
+     * Set proxy enabled state.
+     */
+    fun setProxyEnabled(enabled: Boolean) {
+        settingsStore.proxyEnabled = enabled
+        app.engineController?.getConfigBridge()?.setProxyEnabled(enabled)
+        _uiState.value = _uiState.value.copy(proxyEnabled = enabled)
+    }
+
+    /**
+     * Save proxy configuration.
+     * @param host Proxy host
+     * @param port Proxy port
+     * @param username Optional username
+     * @param password Optional password
+     * @param httpTrackers Route HTTP trackers through proxy
+     * @param udpTrackers Route UDP trackers through proxy
+     * @param peerConnections Route peer connections through proxy
+     */
+    fun saveProxyConfig(
+        host: String,
+        port: Int,
+        username: String?,
+        password: String?,
+        httpTrackers: Boolean,
+        udpTrackers: Boolean,
+        peerConnections: Boolean
+    ) {
+        settingsStore.proxyHost = host.ifBlank { null }
+        settingsStore.proxyPort = port
+        settingsStore.proxyUsername = username?.ifBlank { null }
+        settingsStore.proxyPassword = password?.ifBlank { null }
+        settingsStore.proxyHttpTrackers = httpTrackers
+        settingsStore.proxyUdpTrackers = udpTrackers
+        settingsStore.proxyPeerConnections = peerConnections
+
+        val configBridge = app.engineController?.getConfigBridge()
+        configBridge?.setProxyHost(host.ifBlank { null })
+        configBridge?.setProxyPort(port)
+        configBridge?.setProxyUsername(username?.ifBlank { null })
+        configBridge?.setProxyPassword(password?.ifBlank { null })
+        configBridge?.setProxyHttpTrackers(httpTrackers)
+        configBridge?.setProxyUdpTrackers(udpTrackers)
+        configBridge?.setProxyPeerConnections(peerConnections)
+
+        _uiState.value = _uiState.value.copy(
+            proxyHost = host.ifBlank { null },
+            proxyPort = port,
+            proxyUsername = username?.ifBlank { null },
+            proxyPassword = password?.ifBlank { null },
+            proxyHttpTrackers = httpTrackers,
+            proxyUdpTrackers = udpTrackers,
+            proxyPeerConnections = peerConnections,
+            showProxyDialog = false
+        )
     }
 
     // =========================================================================

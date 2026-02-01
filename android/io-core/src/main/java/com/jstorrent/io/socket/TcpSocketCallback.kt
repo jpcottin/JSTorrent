@@ -14,8 +14,9 @@ interface TcpSocketCallback {
      * @param socketId The socket identifier
      * @param success True if connection succeeded
      * @param errorCode Error code if failed (0 on success)
+     * @param errorMessage Human-readable error message if failed (null on success)
      */
-    fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int)
+    fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int, errorMessage: String? = null)
 
     /**
      * Called when data is received on a TCP socket.
