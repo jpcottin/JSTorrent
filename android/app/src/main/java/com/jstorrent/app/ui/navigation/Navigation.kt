@@ -112,9 +112,6 @@ fun TorrentNavHost(
                 onSettingsClick = {
                     navController.navigate(Routes.SETTINGS)
                 },
-                onSearchClick = {
-                    // TODO: Implement search in future phase
-                },
                 onShutdownClick = onShutdownClick,
                 onSpeedClick = {
                     navController.navigate(Routes.SPEED_HISTORY)

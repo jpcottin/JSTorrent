@@ -44,6 +44,7 @@ class ServiceLifecycleManager(
     private var engineShutdownForBackground = false
     private var hasEverBeenForeground = false  // Track if activity has ever been visible
     private var userRequestedQuit = false  // Prevents auto-restart after explicit quit
+    private var engineHasReportedState = false  // True once engine has reported torrent state
 
     /**
      * Called from Activity.onStart()
@@ -68,8 +69,12 @@ class ServiceLifecycleManager(
     /**
      * Called when torrent state changes.
      * Determines if there's active work based on torrent statuses and settings.
+     *
+     * Note: Error state torrents are NOT considered active work - they are effectively stopped
+     * and should not prevent the engine from suspending or the foreground service from stopping.
      */
     fun onTorrentStateChanged(torrents: List<TorrentSummary>) {
+        engineHasReportedState = true  // Engine is running and reporting state
         val seedInBackground = settingsStore.whenDownloadsComplete == "keep_seeding"
 
         hasActiveWork = torrents.any { torrent ->
@@ -107,9 +112,15 @@ class ServiceLifecycleManager(
         val backgroundEnabled = settingsStore.backgroundDownloadsEnabled
         val goingToBackground = !_isActivityForeground.value
 
-        // Stage 4: Check cache for active incomplete torrents when engine isn't running
-        // This allows us to start the engine in background if there's pending work
-        val cacheHasActiveWork = torrentSummaryCache?.hasActiveIncompleteTorrents() ?: false
+        // Stage 4: Check cache for active incomplete torrents when engine isn't running yet.
+        // Once the engine has reported state, we trust its hasActiveWork determination
+        // (which correctly excludes error-state torrents) rather than the cache
+        // (which doesn't know about runtime error state).
+        val cacheHasActiveWork = if (engineHasReportedState) {
+            false  // Engine is running, trust hasActiveWork from onTorrentStateChanged
+        } else {
+            torrentSummaryCache?.hasActiveIncompleteTorrents() ?: false
+        }
 
         // Handle engine shutdown/restore for battery saving
         // Shut down engine when going to background if there's no reason to keep it running:
@@ -126,6 +137,7 @@ class ServiceLifecycleManager(
             Log.i(TAG, "Shutting down engine ($reason) to save battery")
             onShutdownForBackground()
             engineShutdownForBackground = true
+            engineHasReportedState = false  // Reset so cache is checked on next engine start
         } else if (_isActivityForeground.value && engineShutdownForBackground) {
             Log.i(TAG, "Restoring engine after background shutdown")
             onRestoreFromBackground()

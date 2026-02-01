@@ -1292,6 +1292,38 @@ export class Torrent extends EngineComponent {
   }
 
   /**
+   * Estimated time to completion in seconds.
+   * Returns null if:
+   * - No metadata yet (don't know total size)
+   * - Download complete
+   * - Download speed is zero
+   */
+  get eta(): number | null {
+    if (!this.hasMetadata) return null
+    if (this.progress >= 1) return null
+    const speed = this.downloadSpeed
+    if (speed <= 0) return null
+
+    // Calculate remaining bytes using the same logic as getAnnounceStats
+    const totalSize =
+      this.piecesCount > 0 ? (this.piecesCount - 1) * this.pieceLength + this.lastPieceLength : 0
+
+    let bytesDownloaded = 0
+    if (this._bitfield) {
+      for (let i = 0; i < this.piecesCount; i++) {
+        if (this._bitfield.get(i)) {
+          bytesDownloaded += this.getPieceLength(i)
+        }
+      }
+    }
+
+    const remaining = totalSize - bytesDownloaded
+    if (remaining <= 0) return null
+
+    return Math.ceil(remaining / speed)
+  }
+
+  /**
    * Get the current activity state (derived, not persisted).
    */
   get activityState(): TorrentActivityState {

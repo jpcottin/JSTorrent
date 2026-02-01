@@ -53,6 +53,7 @@ export interface TorrentStateData {
 
   // Progress (absent until metadata received)
   bitfield?: string // Hex-encoded bitfield
+  pieceCount?: number // Total pieces (for accurate completion check without parsing metadata)
   uploaded: number
   downloaded: number
   updatedAt: number
@@ -131,6 +132,7 @@ export class SessionPersistence {
       storageKey: root?.key,
       queuePosition: torrent.queuePosition,
       bitfield: torrent.bitfield?.toHex(),
+      pieceCount: torrent.bitfield?.size,
       uploaded: torrent.totalUploaded,
       downloaded: torrent.totalDownloaded,
       updatedAt: Date.now(),

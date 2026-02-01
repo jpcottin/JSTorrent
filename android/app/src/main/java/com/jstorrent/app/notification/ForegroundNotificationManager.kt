@@ -5,15 +5,12 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.jstorrent.app.JSTorrentApplication
 import com.jstorrent.app.NativeStandaloneActivity
 import com.jstorrent.app.R
 import com.jstorrent.app.util.Formatters
 import com.jstorrent.quickjs.model.TorrentSummary
-
-private const val TAG = "ForegroundNotifMgr"
 
 /**
  * Manages the foreground service notification with dynamic content.
@@ -27,6 +24,7 @@ class ForegroundNotificationManager(private val context: Context) {
 
     companion object {
         const val NOTIFICATION_ID = 2
+        private const val MAX_NAME_LENGTH = 40
     }
 
     /**
@@ -37,7 +35,9 @@ class ForegroundNotificationManager(private val context: Context) {
         val seedingCount: Int,
         val downloadSpeed: Long,
         val uploadSpeed: Long,
-        val hasActiveTorrents: Boolean
+        val hasActiveTorrents: Boolean,
+        // For single-torrent display
+        val singleTorrent: TorrentSummary? = null
     )
 
     /**
@@ -66,6 +66,7 @@ class ForegroundNotificationManager(private val context: Context) {
         var totalDown = 0L
         var totalUp = 0L
         var hasActive = false
+        val activeTorrents = mutableListOf<TorrentSummary>()
 
         for (torrent in torrents) {
             // Check status - also consider progress and speeds for detection
@@ -80,22 +81,28 @@ class ForegroundNotificationManager(private val context: Context) {
                 isDownloading && !isStopped -> {
                     downloading++
                     hasActive = true
+                    activeTorrents.add(torrent)
                 }
                 isSeeding && !isStopped -> {
                     seeding++
                     hasActive = true
+                    activeTorrents.add(torrent)
                 }
             }
             totalDown += torrent.downloadSpeed
             totalUp += torrent.uploadSpeed
         }
 
+        // If exactly one active torrent, store it for single-torrent display
+        val singleTorrent = if (activeTorrents.size == 1) activeTorrents.first() else null
+
         return NotificationState(
             downloadingCount = downloading,
             seedingCount = seeding,
             downloadSpeed = totalDown,
             uploadSpeed = totalUp,
-            hasActiveTorrents = hasActive
+            hasActiveTorrents = hasActive,
+            singleTorrent = singleTorrent
         )
     }
 
@@ -108,28 +115,28 @@ class ForegroundNotificationManager(private val context: Context) {
             PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Build status line
-        val statusLine = buildStatusLine(state)
-
-        // Build speed line
-        val speedLine = buildSpeedLine(state)
-
         val builder = NotificationCompat.Builder(context, JSTorrentApplication.NotificationChannels.SERVICE)
-            .setContentTitle("JSTorrent")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(contentIntent)
             .setOngoing(true)
             .setSilent(true)
 
-        // Set content based on whether we have speeds
-        if (speedLine.isNotEmpty()) {
-            builder.setContentText(statusLine)
-            builder.setStyle(
-                NotificationCompat.BigTextStyle()
-                    .bigText("$statusLine\n$speedLine")
-            )
+        // Single torrent: show name and details
+        // Multiple torrents: show summary counts
+        val singleTorrent = state.singleTorrent
+        if (singleTorrent != null) {
+            val title = truncateName(singleTorrent.name)
+            val contentText = buildSingleTorrentLine(singleTorrent)
+            builder.setContentTitle(title)
+            builder.setContentText(contentText)
         } else {
-            builder.setContentText(statusLine)
+            // Multiple torrents or no active torrents
+            val title = buildStatusLine(state)
+            val speedLine = buildSpeedLine(state)
+            builder.setContentTitle(title)
+            if (speedLine.isNotEmpty()) {
+                builder.setContentText(speedLine)
+            }
         }
 
         // Add action buttons
@@ -139,36 +146,100 @@ class ForegroundNotificationManager(private val context: Context) {
     }
 
     /**
-     * Build status line like "↓ 2 downloading · ↑ 1 seeding" or "No active torrents"
+     * Truncate torrent name to fit in notification.
+     */
+    private fun truncateName(name: String): String {
+        return if (name.length > MAX_NAME_LENGTH) {
+            name.take(MAX_NAME_LENGTH - 1) + "…"
+        } else {
+            name
+        }
+    }
+
+    /**
+     * Build content line for single torrent display.
+     * Downloading: "45% · 3m left · 16 MB/s ↓"
+     * Seeding: "Seeding · 1.2 MB/s ↑"
+     */
+    private fun buildSingleTorrentLine(torrent: TorrentSummary): String {
+        val parts = mutableListOf<String>()
+        val isComplete = torrent.progress >= 1.0
+
+        if (isComplete) {
+            // Seeding
+            parts.add("Seeding")
+            if (torrent.uploadSpeed > 0) {
+                parts.add("${Formatters.formatSpeed(torrent.uploadSpeed)} \u2191")
+            }
+        } else {
+            // Downloading
+            parts.add(Formatters.formatPercent(torrent.progress))
+
+            // ETA if available
+            torrent.eta?.let { eta ->
+                if (eta > 0 && eta < Long.MAX_VALUE) {
+                    parts.add(formatCompactEta(eta))
+                }
+            }
+
+            // Download speed
+            if (torrent.downloadSpeed > 0) {
+                parts.add("${Formatters.formatSpeed(torrent.downloadSpeed)} \u2193")
+            }
+        }
+
+        return parts.joinToString(" \u00B7 ")
+    }
+
+    /**
+     * Format ETA in compact form for notifications.
+     * "< 1m", "3m", "2h 15m", "1d 5h"
+     */
+    private fun formatCompactEta(seconds: Long): String {
+        if (seconds < 60) return "< 1m"
+
+        val days = seconds / 86400
+        val hours = (seconds % 86400) / 3600
+        val minutes = (seconds % 3600) / 60
+
+        return when {
+            days > 0 -> "${days}d ${hours}h"
+            hours > 0 -> "${hours}h ${minutes}m"
+            else -> "${minutes}m"
+        }
+    }
+
+    /**
+     * Build status line like "2 downloading · 1 seeding" or "No active torrents"
      */
     private fun buildStatusLine(state: NotificationState): String {
         val parts = mutableListOf<String>()
 
         if (state.downloadingCount > 0) {
-            parts.add("\u2193 ${state.downloadingCount} downloading")
+            parts.add("${state.downloadingCount} downloading")
         }
         if (state.seedingCount > 0) {
-            parts.add("\u2191 ${state.seedingCount} seeding")
+            parts.add("${state.seedingCount} seeding")
         }
 
         return if (parts.isEmpty()) {
             "No active torrents"
         } else {
-            parts.joinToString(" \u00B7 ")  // Middle dot separator
+            parts.joinToString(" \u00B7 ")
         }
     }
 
     /**
-     * Build speed line like "12.5 MB/s down · 1.2 MB/s up"
+     * Build speed line like "16 MB/s ↓ · 1.2 MB/s ↑"
      */
     private fun buildSpeedLine(state: NotificationState): String {
         val parts = mutableListOf<String>()
 
         if (state.downloadSpeed > 0) {
-            parts.add("${Formatters.formatSpeed(state.downloadSpeed)} down")
+            parts.add("${Formatters.formatSpeed(state.downloadSpeed)} \u2193")
         }
         if (state.uploadSpeed > 0) {
-            parts.add("${Formatters.formatSpeed(state.uploadSpeed)} up")
+            parts.add("${Formatters.formatSpeed(state.uploadSpeed)} \u2191")
         }
 
         return parts.joinToString(" \u00B7 ")

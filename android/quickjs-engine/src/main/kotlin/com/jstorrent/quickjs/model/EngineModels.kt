@@ -162,7 +162,10 @@ data class TorrentSummary(
     val swarmPeers: Int = 0,
     val skippedFilesCount: Int = 0,
     val hasMetadata: Boolean = true, // false for magnets before metadata is fetched
-    val uploaded: Long = 0
+    val uploaded: Long = 0,
+    val addedAt: Long = 0, // Epoch milliseconds when added
+    val eta: Long? = null, // Estimated time to completion in seconds, null if not calculable
+    val errorMessage: String? = null // Error description when status == "error"
 )
 
 /**

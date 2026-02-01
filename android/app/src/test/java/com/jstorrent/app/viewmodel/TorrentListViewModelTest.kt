@@ -300,24 +300,6 @@ class TorrentListViewModelTest {
         assertEquals(1000L, state.torrents[2].downloadSpeed)
     }
 
-    @Test
-    fun `sortByQueueOrder preserves original order`() = runTest {
-        repository.setLoaded(true)
-        repository.setTorrents(listOf(
-            createTestTorrent("hash1", name = "First"),
-            createTestTorrent("hash2", name = "Second"),
-            createTestTorrent("hash3", name = "Third")
-        ))
-        advanceUntilIdle()
-
-        viewModel.setSortOrder(TorrentSortOrder.QUEUE_ORDER)
-        advanceUntilIdle()
-
-        val state = viewModel.uiState.value as TorrentListUiState.Loaded
-        assertEquals("First", state.torrents[0].name)
-        assertEquals("Second", state.torrents[1].name)
-        assertEquals("Third", state.torrents[2].name)
-    }
 
     // =========================================================================
     // Add torrent tests

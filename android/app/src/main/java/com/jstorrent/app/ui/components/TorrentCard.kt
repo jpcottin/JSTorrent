@@ -107,47 +107,74 @@ fun TorrentCard(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Status line: "Downloading • 45%" or "Seeding • 100% (partial)"
+                // Status line: "Downloading • 45%" or "Seeding • 100% (partial)" with ETA right-aligned
+                // For error state: "Error • [error message]"
                 // Stage 5: Show "—" for progress when hasMetadata=false (magnet without metadata yet)
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    StatusBadge(status = torrent.status)
-                    Text(
-                        text = " • ",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = if (!torrent.hasMetadata) {
-                            "—" // Unknown progress for magnets without metadata
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f, fill = false)
+                    ) {
+                        StatusBadge(status = torrent.status)
+                        Text(
+                            text = " • ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        val errorMsg = torrent.errorMessage
+                        if (torrent.status == "error" && errorMsg != null) {
+                            // Show error message for error state
+                            Text(
+                                text = errorMsg,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         } else {
-                            buildString {
-                                append(Formatters.formatPercent(torrent.progress))
-                                // Show "(partial)" when seeding with skipped files
-                                if (torrent.progress >= 0.999 && torrent.skippedFilesCount > 0) {
-                                    append(" (partial)")
-                                }
+                            Text(
+                                text = if (!torrent.hasMetadata) {
+                                    "—" // Unknown progress for magnets without metadata
+                                } else {
+                                    buildString {
+                                        append(Formatters.formatPercent(torrent.progress))
+                                        // Show "(partial)" when seeding with skipped files
+                                        if (torrent.progress >= 0.999 && torrent.skippedFilesCount > 0) {
+                                            append(" (partial)")
+                                        }
+                                    }
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    // ETA right-aligned (only show when downloading with speed > 0, not for error state)
+                    if (torrent.status != "error") {
+                        torrent.eta?.let { eta ->
+                            if (eta > 0 && torrent.progress < 0.999) {
+                                Text(
+                                    text = "ETA: ${Formatters.formatEta(eta)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
                 // Progress bar - Stage 5: Hide for magnets without metadata
+                // Only show progress bar when we have metadata; otherwise show nothing
+                // (status badge already shows "Getting metadata..." when applicable)
                 if (torrent.hasMetadata) {
                     TorrentProgressBar(
                         progress = torrent.progress.toFloat()
-                    )
-                } else {
-                    // Show a subtle placeholder for magnets without metadata
-                    Text(
-                        text = "Acquiring metadata…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -304,6 +331,27 @@ private fun TorrentCardMetadataPreview() {
                 downloadSpeed = 0,
                 uploadSpeed = 0,
                 status = "downloading_metadata"
+            ),
+            onPause = {},
+            onResume = {},
+            modifier = Modifier.padding(8.dp)
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun TorrentCardErrorPreview() {
+    JSTorrentTheme {
+        TorrentCard(
+            torrent = TorrentSummary(
+                infoHash = "err123",
+                name = "Failed Download",
+                progress = 0.05,
+                downloadSpeed = 0,
+                uploadSpeed = 0,
+                status = "error",
+                errorMessage = "Download location unavailable. Storage root not found."
             ),
             onPause = {},
             onResume = {},

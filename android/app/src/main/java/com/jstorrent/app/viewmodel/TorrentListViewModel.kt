@@ -47,12 +47,16 @@ class TorrentListViewModel(
     private val _filter = MutableStateFlow(TorrentFilter.ALL)
     val filter: StateFlow<TorrentFilter> = _filter
 
-    private val _sortOrder = MutableStateFlow(TorrentSortOrder.QUEUE_ORDER)
+    private val _sortOrder = MutableStateFlow(TorrentSortOrder.DATE_ADDED)
     val sortOrder: StateFlow<TorrentSortOrder> = _sortOrder
 
     // Selection state for multi-select mode
     private val _selectedTorrents = MutableStateFlow<Set<String>>(emptySet())
     val selectedTorrents: StateFlow<Set<String>> = _selectedTorrents.asStateFlow()
+
+    // Track when each torrent was last actively downloading (for stable speed sorting)
+    // When a torrent stops, it keeps its position based on when it was last active
+    private val lastActiveAt = mutableMapOf<String, Long>()
 
     val isSelectionMode: StateFlow<Boolean> = _selectedTorrents.map { it.isNotEmpty() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -79,8 +83,31 @@ class TorrentListViewModel(
         _filter,
         _sortOrder
     ) { dataSource, filter, sortOrder ->
+        val engineTorrents = dataSource.state?.torrents ?: emptyList()
+
+        // Update lastActiveAt for torrents that are currently downloading
+        val now = System.currentTimeMillis()
+        engineTorrents.forEach { torrent ->
+            if (torrent.downloadSpeed > 0) {
+                lastActiveAt[torrent.infoHash] = now
+            }
+        }
+
+        // Custom sort function that uses lastActiveAt for speed sorting
+        fun List<TorrentSummary>.sortWithLastActive(): List<TorrentSummary> {
+            return when (sortOrder) {
+                TorrentSortOrder.NAME -> this.sortedBy { it.name.lowercase() }
+                TorrentSortOrder.DATE_ADDED -> this.sortedByDescending { it.addedAt }
+                TorrentSortOrder.DOWNLOAD_SPEED -> this.sortedWith(
+                    compareByDescending<TorrentSummary> { it.downloadSpeed }
+                        .thenByDescending { lastActiveAt[it.infoHash] ?: 0L }
+                        .thenByDescending { it.addedAt }
+                )
+            }
+        }
+
         android.util.Log.d("TorrentListVM", "uiState: engineLoaded=${dataSource.isLoaded}, " +
-            "engineTorrents=${dataSource.state?.torrents?.size ?: 0}, " +
+            "engineTorrents=${engineTorrents.size}, " +
             "cachedSummaries=${dataSource.cachedSummaries.size}, " +
             "cacheIsLoaded=${dataSource.cacheIsLoaded}, error=${dataSource.error}")
         when {
@@ -90,15 +117,42 @@ class TorrentListViewModel(
                 TorrentListUiState.Error(dataSource.error)
             }
 
-            // Engine is loaded - use live state (engine wins)
-            dataSource.isLoaded -> {
-                val torrents = dataSource.state?.torrents ?: emptyList()
-                val filteredTorrents = torrents
+            // Engine is loaded AND has sent state - use live state
+            dataSource.isLoaded && dataSource.state != null -> {
+                val filteredTorrents = engineTorrents
                     .filterByStatus(filter)
-                    .sortByOrder(sortOrder)
+                    .sortWithLastActive()
                 android.util.Log.d("TorrentListVM", "-> Live state, ${filteredTorrents.size} torrents")
                 TorrentListUiState.Loaded(
                     torrents = filteredTorrents,
+                    filter = filter,
+                    sortOrder = sortOrder,
+                    isLive = true
+                )
+            }
+
+            // Engine is loaded but hasn't sent state yet - show cache to prevent flicker
+            dataSource.isLoaded && dataSource.cachedSummaries.isNotEmpty() -> {
+                val torrents = dataSource.cachedSummaries.map { cached ->
+                    with(cache!!) { cached.toTorrentSummary() }
+                }
+                val filteredTorrents = torrents
+                    .filterByStatus(filter)
+                    .sortWithLastActive()
+                android.util.Log.d("TorrentListVM", "-> Engine starting, showing cache, ${filteredTorrents.size} torrents")
+                TorrentListUiState.Loaded(
+                    torrents = filteredTorrents,
+                    filter = filter,
+                    sortOrder = sortOrder,
+                    isLive = false  // Still cached until engine sends state
+                )
+            }
+
+            // Engine is loaded, no state yet, no cache - show empty list
+            dataSource.isLoaded -> {
+                android.util.Log.d("TorrentListVM", "-> Live state, empty")
+                TorrentListUiState.Loaded(
+                    torrents = emptyList(),
                     filter = filter,
                     sortOrder = sortOrder,
                     isLive = true
@@ -112,7 +166,7 @@ class TorrentListViewModel(
                 }
                 val filteredTorrents = torrents
                     .filterByStatus(filter)
-                    .sortByOrder(sortOrder)
+                    .sortWithLastActive()
                 android.util.Log.d("TorrentListVM", "-> Cache state, ${filteredTorrents.size} torrents")
                 TorrentListUiState.Loaded(
                     torrents = filteredTorrents,

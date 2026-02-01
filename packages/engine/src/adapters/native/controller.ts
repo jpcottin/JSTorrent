@@ -959,7 +959,11 @@ export function startStatePushLoop(engine: BtEngine): () => void {
           numPeers: t.numPeers,
           swarmPeers: t.swarm.total,
           skippedFilesCount: t.filePriorities.filter((p) => p === 1).length,
+          hasMetadata: t.hasMetadata,
           uploaded: t.totalUploaded,
+          addedAt: t.addedAt,
+          eta: t.eta,
+          errorMessage: t.errorMessage,
         })),
         pieceChanges: Object.keys(pieceChanges).length > 0 ? pieceChanges : undefined,
       })

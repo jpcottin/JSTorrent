@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,7 +27,6 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -76,7 +76,7 @@ import com.jstorrent.quickjs.model.TorrentSummary
 
 /**
  * Main torrent list screen.
- * Displays a list of torrents with filter tabs, search, and add FAB.
+ * Displays a list of torrents with filter tabs and add FAB.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,7 +85,6 @@ fun TorrentListScreen(
     onTorrentClick: (String) -> Unit = {},
     onAddRootClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
-    onSearchClick: () -> Unit = {},
     onShutdownClick: () -> Unit = {},
     onSpeedClick: () -> Unit = {},
     onDhtInfoClick: () -> Unit = {},
@@ -143,7 +142,7 @@ fun TorrentListScreen(
             TopAppBar(
                 title = {
                     val isLive = (uiState as? TorrentListUiState.Loaded)?.isLive ?: false
-                    Column {
+                    Box {
                         // Logo, title, and engine status indicator
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Image(
@@ -159,7 +158,7 @@ fun TorrentListScreen(
                             }
                         }
 
-                        // Global speed indicators below the brand (when loaded and has activity)
+                        // Global speed indicators positioned below the title (offset doesn't affect layout)
                         if (uiState is TorrentListUiState.Loaded &&
                             (aggregateDownloadSpeed > 0 || aggregateUploadSpeed > 0)) {
                             CombinedSpeedIndicator(
@@ -167,7 +166,7 @@ fun TorrentListScreen(
                                 uploadSpeed = aggregateUploadSpeed,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 12.dp)
+                                modifier = Modifier.offset(x = 12.dp, y = 36.dp)
                             )
                         }
                     }
@@ -204,12 +203,6 @@ fun TorrentListScreen(
                                 )
                             }
                         }
-                    }
-                    IconButton(onClick = onSearchClick) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search"
-                        )
                     }
                     IconButton(onClick = { showMenu = true }) {
                         Icon(
@@ -630,10 +623,8 @@ private fun ErrorContentPreview() {
  */
 private fun getSortOrderDisplayName(sortOrder: TorrentSortOrder): String {
     return when (sortOrder) {
-        TorrentSortOrder.QUEUE_ORDER -> "Queue Order"
         TorrentSortOrder.NAME -> "Name"
         TorrentSortOrder.DATE_ADDED -> "Date Added"
         TorrentSortOrder.DOWNLOAD_SPEED -> "Download Speed"
-        TorrentSortOrder.ETA -> "ETA"
     }
 }

@@ -158,13 +158,11 @@ open class TorrentSummaryCache(context: Context?) {
                     if (state.userState != "active") continue
 
                     // Check if it's incomplete (needs downloading)
-                    // If we have a bitfield, we can check progress; otherwise assume incomplete
-                    val isComplete = if (state.bitfield != null) {
-                        // Quick check: if bitfield is all 0xFF bytes, it's likely complete
-                        // This is a heuristic - full progress calculation needs metadata
-                        state.bitfield.all { it == 'f' || it == 'F' }
+                    val isComplete = if (state.bitfield != null && state.pieceCount != null) {
+                        val completedPieces = countSetBitsInHexBitfield(state.bitfield)
+                        completedPieces >= state.pieceCount
                     } else {
-                        // No bitfield = metadata-only magnet or no progress yet
+                        // No bitfield or pieceCount = no metadata yet, so incomplete
                         false
                     }
 
@@ -220,7 +218,7 @@ open class TorrentSummaryCache(context: Context?) {
 
         // Map userState to status
         val status = when (state?.userState) {
-            "active" -> if (progress >= 0.999) "seeding" else "stopped" // Will become "downloading" when engine starts
+            "active" -> if (progress >= 1.0) "seeding" else "stopped" // Will become "downloading" when engine starts
             "inactive", "paused" -> "stopped"
             else -> "stopped"
         }
@@ -270,6 +268,20 @@ open class TorrentSummaryCache(context: Context?) {
 
     companion object {
         private const val TAG = "TorrentSummaryCache"
+
+        /**
+         * Count the number of set bits in a hex-encoded bitfield.
+         */
+        internal fun countSetBitsInHexBitfield(hexBitfield: String): Int {
+            var count = 0
+            for (i in hexBitfield.indices step 2) {
+                if (i + 1 < hexBitfield.length) {
+                    val byte = hexBitfield.substring(i, i + 2).toIntOrNull(16) ?: 0
+                    count += Integer.bitCount(byte)
+                }
+            }
+            return count
+        }
 
         /**
          * Parse display name (dn=) from magnet URI.
@@ -340,7 +352,9 @@ open class TorrentSummaryCache(context: Context?) {
             numPeers = 0,
             swarmPeers = 0,
             skippedFilesCount = 0,
-            hasMetadata = hasMetadata
+            hasMetadata = hasMetadata,
+            uploaded = uploaded,
+            addedAt = addedAt
         )
     }
 }
@@ -386,6 +400,7 @@ private data class TorrentStateData(
     val storageKey: String? = null,
     val queuePosition: Int? = null,
     val bitfield: String? = null, // Hex-encoded
+    val pieceCount: Int? = null, // Total pieces (for accurate completion check)
     val uploaded: Long = 0,
     val downloaded: Long = 0,
     val updatedAt: Long = 0,

@@ -127,8 +127,8 @@ fun AddTorrentContent(
             value = magnetLink,
             onValueChange = onMagnetLinkChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Magnet link or info hash") },
-            placeholder = { Text("magnet:?xt=urn:btih:... or 40-char hash") },
+            label = { Text("Magnet link") },
+            placeholder = { Text("magnet:?xt=urn:btih:...") },
             singleLine = false,
             maxLines = 3,
             trailingIcon = {

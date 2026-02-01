@@ -60,16 +60,12 @@ enum class TorrentFilter(val displayName: String) {
  * Sort order options for torrent list.
  */
 enum class TorrentSortOrder {
-    /** Original order from engine */
-    QUEUE_ORDER,
     /** Alphabetical by name */
     NAME,
-    /** By date added (newest first) - requires TorrentInfo with addedDate */
+    /** By date added (newest first) */
     DATE_ADDED,
     /** By download speed (fastest first) */
-    DOWNLOAD_SPEED,
-    /** By ETA (shortest first) - requires TorrentInfo with eta */
-    ETA
+    DOWNLOAD_SPEED
 }
 
 // =============================================================================
@@ -249,11 +245,13 @@ fun List<TorrentSummary>.filterByStatus(filter: TorrentFilter): List<TorrentSumm
  */
 fun List<TorrentSummary>.sortByOrder(order: TorrentSortOrder): List<TorrentSummary> {
     return when (order) {
-        TorrentSortOrder.QUEUE_ORDER -> this
         TorrentSortOrder.NAME -> this.sortedBy { it.name.lowercase() }
-        TorrentSortOrder.DATE_ADDED -> this // Requires additional data
-        TorrentSortOrder.DOWNLOAD_SPEED -> this.sortedByDescending { it.downloadSpeed }
-        TorrentSortOrder.ETA -> this // Requires additional data
+        TorrentSortOrder.DATE_ADDED -> this.sortedByDescending { it.addedAt }
+        // Secondary sort by date added keeps stopped torrents stable
+        TorrentSortOrder.DOWNLOAD_SPEED -> this.sortedWith(
+            compareByDescending<TorrentSummary> { it.downloadSpeed }
+                .thenByDescending { it.addedAt }
+        )
     }
 }
 

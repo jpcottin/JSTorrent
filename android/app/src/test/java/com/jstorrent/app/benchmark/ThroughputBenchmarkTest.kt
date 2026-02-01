@@ -184,6 +184,7 @@ class ThroughputBenchmarkTest {
      * Raw Netty sustained throughput test - run for 30+ seconds.
      */
     @Test
+    @Ignore("Long-running benchmark - run manually, causes OOM in CI")
     fun netty_Sustained30s() {
         runSustainedBenchmark(
             serverType = ServerType.RAW_NETTY,
@@ -237,6 +238,7 @@ class ThroughputBenchmarkTest {
      * Measures performance stability over time.
      */
     @Test
+    @Ignore("Long-running benchmark - run manually, causes OOM in CI")
     fun ktor_Sustained30s() {
         runSustainedBenchmark(
             serverType = ServerType.KTOR,
@@ -250,6 +252,7 @@ class ThroughputBenchmarkTest {
      * java-websocket sustained throughput test - baseline for comparison.
      */
     @Test
+    @Ignore("Long-running benchmark - run manually, causes OOM in CI")
     fun standalone_Sustained30s() {
         runSustainedBenchmark(
             serverType = ServerType.JAVA_WEBSOCKET,
