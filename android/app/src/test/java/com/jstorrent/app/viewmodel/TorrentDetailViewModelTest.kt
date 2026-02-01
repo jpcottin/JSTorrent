@@ -5,9 +5,9 @@ import com.jstorrent.app.model.TorrentDetailUiState
 import com.jstorrent.quickjs.model.FileInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -17,10 +17,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+/**
+ * Tests for TorrentDetailViewModel.
+ *
+ * Note: The ViewModel has an infinite tracker refresh loop that's disabled in tests
+ * via trackerRefreshEnabled=false. The state collection flow is handled by using
+ * runCurrent() which processes pending emissions without advancing virtual time.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TorrentDetailViewModelTest {
 
-    private val testDispatcher = UnconfinedTestDispatcher()
+    // Use StandardTestDispatcher to control time advancement.
+    // UnconfinedTestDispatcher causes infinite loops in ViewModels (like the tracker refresh loop)
+    // to hang when runCurrent() is called.
+    private val testDispatcher = StandardTestDispatcher()
     private lateinit var repository: FakeTorrentRepository
     private lateinit var viewModel: TorrentDetailViewModel
 
@@ -41,7 +51,12 @@ class TorrentDetailViewModelTest {
         infoHash: String = testInfoHash,
         onEnsureEngineStarted: () -> Unit = {}
     ): TorrentDetailViewModel {
-        return TorrentDetailViewModel(repository, infoHash, onEnsureEngineStarted)
+        return TorrentDetailViewModel(
+            repository = repository,
+            infoHash = infoHash,
+            onEnsureEngineStarted = onEnsureEngineStarted,
+            trackerRefreshEnabled = false // Disable infinite loop for testing
+        )
     }
 
     // =========================================================================
@@ -51,7 +66,7 @@ class TorrentDetailViewModelTest {
     @Test
     fun `initial state is Loading`() = runTest {
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(TorrentDetailUiState.Loading, viewModel.uiState.value)
     }
@@ -61,7 +76,7 @@ class TorrentDetailViewModelTest {
         repository.setLoaded(true)
         repository.setTorrents(listOf(createTestTorrent(testInfoHash, name = "My Torrent")))
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         val state = viewModel.uiState.value
         assertTrue(state is TorrentDetailUiState.Loaded)
@@ -74,7 +89,7 @@ class TorrentDetailViewModelTest {
         repository.setLoaded(true)
         repository.setTorrents(listOf(createTestTorrent("other-hash")))
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         val state = viewModel.uiState.value
         assertTrue(state is TorrentDetailUiState.Error)
@@ -96,7 +111,7 @@ class TorrentDetailViewModelTest {
             )
         )
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         val state = viewModel.uiState.value as TorrentDetailUiState.Loaded
         assertEquals(2, state.torrent.files.size)
@@ -115,7 +130,7 @@ class TorrentDetailViewModelTest {
             )
         )
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         // Initially all files are selected
         var state = viewModel.uiState.value as TorrentDetailUiState.Loaded
@@ -123,7 +138,7 @@ class TorrentDetailViewModelTest {
 
         // Toggle file 0
         viewModel.toggleFileSelection(0)
-        advanceUntilIdle()
+        runCurrent()
 
         state = viewModel.uiState.value as TorrentDetailUiState.Loaded
         assertFalse(state.torrent.files[0].isSelected)
@@ -131,7 +146,7 @@ class TorrentDetailViewModelTest {
 
         // Toggle file 0 again
         viewModel.toggleFileSelection(0)
-        advanceUntilIdle()
+        runCurrent()
 
         state = viewModel.uiState.value as TorrentDetailUiState.Loaded
         assertTrue(state.torrent.files[0].isSelected)
@@ -146,12 +161,12 @@ class TorrentDetailViewModelTest {
         repository.setLoaded(true)
         repository.setTorrents(listOf(createTestTorrent(testInfoHash)))
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(DetailTab.STATUS, viewModel.selectedTab.value)
 
         viewModel.setSelectedTab(DetailTab.FILES)
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(DetailTab.FILES, viewModel.selectedTab.value)
 
@@ -168,7 +183,7 @@ class TorrentDetailViewModelTest {
         repository.setLoaded(true)
         repository.setTorrents(listOf(createTestTorrent(testInfoHash)))
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         viewModel.pause()
 
@@ -180,7 +195,7 @@ class TorrentDetailViewModelTest {
         repository.setLoaded(true)
         repository.setTorrents(listOf(createTestTorrent(testInfoHash, status = "stopped")))
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         viewModel.resume()
 
@@ -192,12 +207,12 @@ class TorrentDetailViewModelTest {
         repository.setLoaded(true)
         repository.setTorrents(listOf(createTestTorrent(testInfoHash, status = "downloading")))
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         assertFalse(viewModel.isPaused())
 
         viewModel.pause()
-        advanceUntilIdle()
+        runCurrent()
 
         assertTrue(viewModel.isPaused())
     }
@@ -211,7 +226,7 @@ class TorrentDetailViewModelTest {
         repository.setLoaded(true)
         repository.setTorrents(listOf(createTestTorrent(testInfoHash)))
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         viewModel.remove(deleteFiles = false)
 
@@ -223,7 +238,7 @@ class TorrentDetailViewModelTest {
         repository.setLoaded(true)
         repository.setTorrents(listOf(createTestTorrent(testInfoHash)))
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         viewModel.remove(deleteFiles = true)
 
@@ -246,7 +261,7 @@ class TorrentDetailViewModelTest {
             )
         )
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         val state = viewModel.uiState.value as TorrentDetailUiState.Loaded
         assertEquals(1L, state.torrent.eta)
@@ -262,7 +277,7 @@ class TorrentDetailViewModelTest {
             )
         )
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         val state = viewModel.uiState.value as TorrentDetailUiState.Loaded
         assertEquals(0L, state.torrent.eta)
@@ -278,7 +293,7 @@ class TorrentDetailViewModelTest {
             )
         )
         viewModel = createViewModel()
-        advanceUntilIdle()
+        runCurrent()
 
         val state = viewModel.uiState.value as TorrentDetailUiState.Loaded
         assertEquals(null, state.torrent.eta)
@@ -296,7 +311,7 @@ class TorrentDetailViewModelTest {
         viewModel = createViewModel(
             onEnsureEngineStarted = { callCount++ }
         )
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(1, callCount)
     }
@@ -309,17 +324,17 @@ class TorrentDetailViewModelTest {
         viewModel = createViewModel(
             onEnsureEngineStarted = { callCount++ }
         )
-        advanceUntilIdle()
+        runCurrent()
 
         // Perform various operations - callback should NOT be called again
         repository.setLoaded(true)
         repository.setTorrents(listOf(createTestTorrent(testInfoHash)))
-        advanceUntilIdle()
+        runCurrent()
 
         viewModel.setSelectedTab(DetailTab.FILES)
         viewModel.pause()
         viewModel.resume()
-        advanceUntilIdle()
+        runCurrent()
 
         // Still only 1 call from init
         assertEquals(1, callCount)

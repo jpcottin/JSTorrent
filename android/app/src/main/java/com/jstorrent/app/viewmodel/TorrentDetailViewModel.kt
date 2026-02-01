@@ -43,11 +43,15 @@ data class FileState(
  * Manages torrent details, files, peers, and trackers.
  *
  * Stage 2 of lazy engine startup: Opening detail view starts the engine on demand.
+ *
+ * @param trackerRefreshEnabled Set to false in tests to disable the infinite
+ *   tracker refresh loop that causes advanceUntilIdle() to hang.
  */
 class TorrentDetailViewModel(
     private val repository: TorrentRepository,
     private val infoHash: String,
-    private val onEnsureEngineStarted: () -> Unit = {}
+    private val onEnsureEngineStarted: () -> Unit = {},
+    private val trackerRefreshEnabled: Boolean = true
 ) : ViewModel() {
 
     init {
@@ -151,14 +155,16 @@ class TorrentDetailViewModel(
         // (e.g., timeout from 'announcing' to 'error') don't trigger main state updates.
         // The engine only pushes state when torrent progress/speeds change, but when
         // waiting for trackers with no peer activity, the state stays the same.
-        viewModelScope.launch {
-            while (true) {
-                delay(2000) // Refresh every 2 seconds
-                // Only refresh if engine is loaded and torrent exists
-                if (repository.isLoaded.value) {
-                    val trackers = repository.getTrackers(infoHash)
-                    if (trackers.isNotEmpty()) {
-                        _cachedTrackers.value = trackers
+        if (trackerRefreshEnabled) {
+            viewModelScope.launch {
+                while (true) {
+                    delay(2000) // Refresh every 2 seconds
+                    // Only refresh if engine is loaded and torrent exists
+                    if (repository.isLoaded.value) {
+                        val trackers = repository.getTrackers(infoHash)
+                        if (trackers.isNotEmpty()) {
+                            _cachedTrackers.value = trackers
+                        }
                     }
                 }
             }
