@@ -18,6 +18,12 @@ export class DaemonTcpSocket implements ITcpSocket {
   private closed = false
   private _isSecure = false
 
+  // Buffer data/close that arrives before callbacks are registered (race condition fix)
+  // This can happen with fast connections (e.g., UPnP on local LAN) where the server
+  // responds before the caller has a chance to register onData/onClose handlers.
+  private pendingData: Uint8Array[] = []
+  private pendingClose: { hadError: boolean } | null = null
+
   // Remote address info (available for accepted connections)
   public remoteAddress?: string
   public remotePort?: number
@@ -41,8 +47,12 @@ export class DaemonTcpSocket implements ITcpSocket {
       (payload, msgType) => {
         if (msgType === OP_TCP_RECV) {
           // Payload: socketId(4) + data
+          const data = payload.slice(4)
           if (this.onDataCb) {
-            this.onDataCb(payload.slice(4))
+            this.onDataCb(data)
+          } else {
+            // Buffer data until onData() is called (race condition with fast connections)
+            this.pendingData.push(data)
           }
         } else if (msgType === OP_TCP_CLOSE) {
           // Payload: socketId(4), reason(1), errno(4)
@@ -52,6 +62,9 @@ export class DaemonTcpSocket implements ITcpSocket {
           const hadError = payload.length >= 5 && payload[4] !== 0
           if (this.onCloseCb) {
             this.onCloseCb(hadError)
+          } else {
+            // Buffer close event until onClose() is called
+            this.pendingClose = { hadError }
           }
           this.manager.unregisterHandler(this.id)
         }
@@ -132,10 +145,22 @@ export class DaemonTcpSocket implements ITcpSocket {
 
   onData(cb: (data: Uint8Array) => void) {
     this.onDataCb = cb
+    // Flush any buffered data (race condition with fast connections like UPnP)
+    if (this.pendingData.length > 0) {
+      for (const data of this.pendingData) {
+        cb(data)
+      }
+      this.pendingData = []
+    }
   }
 
   onClose(cb: (hadError: boolean) => void) {
     this.onCloseCb = cb
+    // Fire buffered close event if it already happened
+    if (this.pendingClose) {
+      cb(this.pendingClose.hadError)
+      this.pendingClose = null
+    }
   }
 
   onError(cb: (err: Error) => void) {
