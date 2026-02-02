@@ -95,13 +95,13 @@ function createCredentialsGetter(): CredentialsGetter {
     // Use KV handlers with empty prefix since these keys don't have a prefix
     const [tokenResponse, installIdResponse] = await Promise.all([
       sendKVMessage<string>(extensionId, {
-        type: 'KV_GET_JSON',
+        type: 'KV_GET',
         key: 'android:authToken',
         keyPrefix: '',
         area: 'local',
       }),
       sendKVMessage<string>(extensionId, {
-        type: 'KV_GET_JSON',
+        type: 'KV_GET',
         key: 'installId',
         keyPrefix: '',
         area: 'local',

@@ -204,7 +204,7 @@ export class ChromeConfigHub extends BaseConfigHub {
     const storageClass = getConfigStorageClass(key) ?? 'sync'
 
     await sendKVMessage(this.extensionId, {
-      type: 'KV_SET_JSON',
+      type: 'KV_SET',
       key: SETTINGS_KEY_PREFIX + key,
       value,
       keyPrefix: '',
