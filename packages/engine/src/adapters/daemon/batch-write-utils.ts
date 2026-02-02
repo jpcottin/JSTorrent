@@ -33,14 +33,23 @@ export function packVerifiedWriteBatch(writes: VerifiedWriteInput[]): ArrayBuffe
   const textEncoder = new TextEncoder()
 
   // Pre-encode strings to calculate total size
-  const encoded = writes.map((w) => ({
-    rootKey: textEncoder.encode(w.rootKey),
-    path: textEncoder.encode(w.path),
-    hashHex: textEncoder.encode(w.expectedHashHex),
-    callbackId: textEncoder.encode(w.callbackId),
-    data: w.data,
-    position: w.position,
-  }))
+  const encoded = writes.map((w) => {
+    const hashBytes = textEncoder.encode(w.expectedHashHex)
+    // Validate hash length - must be exactly 40 chars (SHA1 hex)
+    if (hashBytes.length !== 40) {
+      console.error(
+        `[packVerifiedWriteBatch] Invalid hash length: ${hashBytes.length} (expected 40) for position ${w.position}`,
+      )
+    }
+    return {
+      rootKey: textEncoder.encode(w.rootKey),
+      path: textEncoder.encode(w.path),
+      hashHex: hashBytes,
+      callbackId: textEncoder.encode(w.callbackId),
+      data: w.data,
+      position: w.position,
+    }
+  })
 
   // Calculate total size
   let totalSize = 4 // count

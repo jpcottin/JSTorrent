@@ -18,6 +18,8 @@ import {
 } from './constants'
 import {
   deriveEncryptionKeys,
+  deriveEncryptionKeyBytes,
+  createRC4Pair,
   computeReq1Hash,
   computeReq2Xor3,
   recoverInfoHash,
@@ -76,6 +78,8 @@ export class MseHandshake {
   private req1Hash: Uint8Array | null = null
   // Track bytes searched for sync pattern
   private syncBytesSearched = 0
+  // Cached key bytes for efficient VC sync scanning (avoids repeated SHA1 calls)
+  private cachedDecryptKey: Uint8Array | null = null
   // Processing lock to prevent concurrent async operations
   private processing = false
   // Store onSend callback for re-processing after async completes
@@ -152,14 +156,18 @@ export class MseHandshake {
     // Compute shared secret
     this.sharedSecret = this.dh.computeSecret(peerPubKey)
 
-    // Derive encryption keys
+    // Derive encryption key bytes (cache for VC sync scanning)
     const infoHash = this.options.infoHash!
-    const keys = await deriveEncryptionKeys(
+    const keyBytes = await deriveEncryptionKeyBytes(
       this.sharedSecret,
       infoHash,
       true, // isInitiator
       this.options.sha1,
     )
+    this.cachedDecryptKey = keyBytes.decryptKey
+
+    // Create RC4 ciphers from the key bytes
+    const keys = createRC4Pair(keyBytes.encryptKey, keyBytes.decryptKey)
     this.encrypt = keys.encrypt
     this.decrypt = keys.decrypt
 
@@ -222,7 +230,7 @@ export class MseHandshake {
     for (let offset = startOffset; offset <= maxSearch; offset++) {
       // Create a test decryptor at the same keystream position
       // We need to derive fresh keys and advance to the same position
-      const testDecrypt = await this.createFreshDecrypt()
+      const testDecrypt = this.createFreshDecrypt()
 
       // Try decrypting 8 bytes at this offset
       const testBytes = this.buffer.slice(offset, offset + 8)
@@ -257,18 +265,19 @@ export class MseHandshake {
     }
   }
 
-  private async createFreshDecrypt(): Promise<RC4> {
-    // Re-derive the decrypt key at position 0 (after drop1024)
-    const infoHash = this.options.infoHash!
-    const keys = await deriveEncryptionKeys(this.sharedSecret!, infoHash, true, this.options.sha1)
-    return keys.decrypt
+  private createFreshDecrypt(): RC4 {
+    // Create fresh RC4 decrypt cipher from cached key (no SHA1 needed)
+    // This is called many times during VC sync scanning, so caching is critical
+    const decrypt = new RC4(this.cachedDecryptKey!)
+    decrypt.drop(1024) // RC4-drop1024
+    return decrypt
   }
 
   private async decodePe4(): Promise<void> {
     if (this.buffer.length < 14) return
 
-    // Re-derive decrypt to reset keystream position
-    const freshDecrypt = await this.createFreshDecrypt()
+    // Create fresh decrypt cipher to reset keystream position
+    const freshDecrypt = this.createFreshDecrypt()
 
     // Decrypt VC (should be 8 zeros)
     const vc = freshDecrypt.process(this.buffer.slice(0, 8))

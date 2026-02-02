@@ -39,7 +39,9 @@ export class SSDPClient {
           // Dedupe by location
           if (!this.devices.some((d) => d.location === device.location)) {
             this.devices.push(device)
-            this.logger?.debug(`SSDP: Found device at ${device.location}`)
+            this.logger?.debug(
+              `SSDP: Found device at ${device.location} (server: ${device.server})`,
+            )
           }
         }
       })

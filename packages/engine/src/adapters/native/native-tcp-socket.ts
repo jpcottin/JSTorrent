@@ -15,6 +15,10 @@ export class NativeTcpSocket implements ITcpSocket {
   private closed = false
   private closeFired = false
 
+  // Buffer data that arrives before onData() is called (race condition fix)
+  private pendingData: Uint8Array[] = []
+  private pendingClose: { hadError: boolean } | null = null
+
   // Track pending connect promise for cancellation
   private pendingConnectReject: ((err: Error) => void) | null = null
   // Track pending secure promise for cancellation
@@ -38,16 +42,24 @@ export class NativeTcpSocket implements ITcpSocket {
 
     callbackManager.registerTcp(id, {
       onData: (data) => {
-        // Note: Logging disabled for performance
-        // console.log(`[NativeTcpSocket ${this.id}] onData: ${data.length} bytes`)
-        this.onDataCb?.(data)
+        if (this.onDataCb) {
+          this.onDataCb(data)
+        } else {
+          // Buffer data until onData() is called (race condition with pending reader)
+          this.pendingData.push(data)
+        }
       },
       onClose: (hadError) => {
         if (this.closeFired) return
         this.closeFired = true
         this.closed = true
         console.log(`[NativeTcpSocket ${this.id}] onClose: hadError=${hadError}`)
-        this.onCloseCb?.(hadError)
+        if (this.onCloseCb) {
+          this.onCloseCb(hadError)
+        } else {
+          // Buffer close event until onClose() is called
+          this.pendingClose = { hadError }
+        }
         callbackManager.unregisterTcp(this.id)
       },
       onError: (err) => {
@@ -110,16 +122,30 @@ export class NativeTcpSocket implements ITcpSocket {
 
   /**
    * Register a callback for incoming data.
+   * Flushes any data that arrived before this callback was registered.
    */
   onData(cb: (data: Uint8Array) => void): void {
     this.onDataCb = cb
+    // Flush any buffered data (race condition with pending reader)
+    if (this.pendingData.length > 0) {
+      for (const data of this.pendingData) {
+        cb(data)
+      }
+      this.pendingData = []
+    }
   }
 
   /**
    * Register a callback for connection close.
+   * Fires immediately if close already happened before this callback was registered.
    */
   onClose(cb: (hadError: boolean) => void): void {
     this.onCloseCb = cb
+    // Fire buffered close event if it already happened
+    if (this.pendingClose) {
+      cb(this.pendingClose.hadError)
+      this.pendingClose = null
+    }
   }
 
   /**

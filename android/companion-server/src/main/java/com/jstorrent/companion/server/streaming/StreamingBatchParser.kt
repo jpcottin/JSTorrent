@@ -1,6 +1,7 @@
 package com.jstorrent.companion.server.streaming
 
 import android.net.Uri
+import android.util.Log
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -31,6 +32,10 @@ class StreamingBatchParser(
     private val rootResolver: (String) -> Uri?,
     private val onWrite: (WriteJob) -> Boolean,  // Returns false to abort
 ) {
+    companion object {
+        private const val TAG = "StreamingBatchParser"
+    }
+
     private var bytesRead: Long = 0
 
     /**
@@ -42,13 +47,20 @@ class StreamingBatchParser(
         // Read count (u32 LE)
         val count = readU32()
         if (count < 0 || count > 10000) {
+            Log.w(TAG, "Invalid count: $count (bytesRead=$bytesRead)")
             return -1  // Invalid count
         }
+
+        Log.d(TAG, "Parsing batch with $count writes, contentLength=$contentLength")
 
         var emitted = 0
 
         for (i in 0 until count) {
-            val job = parseOneWrite() ?: return -1
+            val job = parseOneWrite(i)
+            if (job == null) {
+                Log.w(TAG, "Failed to parse write #$i of $count (bytesRead=$bytesRead/$contentLength)")
+                return -1
+            }
 
             if (!onWrite(job)) {
                 // Callback returned false (e.g., pool stopped)
@@ -60,41 +72,89 @@ class StreamingBatchParser(
         return emitted
     }
 
-    private fun parseOneWrite(): WriteJob? {
+    private fun parseOneWrite(writeIndex: Int): WriteJob? {
+        val startBytes = bytesRead
+
         // rootKeyLen (u8) + rootKey
         val rootKeyLen = readU8()
-        if (rootKeyLen < 0) return null
-        val rootKey = readString(rootKeyLen) ?: return null
+        if (rootKeyLen < 0) {
+            Log.w(TAG, "Write #$writeIndex: failed to read rootKeyLen at byte $startBytes")
+            return null
+        }
+        val rootKey = readString(rootKeyLen)
+        if (rootKey == null) {
+            Log.w(TAG, "Write #$writeIndex: failed to read rootKey (len=$rootKeyLen) at byte $startBytes")
+            return null
+        }
 
         // Resolve rootKey to Uri
-        val rootUri = rootResolver(rootKey) ?: return null
+        val rootUri = rootResolver(rootKey)
+        if (rootUri == null) {
+            Log.w(TAG, "Write #$writeIndex: rootKey '$rootKey' not found in rootStore")
+            return null
+        }
 
         // pathLen (u16 LE) + path
         val pathLen = readU16()
-        if (pathLen < 0) return null
-        val path = readString(pathLen) ?: return null
+        if (pathLen < 0) {
+            Log.w(TAG, "Write #$writeIndex: failed to read pathLen")
+            return null
+        }
+        val path = readString(pathLen)
+        if (path == null) {
+            Log.w(TAG, "Write #$writeIndex: failed to read path (len=$pathLen)")
+            return null
+        }
 
         // Validate path (no directory traversal)
-        if (path.contains("..")) return null
+        if (path.contains("..")) {
+            Log.w(TAG, "Write #$writeIndex: path contains '..': $path")
+            return null
+        }
 
         // position (u64 LE as two u32)
         val posLow = readU32()
         val posHigh = readU32()
-        if (posLow < 0 || posHigh < 0) return null
+        if (posLow < 0 || posHigh < 0) {
+            Log.w(TAG, "Write #$writeIndex: failed to read position")
+            return null
+        }
         val position = (posLow.toLong() and 0xFFFFFFFFL) or ((posHigh.toLong() and 0xFFFFFFFFL) shl 32)
 
         // dataLen (u32 LE) + data
         val dataLen = readU32()
-        if (dataLen < 0 || dataLen > 16 * 1024 * 1024) return null  // Max 16MB per piece
-        val data = readBytes(dataLen) ?: return null
+        if (dataLen < 0) {
+            Log.w(TAG, "Write #$writeIndex: failed to read dataLen")
+            return null
+        }
+        if (dataLen > 16 * 1024 * 1024) {
+            Log.w(TAG, "Write #$writeIndex: dataLen too large: $dataLen bytes")
+            return null
+        }
+        val data = readBytes(dataLen)
+        if (data == null) {
+            Log.w(TAG, "Write #$writeIndex: failed to read data (len=$dataLen)")
+            return null
+        }
 
         // hashHex (fixed 40 bytes)
-        val hashHex = readString(40) ?: return null
+        val hashHex = readString(40)
+        if (hashHex == null) {
+            Log.w(TAG, "Write #$writeIndex: failed to read hashHex (40 bytes)")
+            return null
+        }
 
         // callbackIdLen (u8) + callbackId
         val callbackIdLen = readU8()
-        if (callbackIdLen < 0) return null
-        val callbackId = readString(callbackIdLen) ?: return null
+        if (callbackIdLen < 0) {
+            Log.w(TAG, "Write #$writeIndex: failed to read callbackIdLen")
+            return null
+        }
+        val callbackId = readString(callbackIdLen)
+        if (callbackId == null) {
+            Log.w(TAG, "Write #$writeIndex: failed to read callbackId (len=$callbackIdLen)")
+            return null
+        }
 
         return WriteJob(
             rootUri = rootUri,
@@ -114,14 +174,24 @@ class StreamingBatchParser(
         return b
     }
 
-    private fun readU16(): Int {
-        val bytes = readBytes(2) ?: return -1
+    private fun readU16(): Int? {
+        val bytes = readBytes(2) ?: return null
         return ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xFFFF
     }
 
-    private fun readU32(): Int {
-        val bytes = readBytes(4) ?: return -1
-        return ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).int
+    /**
+     * Read a u32 as a Long (0 to 4294967295).
+     * Returns null on read failure, never returns negative values.
+     *
+     * Note: We return Long instead of Int because Kotlin Int is signed,
+     * so u32 values >= 2^31 would appear negative. Using Long ensures
+     * we can represent the full 0 to 2^32-1 range without sign issues.
+     */
+    private fun readU32(): Long? {
+        val bytes = readBytes(4) ?: return null
+        // Read as signed int, then mask to get unsigned value as Long
+        val signed = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).int
+        return signed.toLong() and 0xFFFFFFFFL
     }
 
     private fun readBytes(len: Int): ByteArray? {

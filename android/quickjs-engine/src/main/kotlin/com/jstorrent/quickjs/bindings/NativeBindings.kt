@@ -47,7 +47,7 @@ class NativeBindings(
 ) {
     // I/O services
     private val tcpService = TcpSocketService(scope)
-    private val udpManager = UdpSocketManagerImpl(scope)
+    private val udpManager = UdpSocketManagerImpl(scope, context)
 
     // Individual binding modules
     private val polyfillBindings = PolyfillBindings(jsThread)

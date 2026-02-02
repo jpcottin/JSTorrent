@@ -381,6 +381,52 @@ class TcpBindings(
 
             override fun onTcpClose(socketId: Int, hadError: Boolean, errorCode: Int) {
                 Log.d(TAG, "onTcpClose: socket=$socketId, hadError=$hadError, errorCode=$errorCode")
+
+                // IMPORTANT: Flush any pending TCP data for this socket BEFORE delivering close.
+                // Data is batched for tick processing, but close is delivered immediately.
+                // Without this flush, close arrives before data for fast connections (e.g., UPnP HTTP).
+                val pendingForSocket = mutableListOf<TcpDataEvent>()
+                val remaining = mutableListOf<TcpDataEvent>()
+                while (true) {
+                    val event = pendingTcpData.poll() ?: break
+                    if (event.socketId == socketId) {
+                        pendingForSocket.add(event)
+                    } else {
+                        remaining.add(event)
+                    }
+                }
+                // Put back events for other sockets
+                remaining.forEach { pendingTcpData.add(it) }
+
+                // Deliver pending data for this socket before close
+                if (pendingForSocket.isNotEmpty() && hasDataCallback) {
+                    val totalBytes = pendingForSocket.sumOf { it.data.size }
+                    Log.d(TAG, "onTcpClose: flushing ${pendingForSocket.size} pending data events ($totalBytes bytes) for socket $socketId before close")
+
+                    // Pack events into batch format (same format as drainAndPackTcpBatch)
+                    // Format: [count: u32 LE] then for each: [socketId: u32 LE] [len: u32 LE] [data: len bytes]
+                    val packedSize = 4 + pendingForSocket.sumOf { 8 + it.data.size }
+                    val buf = ByteBuffer.allocate(packedSize).order(ByteOrder.LITTLE_ENDIAN)
+                    buf.putInt(pendingForSocket.size)
+                    for (event in pendingForSocket) {
+                        buf.putInt(event.socketId)
+                        buf.putInt(event.data.size)
+                        buf.put(event.data)
+                    }
+                    val packed = buf.array()
+
+                    jsThread.post {
+                        // Use batch dispatcher which is known to work
+                        ctx.callGlobalFunctionWithBinary(
+                            "__jstorrent_tcp_dispatch_batch",
+                            packed,
+                            0,  // binary is first argument
+                            null
+                        )
+                        jsThread.scheduleJobPump(ctx)
+                    }
+                }
+
                 // Send error callback first if there was an error
                 if (hadError && hasErrorCallback) {
                     jsThread.post {

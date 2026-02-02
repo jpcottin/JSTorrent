@@ -4,6 +4,50 @@
 import { RC4 } from './rc4'
 
 /**
+ * Derive raw encryption key bytes from shared secret and info hash.
+ * Returns the SHA1-derived key bytes without creating RC4 instances.
+ * Use this when you need to create multiple RC4 instances from the same keys
+ * (e.g., during VC sync scanning).
+ */
+export async function deriveEncryptionKeyBytes(
+  sharedSecret: Uint8Array,
+  infoHash: Uint8Array,
+  isInitiator: boolean,
+  sha1: (data: Uint8Array) => Promise<Uint8Array>,
+): Promise<{ encryptKey: Uint8Array; decryptKey: Uint8Array }> {
+  const keyAInput = concat(encode('keyA'), sharedSecret, infoHash)
+  const keyBInput = concat(encode('keyB'), sharedSecret, infoHash)
+
+  const keyA = await sha1(keyAInput)
+  const keyB = await sha1(keyBInput)
+
+  // Initiator uses keyA for encrypt, keyB for decrypt
+  // Responder uses keyB for encrypt, keyA for decrypt
+  return {
+    encryptKey: isInitiator ? keyA : keyB,
+    decryptKey: isInitiator ? keyB : keyA,
+  }
+}
+
+/**
+ * Create RC4 cipher pair from pre-derived key bytes.
+ * Applies RC4-drop1024 to both ciphers.
+ */
+export function createRC4Pair(
+  encryptKey: Uint8Array,
+  decryptKey: Uint8Array,
+): { encrypt: RC4; decrypt: RC4 } {
+  const encrypt = new RC4(encryptKey)
+  const decrypt = new RC4(decryptKey)
+
+  // RC4-drop1024: discard first 1024 bytes
+  encrypt.drop(1024)
+  decrypt.drop(1024)
+
+  return { encrypt, decrypt }
+}
+
+/**
  * Derive RC4 encryption keys from shared secret and info hash.
  * Keys are SHA1 hashes with RC4-drop1024.
  */
@@ -13,26 +57,13 @@ export async function deriveEncryptionKeys(
   isInitiator: boolean,
   sha1: (data: Uint8Array) => Promise<Uint8Array>,
 ): Promise<{ encrypt: RC4; decrypt: RC4 }> {
-  // Concatenate for key derivation
-  const keyAInput = concat(encode('keyA'), sharedSecret, infoHash)
-  const keyBInput = concat(encode('keyB'), sharedSecret, infoHash)
-
-  const keyA = await sha1(keyAInput)
-  const keyB = await sha1(keyBInput)
-
-  // Initiator uses keyA for encrypt, keyB for decrypt
-  // Responder uses keyB for encrypt, keyA for decrypt
-  const encryptKey = isInitiator ? keyA : keyB
-  const decryptKey = isInitiator ? keyB : keyA
-
-  const encrypt = new RC4(encryptKey)
-  const decrypt = new RC4(decryptKey)
-
-  // RC4-drop1024: discard first 1024 bytes
-  encrypt.drop(1024)
-  decrypt.drop(1024)
-
-  return { encrypt, decrypt }
+  const { encryptKey, decryptKey } = await deriveEncryptionKeyBytes(
+    sharedSecret,
+    infoHash,
+    isInitiator,
+    sha1,
+  )
+  return createRC4Pair(encryptKey, decryptKey)
 }
 
 /**

@@ -425,6 +425,14 @@ export class TorrentContentStorage extends EngineComponent {
       },
     ]
 
+    // Debug: log first write's position and hash
+    const firstHashHex = Array.from(currentBatchData.expectedHash)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+    this.logger.debug(
+      `[Batch] First write: offset=${currentBatchData.fileRelativeOffset}, hash=${firstHashHex.slice(0, 8)}..., dataLen=${currentBatchData.data.length}`,
+    )
+
     for (const extra of extras) {
       if (extra.batchData) {
         writes.push({
@@ -432,6 +440,14 @@ export class TorrentContentStorage extends EngineComponent {
           data: extra.batchData.data,
           expectedHash: extra.batchData.expectedHash,
         })
+
+        // Debug: log each extra's position and hash
+        const extraHashHex = Array.from(extra.batchData.expectedHash)
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('')
+        this.logger.debug(
+          `[Batch] Extra write: offset=${extra.batchData.fileRelativeOffset}, hash=${extraHashHex.slice(0, 8)}..., dataLen=${extra.batchData.data.length}`,
+        )
       }
     }
 
