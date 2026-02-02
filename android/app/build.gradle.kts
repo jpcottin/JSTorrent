@@ -129,11 +129,6 @@ dependencies {
     // Foundation for HorizontalPager
     implementation("androidx.compose.foundation:foundation")
 
-    // Ktor server
-    implementation(libs.ktor.server.core)
-    implementation(libs.ktor.server.netty)
-    implementation(libs.ktor.server.websockets)
-
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
@@ -151,11 +146,9 @@ dependencies {
     testImplementation(libs.kotlinx.serialization.json)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
-    // Ktor for JVM WebSocket benchmarks (compare Ktor vs java-websocket performance)
-    testImplementation(libs.ktor.server.core)
-    testImplementation(libs.ktor.server.netty)
-    testImplementation(libs.ktor.server.websockets)
-    testImplementation(libs.ktor.server.tests)
+    // Netty for benchmark tests (NettyBenchmarkServer)
+    testImplementation("io.netty:netty-codec-http:4.1.100.Final")
+    testImplementation("io.netty:netty-handler:4.1.100.Final")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

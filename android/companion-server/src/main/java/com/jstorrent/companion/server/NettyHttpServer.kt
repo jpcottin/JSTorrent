@@ -803,6 +803,7 @@ private class NettyHttpHandler(
             is FileManagerException.ReadError -> HttpResponseStatus.INTERNAL_SERVER_ERROR to (e.message ?: "Read error")
             is FileManagerException.WriteError -> HttpResponseStatus.INTERNAL_SERVER_ERROR to (e.message ?: "Write error")
             is FileManagerException.DiskFull -> HttpResponseStatus.INSUFFICIENT_STORAGE to e.message!!
+            is FileManagerException.PermissionDenied -> HttpResponseStatus.FORBIDDEN to e.message!!
         }
     }
 

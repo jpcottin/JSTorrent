@@ -21,12 +21,11 @@ import org.junit.Test
  * - `standalone_LargeChunks` - 100 MB with 64 KB chunks
  * - `standalone_VaryBufferSizes` - Compare different TCP buffer sizes
  *
- * ### 2. Ktor Server Tests (no external daemon needed)
- * Uses embedded Ktor/Netty server to isolate Ktor WebSocket performance:
- * - `ktor_100MB` - 100 MB with 16 KB chunks
- * - `ktor_10MB` - Quick 10 MB test
- * - `ktor_Sustained30s` - Sustained transfer for 30+ seconds
- * - `ktor_vs_JavaWebSocket` - Side-by-side comparison
+ * ### 2. Raw Netty Server Tests (no external daemon needed)
+ * Uses embedded Netty server for direct WebSocket performance:
+ * - `netty_100MB` - 100 MB with 16 KB chunks
+ * - `netty_10MB` - Quick 10 MB test
+ * - `netty_Sustained30s` - Sustained transfer for 30+ seconds
  *
  * ### 3. External Daemon Tests
  * Requires Android daemon running (app or standalone):
@@ -39,12 +38,9 @@ import org.junit.Test
  *
  * Expected throughput baselines (approximate):
  * - java-websocket (TestDaemonServer): 150-200+ MB/s on JVM
- * - Ktor/Netty (KtorBenchmarkServer): 80-120 MB/s on JVM
+ * - Raw Netty (NettyBenchmarkServer): 150-200+ MB/s on JVM
  * - Android daemon (emulator): 30-50 MB/s
  * - Android daemon (real device): 40-60 MB/s
- * - Ktor on ChromeOS: 12-14 MB/s (the bottleneck we're investigating)
- *
- * The goal is to identify if Ktor WebSocket layer is the bottleneck.
  */
 class ThroughputBenchmarkTest {
 
@@ -149,7 +145,6 @@ class ThroughputBenchmarkTest {
 
     /**
      * Raw Netty benchmark: 100 MB with 16 KB chunks.
-     * Bypasses Ktor entirely for direct Netty performance measurement.
      */
     @Test
     @Ignore("Heavy benchmark - run manually")
@@ -201,63 +196,6 @@ class ThroughputBenchmarkTest {
         )
     }
 
-    // ==================== KTOR SERVER TESTS ====================
-
-    /**
-     * Ktor benchmark: 100 MB with 16 KB chunks.
-     * Isolates Ktor WebSocket layer performance on JVM.
-     */
-    @Test
-    @Ignore("Heavy benchmark - run manually")
-    fun ktor_100MB() {
-        runKtorBenchmark(
-            totalBytes = 100L * 1024 * 1024,
-            chunkSize = 16 * 1024,
-            tcpReadBufferSize = DEFAULT_BUFFER_SIZE
-        )
-    }
-
-    /**
-     * Ktor benchmark: Quick 10 MB test.
-     */
-    @Test
-    @Ignore("Heavy benchmark - run manually")
-    fun ktor_10MB() {
-        runKtorBenchmark(
-            totalBytes = 10L * 1024 * 1024,
-            chunkSize = 16 * 1024,
-            tcpReadBufferSize = DEFAULT_BUFFER_SIZE
-        )
-    }
-
-    /**
-     * Ktor benchmark: 100 MB with 64 KB chunks.
-     */
-    @Test
-    @Ignore("Heavy benchmark - run manually")
-    fun ktor_LargeChunks() {
-        runKtorBenchmark(
-            totalBytes = 100L * 1024 * 1024,
-            chunkSize = 64 * 1024,
-            tcpReadBufferSize = DEFAULT_BUFFER_SIZE
-        )
-    }
-
-    /**
-     * Ktor sustained throughput test - run for 30+ seconds.
-     * Measures performance stability over time.
-     */
-    @Test
-    @Ignore("Long-running benchmark - run manually, causes OOM in CI")
-    fun ktor_Sustained30s() {
-        runSustainedBenchmark(
-            serverType = ServerType.KTOR,
-            durationMs = SUSTAINED_DURATION_MS,
-            chunkSize = 16 * 1024,
-            tcpReadBufferSize = DEFAULT_BUFFER_SIZE
-        )
-    }
-
     /**
      * java-websocket sustained throughput test - baseline for comparison.
      */
@@ -273,48 +211,7 @@ class ThroughputBenchmarkTest {
     }
 
     /**
-     * Side-by-side comparison: Ktor vs java-websocket.
-     * Runs both servers and reports relative performance.
-     */
-    @Test
-    @Ignore("Heavy benchmark - run manually")
-    fun ktor_vs_JavaWebSocket() {
-        val totalBytes = 100L * 1024 * 1024
-        val chunkSize = 16 * 1024
-        val bufferSize = DEFAULT_BUFFER_SIZE
-
-        println("=== Ktor vs java-websocket Comparison ===")
-        println("Transfer: ${totalBytes / 1024 / 1024} MB, Chunk: ${chunkSize / 1024} KB")
-        println()
-
-        // Run java-websocket first
-        print("java-websocket: ")
-        val javaWsResult = runStandaloneBenchmarkQuiet(totalBytes, chunkSize, bufferSize)
-        val javaWsMbps = (javaWsResult.totalBytes / 1024.0 / 1024.0) / (javaWsResult.elapsedNanos / 1_000_000_000.0)
-        println("${String.format("%.2f", javaWsMbps)} MB/s (${javaWsResult.frameCount} frames)")
-
-        // Run Ktor
-        print("Ktor/Netty:     ")
-        val ktorResult = runKtorBenchmarkQuiet(totalBytes, chunkSize, bufferSize)
-        val ktorMbps = (ktorResult.totalBytes / 1024.0 / 1024.0) / (ktorResult.elapsedNanos / 1_000_000_000.0)
-        println("${String.format("%.2f", ktorMbps)} MB/s (${ktorResult.frameCount} frames)")
-
-        println()
-        println("=== Analysis ===")
-        val ratio = javaWsMbps / ktorMbps
-        println("java-websocket is ${String.format("%.1f", ratio)}x faster than Ktor")
-        println("Ktor overhead: ${String.format("%.1f", (1 - ktorMbps / javaWsMbps) * 100)}%")
-
-        // Document for Phase 1 reporting
-        println()
-        println("=== Phase 1 Baseline (JVM) ===")
-        println("java-websocket: ${String.format("%.2f", javaWsMbps)} MB/s")
-        println("Ktor/Netty:     ${String.format("%.2f", ktorMbps)} MB/s")
-    }
-
-    /**
-     * Full comparison: java-websocket vs Raw Netty vs Ktor.
-     * This is the key Phase 3 benchmark to determine if raw Netty improves on Ktor.
+     * Full comparison: java-websocket vs Raw Netty.
      */
     @Test
     @Ignore("Heavy benchmark - run manually")
@@ -323,7 +220,7 @@ class ThroughputBenchmarkTest {
         val chunkSize = 16 * 1024
         val bufferSize = DEFAULT_BUFFER_SIZE
 
-        println("=== Full WebSocket Server Comparison (Phase 3) ===")
+        println("=== WebSocket Server Comparison ===")
         println("Transfer: ${totalBytes / 1024 / 1024} MB, Chunk: ${chunkSize / 1024} KB")
         println()
 
@@ -339,26 +236,14 @@ class ThroughputBenchmarkTest {
         val nettyMbps = (nettyResult.totalBytes / 1024.0 / 1024.0) / (nettyResult.elapsedNanos / 1_000_000_000.0)
         println("${String.format("%.2f", nettyMbps)} MB/s (${nettyResult.frameCount} frames)")
 
-        // Run Ktor
-        print("Ktor/Netty:     ")
-        val ktorResult = runKtorBenchmarkQuiet(totalBytes, chunkSize, bufferSize)
-        val ktorMbps = (ktorResult.totalBytes / 1024.0 / 1024.0) / (ktorResult.elapsedNanos / 1_000_000_000.0)
-        println("${String.format("%.2f", ktorMbps)} MB/s (${ktorResult.frameCount} frames)")
-
         println()
         println("=== Analysis ===")
-        println("java-websocket vs Ktor:       ${String.format("%.1f", javaWsMbps / ktorMbps)}x faster")
-        println("Raw Netty vs Ktor:            ${String.format("%.1f", nettyMbps / ktorMbps)}x faster")
-        println("java-websocket vs Raw Netty:  ${String.format("%.1f", javaWsMbps / nettyMbps)}x faster")
-        println()
-        println("Ktor overhead vs Raw Netty:   ${String.format("%.1f", (1 - ktorMbps / nettyMbps) * 100)}%")
-        println("Ktor overhead vs java-ws:     ${String.format("%.1f", (1 - ktorMbps / javaWsMbps) * 100)}%")
+        println("java-websocket vs Raw Netty:  ${String.format("%.1f", javaWsMbps / nettyMbps)}x")
 
         println()
-        println("=== Phase 3 Summary ===")
-        println("java-websocket: ${String.format("%.2f", javaWsMbps)} MB/s (baseline)")
+        println("=== Summary ===")
+        println("java-websocket: ${String.format("%.2f", javaWsMbps)} MB/s")
         println("Raw Netty:      ${String.format("%.2f", nettyMbps)} MB/s")
-        println("Ktor/Netty:     ${String.format("%.2f", ktorMbps)} MB/s")
     }
 
     // ==================== EXTERNAL DAEMON TESTS ====================
@@ -402,7 +287,7 @@ class ThroughputBenchmarkTest {
 
     // ==================== IMPLEMENTATION ====================
 
-    private enum class ServerType { JAVA_WEBSOCKET, KTOR, RAW_NETTY }
+    private enum class ServerType { JAVA_WEBSOCKET, RAW_NETTY }
 
     private fun runStandaloneBenchmark(
         label: String,
@@ -450,66 +335,6 @@ class ThroughputBenchmarkTest {
     private fun runStandaloneBenchmarkQuiet(totalBytes: Long, chunkSize: Int, tcpReadBufferSize: Int): BenchmarkResult {
         TestDaemonServer(port = 0, authToken = AUTH_TOKEN, tcpReadBufferSize = tcpReadBufferSize).use { daemon ->
             daemon.start()
-
-            MockSeeder(totalBytes, chunkSize).use { seeder ->
-                seeder.startAsync()
-
-                TestWsClient(daemon.uri).use { ws ->
-                    ws.connect(CONNECT_TIMEOUT_MS)
-                    performHandshake(ws)
-                    val socketId = 1
-                    connectToSeeder(ws, socketId, seeder.port)
-                    return receiveAllDataQuiet(ws, socketId)
-                }
-            }
-        }
-    }
-
-    private fun runKtorBenchmark(totalBytes: Long, chunkSize: Int, tcpReadBufferSize: Int) {
-        println("=== TCP Recv Throughput Benchmark (Ktor/Netty) ===")
-        println("Transfer size: ${totalBytes / 1024 / 1024} MB")
-        println("Seeder chunk size: ${chunkSize / 1024} KB")
-        println("TCP read buffer: ${tcpReadBufferSize / 1024} KB")
-        println()
-
-        KtorBenchmarkServer(port = 0, authToken = AUTH_TOKEN, tcpReadBufferSize = tcpReadBufferSize).use { daemon ->
-            daemon.start()
-            println("Ktor daemon started on port ${daemon.uri}")
-
-            // Brief pause to let Ktor fully initialize
-            Thread.sleep(500)
-
-            MockSeeder(totalBytes, chunkSize).use { seeder ->
-                seeder.startAsync()
-                println("Mock seeder started on port ${seeder.port}")
-
-                TestWsClient(daemon.uri).use { ws ->
-                    ws.connect(CONNECT_TIMEOUT_MS)
-                    println("WebSocket connected")
-
-                    performHandshake(ws)
-                    println("Handshake complete, authenticated")
-
-                    val socketId = 1
-                    connectToSeeder(ws, socketId, seeder.port)
-                    println("TCP connected to mock seeder")
-                    println()
-
-                    val result = receiveAllData(ws, socketId)
-                    printResults(result, seeder, "Ktor/Netty")
-
-                    println()
-                    println("Server stats: ${daemon.totalBytesRelayed.get() / 1024 / 1024} MB relayed, " +
-                        "${daemon.totalFramesSent.get()} frames sent")
-                }
-            }
-        }
-    }
-
-    private fun runKtorBenchmarkQuiet(totalBytes: Long, chunkSize: Int, tcpReadBufferSize: Int): BenchmarkResult {
-        KtorBenchmarkServer(port = 0, authToken = AUTH_TOKEN, tcpReadBufferSize = tcpReadBufferSize).use { daemon ->
-            daemon.start()
-            Thread.sleep(500) // Let Ktor initialize
 
             MockSeeder(totalBytes, chunkSize).use { seeder ->
                 seeder.startAsync()
@@ -593,7 +418,6 @@ class ThroughputBenchmarkTest {
     ) {
         val label = when (serverType) {
             ServerType.JAVA_WEBSOCKET -> "java-websocket"
-            ServerType.KTOR -> "Ktor/Netty"
             ServerType.RAW_NETTY -> "Raw Netty"
         }
 
@@ -610,14 +434,6 @@ class ThroughputBenchmarkTest {
             ServerType.JAVA_WEBSOCKET -> {
                 TestDaemonServer(port = 0, authToken = AUTH_TOKEN, tcpReadBufferSize = tcpReadBufferSize).use { daemon ->
                     daemon.start()
-                    runSustainedWithServer(daemon.uri, daemon.totalBytesRelayed, daemon.totalFramesSent,
-                        totalBytes, chunkSize, durationMs, label)
-                }
-            }
-            ServerType.KTOR -> {
-                KtorBenchmarkServer(port = 0, authToken = AUTH_TOKEN, tcpReadBufferSize = tcpReadBufferSize).use { daemon ->
-                    daemon.start()
-                    Thread.sleep(500)
                     runSustainedWithServer(daemon.uri, daemon.totalBytesRelayed, daemon.totalFramesSent,
                         totalBytes, chunkSize, durationMs, label)
                 }
