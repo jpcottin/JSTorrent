@@ -42,6 +42,18 @@ class TorrentListViewModel(
                 summaryCache.load()
             }
         }
+
+        // Clear pending state when engine reports torrent state updates
+        // This provides the "response" half of the immediate feedback loop
+        viewModelScope.launch {
+            repository.state.collect { state ->
+                if (state != null && _pendingTorrents.value.isNotEmpty()) {
+                    // Clear pending for any torrents that now appear in engine state
+                    val engineInfoHashes = state.torrents.map { it.infoHash }.toSet()
+                    _pendingTorrents.value = _pendingTorrents.value - engineInfoHashes
+                }
+            }
+        }
     }
 
     // Filter and sort state
@@ -54,6 +66,11 @@ class TorrentListViewModel(
     // Selection state for multi-select mode
     private val _selectedTorrents = MutableStateFlow<Set<String>>(emptySet())
     val selectedTorrents: StateFlow<Set<String>> = _selectedTorrents.asStateFlow()
+
+    // Pending action state - torrents that have been tapped but engine hasn't responded yet
+    // This provides immediate visual feedback when user taps play/pause while engine is starting
+    private val _pendingTorrents = MutableStateFlow<Set<String>>(emptySet())
+    val pendingTorrents: StateFlow<Set<String>> = _pendingTorrents.asStateFlow()
 
     // Track when each torrent was last actively downloading (for stable speed sorting)
     // When a torrent stops, it keeps its position based on when it was last active
@@ -333,8 +350,10 @@ class TorrentListViewModel(
     /**
      * Pause a torrent by info hash.
      * Stage 2: Starts engine on demand if not running.
+     * Immediately marks torrent as pending for instant UI feedback.
      */
     fun pauseTorrent(infoHash: String) {
+        _pendingTorrents.value = _pendingTorrents.value + infoHash
         onEnsureEngineStarted()
         repository.pauseTorrent(infoHash)
     }
@@ -342,8 +361,10 @@ class TorrentListViewModel(
     /**
      * Resume a torrent by info hash.
      * Stage 2: Starts engine on demand if not running.
+     * Immediately marks torrent as pending for instant UI feedback.
      */
     fun resumeTorrent(infoHash: String) {
+        _pendingTorrents.value = _pendingTorrents.value + infoHash
         onEnsureEngineStarted()
         repository.resumeTorrent(infoHash)
     }

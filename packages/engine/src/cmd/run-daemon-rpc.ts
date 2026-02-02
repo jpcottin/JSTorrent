@@ -31,7 +31,7 @@ import { createDaemonEngine } from '../presets/daemon'
 import { JsonFileSessionStore } from '../adapters/node/json-file-session-store'
 import { MemorySessionStore } from '../adapters/memory/memory-session-store'
 import { BtEngine } from '../core/bt-engine'
-import { toInfoHashString } from '../utils/infohash'
+import { infoHashFromBytes } from '../utils/infohash'
 import { globalLogStore, LogLevel, LogEntry } from '../logging/logger'
 import { StorageRoot } from '../storage/types'
 
@@ -247,7 +247,7 @@ class DaemonRpcServer {
     }
 
     const torrents = this.engine.torrents.map((t) => ({
-      id: toInfoHashString(t.infoHash),
+      id: infoHashFromBytes(t.infoHash),
       state: t.progress >= 1.0 ? 'seeding' : 'downloading',
       progress: t.progress,
     }))
@@ -270,14 +270,14 @@ class DaemonRpcServer {
         storageKey: params.storageRoot,
       })
       if (!result.torrent) throw new Error('Failed to add torrent')
-      return { ok: true, id: toInfoHashString(result.torrent.infoHash) }
+      return { ok: true, id: infoHashFromBytes(result.torrent.infoHash) }
     } else if (params.type === 'file') {
       const buffer = Buffer.from(params.data, 'base64')
       const result = await this.engine.addTorrent(buffer, {
         storageKey: params.storageRoot,
       })
       if (!result.torrent) throw new Error('Failed to add torrent')
-      return { ok: true, id: toInfoHashString(result.torrent.infoHash) }
+      return { ok: true, id: infoHashFromBytes(result.torrent.infoHash) }
     } else {
       throw new Error('Invalid torrent type')
     }

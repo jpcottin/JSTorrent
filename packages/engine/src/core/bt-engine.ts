@@ -185,13 +185,6 @@ export interface BtEngineOptions {
   usePassthroughDiskQueue?: boolean
 
   /**
-   * Enable async writes (fire-and-forget).
-   * When true, piece writes don't block waiting for ACK - errors handled async.
-   * Used for daemon WebSocket writes to avoid per-write ACK latency.
-   */
-  useAsyncWrites?: boolean
-
-  /**
    * Enable adaptive batching for disk writes.
    * When true, multiple piece writes are batched together when queue has backlog.
    * Only supported by Android companion app (ChromeOS), not Rust io-daemon (desktop).
@@ -237,7 +230,6 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   public maxUploadSlots: number
   public encryptionPolicy: EncryptionPolicy
   public usePassthroughDiskQueue: boolean
-  public useAsyncWrites: boolean
   public useAdaptiveBatching: boolean
 
   /** Optional ConfigHub for reactive configuration (created internally if not provided) */
@@ -405,7 +397,6 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     this.encryptionPolicy = this.config.encryptionPolicy.get()
     this._dhtEnabled = this.config.dhtEnabled.get()
     this.usePassthroughDiskQueue = options.usePassthroughDiskQueue ?? false
-    this.useAsyncWrites = options.useAsyncWrites ?? false
     this.useAdaptiveBatching = options.useAdaptiveBatching ?? false
     this._tickMode = options.tickMode ?? 'js'
 

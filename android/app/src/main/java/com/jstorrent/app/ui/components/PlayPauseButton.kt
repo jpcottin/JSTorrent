@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -48,6 +49,7 @@ import com.jstorrent.app.ui.theme.JSTorrentTheme
  * @param backgroundColor Background color (defaults to primary/teal)
  * @param iconColor Icon color (defaults to onPrimary/white)
  * @param enabled Whether the button is enabled
+ * @param isLoading Show loading spinner instead of play/pause icon (for pending actions)
  */
 @Composable
 fun PlayPauseButton(
@@ -57,13 +59,14 @@ fun PlayPauseButton(
     size: Dp = 40.dp,
     backgroundColor: Color = MaterialTheme.colorScheme.primary,
     iconColor: Color = MaterialTheme.colorScheme.onPrimary,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    isLoading: Boolean = false
 ) {
     val icon = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause
-    val description = if (isPaused) {
-        stringResource(R.string.component_play_pause_resume_description)
-    } else {
-        stringResource(R.string.component_play_pause_pause_description)
+    val description = when {
+        isLoading -> stringResource(R.string.component_play_pause_loading_description)
+        isPaused -> stringResource(R.string.component_play_pause_resume_description)
+        else -> stringResource(R.string.component_play_pause_pause_description)
     }
 
     // Track press state for scale animation
@@ -82,16 +85,19 @@ fun PlayPauseButton(
         label = "buttonScale"
     )
 
+    // Effective enabled state - disabled when loading
+    val effectiveEnabled = enabled && !isLoading
+
     // Smooth background color transition
     val animatedBackgroundColor by animateColorAsState(
-        targetValue = if (enabled) backgroundColor else backgroundColor.copy(alpha = 0.5f),
+        targetValue = if (effectiveEnabled) backgroundColor else backgroundColor.copy(alpha = 0.5f),
         animationSpec = tween(durationMillis = 200),
         label = "backgroundColor"
     )
 
     // Smooth icon color transition
     val animatedIconColor by animateColorAsState(
-        targetValue = if (enabled) iconColor else iconColor.copy(alpha = 0.5f),
+        targetValue = if (effectiveEnabled) iconColor else iconColor.copy(alpha = 0.5f),
         animationSpec = tween(durationMillis = 200),
         label = "iconColor"
     )
@@ -102,8 +108,8 @@ fun PlayPauseButton(
             .scale(scale)
             .clip(CircleShape)
             .background(animatedBackgroundColor)
-            .pointerInput(enabled) {
-                if (enabled) {
+            .pointerInput(effectiveEnabled) {
+                if (effectiveEnabled) {
                     detectTapGestures(
                         onPress = {
                             isPressed = true
@@ -123,12 +129,20 @@ fun PlayPauseButton(
             },
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null, // Handled by parent semantics
-            tint = animatedIconColor,
-            modifier = Modifier.size(size * 0.6f)
-        )
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(size * 0.5f),
+                color = animatedIconColor,
+                strokeWidth = 2.dp
+            )
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = null, // Handled by parent semantics
+                tint = animatedIconColor,
+                modifier = Modifier.size(size * 0.6f)
+            )
+        }
     }
 }
 
@@ -155,21 +169,29 @@ fun LargePlayPauseButton(
 /**
  * Compact play/pause button for torrent list cards.
  * Play button uses primary color for emphasis, pause uses muted secondary color.
+ *
+ * @param isPaused Whether the torrent is currently paused
+ * @param onToggle Callback when button is clicked
+ * @param modifier Optional modifier
+ * @param enabled Whether the button is enabled
+ * @param isLoading Show loading spinner (for pending actions while engine starts)
  */
 @Composable
 fun CompactPlayPauseButton(
     isPaused: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    isLoading: Boolean = false
 ) {
     // Play button (start) should be more prominent than pause
-    val backgroundColor = if (isPaused) {
+    // When loading, use primary color to match the "starting" action
+    val backgroundColor = if (isLoading || isPaused) {
         MaterialTheme.colorScheme.primary
     } else {
         MaterialTheme.colorScheme.surfaceVariant
     }
-    val iconColor = if (isPaused) {
+    val iconColor = if (isLoading || isPaused) {
         MaterialTheme.colorScheme.onPrimary
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
@@ -182,7 +204,8 @@ fun CompactPlayPauseButton(
         size = 44.dp,
         backgroundColor = backgroundColor,
         iconColor = iconColor,
-        enabled = enabled
+        enabled = enabled,
+        isLoading = isLoading
     )
 }
 

@@ -9,7 +9,7 @@
 export * from './core'
 
 // Chrome extension specific
-export { engineManager } from './chrome/engine-manager'
+export { engineManager } from './engine-manager/chrome-extension-engine-manager'
 export { getBridge } from './chrome/extension-bridge'
 export { notificationBridge } from './chrome/notification-bridge'
 export type { ProgressStats } from './chrome/notification-bridge'

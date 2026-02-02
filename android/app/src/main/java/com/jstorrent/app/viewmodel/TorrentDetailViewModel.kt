@@ -20,6 +20,7 @@ import com.jstorrent.quickjs.model.TorrentSummary
 import com.jstorrent.quickjs.model.FileInfo
 import com.jstorrent.quickjs.model.PeerInfo
 import com.jstorrent.quickjs.model.TrackerInfo
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.BitSet
 
@@ -105,68 +107,144 @@ class TorrentDetailViewModel(
     // Track when removal has been initiated to avoid showing error during navigation
     private val _isRemoving = MutableStateFlow(false)
 
+    // Track screen visibility for lifecycle-aware polling
+    private val _isScreenVisible = MutableStateFlow(true)
+
+    // Job for tracker polling - cancelled when leaving TRACKERS tab or screen
+    private var trackerPollingJob: Job? = null
+
     init {
-        // Fetch files, trackers, peers, and pieces when engine state changes
+        // Initial data fetch: fetch files once for STATUS tab (needed for size/ETA).
+        // This only happens once when the torrent first appears in state.
         viewModelScope.launch {
             repository.state.collect { state ->
                 if (state?.torrents?.any { it.infoHash == infoHash } == true) {
-                    _cachedFiles.value = repository.getFiles(infoHash)
-                    _cachedTrackers.value = repository.getTrackers(infoHash)
-                    _cachedPeers.value = repository.getPeers(infoHash)
-
-                    // Fetch details once (timestamps don't change frequently)
-                    if (_cachedDetails.value == null) {
-                        _cachedDetails.value = repository.getDetails(infoHash)
+                    // Fetch files once for basic stats (size, downloaded, ETA)
+                    if (_cachedFiles.value.isEmpty()) {
+                        _cachedFiles.value = repository.getFiles(infoHash)
                     }
-
-                    // Fetch piece info if we don't have it yet, or if piece count changed
-                    // (magnet links start with 0 pieces until metadata arrives)
-                    val currentPieces = _cachedPieces.value
-                    if (currentPieces == null || currentPieces.piecesTotal == 0) {
-                        val pieces = repository.getPieces(infoHash)
-                        if (pieces != null && pieces.piecesTotal > 0) {
-                            _cachedPieces.value = pieces
-                            // OR with existing bitfield to preserve any diffs that arrived
-                            // while the snapshot was in flight (pieces only complete, never un-complete)
-                            val newBitfield = decodeBitfield(pieces.bitfield, pieces.piecesTotal)
-                            _pieceBitfield.value?.let { existing -> newBitfield.or(existing) }
-                            _pieceBitfield.value = newBitfield
-                        }
-                    }
-
-                    // Apply piece diffs from state update
-                    val diffs = state.pieceChanges?.get(infoHash)
-                    if (!diffs.isNullOrEmpty()) {
-                        val bitfield = _pieceBitfield.value ?: BitSet()
-                        diffs.forEach { pieceIndex -> bitfield.set(pieceIndex) }
-                        _pieceBitfield.value = bitfield
-                        // Update completed count
-                        _cachedPieces.value?.let { pieces ->
-                            _cachedPieces.value = pieces.copy(
-                                piecesCompleted = bitfield.cardinality()
-                            )
-                        }
-                    }
+                    // Apply piece diffs on every state change (cheap, just BitSet ops)
+                    applyPieceDiffs(state)
                 }
             }
         }
 
-        // Periodic tracker refresh - needed because tracker status changes
-        // (e.g., timeout from 'announcing' to 'error') don't trigger main state updates.
-        // The engine only pushes state when torrent progress/speeds change, but when
-        // waiting for trackers with no peer activity, the state stays the same.
-        if (trackerRefreshEnabled) {
-            viewModelScope.launch {
-                while (true) {
-                    delay(2000) // Refresh every 2 seconds
-                    // Only refresh if engine is loaded and torrent exists
-                    if (repository.isLoaded.value) {
-                        val trackers = repository.getTrackers(infoHash)
-                        if (trackers.isNotEmpty()) {
-                            _cachedTrackers.value = trackers
+        // Tab-reactive data fetching: only fetch/refresh data for the currently visible tab.
+        // This reduces unnecessary RPC calls when viewing other tabs.
+        viewModelScope.launch {
+            combine(repository.state, _selectedTab) { state, tab -> state to tab }
+                .collect { (state, tab) ->
+                    if (state?.torrents?.any { it.infoHash == infoHash } != true) return@collect
+
+                    when (tab) {
+                        DetailTab.FILES -> {
+                            // Refresh files on every state change when viewing FILES tab
+                            // to show per-file download progress updates
+                            _cachedFiles.value = repository.getFiles(infoHash)
+                        }
+                        DetailTab.TRACKERS -> {
+                            _cachedTrackers.value = repository.getTrackers(infoHash)
+                        }
+                        DetailTab.PEERS -> {
+                            _cachedPeers.value = repository.getPeers(infoHash)
+                        }
+                        DetailTab.PIECES -> {
+                            fetchPiecesIfNeeded()
+                        }
+                        DetailTab.DETAILS -> {
+                            if (_cachedDetails.value == null) {
+                                _cachedDetails.value = repository.getDetails(infoHash)
+                            }
+                        }
+                        DetailTab.STATUS -> {
+                            // Uses TorrentSummary from state + cached files - no extra fetch needed
                         }
                     }
                 }
+        }
+
+        // Tracker polling: only poll when TRACKERS tab is visible AND screen is visible.
+        // Tracker status changes (e.g., timeout from 'announcing' to 'error') don't
+        // trigger main state updates, so we need periodic refresh.
+        // Polling stops when navigating to another screen (e.g., DHT view).
+        if (trackerRefreshEnabled) {
+            viewModelScope.launch {
+                combine(_selectedTab, _isScreenVisible) { tab, visible -> tab to visible }
+                    .collect { (tab, visible) ->
+                        trackerPollingJob?.cancel()
+                        if (tab == DetailTab.TRACKERS && visible) {
+                            trackerPollingJob = viewModelScope.launch {
+                                while (isActive) {
+                                    delay(2000)
+                                    if (repository.isLoaded.value) {
+                                        val trackers = repository.getTrackers(infoHash)
+                                        if (trackers.isNotEmpty()) {
+                                            _cachedTrackers.value = trackers
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+            }
+        }
+    }
+
+    /**
+     * Called when the screen is paused (navigated away or backgrounded).
+     * Stops any active polling to save resources.
+     */
+    fun onScreenPaused() {
+        _isScreenVisible.value = false
+    }
+
+    /**
+     * Called when the screen is resumed (navigated back or foregrounded).
+     * Resumes polling if on a tab that requires it.
+     */
+    fun onScreenResumed() {
+        _isScreenVisible.value = true
+    }
+
+    /**
+     * Fetch piece info if we don't have it yet, or if piece count changed.
+     * Magnet links start with 0 pieces until metadata arrives.
+     */
+    private suspend fun fetchPiecesIfNeeded() {
+        val currentPieces = _cachedPieces.value
+        if (currentPieces == null || currentPieces.piecesTotal == 0) {
+            val pieces = repository.getPieces(infoHash)
+            if (pieces != null && pieces.piecesTotal > 0) {
+                _cachedPieces.value = pieces
+                // OR with existing bitfield to preserve any diffs that arrived
+                // while the snapshot was in flight (pieces only complete, never un-complete)
+                val newBitfield = decodeBitfield(pieces.bitfield, pieces.piecesTotal)
+                _pieceBitfield.value?.let { existing -> newBitfield.or(existing) }
+                _pieceBitfield.value = newBitfield
+            }
+        }
+    }
+
+    /**
+     * Apply piece diffs from state update to local bitfield.
+     * IMPORTANT: Clone the BitSet before mutation so StateFlow detects the change.
+     */
+    private fun applyPieceDiffs(state: com.jstorrent.quickjs.model.EngineState) {
+        val diffs = state.pieceChanges?.get(infoHash)
+        if (!diffs.isNullOrEmpty()) {
+            val existingBitfield = _pieceBitfield.value
+            val newBitfield = if (existingBitfield != null) {
+                (existingBitfield.clone() as BitSet)
+            } else {
+                BitSet()
+            }
+            diffs.forEach { pieceIndex -> newBitfield.set(pieceIndex) }
+            _pieceBitfield.value = newBitfield
+            // Update completed count
+            _cachedPieces.value?.let { pieces ->
+                _cachedPieces.value = pieces.copy(
+                    piecesCompleted = newBitfield.cardinality()
+                )
             }
         }
     }
@@ -486,7 +564,9 @@ class TorrentDetailViewModel(
             leechersTotal = null,
             eta = calculateEta(summary.downloadSpeed, totalSize - downloaded),
             shareRatio = shareRatio,
-            piecesCompleted = pieces?.piecesCompleted,
+            // Derive piecesCompleted from bitfield when available - this ensures the count
+            // stays in sync after diffs are applied in the combine block
+            piecesCompleted = bitfield?.cardinality() ?: pieces?.piecesCompleted,
             piecesTotal = pieces?.piecesTotal,
             pieceSize = pieces?.pieceSize,
             pieceBitfield = bitfield,

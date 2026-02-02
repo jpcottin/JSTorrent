@@ -84,11 +84,18 @@ fun TorrentDetailScreen(
     val uiState by viewModel.uiState.collectAsState()
     val selectedTab by viewModel.selectedTab.collectAsState()
 
+    // Lifecycle-aware polling: pause when screen is not visible (e.g., navigated
+    // to DHT view or app backgrounded), resume when screen becomes visible again.
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        viewModel.onScreenPaused()
+    }
+
     // Re-sync pieces when app resumes from background to catch any updates
     // that were missed while the app was suspended.
     // Also ensure engine is started - it may have been shut down for battery
     // saving while the screen was off.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.onScreenResumed()
         viewModel.ensureEngineStarted()
         viewModel.resyncPieces()
     }

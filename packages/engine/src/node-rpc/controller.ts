@@ -1,6 +1,6 @@
 import { BtEngine } from '../core/bt-engine'
 import { Torrent } from '../core/torrent'
-import { toInfoHashString } from '../utils/infohash'
+import { infoHashFromBytes } from '../utils/infohash'
 import { createNodeEngine, NodeEngineConfig } from '../presets/node'
 import { globalLogStore, LogLevel } from '../logging/logger'
 
@@ -61,7 +61,7 @@ export class EngineController {
     }
 
     const torrents = this.engine.torrents.map((t) => ({
-      id: toInfoHashString(t.infoHash),
+      id: infoHashFromBytes(t.infoHash),
       state: 'active', // Simplified for now
     }))
 
@@ -100,7 +100,7 @@ export class EngineController {
       throw new Error('Failed to add torrent')
     }
 
-    return { ok: true, id: toInfoHashString(torrent.infoHash) }
+    return { ok: true, id: infoHashFromBytes(torrent.infoHash) }
   }
 
   getTorrentStatus(id: string): TorrentStatus {

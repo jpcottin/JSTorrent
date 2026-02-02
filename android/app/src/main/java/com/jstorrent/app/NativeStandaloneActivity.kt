@@ -223,8 +223,10 @@ class NativeStandaloneActivity : ComponentActivity() {
 
         // Set default if we didn't have one before
         if (knownRootKeys.isEmpty() && currentRoots.isNotEmpty()) {
-            controller.setDefaultRootAsync(currentRoots.first().key)
-            Log.i(TAG, "Set default root: ${currentRoots.first().key}")
+            val defaultKey = currentRoots.first().key
+            app.getConfigHub().defaultRootKey = defaultKey  // Persist to SQLite
+            controller.setDefaultRootAsync(defaultKey)       // Notify JS engine
+            Log.i(TAG, "Set default root: $defaultKey")
         }
 
         // Update known keys

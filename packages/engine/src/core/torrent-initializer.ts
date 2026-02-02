@@ -86,7 +86,6 @@ export async function initializeTorrentMetadata(
     engine,
     storageHandle,
     torrent.diskQueue,
-    engine.useAsyncWrites,
     engine.useAdaptiveBatching,
   )
   await contentStorage.open(parsedTorrent.files, parsedTorrent.pieceLength)
@@ -139,7 +138,6 @@ export async function initializeTorrentStorage(
     engine,
     storageHandle,
     torrent.diskQueue,
-    engine.useAsyncWrites,
     engine.useAdaptiveBatching,
   )
   await contentStorage.open(parsedTorrent.files, parsedTorrent.pieceLength)

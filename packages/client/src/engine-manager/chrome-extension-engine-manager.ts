@@ -353,8 +353,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       startSuspended: true,
       getNetworkInterfaces: () => this.daemonConnection!.getNetworkInterfaces(),
       config: configHub,
-      // Async writes disabled - adds complexity without backpressure, caused hash verification bugs
-      useAsyncWrites: false,
       // Adaptive batching only supported by Android companion (ChromeOS)
       useAdaptiveBatching: isChromeos,
     })

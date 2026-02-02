@@ -52,6 +52,8 @@ import com.jstorrent.quickjs.model.TorrentSummary
  * @param isSelected Whether this card is currently selected
  * @param isLive True when engine is running (live data), false when showing cached data.
  *               Currently unused but kept for potential future differentiation.
+ * @param isPending True when action is pending (shows loading spinner on play/pause button).
+ *                  Provides immediate feedback when user taps while engine is starting.
  * @param modifier Optional modifier
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -65,6 +67,7 @@ fun TorrentCard(
     isSelectionMode: Boolean = false,
     isSelected: Boolean = false,
     isLive: Boolean = true,
+    isPending: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val isPaused = torrent.status == "stopped"
@@ -115,7 +118,8 @@ fun TorrentCard(
                 } else {
                     CompactPlayPauseButton(
                         isPaused = isPaused,
-                        onToggle = if (isPaused) onResume else onPause
+                        onToggle = if (isPaused) onResume else onPause,
+                        isLoading = isPending
                     )
                 }
             }

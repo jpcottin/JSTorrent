@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -102,6 +103,7 @@ fun TorrentListScreen(
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val filterCounts by viewModel.filterCounts.collectAsState()
     val engineError by viewModel.engineError.collectAsState()
+    val pendingTorrents by viewModel.pendingTorrents.collectAsState()
 
     // Refresh cache when resuming to pick up any changes that occurred while
     // the screen was off (e.g., background downloads completing)
@@ -257,6 +259,22 @@ fun TorrentListScreen(
                                 viewModel.resumeAll()
                             }
                         )
+                        if (isSelectionMode) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.torrent_list_delete_all)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    showBulkDeleteDialog = true
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.torrent_list_add_download_folder)) },
                             leadingIcon = {
@@ -369,6 +387,7 @@ fun TorrentListScreen(
                         isPaused = { viewModel.isPaused(it) },
                         isSelectionMode = isSelectionMode,
                         selectedTorrents = selectedTorrents,
+                        pendingTorrents = pendingTorrents,
                         isLive = state.isLive,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -483,6 +502,7 @@ private fun TorrentListContent(
     isPaused: (TorrentSummary) -> Boolean,
     isSelectionMode: Boolean,
     selectedTorrents: Set<String>,
+    pendingTorrents: Set<String>,
     isLive: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -518,7 +538,8 @@ private fun TorrentListContent(
                         onLongClick = { onTorrentLongClick(torrent.infoHash) },
                         isSelectionMode = isSelectionMode,
                         isSelected = torrent.infoHash in selectedTorrents,
-                        isLive = isLive
+                        isLive = isLive,
+                        isPending = torrent.infoHash in pendingTorrents
                     )
                 }
             }

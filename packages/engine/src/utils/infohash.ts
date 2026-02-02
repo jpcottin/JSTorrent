@@ -42,31 +42,6 @@ export function parseInfoHash(bytes: Uint8Array): { bytes: Uint8Array; hex: Info
   }
 }
 
-// Legacy compatibility functions - deprecated, use the above functions instead
-
-/**
- * @deprecated Use infoHashFromHex instead
- */
-export function normalizeInfoHash(infoHash: string): string {
-  return infoHash.toLowerCase()
-}
-
-/**
- * @deprecated Use direct === comparison with InfoHashHex values instead
- */
-export function areInfoHashesEqual(a: string, b: string): boolean {
-  return normalizeInfoHash(a) === normalizeInfoHash(b)
-}
-
-/**
- * @deprecated Use infoHashFromBytes instead
- */
-export function toInfoHashString(buffer: Uint8Array): string {
-  return Array.from(buffer)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
 /**
  * Check if a string looks like a bare info hash (40 hex chars).
  * Returns true if the string appears to be just a hash without the magnet wrapper.

@@ -9,6 +9,7 @@
     <string name="torrent_list_menu">Menu</string>
     <string name="torrent_list_pause_all">Pause All</string>
     <string name="torrent_list_resume_all">Resume All</string>
+    <string name="torrent_list_delete_all">Delete All</string>
     <string name="torrent_list_add_download_folder">Add Download Folder</string>
     <string name="torrent_list_add_torrent">Add torrent</string>
     <string name="torrent_list_loading">Loading…</string>
@@ -237,6 +238,7 @@
     <!-- PlayPauseButton -->
     <string name="component_play_pause_resume_description">Resume torrent</string>
     <string name="component_play_pause_pause_description">Pause torrent</string>
+    <string name="component_play_pause_loading_description">Starting…</string>
 
     <!-- TorrentCard -->
     <string name="component_torrent_card_unknown_name">Unknown</string>

@@ -152,13 +152,15 @@ class AddRootActivity : AppCompatActivity() {
         Log.i(TAG, "Added root: key=${root.key}, label=${root.displayName}")
 
         // Notify engine (native standalone mode) - async to avoid blocking Main
-        (application as JSTorrentApplication).engineController?.let { controller ->
+        val app = application as JSTorrentApplication
+        app.engineController?.let { controller ->
             val isFirstRoot = rootStore.listRoots().size == 1
             lifecycleScope.launch(Dispatchers.IO) {
                 controller.addRootAsync(root.key, root.displayName, root.uri)
                 // Set as default if this is the first root
                 if (isFirstRoot) {
-                    controller.setDefaultRootAsync(root.key)
+                    app.getConfigHub().defaultRootKey = root.key  // Persist to SQLite
+                    controller.setDefaultRootAsync(root.key)       // Notify JS engine
                 }
                 Log.i(TAG, "Notified engine of new root: ${root.key}")
             }
