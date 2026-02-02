@@ -302,7 +302,7 @@ class ServiceLifecycleTest {
     /**
      * Wait for the ForegroundNotificationService to be available and loaded.
      */
-    private fun waitForService(timeoutMs: Long = 15000): Boolean {
+    private fun waitForService(timeoutMs: Long = 5000): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             if (ForegroundNotificationService.instance?.isLoaded?.value == true) {

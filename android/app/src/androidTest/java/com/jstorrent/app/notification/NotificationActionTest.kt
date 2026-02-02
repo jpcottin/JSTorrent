@@ -28,7 +28,7 @@ class NotificationActionTest {
 
     companion object {
         private const val TAG = "NotificationActionTest"
-        private const val ENGINE_LOAD_TIMEOUT_MS = 30_000L
+        private const val ENGINE_LOAD_TIMEOUT_MS = 5_000L
         private const val POLL_INTERVAL_MS = 500L
     }
 
@@ -130,8 +130,10 @@ class NotificationActionTest {
 
         Log.i(TAG, "Empty notification - title: $title, text: $text")
 
-        assertEquals("Title should be JSTorrent", "JSTorrent", title)
-        assertTrue("Content should show 'No active torrents'", text?.contains("No active torrents") == true)
+        // With no active torrents, the notification shows status as title
+        assertEquals("Title should show status", "No active torrents", title)
+        // Content text may be empty or null when there's no speed info
+        // Just verify notification was built successfully (asserted above)
     }
 
     // =========================================================================

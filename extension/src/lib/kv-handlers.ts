@@ -3,8 +3,8 @@
  *
  * Uses chrome.storage.local with configurable key prefix.
  * Defaults to 'session:' prefix for backward compatibility.
- * Binary values are stored as base64 strings.
- * JSON values are stored directly.
+ * Values are stored directly in chrome.storage.local (supports both
+ * strings and objects natively).
  */
 
 const DEFAULT_PREFIX = 'session:'
@@ -113,34 +113,6 @@ export function handleKVMessage(
         const keysToRemove = Object.keys(all).filter((k) => k.startsWith(keyPrefix))
         return storage.remove(keysToRemove)
       })
-      .then(() => {
-        sendResponse({ ok: true })
-      })
-      .catch((e) => {
-        sendResponse({ ok: false, error: String(e) })
-      })
-    return true
-  }
-
-  // JSON-specific handlers (stored directly, not as base64)
-  if (message.type === 'KV_GET_JSON') {
-    const prefixedKey = prefixKey(message.key!)
-    storage
-      .get(prefixedKey)
-      .then((result) => {
-        const value = result[prefixedKey] ?? null
-        sendResponse({ ok: true, value })
-      })
-      .catch((e) => {
-        sendResponse({ ok: false, error: String(e) })
-      })
-    return true
-  }
-
-  if (message.type === 'KV_SET_JSON') {
-    const prefixedKey = prefixKey(message.key!)
-    storage
-      .set({ [prefixedKey]: message.value })
       .then(() => {
         sendResponse({ ok: true })
       })

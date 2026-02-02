@@ -413,7 +413,6 @@ async function handleKVMessageViaWebSocket(
 
     switch (message.type) {
       case 'KV_GET':
-      case 'KV_GET_JSON':
         opcode = KV_OPCODES.KV_GET
         payload = { key: prefixKey(message.key!) }
         break
@@ -423,7 +422,6 @@ async function handleKVMessageViaWebSocket(
         break
       }
       case 'KV_SET':
-      case 'KV_SET_JSON':
         opcode = KV_OPCODES.KV_SET
         payload = { key: prefixKey(message.key!), value: message.value }
         break
@@ -497,9 +495,16 @@ function handleMessage(
 
   // KV operations (external session store)
   // Route to Android SQLite via WebSocket when connected to Android companion,
-  // otherwise use chrome.storage
+  // otherwise use chrome.storage.
+  // EXCEPTION: Auth credentials (android:authToken, installId) must stay in
+  // chrome.storage.local because they're used for pairing/authentication and
+  // are written directly by daemon-bridge.ts and chromeos-bootstrap.ts.
   if (message.type?.startsWith('KV_')) {
-    if (bridge.isAndroidCompanion()) {
+    const key = message.key as string | undefined
+    const isCredentialKey =
+      key === 'android:authToken' || key === 'installId' || key?.startsWith('android:')
+
+    if (bridge.isAndroidCompanion() && !isCredentialKey) {
       handleKVMessageViaWebSocket(bridge, message, sendResponse)
       return true
     }

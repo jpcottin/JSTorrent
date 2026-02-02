@@ -148,23 +148,23 @@ export class ExternalChromeStorageSessionStore implements ISessionStore {
 
   async getJson<T>(key: string): Promise<T | null> {
     const response = await this.send<{ ok: boolean; value?: T | null; error?: string }>({
-      type: 'KV_GET_JSON',
+      type: 'KV_GET',
       key,
     })
     if (!response.ok) {
-      throw new Error(response.error || 'KV_GET_JSON failed')
+      throw new Error(response.error || 'KV_GET failed')
     }
     return response.value ?? null
   }
 
   async setJson<T>(key: string, value: T): Promise<void> {
     const response = await this.send<{ ok: boolean; error?: string }>({
-      type: 'KV_SET_JSON',
+      type: 'KV_SET',
       key,
       value,
     })
     if (!response.ok) {
-      throw new Error(response.error || 'KV_SET_JSON failed')
+      throw new Error(response.error || 'KV_SET failed')
     }
   }
 }

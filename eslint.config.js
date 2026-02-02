@@ -127,16 +127,14 @@ export default tseslint.config(
     },
   },
   // Prevent chrome-specific imports in core/standalone-safe code
-  // These files should work in Android WebView without Chrome extension APIs
+  // These files should work without Chrome extension APIs
   {
     files: [
       'packages/client/src/utils/**/*.{ts,tsx}',
       'packages/client/src/adapters/**/*.{ts,tsx}',
       'packages/client/src/core.ts',
-      'packages/client/src/android.ts',
       'packages/client/src/AppContent.tsx',
       'packages/client/src/engine-manager/types.ts',
-      'packages/client/src/engine-manager/android-standalone-engine-manager.ts',
     ],
     rules: {
       'no-restricted-imports': [

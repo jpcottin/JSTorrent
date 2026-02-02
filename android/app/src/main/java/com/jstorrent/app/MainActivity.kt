@@ -30,7 +30,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.jstorrent.app.auth.StandaloneMode
 import com.jstorrent.app.auth.TokenStore
 import com.jstorrent.app.mode.ModeDetector
 import com.jstorrent.app.service.IoDaemonService
@@ -49,7 +48,6 @@ class MainActivity : ComponentActivity() {
     private var isPaired = mutableStateOf(false)
     private var backgroundModeEnabled = mutableStateOf(false)
     private var hasNotificationPermission = mutableStateOf(false)
-    private var standaloneMode = mutableStateOf(StandaloneMode.WEBVIEW)
     private var preferStandaloneOnChromebook = mutableStateOf(false)
 
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -77,7 +75,6 @@ class MainActivity : ComponentActivity() {
         isPaired.value = tokenStore.hasToken()
         backgroundModeEnabled.value = tokenStore.backgroundModeEnabled
         hasNotificationPermission.value = checkNotificationPermission()
-        standaloneMode.value = tokenStore.standaloneMode
         preferStandaloneOnChromebook.value = tokenStore.preferStandaloneOnChromebook
 
         // Check if running on Chromebook
@@ -91,24 +88,12 @@ class MainActivity : ComponentActivity() {
         }
 
         // Non-Chromebook OR user prefers standalone: launch standalone mode
-        // Release builds always use native; debug builds respect user preference
         // Note: Magnet/torrent links go through LinkHandlerActivity, not here
         // Exception: if launched from extension (force_companion=true), always use companion mode
         val preferStandalone = isChromebook && tokenStore.preferStandaloneOnChromebook && !forceCompanion
         if (!isChromebook || preferStandalone) {
-            val effectiveMode = if (BuildConfig.DEBUG) tokenStore.standaloneMode else StandaloneMode.NATIVE
-            val targetActivity = when (effectiveMode) {
-                StandaloneMode.NATIVE -> {
-                    Log.i(TAG, "${if (preferStandalone) "Chromebook prefers standalone" else "Not a Chromebook"} - launching native standalone mode")
-                    NativeStandaloneActivity::class.java
-                }
-                StandaloneMode.WEBVIEW -> {
-                    Log.i(TAG, "${if (preferStandalone) "Chromebook prefers standalone" else "Not a Chromebook"} - launching WebView standalone mode")
-                    StandaloneActivity::class.java
-                }
-            }
-
-            startActivity(Intent(this, targetActivity).apply {
+            Log.i(TAG, "${if (preferStandalone) "Chromebook prefers standalone" else "Not a Chromebook"} - launching native standalone mode")
+            startActivity(Intent(this, NativeStandaloneActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             })
             finish()

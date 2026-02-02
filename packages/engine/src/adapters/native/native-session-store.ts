@@ -2,17 +2,17 @@
  * Native Session Store
  *
  * Implements ISessionStore using native storage bindings.
- * Binary data is stored as base64, JSON data with a 'json:' prefix.
+ * All values are stored as JSON in SQLite for consistency with
+ * the WebSocket KV bridge used in companion mode.
  */
 
 import type { ISessionStore } from '../../interfaces/session-store'
 import './bindings.d.ts'
 
 const SESSION_PREFIX = 'session:'
-const JSON_MARKER = 'json:'
 
 /**
- * Convert Uint8Array to base64 string for storage.
+ * Convert Uint8Array to base64 string.
  */
 function toBase64(buffer: Uint8Array): string {
   let binary = ''
@@ -41,12 +41,15 @@ export class NativeSessionStore implements ISessionStore {
 
   /**
    * Get binary data by key.
+   * Stored as JSON string (base64 encoded).
    */
   async get(key: string): Promise<Uint8Array | null> {
     try {
-      const value = __jstorrent_storage_get(this.prefixKey(key))
-      if (value != null && !value.startsWith(JSON_MARKER)) {
-        return fromBase64(value)
+      const stored = __jstorrent_storage_get(this.prefixKey(key))
+      if (stored != null) {
+        // Parse JSON to get the base64 string, then decode
+        const base64 = JSON.parse(stored) as string
+        return fromBase64(base64)
       }
     } catch (e) {
       console.warn('[NativeSessionStore] get error:', e)
@@ -56,10 +59,12 @@ export class NativeSessionStore implements ISessionStore {
 
   /**
    * Set binary data by key.
+   * Stored as JSON string (base64 encoded).
    */
   async set(key: string, value: Uint8Array): Promise<void> {
     try {
-      __jstorrent_storage_set(this.prefixKey(key), toBase64(value))
+      // Convert to base64, then JSON-stringify to store as JSON string
+      __jstorrent_storage_set(this.prefixKey(key), JSON.stringify(toBase64(value)))
     } catch (e) {
       console.error('[NativeSessionStore] set error:', e)
       throw e
@@ -114,18 +119,9 @@ export class NativeSessionStore implements ISessionStore {
    */
   async getJson<T>(key: string): Promise<T | null> {
     try {
-      const value = __jstorrent_storage_get(this.prefixKey(key))
-      if (value != null) {
-        // Handle json: prefix format
-        if (value.startsWith(JSON_MARKER)) {
-          return JSON.parse(value.slice(JSON_MARKER.length)) as T
-        }
-        // Legacy: try parsing as JSON (for backwards compatibility)
-        try {
-          return JSON.parse(value) as T
-        } catch {
-          // Not JSON, return null
-        }
+      const stored = __jstorrent_storage_get(this.prefixKey(key))
+      if (stored != null) {
+        return JSON.parse(stored) as T
       }
     } catch (e) {
       console.warn('[NativeSessionStore] getJson error:', e)
@@ -138,8 +134,7 @@ export class NativeSessionStore implements ISessionStore {
    */
   async setJson<T>(key: string, value: T): Promise<void> {
     try {
-      // Prefix with 'json:' to distinguish from binary base64 data
-      __jstorrent_storage_set(this.prefixKey(key), JSON_MARKER + JSON.stringify(value))
+      __jstorrent_storage_set(this.prefixKey(key), JSON.stringify(value))
     } catch (e) {
       console.error('[NativeSessionStore] setJson error:', e)
       throw e

@@ -5,8 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
-import com.jstorrent.app.auth.StandaloneMode
-import com.jstorrent.app.auth.TokenStore
 import com.jstorrent.app.link.PendingLinkManager
 import com.jstorrent.app.mode.ModeDetector
 import com.jstorrent.app.service.IoDaemonService
@@ -23,7 +21,7 @@ private const val EXTENSION_URL = "https://new.jstorrent.com/launch"
  *
  * Routing logic:
  * - Chromebook: Process via IoDaemonService (bridge to extension)
- * - Non-Chromebook: Forward to standalone activity (NativeStandaloneActivity or StandaloneActivity)
+ * - Non-Chromebook: Forward to NativeStandaloneActivity
  */
 class LinkHandlerActivity : Activity() {
 
@@ -74,20 +72,10 @@ class LinkHandlerActivity : Activity() {
     }
 
     /**
-     * Standalone mode: Forward to the appropriate standalone activity.
+     * Standalone mode: Forward to native standalone activity.
      */
     private fun handleStandaloneIntent(uri: Uri) {
-        val tokenStore = TokenStore(this)
-        val targetActivity = when (tokenStore.standaloneMode) {
-            StandaloneMode.NATIVE -> {
-                Log.i(TAG, "Standalone: Forwarding to native activity")
-                NativeStandaloneActivity::class.java
-            }
-            StandaloneMode.WEBVIEW -> {
-                Log.i(TAG, "Standalone: Forwarding to WebView activity")
-                StandaloneActivity::class.java
-            }
-        }
+        Log.i(TAG, "Standalone: Forwarding to native activity")
 
         // Read torrent file now (we have URI permission) and pass as extra
         // This avoids permission issues when forwarding content:// URIs between activities
@@ -106,7 +94,7 @@ class LinkHandlerActivity : Activity() {
             }
         }
 
-        startActivity(Intent(this, targetActivity).apply {
+        startActivity(Intent(this, NativeStandaloneActivity::class.java).apply {
             if (torrentBase64 != null) {
                 putExtra("torrent_base64", torrentBase64)
             } else {

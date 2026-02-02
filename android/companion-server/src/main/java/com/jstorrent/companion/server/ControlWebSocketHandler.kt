@@ -203,6 +203,17 @@ class ControlWebSocketHandler(
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    /**
+     * All values are stored as JSON in SQLite.
+     * - Strings: "hello" (JSON string with quotes)
+     * - Objects: {"key":"value"}
+     * - Arrays: [1,2,3]
+     * - Numbers: 42
+     * - Booleans: true/false
+     *
+     * When reading, we JSON-parse the stored value to get back the typed JsonElement.
+     */
+
     private fun handleKvGet(envelope: Protocol.Envelope, payload: ByteArray) {
         val opcode = Protocol.OP_KV_GET
         try {
@@ -263,7 +274,7 @@ class ControlWebSocketHandler(
             val value = request["value"]
                 ?: return sendKvError(envelope.requestId, opcode, "Missing value")
 
-            // Store the JSON-encoded value
+            // Store as JSON - value.toString() gives the JSON representation
             deps.kvStore.set(key, value.toString())
 
             val response = buildJsonObject { put("ok", true) }

@@ -2,6 +2,7 @@ package com.jstorrent.app.cache
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import com.jstorrent.app.model.TorrentListUiState
 import com.jstorrent.app.ui.screens.TorrentListScreen
@@ -153,8 +154,8 @@ class CacheToLiveTransitionTest {
     }
 
     @Test
-    fun cachedTorrents_showPlaceholderSpeeds() {
-        // Given: cache has a torrent (Stage 3: isLive = false shows placeholder speeds)
+    fun cachedTorrents_showZeroSpeeds() {
+        // Given: cache has a torrent (cached speeds are always 0)
         fakeCache.setCachedSummaries(listOf(
             createCachedSummary("hash1", "Cached Download", progress = 0.5, status = "stopped")
         ))
@@ -168,11 +169,10 @@ class CacheToLiveTransitionTest {
             }
         }
 
-        // Then: torrent shows with placeholder speed indicators (— ↓ and — ↑)
+        // Then: torrent shows with zero speed indicators
         composeTestRule.onNodeWithText("Cached Download").assertIsDisplayed()
-        // Stage 3: Cached mode shows "— ↓" and "— ↑" placeholders
-        composeTestRule.onNodeWithText("— ↓").assertIsDisplayed()
-        composeTestRule.onNodeWithText("— ↑").assertIsDisplayed()
+        // Cached mode shows "0 B/s" for both directions
+        composeTestRule.onNodeWithText("0 B/s", substring = true).assertIsDisplayed()
     }
 
     @Test
@@ -206,13 +206,13 @@ class CacheToLiveTransitionTest {
             }
         }
 
-        // Then: loading state shown
-        composeTestRule.onNodeWithText("Loading...").assertIsDisplayed()
+        // Then: loading state shown (uses Unicode ellipsis U+2026)
+        composeTestRule.onNodeWithText("Loading…").assertIsDisplayed()
     }
 
     @Test
     fun transitionFromCachedToLive_updatesSpeedDisplay() {
-        // Given: cache has torrent (shows placeholder speeds)
+        // Given: cache has torrent (cached speeds are 0)
         fakeCache.setCachedSummaries(listOf(
             createCachedSummary("hash1", "My Torrent", progress = 0.5)
         ))
@@ -226,9 +226,9 @@ class CacheToLiveTransitionTest {
             }
         }
 
-        // Verify cached mode shows placeholder speeds
-        composeTestRule.onNodeWithText("— ↓").assertIsDisplayed()
-        composeTestRule.onNodeWithText("— ↑").assertIsDisplayed()
+        // Verify cached mode shows zero speeds
+        composeTestRule.onNodeWithText("My Torrent").assertIsDisplayed()
+        composeTestRule.onNodeWithText("0 B/s", substring = true).assertIsDisplayed()
 
         // When: engine loads with live speeds
         fakeRepository.setLoaded(true)
@@ -245,9 +245,11 @@ class CacheToLiveTransitionTest {
 
         composeTestRule.waitForIdle()
 
-        // Then: placeholders replaced with actual speeds (isLive = true)
-        composeTestRule.onNodeWithText("— ↓").assertDoesNotExist()
-        composeTestRule.onNodeWithText("— ↑").assertDoesNotExist()
+        // Then: shows actual speeds (MB/s range) - there may be multiple nodes (down + up)
+        val speedNodes = composeTestRule.onAllNodesWithText("MB/s", substring = true)
+        assert(speedNodes.fetchSemanticsNodes().isNotEmpty()) {
+            "Should have at least one MB/s speed indicator"
+        }
     }
 
     @Test

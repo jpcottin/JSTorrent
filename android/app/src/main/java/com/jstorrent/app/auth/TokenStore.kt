@@ -5,16 +5,6 @@ import android.content.SharedPreferences
 import androidx.core.content.edit
 
 /**
- * Standalone app mode for non-Chromebook devices.
- */
-enum class StandaloneMode(val value: String) {
-    /** WebView-based UI (loads HTML from assets) */
-    WEBVIEW("standalone"),
-    /** Native Compose UI with QuickJS engine */
-    NATIVE("native")
-}
-
-/**
  * Stores the authentication credentials shared between the extension and this app.
  * - token: The shared secret for authenticating requests
  * - installId: Identifies which extension installation is paired (detects reinstalls)
@@ -50,29 +40,6 @@ class TokenStore(context: Context) {
     var preferStandaloneOnChromebook: Boolean
         get() = prefs.getBoolean(KEY_PREFER_STANDALONE, false)
         set(value) = prefs.edit { putBoolean(KEY_PREFER_STANDALONE, value) }
-
-    var uiMode: String
-        get() = prefs.getString(KEY_UI_MODE, "standalone") ?: "standalone"
-        set(value) = prefs.edit { putString(KEY_UI_MODE, value) }
-
-    /**
-     * Typed standalone mode setting.
-     * Defaults to NATIVE for non-Chromebook devices.
-     */
-    var standaloneMode: StandaloneMode
-        get() = when (prefs.getString(KEY_UI_MODE, "native")) {
-            "standalone" -> StandaloneMode.WEBVIEW
-            else -> StandaloneMode.NATIVE
-        }
-        set(value) = prefs.edit { putString(KEY_UI_MODE, value.value) }
-
-    /**
-     * Convenience property for "prefer native standalone" setting.
-     * When true, Chromebook users who launch standalone mode will get native UI.
-     */
-    var preferNativeStandalone: Boolean
-        get() = standaloneMode == StandaloneMode.NATIVE
-        set(value) { standaloneMode = if (value) StandaloneMode.NATIVE else StandaloneMode.WEBVIEW }
 
     /**
      * Token for standalone mode (local WebView).
@@ -138,6 +105,5 @@ class TokenStore(context: Context) {
         private const val KEY_BACKGROUND_MODE = "background_mode_enabled"
         private const val KEY_PREFER_STANDALONE = "prefer_standalone_on_chromebook"
         private const val KEY_STANDALONE_TOKEN = "standalone_token"
-        private const val KEY_UI_MODE = "ui_mode"
     }
 }

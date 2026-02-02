@@ -1,12 +1,10 @@
 package com.jstorrent.app.cache
 
 import android.content.Context
-import android.content.SharedPreferences
-import android.util.Base64
 import android.util.Log
-import com.jstorrent.app.bencode.BencodeException
 import com.jstorrent.app.bencode.TorrentMetadata
 import com.jstorrent.quickjs.model.TorrentSummary
+import com.jstorrent.quickjs.storage.SqliteKVStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,44 +14,50 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * Provides cached torrent summaries from SharedPreferences without starting the engine.
+ * Provides cached torrent summaries from SQLite without starting the engine.
  *
  * This allows the UI to display the torrent list immediately on app launch,
  * deferring QuickJS engine startup until the user actually interacts with a torrent.
  *
- * The cache reads the same SharedPreferences that the JS engine uses (jstorrent_session),
+ * The cache reads the same SQLite KV store that the JS engine uses (jstorrent_kv.db),
  * parsing the bencoded torrent files to extract metadata.
  *
  * Storage format:
  * - Keys are prefixed with "session:" (e.g., "session:torrents")
- * - JSON values are prefixed with "json:" (e.g., "json:{...}")
+ * - JSON values are stored directly (e.g., {"version":2,...})
+ * - Binary values are stored as JSON-quoted base64 strings (e.g., "SGVsbG8=")
  */
 open class TorrentSummaryCache(context: Context?) {
 
-    private val prefs: SharedPreferences? =
-        context?.getSharedPreferences("jstorrent_session", Context.MODE_PRIVATE)
+    private val kvStore: SqliteKVStore? = context?.let { SqliteKVStore(it) }
 
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
-     * Get a session value, stripping the "json:" prefix if present.
+     * Get a JSON value from the session store.
+     * Values are stored directly as JSON strings in SQLite.
      */
     private fun getSessionJson(key: String): String? {
-        val value = prefs?.getString("session:$key", null) ?: return null
-        return if (value.startsWith("json:")) value.substring(5) else value
+        return kvStore?.get("session:$key")
     }
 
     /**
      * Get a base64-encoded binary value stored by the JS engine.
      *
-     * The JS engine stores binary data as base64 via native-session-store.ts:
-     * - Binary data → base64 string for storage
+     * The JS engine stores binary data as JSON-quoted base64 via native-session-store.ts:
+     * - Binary data → base64 → JSON.stringify → stored as "SGVsbG8="
      *
-     * This method returns the stored base64 string, which can be decoded
-     * by the caller to get the raw bytes.
+     * This method parses the JSON string to extract the base64 value.
      */
     private fun getSessionBinary(key: String): String? {
-        return prefs?.getString("session:$key", null)
+        val stored = kvStore?.get("session:$key") ?: return null
+        // Binary values are stored as JSON strings, so parse to extract the base64
+        return try {
+            json.decodeFromString<String>(stored)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse binary value for $key: ${e.message}")
+            null
+        }
     }
 
     protected val _cachedSummaries = MutableStateFlow<List<CachedTorrentSummary>>(emptyList())
@@ -72,15 +76,14 @@ open class TorrentSummaryCache(context: Context?) {
     open val isLoaded: Flow<Boolean> = _isLoaded.asStateFlow()
 
     /**
-     * Load cached summaries from SharedPreferences.
+     * Load cached summaries from SQLite.
      * Call this on app startup before engine initialization.
      */
     open suspend fun load(): List<CachedTorrentSummary> = withContext(Dispatchers.IO) {
         Log.d(TAG, "load() called, current _isLoaded=${_isLoaded.value}, current summaries count=${_cachedSummaries.value.size}")
         val summaries = mutableListOf<CachedTorrentSummary>()
-        val localPrefs = prefs
 
-        if (localPrefs != null) {
+        if (kvStore != null) {
             try {
                 // Load the torrent list index
                 val torrentListJson = getSessionJson("torrents")
@@ -109,7 +112,7 @@ open class TorrentSummaryCache(context: Context?) {
                 Log.e(TAG, "Failed to load torrent list", e)
             }
         } else {
-            Log.w(TAG, "SharedPreferences is null")
+            Log.w(TAG, "SqliteKVStore is null")
         }
 
         Log.d(TAG, "Setting _cachedSummaries to ${summaries.size} items, _isLoaded=true")

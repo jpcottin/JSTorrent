@@ -49,7 +49,7 @@ class DownloadE2ETest : E2EBaseTest() {
         engine.addTorrent(magnet)
 
         // Wait for torrent to appear
-        val torrent = waitForTorrent(expectedHash, timeoutMs = 10_000)
+        val torrent = waitForTorrent(expectedHash)
         assertNotNull("Torrent should appear in list after adding magnet", torrent)
 
         Log.i(TAG, "Torrent added: ${torrent?.name}, status=${torrent?.status}")
@@ -78,11 +78,11 @@ class DownloadE2ETest : E2EBaseTest() {
         Log.i(TAG, "Torrent added: ${torrent?.name}")
 
         // Wait for peers to connect
-        val peersConnected = waitForPeers(expectedHash, minPeers = 1, timeoutMs = 30_000)
+        val peersConnected = waitForPeers(expectedHash, minPeers = 1)
         assertTrue("Should connect to seeder peer", peersConnected)
 
         // Wait for download progress
-        val madeProgress = waitForProgress(expectedHash, minProgress = 0.05, timeoutMs = 60_000)
+        val madeProgress = waitForProgress(expectedHash, minProgress = 0.05, timeoutMs = E2ETestConfig.DOWNLOAD_PROGRESS_TIMEOUT_MS)
         logTorrentState()
         assertTrue("Should make download progress (at least 5%)", madeProgress)
 
@@ -157,7 +157,7 @@ class DownloadE2ETest : E2EBaseTest() {
         Log.i(TAG, "Torrent resumed")
 
         // Wait for progress after resume
-        val madeProgress = waitForProgress(expectedHash, minProgress = 0.05, timeoutMs = 60_000)
+        val madeProgress = waitForProgress(expectedHash, minProgress = 0.05, timeoutMs = E2ETestConfig.DOWNLOAD_PROGRESS_TIMEOUT_MS)
         logTorrentState()
         assertTrue("Should make progress after resume", madeProgress)
     }
@@ -182,7 +182,7 @@ class DownloadE2ETest : E2EBaseTest() {
         waitForPeers(expectedHash)
 
         // Wait for completion (2 minute timeout for 100MB)
-        val completed = waitForComplete(expectedHash, timeoutMs = 2 * 60_000)
+        val completed = waitForComplete(expectedHash, timeoutMs = E2ETestConfig.FULL_DOWNLOAD_TIMEOUT_MS)
         logTorrentState()
 
         assertTrue("Download should complete", completed)

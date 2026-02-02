@@ -66,8 +66,8 @@ abstract class CompanionTestBase {
     @After
     open fun tearDown() {
         IoDaemonService.stop(context)
-        // Wait longer for sockets to fully release before next test
-        runBlocking { delay(2000) }
+        // Wait for sockets to release before next test
+        runBlocking { delay(500) }
     }
 
     // =========================================================================

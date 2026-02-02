@@ -179,8 +179,8 @@ class TorrentListScreenTest {
             }
         }
 
-        // Verify loading state is shown
-        composeTestRule.onNodeWithText("Loading...").assertIsDisplayed()
+        // Verify loading state is shown (uses Unicode ellipsis U+2026)
+        composeTestRule.onNodeWithText("Loading…").assertIsDisplayed()
     }
 
     @Test

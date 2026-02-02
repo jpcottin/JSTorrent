@@ -168,23 +168,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Standalone mode activity (non-Chromebook Android) - WebView based -->
-        <!-- Note: External intents (magnet, torrent files) go through MainActivity which routes here -->
-        <activity
-            android:name=".StandaloneActivity"
-            android:exported="true"
-            android:launchMode="singleTask"
-            android:theme="@style/Theme.JSTorrent"
-            android:configChanges="orientation|screenSize|keyboardHidden">
-
-            <!-- Internal intents -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="jstorrent" android:host="add-root" />
-            </intent-filter>
-        </activity>
-
         <!-- Standalone link handler trampoline - processes magnet/torrent for standalone mode -->
         <activity
             android:name=".StandaloneLinkHandlerActivity"

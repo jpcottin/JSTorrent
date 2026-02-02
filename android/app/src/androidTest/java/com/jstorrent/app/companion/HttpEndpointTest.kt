@@ -35,12 +35,22 @@ class HttpEndpointTest : CompanionTestBase() {
     // =========================================================================
 
     @Test
-    fun statusEndpointRequiresExtensionOrigin() {
-        // No Origin header - should fail
+    fun statusEndpointAllowsSameOriginRequests() {
+        // No Origin header = same-origin request (standard browser behavior)
+        // Same-origin requests are allowed
         val response = post("/status", "{}")
 
-        // Should reject without extension origin
-        assertNotEquals(200, response.code)
+        // Same-origin requests should succeed
+        assertEquals(200, response.code)
+    }
+
+    @Test
+    fun statusEndpointRejectsInvalidCrossOrigin() {
+        // Invalid cross-origin request (not from extension or localhost)
+        val response = post("/status", "{}", mapOf("Origin" to "https://evil.example.com"))
+
+        // Should reject invalid cross-origin
+        assertEquals(403, response.code)
     }
 
     @Test

@@ -31,18 +31,24 @@ object E2ETestConfig {
     /**
      * Timeout for waiting for the engine to load (milliseconds).
      */
-    const val ENGINE_LOAD_TIMEOUT_MS = 30_000L
+    const val ENGINE_LOAD_TIMEOUT_MS = 5_000L
 
     /**
      * Timeout for waiting for torrent to start downloading (milliseconds).
      */
-    const val DOWNLOAD_START_TIMEOUT_MS = 30_000L
+    const val DOWNLOAD_START_TIMEOUT_MS = 5_000L
 
     /**
      * Timeout for download progress checks (milliseconds).
      * This is how long to wait for progress to increase.
      */
-    const val DOWNLOAD_PROGRESS_TIMEOUT_MS = 60_000L
+    const val DOWNLOAD_PROGRESS_TIMEOUT_MS = 5_000L
+
+    /**
+     * Timeout for full download completion (milliseconds).
+     * Used for tests that download entire files (100MB+).
+     */
+    const val FULL_DOWNLOAD_TIMEOUT_MS = 20_000L
 
     /**
      * Polling interval for checking engine/torrent state (milliseconds).
