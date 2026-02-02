@@ -364,11 +364,19 @@ class NativeStandaloneActivity : ComponentActivity() {
         // Prevent service from auto-restarting
         app.serviceLifecycleManager.onUserQuit()
 
+        // Stop companion mode service (may be running if we switched from companion mode)
+        IoDaemonService.stop(this)
+
         // Shutdown the engine (preserves torrent states for next launch)
         app.shutdownEngine()
 
-        // Remove from recents and finish
-        finishAndRemoveTask()
+        // Finish ALL activities in the app (including any MainActivity in the back stack)
+        // finishAffinity() closes all activities with the same affinity in the current task
+        finishAffinity()
+
+        // Exit the process to ensure a clean quit
+        // This prevents any lingering activities or services from keeping the app alive
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 }
 
