@@ -13,7 +13,6 @@ import {
   CRYPTO_SELECT_PLAIN,
   CRYPTO_RC4,
   CRYPTO_PLAINTEXT,
-  BT_PROTOCOL_HEADER,
   MSE_HANDSHAKE_TIMEOUT,
   MSE_SYNC_MAX_BYTES,
 } from './constants'
@@ -316,12 +315,22 @@ export class MseHandshake {
   // Responder Flow
   // ============================================================
 
+  // BitTorrent protocol string: "\x13BitTorrent protocol" (20 bytes)
+  private static readonly BT_PROTOCOL_PREFIX = new Uint8Array([
+    0x13, 0x42, 0x69, 0x74, 0x54, 0x6f, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x20, 0x70, 0x72, 0x6f, 0x74,
+    0x6f, 0x63, 0x6f, 0x6c,
+  ])
+
   private processFirstByte(_onSend: (data: Uint8Array) => void): void {
-    if (this.buffer.length < 1) return
+    // Need at least 20 bytes to reliably distinguish plain BT from MSE
+    // (MSE public keys can randomly start with 0x13, so checking just the
+    // first byte is not reliable - approximately 1/256 chance of collision)
+    if (this.buffer.length < 20) return
 
-    const firstByte = this.buffer[0]
+    // Check if buffer starts with the full BitTorrent protocol prefix
+    const isPlainBt = this.matchesPrefix(this.buffer, MseHandshake.BT_PROTOCOL_PREFIX)
 
-    if (firstByte === BT_PROTOCOL_HEADER) {
+    if (isPlainBt) {
       // Plain BitTorrent handshake - not MSE
       this.complete({
         success: true,
@@ -331,9 +340,17 @@ export class MseHandshake {
       return
     }
 
-    // Likely MSE - wait for full public key
+    // MSE - wait for full public key
     // Just set state, let processBufferAsync handle the next step
     this.state = 'received_pubkey'
+  }
+
+  private matchesPrefix(data: Uint8Array, prefix: Uint8Array): boolean {
+    if (data.length < prefix.length) return false
+    for (let i = 0; i < prefix.length; i++) {
+      if (data[i] !== prefix[i]) return false
+    }
+    return true
   }
 
   private async processPe1(onSend: (data: Uint8Array) => void): Promise<void> {
