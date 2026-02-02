@@ -157,21 +157,10 @@ export class TorrentDiskQueue implements IDiskQueue {
   private schedule(): void {
     if (this.draining) return
 
-    const beforeRunning = this.running.size
-    const beforePending = this.pending.length
-    let started = 0
-
     while (this.running.size < this.config.maxWorkers && this.pending.length > 0) {
       const item = this.pending.shift()!
       this._pendingBytes -= item.job.size
       this.startJob(item.job, item.execute)
-      started++
-    }
-
-    if (started > 0 || beforePending > 0) {
-      console.log(
-        `[DiskQueue] schedule: started=${started}, running=${beforeRunning}->${this.running.size}, pending=${beforePending}->${this.pending.length}`,
-      )
     }
   }
 
@@ -219,7 +208,6 @@ export class TorrentDiskQueue implements IDiskQueue {
   }
 
   clearPending(): void {
-    const cleared = this.pending.length
     // Reject all pending job promises
     for (const item of this.pending) {
       item.reject(new Error('Disk queue cleared (torrent stopped)'))
@@ -229,9 +217,6 @@ export class TorrentDiskQueue implements IDiskQueue {
     // Also reset draining state to clean state
     this.draining = false
     this.drainResolve = null
-    if (cleared > 0) {
-      console.log(`[DiskQueue] Cleared ${cleared} pending jobs`)
-    }
   }
 
   /**

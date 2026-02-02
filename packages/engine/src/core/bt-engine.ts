@@ -812,20 +812,11 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       const infoHash = toHex(torrent.infoHash)
 
       // Remove persisted data
-      const t0 = Date.now()
       await this.sessionPersistence.removeTorrentData(infoHash)
-      console.log(`[removeTorrent] removeTorrentData took ${Date.now() - t0}ms`)
-
-      const t1 = Date.now()
       await this.sessionPersistence.saveTorrentList()
-      console.log(`[removeTorrent] saveTorrentList took ${Date.now() - t1}ms`)
-
-      const t2 = Date.now()
       await torrent.destroy({ skipAnnounce: true })
-      console.log(`[removeTorrent] destroy took ${Date.now() - t2}ms`)
 
       this.emit('torrent-removed', torrent)
-      console.log(`[removeTorrent] complete, total ${Date.now() - t0}ms`)
     }
   }
 

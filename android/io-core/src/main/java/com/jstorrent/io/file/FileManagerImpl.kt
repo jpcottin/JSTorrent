@@ -205,10 +205,14 @@ class FileManagerImpl(
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error writing file: ${e.message}", e)
+            val msg = e.message ?: ""
             when {
-                e.message?.contains("ENOSPC") == true ||
-                        e.message?.contains("No space") == true -> {
+                msg.contains("ENOSPC") || msg.contains("No space") -> {
                     throw FileManagerException.DiskFull(relativePath)
+                }
+                msg.contains("EACCES") || msg.contains("EPERM") ||
+                        msg.contains("Permission denied") -> {
+                    throw FileManagerException.PermissionDenied(relativePath)
                 }
                 else -> {
                     throw FileManagerException.WriteError(relativePath, e)

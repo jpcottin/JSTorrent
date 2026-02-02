@@ -54,6 +54,7 @@ import { TorrentUploader } from './torrent-uploader'
 import { FilePriorityManager, PieceClassification } from './file-priority-manager'
 import { PieceAvailability } from './piece-availability'
 import { TorrentPieceRequester, PieceRequesterDeps } from './piece-requester'
+import { WriteError, classifyError, getRetryDelay } from './write-error'
 
 /**
  * Maximum ratio of peer slots that incoming connections can occupy.
@@ -172,6 +173,9 @@ export class Torrent extends EngineComponent {
     this._uploader?.setContentStorage(storage ?? null)
   }
   private _endgameManager: EndgameManager = new EndgameManager()
+
+  /** Tracks write retry attempts per piece index for transient errors */
+  private _writeRetryCount: Map<number, number> = new Map()
 
   private _bitfield?: BitField
   /** Optimization: track the first piece index we still need (for sequential mode) */
@@ -2491,20 +2495,72 @@ export class Torrent extends EngineComponent {
               }
             })
             .catch((e) => {
-              // Check by name to handle HashMismatchError from different sources
-              if (e instanceof Error && e.name === 'HashMismatchError') {
+              // Classify the error
+              const writeError = e instanceof WriteError ? e : classifyError(e, `piece ${index}`)
+              const errorMsg = e instanceof Error ? e.message : String(e)
+
+              // Hash mismatch: re-request from different peers
+              if (
+                writeError.isHashMismatch ||
+                (e instanceof Error && e.name === 'HashMismatchError')
+              ) {
+                this._writeRetryCount.delete(index)
                 this.handleHashMismatch(index, piece)
                 return
               }
 
-              // Check if this is a queue-cleared error (torrent was stopped)
-              const errorMsg = e instanceof Error ? e.message : String(e)
+              // Disk queue cleared: torrent was stopped
               if (errorMsg.includes('Disk queue cleared')) {
                 this.logger.debug(`Write cancelled (torrent stopped):`, errorMsg)
                 return
               }
 
-              // ANY other write failure is fatal
+              // Fatal errors: stop immediately
+              if (writeError.isFatal) {
+                this._writeRetryCount.delete(index)
+                this.logger.error(
+                  `Fatal async write error (${writeError.errorType}) - stopping torrent:`,
+                  errorMsg,
+                )
+                this.errorMessage = `Write failed: ${errorMsg}`
+                this.stopNetwork()
+                ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+                return
+              }
+
+              // Retryable errors: check retry count
+              if (writeError.isRetryable) {
+                const retryCount = this._writeRetryCount.get(index) ?? 0
+                const delay = getRetryDelay(writeError.errorType, retryCount)
+
+                if (delay !== undefined) {
+                  this._writeRetryCount.set(index, retryCount + 1)
+                  this.logger.warn(
+                    `Transient async write error (${writeError.errorType}), retry ${retryCount + 1} in ${delay}ms:`,
+                    errorMsg,
+                  )
+
+                  setTimeout(() => {
+                    if (!this._networkActive) return
+                    this.retryPieceWrite(index, pieceData, expectedHash)
+                  }, delay)
+                  return
+                }
+
+                // Max retries exceeded
+                this._writeRetryCount.delete(index)
+                this.logger.error(
+                  `Async write failed after ${retryCount} retries (${writeError.errorType}) - stopping torrent:`,
+                  errorMsg,
+                )
+                this.errorMessage = `Write failed after retries: ${errorMsg}`
+                this.stopNetwork()
+                ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+                return
+              }
+
+              // Unknown error: treat as fatal
+              this._writeRetryCount.delete(index)
               this.logger.error(`Async write error - stopping torrent:`, errorMsg)
               this.errorMessage = `Write failed: ${errorMsg}`
               this.stopNetwork()
@@ -2528,18 +2584,80 @@ export class Torrent extends EngineComponent {
               }
             }
           } catch (e) {
-            if (e instanceof Error && e.name === 'HashMismatchError') {
+            // Classify the error for proper handling
+            const writeError = e instanceof WriteError ? e : classifyError(e, `piece ${index}`)
+
+            // Hash mismatch: re-request from different peers (handled separately)
+            if (
+              writeError.isHashMismatch ||
+              (e instanceof Error && e.name === 'HashMismatchError')
+            ) {
+              this._writeRetryCount.delete(index) // Clear retry count on hash mismatch
               this.handleHashMismatch(index, piece)
               return
             }
 
+            // Disk queue cleared: torrent was stopped, this is expected
             const errorMsg = e instanceof Error ? e.message : String(e)
             if (errorMsg.includes('Disk queue cleared')) {
               this.logger.debug(`Write cancelled (torrent stopped):`, errorMsg)
               return
             }
 
-            this.logger.error(`Fatal write error - stopping torrent:`, errorMsg)
+            // Fatal errors: stop immediately, user intervention required
+            if (writeError.isFatal) {
+              this._writeRetryCount.delete(index)
+              this.logger.error(
+                `Fatal write error (${writeError.errorType}) - stopping torrent:`,
+                errorMsg,
+              )
+              this.errorMessage = `Write failed: ${errorMsg}`
+              this.stopNetwork()
+              this.activePieces?.removeFullyResponded(index)
+              ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+              return
+            }
+
+            // Retryable errors: check retry count and maybe retry
+            if (writeError.isRetryable) {
+              const retryCount = this._writeRetryCount.get(index) ?? 0
+              const delay = getRetryDelay(writeError.errorType, retryCount)
+
+              if (delay !== undefined) {
+                // Schedule retry with backoff
+                this._writeRetryCount.set(index, retryCount + 1)
+                this.logger.warn(
+                  `Transient write error (${writeError.errorType}), retry ${retryCount + 1} in ${delay}ms:`,
+                  errorMsg,
+                )
+
+                // Re-queue the piece for another attempt after delay
+                // The piece data is still in the active piece, so we can retry
+                setTimeout(() => {
+                  if (!this._networkActive) return // Torrent was stopped
+                  // Re-invoke handlePieceData to retry the write
+                  // The piece is still marked as fully responded, so we just need to retry the write
+                  this.retryPieceWrite(index, pieceData, expectedHash)
+                }, delay)
+                return
+              }
+
+              // Max retries exceeded
+              this._writeRetryCount.delete(index)
+              this.logger.error(
+                `Write failed after ${retryCount} retries (${writeError.errorType}) - stopping torrent:`,
+                errorMsg,
+              )
+              this.errorMessage = `Write failed after retries: ${errorMsg}`
+              this.stopNetwork()
+              this.activePieces?.removeFullyResponded(index)
+              ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+              return
+            }
+
+            // Unknown error type: treat as fatal to be safe
+            this._writeRetryCount.delete(index)
+            this.logger.error(`Write error - stopping torrent:`, errorMsg)
             this.errorMessage = `Write failed: ${errorMsg}`
             this.stopNetwork()
             this.activePieces?.removeFullyResponded(index)
@@ -2595,6 +2713,141 @@ export class Torrent extends EngineComponent {
       // Schedule throttled persistence for piece completions
       // (avoids excessive storage writes during fast downloads)
       btEngine.sessionPersistence?.schedulePiecePersistence(this)
+    }
+  }
+
+  /**
+   * Retry writing a piece after a transient error.
+   * This is called from the retry timer in finalizePiece's error handler.
+   */
+  private async retryPieceWrite(
+    index: number,
+    pieceData: Uint8Array,
+    expectedHash: Uint8Array | undefined,
+  ): Promise<void> {
+    if (!this.contentStorage) {
+      this.logger.error(`Cannot retry piece ${index} write: no content storage`)
+      return
+    }
+
+    try {
+      const usedVerifiedWrite = await this.contentStorage.writePieceVerified(
+        index,
+        pieceData,
+        expectedHash,
+      )
+
+      if (!usedVerifiedWrite && expectedHash) {
+        // Verified write not available - verify hash in TypeScript
+        const actualHash = await this.btEngine.hasher.sha1(pieceData)
+        if (compare(actualHash, expectedHash) !== 0) {
+          // Hash mismatch during retry - this shouldn't happen since we already
+          // verified the data, but handle it anyway
+          this.logger.error(`Hash mismatch during retry of piece ${index}`)
+          this._writeRetryCount.delete(index)
+          this.activePieces?.removeFullyResponded(index)
+          return
+        }
+      }
+
+      // Success! Clear retry count and complete the piece
+      this._writeRetryCount.delete(index)
+
+      // Mark as verified
+      this.markPieceVerified(index)
+      this.activePieces?.removeFullyResponded(index)
+
+      // Track disk write throughput
+      ;(this.engine as BtEngine).bandwidthTracker.record('disk', pieceData.length, 'down')
+
+      // Update cached downloaded bytes on file objects
+      for (const file of this._files) {
+        file.updateForPiece(index)
+      }
+
+      // Queue HAVE for batch broadcast
+      this._tickLoop.queueHave(index)
+
+      const progressPct =
+        this.piecesCount > 0
+          ? ((this.completedPiecesCount / this.piecesCount) * 100).toFixed(1)
+          : '0'
+
+      this.logger.debug(
+        `Piece ${index} verified after retry [${this.completedPiecesCount}/${this.piecesCount}] ${progressPct}%`,
+      )
+
+      this.emit('piece', index)
+
+      // Check completion
+      const hadCompletedAt = !!this.completedAt
+      this.checkCompletion()
+
+      const btEngine = this.engine as BtEngine
+      if (!hadCompletedAt && this.completedAt) {
+        btEngine.sessionPersistence?.saveTorrentState(this)
+      } else {
+        btEngine.sessionPersistence?.schedulePiecePersistence(this)
+      }
+    } catch (e) {
+      // Rethrow to let the same error handling logic in finalizePiece apply
+      // But since we're in a setTimeout, we need to handle it inline
+      const writeError = e instanceof WriteError ? e : classifyError(e, `piece ${index}`)
+      const errorMsg = e instanceof Error ? e.message : String(e)
+
+      // Fatal errors: stop immediately
+      if (writeError.isFatal) {
+        this._writeRetryCount.delete(index)
+        this.logger.error(
+          `Fatal write error during retry (${writeError.errorType}) - stopping torrent:`,
+          errorMsg,
+        )
+        this.errorMessage = `Write failed: ${errorMsg}`
+        this.stopNetwork()
+        this.activePieces?.removeFullyResponded(index)
+        ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+        return
+      }
+
+      // Retryable errors: check retry count
+      if (writeError.isRetryable) {
+        const retryCount = this._writeRetryCount.get(index) ?? 0
+        const delay = getRetryDelay(writeError.errorType, retryCount)
+
+        if (delay !== undefined) {
+          this._writeRetryCount.set(index, retryCount + 1)
+          this.logger.warn(
+            `Transient write error during retry (${writeError.errorType}), retry ${retryCount + 1} in ${delay}ms:`,
+            errorMsg,
+          )
+
+          setTimeout(() => {
+            if (!this._networkActive) return
+            this.retryPieceWrite(index, pieceData, expectedHash)
+          }, delay)
+          return
+        }
+
+        // Max retries exceeded
+        this._writeRetryCount.delete(index)
+        this.logger.error(
+          `Write failed after ${retryCount} retries during retry (${writeError.errorType}) - stopping torrent:`,
+          errorMsg,
+        )
+        this.errorMessage = `Write failed after retries: ${errorMsg}`
+        this.stopNetwork()
+        this.activePieces?.removeFullyResponded(index)
+        ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+        return
+      }
+
+      // Unknown error: treat as fatal
+      this._writeRetryCount.delete(index)
+      this.logger.error(`Write error during retry - stopping torrent:`, errorMsg)
+      this.errorMessage = `Write failed: ${errorMsg}`
+      this.stopNetwork()
+      this.activePieces?.removeFullyResponded(index)
+      ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
     }
   }
 

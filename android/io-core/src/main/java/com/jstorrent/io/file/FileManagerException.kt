@@ -39,6 +39,11 @@ sealed class FileManagerException(message: String, cause: Throwable? = null) : E
     class DiskFull(val path: String) : FileManagerException("Disk full: $path")
 
     /**
+     * Permission denied for file operation.
+     */
+    class PermissionDenied(val path: String) : FileManagerException("Permission denied: $path")
+
+    /**
      * Could not read the requested number of bytes.
      */
     class InsufficientData(val path: String, val requested: Int, val actual: Int) :

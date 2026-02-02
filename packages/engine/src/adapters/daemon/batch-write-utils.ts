@@ -35,12 +35,6 @@ export function packVerifiedWriteBatch(writes: VerifiedWriteInput[]): ArrayBuffe
   // Pre-encode strings to calculate total size
   const encoded = writes.map((w) => {
     const hashBytes = textEncoder.encode(w.expectedHashHex)
-    // Validate hash length - must be exactly 40 chars (SHA1 hex)
-    if (hashBytes.length !== 40) {
-      console.error(
-        `[packVerifiedWriteBatch] Invalid hash length: ${hashBytes.length} (expected 40) for position ${w.position}`,
-      )
-    }
     return {
       rootKey: textEncoder.encode(w.rootKey),
       path: textEncoder.encode(w.path),

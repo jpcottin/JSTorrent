@@ -1,10 +1,20 @@
 import { IFileHandle } from '../../interfaces/filesystem'
 import { toHex } from '../../utils/buffer'
+import {
+  WriteError,
+  resultCodeToErrorType,
+  httpStatusToErrorType,
+  classifyError,
+} from '../../core/write-error'
 import { packVerifiedWriteBatch } from './batch-write-utils'
 import { DaemonConnection } from './daemon-connection'
 
+// Re-export for backwards compatibility and convenience
+export { WriteError, WriteErrorType } from '../../core/write-error'
+
 /**
  * Error thrown when hash verification fails during a write operation.
+ * @deprecated Use WriteError with WriteErrorType.HASH_MISMATCH instead
  */
 export class HashMismatchError extends Error {
   constructor(message: string) {
@@ -181,18 +191,17 @@ function ensureFrameHandler(connection: DaemonConnection): void {
     if (resultCode === 0) {
       pending.resolve({ bytesWritten })
     } else {
-      // Result codes: 0=SUCCESS, 1=HASH_MISMATCH, 2=IO_ERROR, 3=INVALID_ARGS
+      // Result codes: 0=SUCCESS, 1=HASH_MISMATCH, 2=IO_ERROR, 3=INVALID_ARGS, 4=DISK_FULL, 5=PERMISSION_DENIED
+      const errorType = resultCodeToErrorType(resultCode)
       const errorMessages: Record<number, string> = {
         1: 'Hash mismatch',
         2: 'I/O error',
         3: 'Invalid arguments',
+        4: 'Disk full',
+        5: 'Permission denied',
       }
       const message = errorMessages[resultCode] ?? `Unknown error code ${resultCode}`
-      if (resultCode === 1) {
-        pending.reject(new HashMismatchError(message))
-      } else {
-        pending.reject(new Error(`Batch write failed: ${message}`))
-      }
+      pending.reject(new WriteError(`Batch write failed: ${message}`, errorType))
     }
   })
 }
@@ -296,13 +305,14 @@ export class DaemonFileHandle implements IFileHandle {
       data,
     )
 
-    if (response.status === 409) {
-      throw new HashMismatchError(await response.text())
-    }
-
     if (!response.ok) {
       const errorDetail = await response.text()
-      throw new Error(`Write failed: ${response.status} ${response.statusText}: ${errorDetail}`)
+      const errorType = httpStatusToErrorType(response.status)
+      throw new WriteError(
+        `Write failed: ${response.status} ${response.statusText}: ${errorDetail}`,
+        errorType,
+        this.path,
+      )
     }
 
     return { bytesWritten: data.length }
@@ -378,29 +388,37 @@ export class DaemonFileHandle implements IFileHandle {
     const streamingBaseUrl = this.connection.getStreamingBaseUrl()
 
     let response: Response
-    if (streamingBaseUrl) {
-      // Send to streaming server
-      const credentials = await this.connection.getCredentialsCached()
-      response = await fetch(`${streamingBaseUrl}/write-batch/${this.rootKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'X-JST-Auth': credentials.token,
-          'X-JST-ExtensionId': credentials.extensionId,
-          'X-JST-InstallId': credentials.installId,
-        },
-        body: new Uint8Array(packed),
-      })
-    } else {
-      // Fall back to main HTTP server
-      response = await this.connection.requestWithHeaders(
-        'POST',
-        `/write-batch/${this.rootKey}`,
-        {
-          'Content-Type': 'application/octet-stream',
-        },
-        new Uint8Array(packed),
-      )
+    try {
+      if (streamingBaseUrl) {
+        // Send to streaming server
+        const credentials = await this.connection.getCredentialsCached()
+        response = await fetch(`${streamingBaseUrl}/write-batch/${this.rootKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-JST-Auth': credentials.token,
+            'X-JST-ExtensionId': credentials.extensionId,
+            'X-JST-InstallId': credentials.installId,
+          },
+          body: new Uint8Array(packed),
+        })
+      } else {
+        // Fall back to main HTTP server
+        response = await this.connection.requestWithHeaders(
+          'POST',
+          `/write-batch/${this.rootKey}`,
+          {
+            'Content-Type': 'application/octet-stream',
+          },
+          new Uint8Array(packed),
+        )
+      }
+    } catch (error) {
+      // Network error (fetch failed) - clean up pending writes and rethrow as WriteError
+      for (const w of packedWrites) {
+        unregisterBatchWrite(w.callbackId)
+      }
+      throw classifyError(error, this.path)
     }
 
     if (response.status === 202) {
@@ -416,7 +434,12 @@ export class DaemonFileHandle implements IFileHandle {
 
     if (!response.ok) {
       const errorText = await response.text()
-      throw new Error(`Batch write failed: ${response.status} ${response.statusText}: ${errorText}`)
+      const errorType = httpStatusToErrorType(response.status)
+      throw new WriteError(
+        `Batch write failed: ${response.status} ${response.statusText}: ${errorText}`,
+        errorType,
+        this.path,
+      )
     }
 
     // 200 OK - writes completed synchronously, no need to wait for ACKs

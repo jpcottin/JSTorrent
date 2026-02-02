@@ -22,12 +22,16 @@ import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * Write result codes for async verified writes.
+ * These codes are also used by the Rust io-daemon and must stay in sync
+ * with packages/engine/src/core/write-error.ts WriteResultCode.
  */
 object WriteResultCode {
     const val SUCCESS = 0
     const val HASH_MISMATCH = 1
-    const val IO_ERROR = 2
+    const val IO_ERROR = 2          // Transient I/O error (may be retriable)
     const val INVALID_ARGS = 3
+    const val DISK_FULL = 4         // ENOSPC - unrecoverable, user must free space
+    const val PERMISSION_DENIED = 5 // EACCES/EPERM - unrecoverable, user must fix permissions
 }
 
 /**
@@ -613,7 +617,13 @@ class FileBindings(
                 } catch (e: Exception) {
                     Log.e(TAG, "write_verified failed: $path", e)
                     // Phase 4: Queue error for batch processing at tick boundary
-                    queueDiskWriteResult(callbackId, -1, WriteResultCode.IO_ERROR)
+                    // Map specific exception types to appropriate result codes
+                    val resultCode = when (e) {
+                        is FileManagerException.DiskFull -> WriteResultCode.DISK_FULL
+                        is FileManagerException.PermissionDenied -> WriteResultCode.PERMISSION_DENIED
+                        else -> WriteResultCode.IO_ERROR
+                    }
+                    queueDiskWriteResult(callbackId, -1, resultCode)
                 }
             }
 
@@ -724,7 +734,13 @@ class FileBindings(
 
                     } catch (e: Exception) {
                         Log.e(TAG, "write_verified_batch failed: ${write.path}", e)
-                        queueDiskWriteResult(write.callbackId, -1, WriteResultCode.IO_ERROR)
+                        // Map specific exception types to appropriate result codes
+                        val resultCode = when (e) {
+                            is FileManagerException.DiskFull -> WriteResultCode.DISK_FULL
+                            is FileManagerException.PermissionDenied -> WriteResultCode.PERMISSION_DENIED
+                            else -> WriteResultCode.IO_ERROR
+                        }
+                        queueDiskWriteResult(write.callbackId, -1, resultCode)
                     }
                 }
             }
