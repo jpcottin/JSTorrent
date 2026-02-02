@@ -45,11 +45,12 @@ class StreamingBatchParser(
      */
     fun parse(): Int {
         // Read count (u32 LE)
-        val count = readU32()
-        if (count < 0 || count > 10000) {
-            Log.w(TAG, "Invalid count: $count (bytesRead=$bytesRead)")
+        val countLong = readU32()
+        if (countLong == null || countLong > 10000) {
+            Log.w(TAG, "Invalid count: $countLong (bytesRead=$bytesRead)")
             return -1  // Invalid count
         }
+        val count = countLong.toInt()
 
         Log.d(TAG, "Parsing batch with $count writes, contentLength=$contentLength")
 
@@ -96,7 +97,7 @@ class StreamingBatchParser(
 
         // pathLen (u16 LE) + path
         val pathLen = readU16()
-        if (pathLen < 0) {
+        if (pathLen == null) {
             Log.w(TAG, "Write #$writeIndex: failed to read pathLen")
             return null
         }
@@ -115,22 +116,23 @@ class StreamingBatchParser(
         // position (u64 LE as two u32)
         val posLow = readU32()
         val posHigh = readU32()
-        if (posLow < 0 || posHigh < 0) {
+        if (posLow == null || posHigh == null) {
             Log.w(TAG, "Write #$writeIndex: failed to read position")
             return null
         }
-        val position = (posLow.toLong() and 0xFFFFFFFFL) or ((posHigh.toLong() and 0xFFFFFFFFL) shl 32)
+        val position = posLow or (posHigh shl 32)
 
         // dataLen (u32 LE) + data
-        val dataLen = readU32()
-        if (dataLen < 0) {
+        val dataLenLong = readU32()
+        if (dataLenLong == null) {
             Log.w(TAG, "Write #$writeIndex: failed to read dataLen")
             return null
         }
-        if (dataLen > 16 * 1024 * 1024) {
-            Log.w(TAG, "Write #$writeIndex: dataLen too large: $dataLen bytes")
+        if (dataLenLong > 16 * 1024 * 1024) {
+            Log.w(TAG, "Write #$writeIndex: dataLen too large: $dataLenLong bytes")
             return null
         }
+        val dataLen = dataLenLong.toInt()
         val data = readBytes(dataLen)
         if (data == null) {
             Log.w(TAG, "Write #$writeIndex: failed to read data (len=$dataLen)")
