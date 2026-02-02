@@ -115,6 +115,21 @@ data class PieceInfo(
 )
 
 /**
+ * Piece data from subscription push (includes incremental changes).
+ * Used by the subscription system for real-time piece updates.
+ */
+@Serializable
+data class PiecesData(
+    val piecesTotal: Int,
+    val piecesCompleted: Int,
+    val pieceSize: Long,
+    val lastPieceSize: Long,
+    val bitfield: String, // Hex-encoded bitfield
+    val recentChanges: List<Int> = emptyList(), // Piece indices completed since last push
+    val activePieceStates: String? = null // Hex-encoded binary (same format as in EngineState)
+)
+
+/**
  * Torrent details from __jstorrent_query_details.
  * Contains metadata for the Details tab.
  */
@@ -138,12 +153,25 @@ data class TorrentDetails(
 /**
  * Compact state pushed from engine every 500ms.
  * Includes piece changes (diffs) for efficient updates.
+ *
+ * With subscription system (chunk 2), also includes optional per-torrent data:
+ * - peers: Connected peers for subscribed torrents
+ * - files: File list for subscribed torrents
+ * - trackers: Tracker status for subscribed torrents
+ * - pieces: Piece data for subscribed torrents
+ * - details: Extended metadata for subscribed torrents
  */
 @Serializable
 data class EngineState(
     val torrents: List<TorrentSummary>,
     val pieceChanges: Map<String, List<Int>>? = null, // infoHash -> newly completed piece indices
-    val activePieceStates: Map<String, String>? = null // infoHash -> hex-encoded binary (see below)
+    val activePieceStates: Map<String, String>? = null, // infoHash -> hex-encoded binary (see below)
+    // Subscription data (present only when subscribed to specific types)
+    val peers: Map<String, List<PeerInfo>>? = null,
+    val files: Map<String, List<FileInfo>>? = null,
+    val trackers: Map<String, List<TrackerInfo>>? = null,
+    val pieces: Map<String, PiecesData>? = null,
+    val details: Map<String, TorrentDetails>? = null
 )
 
 /**

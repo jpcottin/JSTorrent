@@ -800,6 +800,77 @@ class EngineController(
     }
 
     // ============================================================
+    // SUBSCRIPTION API
+    // ============================================================
+
+    /**
+     * Subscribe to data updates for a torrent (or global state).
+     *
+     * @param type Subscription type: "state", "peers", "files", "trackers", "pieces", "details"
+     * @param hash Torrent info hash, or "_global" for global state (torrent list)
+     * @param intervalMs Push interval in milliseconds
+     */
+    fun subscribe(type: String, hash: String, intervalMs: Int) {
+        val eng = engine ?: return
+        eng.jsThread.post {
+            eng.context.callGlobalFunction("__jstorrent_subscribe", type, hash, intervalMs.toString())
+        }
+        Log.d(TAG, "subscribe: $type for ${if (hash == "_global") "global" else hash.take(8)}...")
+    }
+
+    /**
+     * Unsubscribe from a specific data type for a torrent.
+     *
+     * @param type Subscription type
+     * @param hash Torrent info hash, or "_global" for global state
+     */
+    fun unsubscribe(type: String, hash: String) {
+        val eng = engine ?: return
+        eng.jsThread.post {
+            eng.context.callGlobalFunction("__jstorrent_unsubscribe", type, hash)
+        }
+        Log.d(TAG, "unsubscribe: $type for ${if (hash == "_global") "global" else hash.take(8)}...")
+    }
+
+    /**
+     * Unsubscribe from all data types for a torrent.
+     * Use when navigating away from torrent detail view.
+     *
+     * @param hash Torrent info hash
+     */
+    fun unsubscribeAll(hash: String) {
+        val eng = engine ?: return
+        eng.jsThread.post {
+            eng.context.callGlobalFunction("__jstorrent_unsubscribe_all", hash)
+        }
+        Log.d(TAG, "unsubscribeAll: ${hash.take(8)}...")
+    }
+
+    /**
+     * Pause all subscription pushes.
+     * Call when screen is not visible to save resources.
+     */
+    fun pauseSubscriptions() {
+        val eng = engine ?: return
+        eng.jsThread.post {
+            eng.context.callGlobalFunction("__jstorrent_pause_subscriptions")
+        }
+        Log.d(TAG, "pauseSubscriptions")
+    }
+
+    /**
+     * Resume subscription pushes.
+     * Call when screen becomes visible again.
+     */
+    fun resumeSubscriptions() {
+        val eng = engine ?: return
+        eng.jsThread.post {
+            eng.context.callGlobalFunction("__jstorrent_resume_subscriptions")
+        }
+        Log.d(TAG, "resumeSubscriptions")
+    }
+
+    // ============================================================
     // HOST-DRIVEN TICK LOOP
     // ============================================================
     //

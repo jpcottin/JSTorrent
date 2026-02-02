@@ -10,14 +10,14 @@ import './polyfills'
 
 // Import preset and controller
 import { createNativeEngine, NativeEngineConfig } from '../../presets/native'
-import { setupController, startStatePushLoop } from './controller'
+import { setupController } from './controller'
 import { NativeConfigHub } from './native-config-hub'
+import { initSubscriptionManager, setupSubscriptionBindings } from './subscriptions'
 import type { BtEngine } from '../../core/bt-engine'
 import type { StorageRoot } from '../../storage/storage-root-manager'
 
 // Global engine instance
 let engine: BtEngine | null = null
-let stopStatePush: (() => void) | null = null
 let engineReady = false
 
 // Register controller functions early (before async init completes)
@@ -103,12 +103,12 @@ const jstorrentApi = {
         engine = createNativeEngine(nativeConfig)
         engineReady = true
 
-        // Restore session, resume engine, then start state push
-        // This ensures proper startup sequence:
+        // Restore session and resume engine
+        // Startup sequence:
         // 1. Engine created in suspended state
         // 2. Session restored (torrents re-added)
         // 3. Engine resumed (networking starts)
-        // 4. State push begins (UI reflects correct state)
+        // 4. Subscription manager initialized (UI subscribes for state)
         try {
           const restored = await engine.restoreSession()
           if (restored > 0) {
@@ -121,8 +121,12 @@ const jstorrentApi = {
         // Resume engine after restoration
         engine.resume()
 
-        // Start state push AFTER restoration and resume
-        stopStatePush = startStatePushLoop(engine)
+        // Initialize subscription manager (push-only model)
+        // UI subscribes to data it needs, engine pushes all subscribed data
+        const subscriptionManager = initSubscriptionManager(engine, (payload) => {
+          __jstorrent_on_state_update(payload)
+        })
+        setupSubscriptionBindings(subscriptionManager)
 
         console.log('JSTorrent engine initialized')
       } catch (e) {
@@ -150,11 +154,6 @@ const jstorrentApi = {
    * Shutdown the engine.
    */
   async shutdown(): Promise<void> {
-    if (stopStatePush) {
-      stopStatePush()
-      stopStatePush = null
-    }
-
     if (engine) {
       await engine.destroy()
       engine = null

@@ -18,7 +18,7 @@ export { NativeFileHandle } from './native-file-handle'
 export { NativeSessionStore } from './native-session-store'
 export { NativeHasher, getPendingHashCount } from './native-hasher'
 export { callbackManager } from './callback-manager'
-export { setupController, startStatePushLoop } from './controller'
+export { setupController } from './controller'
 export { NativeConfigHub } from './native-config-hub'
 export { flushBatchedWrites } from './native-batching-disk-queue'
 

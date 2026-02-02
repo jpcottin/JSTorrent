@@ -43,6 +43,16 @@ class TorrentListViewModel(
             }
         }
 
+        // Subscribe to global state (torrent list) once engine is loaded
+        viewModelScope.launch {
+            repository.isLoaded.collect { isLoaded ->
+                if (isLoaded) {
+                    // Subscribe to global state with 500ms push interval
+                    repository.subscribe("state", "_global", 500)
+                }
+            }
+        }
+
         // Clear pending state when engine reports torrent state updates
         // This provides the "response" half of the immediate feedback loop
         viewModelScope.launch {
@@ -436,6 +446,35 @@ class TorrentListViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Called when the screen is paused (navigated away or backgrounded).
+     * Pauses subscription pushes to save resources.
+     */
+    fun onScreenPaused() {
+        repository.pauseSubscriptions()
+    }
+
+    /**
+     * Called when the screen is resumed (navigated back or foregrounded).
+     * Resumes subscription pushes and re-subscribes to global state.
+     */
+    fun onScreenResumed() {
+        repository.resumeSubscriptions()
+        // Re-subscribe to ensure we're getting global state updates.
+        // The detail view may have changed subscriptions while we were paused.
+        if (repository.isLoaded.value) {
+            repository.subscribe("state", "_global", 500)
+        }
+    }
+
+    /**
+     * Clean up subscriptions when ViewModel is cleared.
+     */
+    override fun onCleared() {
+        super.onCleared()
+        repository.unsubscribe("state", "_global")
     }
 
     // =========================================================================

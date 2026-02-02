@@ -4,12 +4,6 @@ import android.app.Application
 import com.jstorrent.app.JSTorrentApplication
 import com.jstorrent.quickjs.EngineController
 import com.jstorrent.quickjs.model.EngineState
-import com.jstorrent.quickjs.model.FileInfo
-import com.jstorrent.quickjs.model.PeerInfo
-import com.jstorrent.quickjs.model.PieceInfo
-import com.jstorrent.quickjs.model.TorrentDetails
-import com.jstorrent.quickjs.model.TorrentInfo
-import com.jstorrent.quickjs.model.TrackerInfo
 import com.jstorrent.quickjs.model.DhtStats
 import com.jstorrent.quickjs.model.EngineStats
 import com.jstorrent.quickjs.model.JsThreadStats
@@ -142,30 +136,6 @@ class EngineServiceRepository(
         }
     }
 
-    override suspend fun getTorrentList(): List<TorrentInfo> {
-        return controller?.getTorrentListAsync() ?: emptyList()
-    }
-
-    override suspend fun getFiles(infoHash: String): List<FileInfo> {
-        return controller?.getFilesAsync(infoHash) ?: emptyList()
-    }
-
-    override suspend fun getTrackers(infoHash: String): List<TrackerInfo> {
-        return controller?.getTrackersAsync(infoHash) ?: emptyList()
-    }
-
-    override suspend fun getPeers(infoHash: String): List<PeerInfo> {
-        return controller?.getPeersAsync(infoHash) ?: emptyList()
-    }
-
-    override suspend fun getPieces(infoHash: String): PieceInfo? {
-        return controller?.getPiecesAsync(infoHash)
-    }
-
-    override suspend fun getDetails(infoHash: String): TorrentDetails? {
-        return controller?.getDetailsAsync(infoHash)
-    }
-
     override fun setFilePriorities(infoHash: String, priorities: Map<Int, Int>) {
         scope.launch { controller?.setFilePrioritiesAsync(infoHash, priorities) }
     }
@@ -190,5 +160,29 @@ class EngineServiceRepository(
 
     override suspend fun getEngineStats(): EngineStats? {
         return controller?.getEngineStatsAsync()
+    }
+
+    // =========================================================================
+    // Subscription API
+    // =========================================================================
+
+    override fun subscribe(type: String, hash: String, intervalMs: Int) {
+        controller?.subscribe(type, hash, intervalMs)
+    }
+
+    override fun unsubscribe(type: String, hash: String) {
+        controller?.unsubscribe(type, hash)
+    }
+
+    override fun unsubscribeAll(hash: String) {
+        controller?.unsubscribeAll(hash)
+    }
+
+    override fun pauseSubscriptions() {
+        controller?.pauseSubscriptions()
+    }
+
+    override fun resumeSubscriptions() {
+        controller?.resumeSubscriptions()
     }
 }

@@ -105,9 +105,16 @@ fun TorrentListScreen(
     val engineError by viewModel.engineError.collectAsState()
     val pendingTorrents by viewModel.pendingTorrents.collectAsState()
 
-    // Refresh cache when resuming to pick up any changes that occurred while
-    // the screen was off (e.g., background downloads completing)
+    // Lifecycle-aware subscriptions: pause when screen is not visible (e.g., navigated
+    // to detail view or app backgrounded), resume when screen becomes visible again.
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        viewModel.onScreenPaused()
+    }
+
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.onScreenResumed()
+        // Also refresh cache to pick up any changes that occurred while
+        // the screen was off (e.g., background downloads completing)
         viewModel.refreshCache()
     }
 

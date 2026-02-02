@@ -103,13 +103,13 @@ class TorrentDetailViewModelTest {
     @Test
     fun `fileListUpdates shows files`() = runTest {
         repository.setLoaded(true)
-        repository.setTorrents(listOf(createTestTorrent(testInfoHash)))
         repository.filesData = mapOf(
             testInfoHash to listOf(
                 FileInfo(0, "movie.mp4", 1000000, 500000, 0.5),
                 FileInfo(1, "subtitle.srt", 5000, 5000, 1.0)
             )
         )
+        repository.setTorrents(listOf(createTestTorrent(testInfoHash)))
         viewModel = createViewModel()
         runCurrent()
 
@@ -122,13 +122,13 @@ class TorrentDetailViewModelTest {
     @Test
     fun `toggleFileSelection updates selection`() = runTest {
         repository.setLoaded(true)
-        repository.setTorrents(listOf(createTestTorrent(testInfoHash)))
         repository.filesData = mapOf(
             testInfoHash to listOf(
                 FileInfo(0, "file1.txt", 1000, 1000, 1.0),
                 FileInfo(1, "file2.txt", 1000, 500, 0.5)
             )
         )
+        repository.setTorrents(listOf(createTestTorrent(testInfoHash)))
         viewModel = createViewModel()
         runCurrent()
 
@@ -252,14 +252,14 @@ class TorrentDetailViewModelTest {
     @Test
     fun `eta is calculated from speed and remaining`() = runTest {
         repository.setLoaded(true)
-        // 1 MB/s download speed
-        repository.setTorrents(listOf(createTestTorrent(testInfoHash, downloadSpeed = 1000000)))
         // 2MB total, 1MB downloaded = 1MB remaining = 1 second ETA
         repository.filesData = mapOf(
             testInfoHash to listOf(
                 FileInfo(0, "file.dat", 2000000, 1000000, 0.5)
             )
         )
+        // 1 MB/s download speed
+        repository.setTorrents(listOf(createTestTorrent(testInfoHash, downloadSpeed = 1000000)))
         viewModel = createViewModel()
         runCurrent()
 
@@ -270,12 +270,12 @@ class TorrentDetailViewModelTest {
     @Test
     fun `eta is zero when complete`() = runTest {
         repository.setLoaded(true)
-        repository.setTorrents(listOf(createTestTorrent(testInfoHash, progress = 1.0)))
         repository.filesData = mapOf(
             testInfoHash to listOf(
                 FileInfo(0, "file.dat", 1000000, 1000000, 1.0)
             )
         )
+        repository.setTorrents(listOf(createTestTorrent(testInfoHash, progress = 1.0)))
         viewModel = createViewModel()
         runCurrent()
 
@@ -286,12 +286,12 @@ class TorrentDetailViewModelTest {
     @Test
     fun `eta is null when speed is zero`() = runTest {
         repository.setLoaded(true)
-        repository.setTorrents(listOf(createTestTorrent(testInfoHash, downloadSpeed = 0)))
         repository.filesData = mapOf(
             testInfoHash to listOf(
                 FileInfo(0, "file.dat", 1000000, 500000, 0.5)
             )
         )
+        repository.setTorrents(listOf(createTestTorrent(testInfoHash, downloadSpeed = 0)))
         viewModel = createViewModel()
         runCurrent()
 

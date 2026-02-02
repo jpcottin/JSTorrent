@@ -15,20 +15,18 @@ import com.jstorrent.app.model.TrackerUi
 import com.jstorrent.app.model.toUi
 import com.jstorrent.quickjs.model.ActivePieceStates
 import com.jstorrent.quickjs.model.PieceInfo
+import com.jstorrent.quickjs.model.PiecesData
 import com.jstorrent.quickjs.model.TorrentDetails
 import com.jstorrent.quickjs.model.TorrentSummary
 import com.jstorrent.quickjs.model.FileInfo
 import com.jstorrent.quickjs.model.PeerInfo
 import com.jstorrent.quickjs.model.TrackerInfo
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.BitSet
 
@@ -107,122 +105,133 @@ class TorrentDetailViewModel(
     // Track when removal has been initiated to avoid showing error during navigation
     private val _isRemoving = MutableStateFlow(false)
 
-    // Track screen visibility for lifecycle-aware polling
+    // Track screen visibility for lifecycle-aware subscriptions
     private val _isScreenVisible = MutableStateFlow(true)
 
-    // Job for tracker polling - cancelled when leaving TRACKERS tab or screen
-    private var trackerPollingJob: Job? = null
+    // Track current subscription type to avoid redundant subscribe calls
+    private var currentSubscriptionType: String? = null
+
+    // Note: trackerRefreshEnabled parameter is now unused (subscriptions replace polling)
+    // Kept for API compatibility with existing tests
 
     init {
-        // Initial data fetch: fetch files once for STATUS tab (needed for size/ETA).
-        // This only happens once when the torrent first appears in state.
+        // Subscribe to "files" initially for STATUS tab (needed for size/ETA)
+        // This happens when the engine is loaded
+        viewModelScope.launch {
+            repository.isLoaded.collect { isLoaded ->
+                if (isLoaded && _isScreenVisible.value) {
+                    subscribeForTab(_selectedTab.value)
+                }
+            }
+        }
+
+        // Populate cached flows from subscription data in state.
+        // This replaces the old RPC-based fetching.
         viewModelScope.launch {
             repository.state.collect { state ->
-                if (state?.torrents?.any { it.infoHash == infoHash } == true) {
-                    // Fetch files once for basic stats (size, downloaded, ETA)
-                    if (_cachedFiles.value.isEmpty()) {
-                        _cachedFiles.value = repository.getFiles(infoHash)
-                    }
-                    // Apply piece diffs on every state change (cheap, just BitSet ops)
-                    applyPieceDiffs(state)
+                if (state?.torrents?.any { it.infoHash == infoHash } != true) return@collect
+
+                // Populate cached flows from subscription data
+                state.files?.get(infoHash)?.let { files ->
+                    _cachedFiles.value = files
                 }
+                state.trackers?.get(infoHash)?.let { trackers ->
+                    _cachedTrackers.value = trackers
+                }
+                state.peers?.get(infoHash)?.let { peers ->
+                    _cachedPeers.value = peers
+                }
+                state.pieces?.get(infoHash)?.let { piecesData ->
+                    // Convert PiecesData to PieceInfo for compatibility
+                    _cachedPieces.value = PieceInfo(
+                        piecesTotal = piecesData.piecesTotal,
+                        piecesCompleted = piecesData.piecesCompleted,
+                        pieceSize = piecesData.pieceSize,
+                        lastPieceSize = piecesData.lastPieceSize,
+                        bitfield = piecesData.bitfield
+                    )
+                    // Update bitfield from subscription data
+                    if (piecesData.piecesTotal > 0) {
+                        val newBitfield = decodeBitfield(piecesData.bitfield, piecesData.piecesTotal)
+                        // Apply recent changes (pieces completed since last push)
+                        piecesData.recentChanges.forEach { pieceIndex ->
+                            newBitfield.set(pieceIndex)
+                        }
+                        _pieceBitfield.value?.let { existing -> newBitfield.or(existing) }
+                        _pieceBitfield.value = newBitfield
+                    }
+                }
+                state.details?.get(infoHash)?.let { details ->
+                    _cachedDetails.value = details
+                }
+
+                // Apply piece diffs from legacy global state (for backward compatibility)
+                applyPieceDiffs(state)
             }
         }
 
-        // Tab-reactive data fetching: only fetch/refresh data for the currently visible tab.
-        // This reduces unnecessary RPC calls when viewing other tabs.
+        // Tab-reactive subscription management.
+        // When tab changes, subscribe to the appropriate data type.
         viewModelScope.launch {
-            combine(repository.state, _selectedTab) { state, tab -> state to tab }
-                .collect { (state, tab) ->
-                    if (state?.torrents?.any { it.infoHash == infoHash } != true) return@collect
-
-                    when (tab) {
-                        DetailTab.FILES -> {
-                            // Refresh files on every state change when viewing FILES tab
-                            // to show per-file download progress updates
-                            _cachedFiles.value = repository.getFiles(infoHash)
-                        }
-                        DetailTab.TRACKERS -> {
-                            _cachedTrackers.value = repository.getTrackers(infoHash)
-                        }
-                        DetailTab.PEERS -> {
-                            _cachedPeers.value = repository.getPeers(infoHash)
-                        }
-                        DetailTab.PIECES -> {
-                            fetchPiecesIfNeeded()
-                        }
-                        DetailTab.DETAILS -> {
-                            if (_cachedDetails.value == null) {
-                                _cachedDetails.value = repository.getDetails(infoHash)
-                            }
-                        }
-                        DetailTab.STATUS -> {
-                            // Uses TorrentSummary from state + cached files - no extra fetch needed
-                        }
+            combine(_selectedTab, _isScreenVisible) { tab, visible -> tab to visible }
+                .collect { (tab, visible) ->
+                    if (visible && repository.isLoaded.value) {
+                        subscribeForTab(tab)
                     }
                 }
         }
+    }
 
-        // Tracker polling: only poll when TRACKERS tab is visible AND screen is visible.
-        // Tracker status changes (e.g., timeout from 'announcing' to 'error') don't
-        // trigger main state updates, so we need periodic refresh.
-        // Polling stops when navigating to another screen (e.g., DHT view).
-        if (trackerRefreshEnabled) {
-            viewModelScope.launch {
-                combine(_selectedTab, _isScreenVisible) { tab, visible -> tab to visible }
-                    .collect { (tab, visible) ->
-                        trackerPollingJob?.cancel()
-                        if (tab == DetailTab.TRACKERS && visible) {
-                            trackerPollingJob = viewModelScope.launch {
-                                while (isActive) {
-                                    delay(2000)
-                                    if (repository.isLoaded.value) {
-                                        val trackers = repository.getTrackers(infoHash)
-                                        if (trackers.isNotEmpty()) {
-                                            _cachedTrackers.value = trackers
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-            }
+    /**
+     * Subscribe to the appropriate data type for the given tab.
+     * Unsubscribes from previous subscription first.
+     */
+    private fun subscribeForTab(tab: DetailTab) {
+        val (type, intervalMs) = when (tab) {
+            DetailTab.STATUS -> "files" to 2000    // Need files for size/ETA
+            DetailTab.FILES -> "files" to 2000
+            DetailTab.TRACKERS -> "trackers" to 5000
+            DetailTab.PEERS -> "peers" to 1000
+            DetailTab.PIECES -> "pieces" to 500
+            DetailTab.DETAILS -> "details" to 10000  // Details rarely change
+        }
+
+        // Only change subscription if type changed
+        if (currentSubscriptionType != type) {
+            repository.unsubscribeAll(infoHash)
+            repository.subscribe(type, infoHash, intervalMs)
+            currentSubscriptionType = type
         }
     }
 
     /**
      * Called when the screen is paused (navigated away or backgrounded).
-     * Stops any active polling to save resources.
+     * Pauses subscription pushes to save resources.
      */
     fun onScreenPaused() {
         _isScreenVisible.value = false
+        repository.pauseSubscriptions()
     }
 
     /**
      * Called when the screen is resumed (navigated back or foregrounded).
-     * Resumes polling if on a tab that requires it.
+     * Resumes subscription pushes and re-subscribes if needed.
      */
     fun onScreenResumed() {
         _isScreenVisible.value = true
+        repository.resumeSubscriptions()
+        // Re-subscribe in case engine was restarted while paused
+        if (repository.isLoaded.value) {
+            subscribeForTab(_selectedTab.value)
+        }
     }
 
     /**
-     * Fetch piece info if we don't have it yet, or if piece count changed.
-     * Magnet links start with 0 pieces until metadata arrives.
+     * Clean up subscriptions when ViewModel is cleared.
      */
-    private suspend fun fetchPiecesIfNeeded() {
-        val currentPieces = _cachedPieces.value
-        if (currentPieces == null || currentPieces.piecesTotal == 0) {
-            val pieces = repository.getPieces(infoHash)
-            if (pieces != null && pieces.piecesTotal > 0) {
-                _cachedPieces.value = pieces
-                // OR with existing bitfield to preserve any diffs that arrived
-                // while the snapshot was in flight (pieces only complete, never un-complete)
-                val newBitfield = decodeBitfield(pieces.bitfield, pieces.piecesTotal)
-                _pieceBitfield.value?.let { existing -> newBitfield.or(existing) }
-                _pieceBitfield.value = newBitfield
-            }
-        }
+    override fun onCleared() {
+        super.onCleared()
+        repository.unsubscribeAll(infoHash)
     }
 
     /**
@@ -379,32 +388,28 @@ class TorrentDetailViewModel(
      * Select all files in the torrent (batched - requires apply).
      */
     fun selectAllFiles() {
-        viewModelScope.launch {
-            val files = repository.getFiles(infoHash)
-            val baseState = _pendingFileState.value ?: _appliedFileState.value
-            val newPending = baseState.toMutableMap()
-            files.forEach { file ->
-                val current = newPending[file.index] ?: FileState()
-                newPending[file.index] = current.copy(isSelected = true)
-            }
-            _pendingFileState.value = newPending
+        val files = _cachedFiles.value
+        val baseState = _pendingFileState.value ?: _appliedFileState.value
+        val newPending = baseState.toMutableMap()
+        files.forEach { file ->
+            val current = newPending[file.index] ?: FileState()
+            newPending[file.index] = current.copy(isSelected = true)
         }
+        _pendingFileState.value = newPending
     }
 
     /**
      * Deselect all files in the torrent (batched - requires apply).
      */
     fun deselectAllFiles() {
-        viewModelScope.launch {
-            val files = repository.getFiles(infoHash)
-            val baseState = _pendingFileState.value ?: _appliedFileState.value
-            val newPending = baseState.toMutableMap()
-            files.forEach { file ->
-                val current = newPending[file.index] ?: FileState()
-                newPending[file.index] = current.copy(isSelected = false)
-            }
-            _pendingFileState.value = newPending
+        val files = _cachedFiles.value
+        val baseState = _pendingFileState.value ?: _appliedFileState.value
+        val newPending = baseState.toMutableMap()
+        files.forEach { file ->
+            val current = newPending[file.index] ?: FileState()
+            newPending[file.index] = current.copy(isSelected = false)
         }
+        _pendingFileState.value = newPending
     }
 
     /**
@@ -479,16 +484,11 @@ class TorrentDetailViewModel(
      * reflects any progress made while incremental updates were missed.
      */
     fun resyncPieces() {
-        viewModelScope.launch {
-            val pieces = repository.getPieces(infoHash)
-            if (pieces != null && pieces.piecesTotal > 0) {
-                _cachedPieces.value = pieces
-                // OR with existing bitfield to preserve any diffs that arrived
-                // while the snapshot was in flight (pieces only complete, never un-complete)
-                val newBitfield = decodeBitfield(pieces.bitfield, pieces.piecesTotal)
-                _pieceBitfield.value?.let { existing -> newBitfield.or(existing) }
-                _pieceBitfield.value = newBitfield
-            }
+        // With subscriptions, re-subscribing will push fresh data.
+        // Force a re-subscription to get the latest piece state.
+        if (_selectedTab.value == DetailTab.PIECES) {
+            currentSubscriptionType = null  // Force re-subscription
+            subscribeForTab(DetailTab.PIECES)
         }
     }
 

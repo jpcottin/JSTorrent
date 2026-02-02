@@ -1,12 +1,6 @@
 package com.jstorrent.app.viewmodel
 
 import com.jstorrent.quickjs.model.EngineState
-import com.jstorrent.quickjs.model.FileInfo
-import com.jstorrent.quickjs.model.PeerInfo
-import com.jstorrent.quickjs.model.PieceInfo
-import com.jstorrent.quickjs.model.TorrentDetails
-import com.jstorrent.quickjs.model.TorrentInfo
-import com.jstorrent.quickjs.model.TrackerInfo
 import com.jstorrent.quickjs.model.DhtStats
 import com.jstorrent.quickjs.model.EngineStats
 import com.jstorrent.quickjs.model.JsThreadStats
@@ -74,36 +68,6 @@ interface TorrentRepository {
     fun resumeAll()
 
     /**
-     * Get detailed torrent list (suspend query).
-     */
-    suspend fun getTorrentList(): List<TorrentInfo>
-
-    /**
-     * Get file list for a specific torrent (suspend query).
-     */
-    suspend fun getFiles(infoHash: String): List<FileInfo>
-
-    /**
-     * Get tracker list for a specific torrent (suspend query).
-     */
-    suspend fun getTrackers(infoHash: String): List<TrackerInfo>
-
-    /**
-     * Get peer list for a specific torrent (suspend query).
-     */
-    suspend fun getPeers(infoHash: String): List<PeerInfo>
-
-    /**
-     * Get piece info for a specific torrent (suspend query).
-     */
-    suspend fun getPieces(infoHash: String): PieceInfo?
-
-    /**
-     * Get detailed metadata for a specific torrent (suspend query).
-     */
-    suspend fun getDetails(infoHash: String): TorrentDetails?
-
-    /**
      * Set file priorities for a torrent.
      * @param infoHash The torrent's info hash
      * @param priorities Map of file index to priority (0=Normal, 1=Skip, 2=High)
@@ -145,4 +109,45 @@ interface TorrentRepository {
      * Returns tick duration, active pieces, and connected peers from JS engine.
      */
     suspend fun getEngineStats(): EngineStats?
+
+    // =========================================================================
+    // Subscription API
+    // =========================================================================
+
+    /**
+     * Subscribe to data updates for a torrent (or global state).
+     *
+     * @param type Subscription type: "state", "peers", "files", "trackers", "pieces", "details"
+     * @param hash Torrent info hash, or "_global" for global state (torrent list)
+     * @param intervalMs Push interval in milliseconds
+     */
+    fun subscribe(type: String, hash: String, intervalMs: Int)
+
+    /**
+     * Unsubscribe from a specific data type for a torrent.
+     *
+     * @param type Subscription type
+     * @param hash Torrent info hash, or "_global" for global state
+     */
+    fun unsubscribe(type: String, hash: String)
+
+    /**
+     * Unsubscribe from all data types for a torrent.
+     * Use when navigating away from torrent detail view.
+     *
+     * @param hash Torrent info hash
+     */
+    fun unsubscribeAll(hash: String)
+
+    /**
+     * Pause all subscription pushes.
+     * Call when screen is not visible to save resources.
+     */
+    fun pauseSubscriptions()
+
+    /**
+     * Resume subscription pushes.
+     * Call when screen becomes visible again.
+     */
+    fun resumeSubscriptions()
 }

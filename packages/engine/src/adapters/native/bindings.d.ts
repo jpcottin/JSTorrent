@@ -391,6 +391,41 @@ declare global {
    * Report error to native layer.
    */
   function __jstorrent_on_error(json: string): void
+
+  // ============================================================
+  // Subscription Functions (Kotlin → JS)
+  // ============================================================
+
+  /**
+   * Subscribe to data updates for a torrent.
+   * @param type - Subscription type: 'state' | 'peers' | 'files' | 'trackers' | 'pieces' | 'details'
+   * @param hash - Torrent info hash (hex) or '_global' for torrent list
+   * @param intervalMs - Push interval in milliseconds
+   */
+  function __jstorrent_subscribe(type: string, hash: string, intervalMs: number): void
+
+  /**
+   * Unsubscribe from specific data type.
+   * @param type - Subscription type
+   * @param hash - Torrent info hash (hex) or '_global'
+   */
+  function __jstorrent_unsubscribe(type: string, hash: string): void
+
+  /**
+   * Unsubscribe all subscriptions for a torrent.
+   * @param hash - Torrent info hash (hex) or '_global'
+   */
+  function __jstorrent_unsubscribe_all(hash: string): void
+
+  /**
+   * Pause all subscription pushes (screen not visible).
+   */
+  function __jstorrent_pause_subscriptions(): void
+
+  /**
+   * Resume subscription pushes (screen visible again).
+   */
+  function __jstorrent_resume_subscriptions(): void
 }
 
 export {}

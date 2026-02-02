@@ -4,8 +4,8 @@ import com.jstorrent.quickjs.model.EngineState
 import com.jstorrent.quickjs.model.FileInfo
 import com.jstorrent.quickjs.model.PeerInfo
 import com.jstorrent.quickjs.model.PieceInfo
+import com.jstorrent.quickjs.model.PiecesData
 import com.jstorrent.quickjs.model.TorrentDetails
-import com.jstorrent.quickjs.model.TorrentInfo
 import com.jstorrent.quickjs.model.TorrentSummary
 import com.jstorrent.quickjs.model.TrackerInfo
 import com.jstorrent.quickjs.model.DhtStats
@@ -39,8 +39,7 @@ class FakeTorrentRepository : TorrentRepository {
     var pauseAllCalled = false
     var resumeAllCalled = false
 
-    // Data for queries
-    var torrentListData: List<TorrentInfo> = emptyList()
+    // Data for subscription state (simulates data pushed via subscriptions)
     var filesData: Map<String, List<FileInfo>> = emptyMap()
     var trackersData: Map<String, List<TrackerInfo>> = emptyMap()
     var peersData: Map<String, List<PeerInfo>> = emptyMap()
@@ -61,7 +60,33 @@ class FakeTorrentRepository : TorrentRepository {
     }
 
     fun setTorrents(torrents: List<TorrentSummary>) {
-        _state.value = EngineState(torrents)
+        // Include subscription data in the state (simulating subscription push)
+        val piecesDataMap = piecesData.mapValues { (_, pieceInfo) ->
+            PiecesData(
+                piecesTotal = pieceInfo.piecesTotal,
+                piecesCompleted = pieceInfo.piecesCompleted,
+                pieceSize = pieceInfo.pieceSize,
+                lastPieceSize = pieceInfo.lastPieceSize,
+                bitfield = pieceInfo.bitfield
+            )
+        }
+        _state.value = EngineState(
+            torrents = torrents,
+            files = filesData.ifEmpty { null },
+            trackers = trackersData.ifEmpty { null },
+            peers = peersData.ifEmpty { null },
+            pieces = piecesDataMap.ifEmpty { null },
+            details = detailsData.ifEmpty { null }
+        )
+    }
+
+    /**
+     * Update state with current data (call after modifying filesData, etc.)
+     */
+    fun refreshState() {
+        _state.value?.torrents?.let { torrents ->
+            setTorrents(torrents)
+        }
     }
 
     fun reset() {
@@ -74,13 +99,18 @@ class FakeTorrentRepository : TorrentRepository {
         removedTorrents.clear()
         pauseAllCalled = false
         resumeAllCalled = false
-        torrentListData = emptyList()
         filesData = emptyMap()
         trackersData = emptyMap()
         peersData = emptyMap()
         piecesData = emptyMap()
         detailsData = emptyMap()
         dhtStatsData = null
+        // Reset subscription tracking
+        subscriptions.clear()
+        unsubscriptions.clear()
+        unsubscribeAllCalls.clear()
+        pauseSubscriptionsCalled = false
+        resumeSubscriptionsCalled = false
     }
 
     // ==========================================================================
@@ -163,30 +193,6 @@ class FakeTorrentRepository : TorrentRepository {
         }
     }
 
-    override suspend fun getTorrentList(): List<TorrentInfo> {
-        return torrentListData
-    }
-
-    override suspend fun getFiles(infoHash: String): List<FileInfo> {
-        return filesData[infoHash] ?: emptyList()
-    }
-
-    override suspend fun getTrackers(infoHash: String): List<TrackerInfo> {
-        return trackersData[infoHash] ?: emptyList()
-    }
-
-    override suspend fun getPeers(infoHash: String): List<PeerInfo> {
-        return peersData[infoHash] ?: emptyList()
-    }
-
-    override suspend fun getPieces(infoHash: String): PieceInfo? {
-        return piecesData[infoHash]
-    }
-
-    override suspend fun getDetails(infoHash: String): TorrentDetails? {
-        return detailsData[infoHash]
-    }
-
     override fun setFilePriorities(infoHash: String, priorities: Map<Int, Int>) {
         // No-op for testing - just record if needed
     }
@@ -218,6 +224,37 @@ class FakeTorrentRepository : TorrentRepository {
     override suspend fun getEngineStats(): EngineStats? {
         // Return null for testing - no engine stats in fake
         return null
+    }
+
+    // ==========================================================================
+    // Subscription API
+    // ==========================================================================
+
+    // Track subscription calls for verification
+    val subscriptions = mutableListOf<Triple<String, String, Int>>()  // (type, hash, intervalMs)
+    val unsubscriptions = mutableListOf<Pair<String, String>>()  // (type, hash)
+    val unsubscribeAllCalls = mutableListOf<String>()  // hash
+    var pauseSubscriptionsCalled = false
+    var resumeSubscriptionsCalled = false
+
+    override fun subscribe(type: String, hash: String, intervalMs: Int) {
+        subscriptions.add(Triple(type, hash, intervalMs))
+    }
+
+    override fun unsubscribe(type: String, hash: String) {
+        unsubscriptions.add(Pair(type, hash))
+    }
+
+    override fun unsubscribeAll(hash: String) {
+        unsubscribeAllCalls.add(hash)
+    }
+
+    override fun pauseSubscriptions() {
+        pauseSubscriptionsCalled = true
+    }
+
+    override fun resumeSubscriptions() {
+        resumeSubscriptionsCalled = true
     }
 }
 
