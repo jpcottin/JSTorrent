@@ -164,54 +164,54 @@ class SettingsViewModelTest {
     }
 
     // =========================================================================
-    // Clear confirmation dialog tests
+    // Clear all data confirmation dialog tests
     // =========================================================================
 
     @Test
-    fun `showClearConfirmation sets flag`() {
+    fun `showClearAllDataConfirmation sets flag`() {
         whenever(rootStore.refreshAvailability()).thenReturn(emptyList())
 
         viewModel = SettingsViewModel(app, rootStore, settingsStore, configHub, initialNotificationPermissionGranted = false)
 
-        viewModel.showClearConfirmation()
+        viewModel.showClearAllDataConfirmation()
 
-        assertTrue(viewModel.uiState.value.showClearConfirmation)
+        assertTrue(viewModel.uiState.value.showClearAllDataConfirmation)
     }
 
     @Test
-    fun `dismissClearConfirmation clears flag`() {
+    fun `dismissClearAllDataConfirmation clears flag`() {
         whenever(rootStore.refreshAvailability()).thenReturn(emptyList())
 
         viewModel = SettingsViewModel(app, rootStore, settingsStore, configHub, initialNotificationPermissionGranted = false)
-        viewModel.showClearConfirmation()
-        viewModel.dismissClearConfirmation()
+        viewModel.showClearAllDataConfirmation()
+        viewModel.dismissClearAllDataConfirmation()
 
-        assertFalse(viewModel.uiState.value.showClearConfirmation)
+        assertFalse(viewModel.uiState.value.showClearAllDataConfirmation)
     }
 
     // =========================================================================
-    // Clear all roots tests
+    // Clear all data tests
     // =========================================================================
 
     @Test
-    fun `clearAllRoots removes all roots and dismisses dialog`() {
+    fun `clearAllData removes all roots and dismisses dialog`() {
         whenever(rootStore.listRoots()).thenReturn(listOf(testRoot1, testRoot2))
         whenever(rootStore.refreshAvailability()).thenReturn(listOf(testRoot1, testRoot2))
         whenever(rootStore.removeRoot("key1")).thenReturn(true)
         whenever(rootStore.removeRoot("key2")).thenReturn(true)
 
         viewModel = SettingsViewModel(app, rootStore, settingsStore, configHub, initialNotificationPermissionGranted = false)
-        viewModel.showClearConfirmation()
+        viewModel.showClearAllDataConfirmation()
 
         whenever(rootStore.refreshAvailability()).thenReturn(emptyList())
 
-        viewModel.clearAllRoots()
+        viewModel.clearAllData(deleteFiles = false)
 
         verify(rootStore).removeRoot("key1")
         verify(rootStore).removeRoot("key2")
 
         val state = viewModel.uiState.value
         assertTrue(state.downloadRoots.isEmpty())
-        assertFalse(state.showClearConfirmation)
+        assertFalse(state.showClearAllDataConfirmation)
     }
 }

@@ -3,6 +3,7 @@ package com.jstorrent.app.viewmodel
 import com.jstorrent.app.model.DetailTab
 import com.jstorrent.app.model.TorrentDetailUiState
 import com.jstorrent.quickjs.model.FileInfo
+import com.jstorrent.quickjs.model.FileListResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -104,9 +105,11 @@ class TorrentDetailViewModelTest {
     fun `fileListUpdates shows files`() = runTest {
         repository.setLoaded(true)
         repository.filesData = mapOf(
-            testInfoHash to listOf(
-                FileInfo(0, "movie.mp4", 1000000, 500000, 0.5),
-                FileInfo(1, "subtitle.srt", 5000, 5000, 1.0)
+            testInfoHash to FileListResponse(
+                files = listOf(
+                    FileInfo(0, "movie.mp4", 1000000, 500000, 0.5),
+                    FileInfo(1, "subtitle.srt", 5000, 5000, 1.0)
+                )
             )
         )
         repository.setTorrents(listOf(createTestTorrent(testInfoHash)))
@@ -123,9 +126,11 @@ class TorrentDetailViewModelTest {
     fun `toggleFileSelection updates selection`() = runTest {
         repository.setLoaded(true)
         repository.filesData = mapOf(
-            testInfoHash to listOf(
-                FileInfo(0, "file1.txt", 1000, 1000, 1.0),
-                FileInfo(1, "file2.txt", 1000, 500, 0.5)
+            testInfoHash to FileListResponse(
+                files = listOf(
+                    FileInfo(0, "file1.txt", 1000, 1000, 1.0),
+                    FileInfo(1, "file2.txt", 1000, 500, 0.5)
+                )
             )
         )
         repository.setTorrents(listOf(createTestTorrent(testInfoHash)))
@@ -254,8 +259,10 @@ class TorrentDetailViewModelTest {
         repository.setLoaded(true)
         // 2MB total, 1MB downloaded = 1MB remaining = 1 second ETA
         repository.filesData = mapOf(
-            testInfoHash to listOf(
-                FileInfo(0, "file.dat", 2000000, 1000000, 0.5)
+            testInfoHash to FileListResponse(
+                files = listOf(
+                    FileInfo(0, "file.dat", 2000000, 1000000, 0.5)
+                )
             )
         )
         // 1 MB/s download speed
@@ -271,8 +278,10 @@ class TorrentDetailViewModelTest {
     fun `eta is zero when complete`() = runTest {
         repository.setLoaded(true)
         repository.filesData = mapOf(
-            testInfoHash to listOf(
-                FileInfo(0, "file.dat", 1000000, 1000000, 1.0)
+            testInfoHash to FileListResponse(
+                files = listOf(
+                    FileInfo(0, "file.dat", 1000000, 1000000, 1.0)
+                )
             )
         )
         repository.setTorrents(listOf(createTestTorrent(testInfoHash, progress = 1.0)))
@@ -287,8 +296,10 @@ class TorrentDetailViewModelTest {
     fun `eta is null when speed is zero`() = runTest {
         repository.setLoaded(true)
         repository.filesData = mapOf(
-            testInfoHash to listOf(
-                FileInfo(0, "file.dat", 1000000, 500000, 0.5)
+            testInfoHash to FileListResponse(
+                files = listOf(
+                    FileInfo(0, "file.dat", 1000000, 500000, 0.5)
+                )
             )
         )
         repository.setTorrents(listOf(createTestTorrent(testInfoHash, downloadSpeed = 0)))

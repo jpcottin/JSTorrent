@@ -2,6 +2,7 @@ package com.jstorrent.app.viewmodel
 
 import com.jstorrent.quickjs.model.EngineState
 import com.jstorrent.quickjs.model.FileInfo
+import com.jstorrent.quickjs.model.FileListResponse
 import com.jstorrent.quickjs.model.PeerInfo
 import com.jstorrent.quickjs.model.PieceInfo
 import com.jstorrent.quickjs.model.PiecesData
@@ -40,7 +41,7 @@ class FakeTorrentRepository : TorrentRepository {
     var resumeAllCalled = false
 
     // Data for subscription state (simulates data pushed via subscriptions)
-    var filesData: Map<String, List<FileInfo>> = emptyMap()
+    var filesData: Map<String, FileListResponse> = emptyMap()
     var trackersData: Map<String, List<TrackerInfo>> = emptyMap()
     var peersData: Map<String, List<PeerInfo>> = emptyMap()
     var piecesData: Map<String, PieceInfo> = emptyMap()

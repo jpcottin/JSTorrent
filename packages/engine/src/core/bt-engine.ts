@@ -24,6 +24,7 @@ import { ISessionStore } from '../interfaces/session-store'
 import { IHasher } from '../interfaces/hasher'
 import { SubtleCryptoHasher } from '../adapters/browser/subtle-crypto-hasher'
 import { type EncryptionPolicy, MseSocket } from '../crypto'
+import { concat as concatCrypto, toHex as toHexCrypto } from '../crypto/key-derivation'
 import { MemorySessionStore } from '../adapters/memory/memory-session-store'
 import { StorageRootManager } from '../storage/storage-root-manager'
 import type { StorageRoot } from '../storage/types'
@@ -557,6 +558,20 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     }
   }
 
+  /**
+   * Build req2 lookup map from torrents with precomputed hashes.
+   * Used for O(1) MSE incoming connection identification.
+   */
+  private buildReq2Map(): Map<string, Uint8Array> {
+    const map = new Map<string, Uint8Array>()
+    for (const torrent of this.torrents) {
+      if (torrent.req2Hash) {
+        map.set(toHexCrypto(torrent.req2Hash), torrent.infoHash)
+      }
+    }
+    return map
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async handleIncomingConnection(nativeSocket: any) {
     const rawSocket = this.socketFactory.wrapTcpSocket(nativeSocket)
@@ -585,10 +600,12 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     const shouldHandleMse = this.encryptionPolicy !== 'disabled'
 
     if (shouldHandleMse && this.torrents.length > 0) {
-      const knownInfoHashes = this.torrents.map((t) => t.infoHash)
+      // Build O(1) lookup map from precomputed req2 hashes
+      const req2Map = this.buildReq2Map()
+
       const mseSocket = new MseSocket(rawSocket, {
         policy: this.encryptionPolicy,
-        knownInfoHashes,
+        req2Map,
         sha1: (data) => this.hasher.sha1(data),
         getRandomBytes: randomBytes,
       })
@@ -954,6 +971,31 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
 
   getTorrent(infoHash: string): Torrent | undefined {
     return this.torrents.find((t) => toHex(t.infoHash) === infoHash)
+  }
+
+  /**
+   * Precompute req2 hashes for multiple torrents (used on startup/restore).
+   * Uses batch SHA1 if available for efficiency.
+   */
+  async precomputeReq2Hashes(torrents: Torrent[]): Promise<void> {
+    const needsComputation = torrents.filter((t) => t.infoHash && !t.req2Hash)
+    if (needsComputation.length === 0) return
+
+    const textEncoder = new TextEncoder()
+    const req2Prefix = textEncoder.encode('req2')
+
+    const inputs = needsComputation.map((t) => concatCrypto(req2Prefix, t.infoHash))
+
+    let hashes: Uint8Array[]
+    if (this.hasher.sha1Batch && needsComputation.length > 1) {
+      hashes = await this.hasher.sha1Batch(inputs)
+    } else {
+      hashes = await Promise.all(inputs.map((input) => this.hasher.sha1(input)))
+    }
+
+    for (let i = 0; i < needsComputation.length; i++) {
+      needsComputation[i].setReq2Hash(hashes[i])
+    }
   }
 
   async destroy() {

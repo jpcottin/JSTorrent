@@ -19,7 +19,8 @@ export type EncryptionPolicy = 'disabled' | 'allow' | 'prefer' | 'required'
 export interface MseSocketOptions {
   policy: EncryptionPolicy
   infoHash?: Uint8Array // For outgoing connections
-  knownInfoHashes?: Uint8Array[] // For incoming connections
+  knownInfoHashes?: Uint8Array[] // For incoming connections (legacy O(N) lookup)
+  req2Map?: Map<string, Uint8Array> // For incoming connections (O(1) lookup, preferred)
   sha1: (data: Uint8Array) => Promise<Uint8Array>
   getRandomBytes: (length: number) => Uint8Array
   onInfoHashRecovered?: (infoHash: Uint8Array) => void // For incoming
@@ -105,6 +106,7 @@ export class MseSocket implements ITcpSocket {
       role,
       infoHash: this.options.infoHash,
       knownInfoHashes: this.options.knownInfoHashes,
+      req2Map: this.options.req2Map,
       sha1: this.options.sha1,
       getRandomBytes: this.options.getRandomBytes,
     })

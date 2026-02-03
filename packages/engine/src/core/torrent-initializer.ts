@@ -4,6 +4,7 @@ import { TorrentParser, ParsedTorrent } from './torrent-parser'
 import { TorrentContentStorage } from './torrent-content-storage'
 import { IStorageHandle } from '../io/storage-handle'
 import { toHex } from '../utils/buffer'
+import { computeReq2Hash } from '../crypto/key-derivation'
 
 /**
  * Initialize a torrent with metadata (info dictionary).
@@ -49,6 +50,10 @@ export async function initializeTorrentMetadata(
 
   // Set metadata on torrent
   torrent.setMetadata(infoBuffer)
+
+  // Precompute req2 hash for MSE incoming connection identification
+  const req2Hash = await computeReq2Hash(torrent.infoHash, (data) => engine.hasher.sha1(data))
+  torrent.setReq2Hash(req2Hash)
 
   // Set private flag (BEP 27) - disables DHT/PEX for private torrents
   if (parsedTorrent.isPrivate) {

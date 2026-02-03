@@ -90,6 +90,7 @@ private val json = Json {
  * - GET /roots - List download roots (auth required)
  * - DELETE /roots/{key} - Remove download root (auth required)
  * - POST /hash/sha1 - Compute SHA1 hash (auth required)
+ * - POST /hash/sha1/batch - Batch SHA1 computation (auth required)
  * - GET /read/{root_key} - Read file (auth required)
  * - POST /write/{root_key} - Write file (auth required)
  * - POST /http-sink - Throughput test
@@ -268,6 +269,7 @@ private class NettyHttpHandler(
                 path == "/roots" && method == HttpMethod.GET -> handleRoots(ctx, request)
                 path.startsWith("/roots/") && method == HttpMethod.DELETE -> handleDeleteRoot(ctx, request, path)
                 path == "/hash/sha1" && method == HttpMethod.POST -> handleHashSha1(ctx, request)
+                path == "/hash/sha1/batch" && method == HttpMethod.POST -> handleHashSha1Batch(ctx, request)
                 path.startsWith("/read/") && method == HttpMethod.GET -> handleRead(ctx, request, path)
                 path.startsWith("/write/") && method == HttpMethod.POST -> handleWrite(ctx, request, path)
                 path.startsWith("/write-batch/") && method == HttpMethod.POST -> handleWriteBatch(ctx, request, path)
@@ -533,6 +535,64 @@ private class NettyHttpHandler(
 
         val hash = com.jstorrent.io.hash.Hasher.sha1(bytes)
         sendBinaryResponse(ctx, request, HttpResponseStatus.OK, hash)
+    }
+
+    /**
+     * Batch SHA1 computation for efficient multi-hash operations.
+     *
+     * Wire format:
+     * Request: count (u32 LE), then [len (u32 LE), data (len bytes)] repeated
+     * Response: concatenated 20-byte SHA1 hashes
+     */
+    private fun handleHashSha1Batch(ctx: ChannelHandlerContext, request: FullHttpRequest) {
+        if (getExtensionHeaders(request) == null && !isStandaloneAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing extension headers")
+            return
+        }
+        if (!validateAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.UNAUTHORIZED, "Invalid token")
+            return
+        }
+
+        val body = request.content()
+
+        if (body.readableBytes() < 4) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Body too short")
+            return
+        }
+
+        val count = body.readIntLE()
+
+        if (count < 0 || count > 10_000) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid count (max 10000)")
+            return
+        }
+
+        val results = ByteArray(count * 20)
+        val md = java.security.MessageDigest.getInstance("SHA-1")
+
+        for (i in 0 until count) {
+            if (body.readableBytes() < 4) {
+                sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Truncated input at item $i")
+                return
+            }
+
+            val len = body.readIntLE()
+
+            if (len < 0 || body.readableBytes() < len) {
+                sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Truncated input at item $i")
+                return
+            }
+
+            val data = ByteArray(len)
+            body.readBytes(data)
+
+            md.reset()
+            val hash = md.digest(data)
+            System.arraycopy(hash, 0, results, i * 20, 20)
+        }
+
+        sendBinaryResponse(ctx, request, HttpResponseStatus.OK, results)
     }
 
     private fun handleRead(ctx: ChannelHandlerContext, request: FullHttpRequest, path: String) {

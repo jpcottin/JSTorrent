@@ -23,6 +23,7 @@ import {
   computeReq1Hash,
   computeReq2Xor3,
   recoverInfoHash,
+  recoverInfoHashWithMap,
   concat,
 } from './key-derivation'
 
@@ -52,7 +53,8 @@ export interface MseResult {
 export interface MseHandshakeOptions {
   role: MseRole
   infoHash?: Uint8Array // Required for initiator
-  knownInfoHashes?: Uint8Array[] // For responder to identify torrent
+  knownInfoHashes?: Uint8Array[] // For responder to identify torrent (legacy O(N) lookup)
+  req2Map?: Map<string, Uint8Array> // For responder (O(1) lookup, preferred)
   sha1: (data: Uint8Array) => Promise<Uint8Array>
   getRandomBytes: (length: number) => Uint8Array
   preferEncrypted?: boolean // Default true
@@ -421,13 +423,25 @@ export class MseHandshake {
     const xorValue = this.buffer.slice(0, 20)
     this.buffer = this.buffer.slice(20)
 
-    // Recover info hash
-    const infoHash = await recoverInfoHash(
-      xorValue,
-      this.sharedSecret!,
-      this.options.knownInfoHashes || [],
-      this.options.sha1,
-    )
+    // Recover info hash using O(1) map lookup if available, otherwise fall back to O(N) iteration
+    let infoHash: Uint8Array | null = null
+    if (this.options.req2Map) {
+      // Fast path: O(1) lookup using precomputed req2 hashes
+      infoHash = await recoverInfoHashWithMap(
+        xorValue,
+        this.sharedSecret!,
+        this.options.req2Map,
+        this.options.sha1,
+      )
+    } else if (this.options.knownInfoHashes) {
+      // Legacy path: O(N) iteration
+      infoHash = await recoverInfoHash(
+        xorValue,
+        this.sharedSecret!,
+        this.options.knownInfoHashes,
+        this.options.sha1,
+      )
+    }
 
     if (!infoHash) {
       this.fail('Unknown info hash')

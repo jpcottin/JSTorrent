@@ -78,6 +78,17 @@ export async function computeReq1Hash(
 }
 
 /**
+ * Compute HASH('req2', infoHash) for precomputation.
+ * This is used for O(1) MSE incoming connection identification.
+ */
+export async function computeReq2Hash(
+  infoHash: Uint8Array,
+  sha1: (data: Uint8Array) => Promise<Uint8Array>,
+): Promise<Uint8Array> {
+  return sha1(concat(encode(MSE_REQ2), infoHash))
+}
+
+/**
  * Compute HASH('req2', SKEY) XOR HASH('req3', S) for torrent identification
  */
 export async function computeReq2Xor3(
@@ -93,6 +104,8 @@ export async function computeReq2Xor3(
 /**
  * Recover infoHash from HASH('req2', SKEY) XOR HASH('req3', S)
  * Given the received XOR value and shared secret, and a list of known info hashes.
+ *
+ * @deprecated Use recoverInfoHashWithMap for O(1) lookup performance
  */
 export async function recoverInfoHash(
   xorValue: Uint8Array,
@@ -112,9 +125,46 @@ export async function recoverInfoHash(
   return null
 }
 
+/**
+ * Recover info hash from MSE XOR value using precomputed req2 map.
+ * O(1) lookup instead of O(N) iteration.
+ *
+ * @param xorValue - The 20-byte XOR value from MSE PE3: HASH('req2', SKEY) XOR HASH('req3', S)
+ * @param sharedSecret - The DH shared secret
+ * @param req2Map - Map from hex(SHA1('req2' + infoHash)) to infoHash
+ * @param sha1 - SHA1 hash function
+ * @returns The matching info hash, or null if not found
+ */
+export async function recoverInfoHashWithMap(
+  xorValue: Uint8Array,
+  sharedSecret: Uint8Array,
+  req2Map: Map<string, Uint8Array>,
+  sha1: (data: Uint8Array) => Promise<Uint8Array>,
+): Promise<Uint8Array | null> {
+  // Compute req3 = SHA1('req3' + sharedSecret)
+  const req3 = await sha1(concat(encode(MSE_REQ3), sharedSecret))
+
+  // XOR to recover req2
+  const req2Computed = xor(xorValue, req3)
+
+  // O(1) lookup
+  return req2Map.get(toHex(req2Computed)) ?? null
+}
+
 // Helpers
 function encode(str: string): Uint8Array {
   return new TextEncoder().encode(str)
+}
+
+/**
+ * Convert Uint8Array to hex string
+ */
+export function toHex(bytes: Uint8Array): string {
+  let hex = ''
+  for (let i = 0; i < bytes.length; i++) {
+    hex += bytes[i].toString(16).padStart(2, '0')
+  }
+  return hex
 }
 
 export function concat(...arrays: Uint8Array[]): Uint8Array {

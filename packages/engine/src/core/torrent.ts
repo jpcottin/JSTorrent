@@ -239,6 +239,20 @@ export class Torrent extends EngineComponent {
   private _cachedInfoDict?: Record<string, unknown>
 
   /**
+   * Precomputed SHA1('req2' + infoHash) for MSE incoming connection identification.
+   * Set during metadata initialization.
+   */
+  private _req2Hash: Uint8Array | null = null
+
+  get req2Hash(): Uint8Array | null {
+    return this._req2Hash
+  }
+
+  setReq2Hash(hash: Uint8Array): void {
+    this._req2Hash = hash
+  }
+
+  /**
    * The parsed info dictionary (decoded from metadataRaw).
    * This is the official BitTorrent "info dict" containing name, piece hashes, files, etc.
    * Lazily parsed and cached to avoid repeated bencode decoding.
