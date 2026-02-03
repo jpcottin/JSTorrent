@@ -200,6 +200,9 @@
     <string name="settings_advanced_mode_section">Mode</string>
     <string name="settings_advanced_companion_mode_label">Switch to Companion Mode</string>
     <string name="settings_advanced_companion_mode_description">Use with Chrome extension instead</string>
+    <string name="settings_advanced_support_section">Support</string>
+    <string name="settings_advanced_report_bug_label">Report Bug / Send Feedback</string>
+    <string name="settings_advanced_report_bug_description">Help us improve JSTorrent</string>
     <string name="settings_advanced_reset_section">Reset</string>
     <string name="settings_advanced_reset_settings_label">Reset settings</string>
     <string name="settings_advanced_reset_settings_description">Restore all settings to defaults</string>
