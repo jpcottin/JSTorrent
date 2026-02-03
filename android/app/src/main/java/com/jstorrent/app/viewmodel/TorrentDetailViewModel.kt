@@ -119,6 +119,9 @@ class TorrentDetailViewModel(
     // Track current subscription type to avoid redundant subscribe calls
     private var currentSubscriptionType: String? = null
 
+    // Track whether we've subscribed to "torrents" for the torrent summary
+    private var subscribedToTorrents = false
+
     // Pending action state - true when pause/resume has been requested but engine hasn't responded yet
     // This provides immediate visual feedback when user taps play/pause
     private val _isPendingAction = MutableStateFlow(false)
@@ -136,6 +139,9 @@ class TorrentDetailViewModel(
         viewModelScope.launch {
             repository.isLoaded.collect { isLoaded ->
                 if (isLoaded && _isScreenVisible.value) {
+                    // Reset subscription tracking on engine (re)load since JS side resets
+                    currentSubscriptionType = null
+                    subscribedToTorrents = false
                     subscribeForTab(_selectedTab.value)
                 }
             }
@@ -219,7 +225,10 @@ class TorrentDetailViewModel(
 
     /**
      * Subscribe to the appropriate data type for the given tab.
-     * Unsubscribes from previous subscription first.
+     * Unsubscribes from previous per-torrent subscription first.
+     *
+     * Always subscribes to "torrents" (empty hash) to get the torrent summary,
+     * plus the tab-specific data type for the current torrent.
      */
     private fun subscribeForTab(tab: DetailTab) {
         val (type, intervalMs) = when (tab) {
@@ -231,11 +240,18 @@ class TorrentDetailViewModel(
             DetailTab.DETAILS -> "details" to 1000
         }
 
-        // Only change subscription if type changed
+        // Only change per-torrent subscription if type changed
         if (currentSubscriptionType != type) {
             repository.unsubscribeAll(infoHash)
             repository.subscribe(type, infoHash, intervalMs)
             currentSubscriptionType = type
+        }
+
+        // Always ensure we're subscribed to "torrents" for the torrent summary
+        // This is needed because per-torrent subscriptions don't include the summary
+        if (!subscribedToTorrents) {
+            repository.subscribe("torrents", "", 1000)
+            subscribedToTorrents = true
         }
     }
 
@@ -256,7 +272,10 @@ class TorrentDetailViewModel(
         _isScreenVisible.value = true
         repository.resumeSubscriptions()
         // Re-subscribe in case engine was restarted while paused
+        // Reset subscription flags to force fresh subscriptions (JS side resets on engine restart)
         if (repository.isLoaded.value) {
+            currentSubscriptionType = null
+            subscribedToTorrents = false
             subscribeForTab(_selectedTab.value)
         }
     }
@@ -267,6 +286,10 @@ class TorrentDetailViewModel(
     override fun onCleared() {
         super.onCleared()
         repository.unsubscribeAll(infoHash)
+        // Also unsubscribe from "torrents" if we were subscribed
+        if (subscribedToTorrents) {
+            repository.unsubscribe("torrents", "")
+        }
     }
 
     /**

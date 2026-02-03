@@ -165,6 +165,26 @@
       }
 
       /* Header with nav and theme toggle */
+      /* Announcement banner */
+      .announcement-banner {
+        background: var(--accent);
+        color: white;
+        text-align: center;
+        padding: 0.75rem 1rem;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.875rem;
+      }
+
+      .announcement-banner a {
+        color: white;
+        text-decoration: underline;
+        font-weight: 600;
+      }
+
+      .announcement-banner a:hover {
+        opacity: 0.9;
+      }
+
       .header {
         display: flex;
         justify-content: space-between;
@@ -614,6 +634,14 @@
   </head>
   <body>
     <div class="page-wrapper">
+      <div class="announcement-banner">
+        JSTorrent is being rebuilt from the ground up for ChromeOS, Windows, Mac & Linux.
+        <a
+          href="https://chrome.google.com/webstore/detail/jstorrent/anhdpjpojoipgpmfanmedjghaligalgb"
+          >Current Chrome App</a
+        >
+        still works on ChromeOS.
+      </div>
       <header class="header">
         <nav class="header-nav">
           <a href="#faq">// FAQ</a>
