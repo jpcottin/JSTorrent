@@ -59,3 +59,4 @@ packages/engine/src/geo/ipv4-country-data.ts
 # Inno Setup output
 desktop/installers/windows/Output/
 .mcp.json
+.mcp.json.disabled
