@@ -98,7 +98,7 @@
     <string name="settings_power_title">Power Management</string>
     <string name="settings_power_description">Background downloads, seeding</string>
     <string name="settings_advanced_title">Advanced</string>
-    <string name="settings_advanced_description">Reset settings</string>
+    <string name="settings_advanced_description">Feedback, bugs, reset settings</string>
 
     <!-- Common -->
     <string name="back">Back</string>
