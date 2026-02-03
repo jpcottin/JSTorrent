@@ -8,6 +8,11 @@ async function sha1(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(hash)
 }
 
+// Batch wrapper for sha1
+async function sha1Batch(inputs: Uint8Array[]): Promise<Uint8Array[]> {
+  return Promise.all(inputs.map((input) => sha1(input)))
+}
+
 function getRandomBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length)
   crypto.getRandomValues(bytes)
@@ -25,14 +30,14 @@ describe('MseHandshake', () => {
     const initiator = new MseHandshake({
       role: 'initiator',
       infoHash,
-      sha1,
+      sha1Batch,
       getRandomBytes,
     })
 
     const responder = new MseHandshake({
       role: 'responder',
       knownInfoHashes: [infoHash],
-      sha1,
+      sha1Batch,
       getRandomBytes,
     })
 
@@ -88,7 +93,7 @@ describe('MseHandshake', () => {
     const responder = new MseHandshake({
       role: 'responder',
       knownInfoHashes: [infoHash],
-      sha1,
+      sha1Batch,
       getRandomBytes,
     })
 
@@ -116,14 +121,14 @@ describe('MseHandshake', () => {
     const initiator = new MseHandshake({
       role: 'initiator',
       infoHash, // Using one info hash
-      sha1,
+      sha1Batch,
       getRandomBytes,
     })
 
     const responder = new MseHandshake({
       role: 'responder',
       knownInfoHashes: [unknownInfoHash], // But responder knows a different one
-      sha1,
+      sha1Batch,
       getRandomBytes,
     })
 
@@ -158,7 +163,7 @@ describe('MseHandshake', () => {
     const initiator = new MseHandshake({
       role: 'initiator',
       infoHash,
-      sha1,
+      sha1Batch,
       getRandomBytes,
     })
 
@@ -174,7 +179,7 @@ describe('MseHandshake', () => {
     const responder = new MseHandshake({
       role: 'responder',
       knownInfoHashes: [infoHash],
-      sha1,
+      sha1Batch,
       getRandomBytes,
     })
 

@@ -449,9 +449,12 @@ export class Torrent extends EngineComponent {
     )
 
     // Set MSE encryption context for the connection manager
+    const hasher = this.btEngine.hasher
     this._connectionManager.setEncryptionContext({
       infoHash: this.infoHash,
-      sha1: (data: Uint8Array) => this.btEngine.hasher.sha1(data),
+      sha1Batch: hasher.sha1Batch
+        ? (inputs) => hasher.sha1Batch!(inputs)
+        : (inputs) => Promise.all(inputs.map((i) => hasher.sha1(i))),
       getRandomBytes: randomBytes,
     })
 

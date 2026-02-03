@@ -9,6 +9,11 @@ async function sha1(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(hash)
 }
 
+// Batch wrapper for sha1
+async function sha1Batch(inputs: Uint8Array[]): Promise<Uint8Array[]> {
+  return Promise.all(inputs.map((input) => sha1(input)))
+}
+
 function getRandomBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length)
   crypto.getRandomValues(bytes)
@@ -60,7 +65,7 @@ describe('Encryption Policy', () => {
       const mseSocketA = new MseSocket(socketA, {
         policy: 'disabled',
         infoHash,
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -87,7 +92,7 @@ describe('Encryption Policy', () => {
       const mseSocketA = new MseSocket(socketA, {
         policy: 'disabled',
         infoHash,
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -116,7 +121,7 @@ describe('Encryption Policy', () => {
       const mseSocketB = new MseSocket(socketB, {
         policy: 'allow',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -141,14 +146,14 @@ describe('Encryption Policy', () => {
       const mseSocketA = new MseSocket(socketA, {
         policy: 'prefer',
         infoHash,
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
       const mseSocketB = new MseSocket(socketB, {
         policy: 'prefer',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -169,14 +174,14 @@ describe('Encryption Policy', () => {
       const mseSocketA = new MseSocket(socketA, {
         policy: 'prefer',
         infoHash,
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
       const mseSocketB = new MseSocket(socketB, {
         policy: 'prefer',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -211,7 +216,7 @@ describe('Encryption Policy', () => {
       const mseSocketB = new MseSocket(socketB, {
         policy: 'prefer',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -235,14 +240,14 @@ describe('Encryption Policy', () => {
       const mseSocketA = new MseSocket(socketA, {
         policy: 'required',
         infoHash,
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
       const mseSocketB = new MseSocket(socketB, {
         policy: 'required',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -258,14 +263,14 @@ describe('Encryption Policy', () => {
       const mseSocketA = new MseSocket(socketA, {
         policy: 'required',
         infoHash,
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
       const mseSocketB = new MseSocket(socketB, {
         policy: 'required',
         knownInfoHashes: [getRandomBytes(20)], // Different info hash - will fail
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -285,7 +290,7 @@ describe('Encryption Policy', () => {
       const mseSocketB = new MseSocket(socketB, {
         policy: 'required',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -305,14 +310,14 @@ describe('Encryption Policy', () => {
       const mseSocketA = new MseSocket(socketA, {
         policy: 'required',
         infoHash,
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
       const mseSocketB = new MseSocket(socketB, {
         policy: 'required',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -336,14 +341,14 @@ describe('Encryption Policy', () => {
       const mseSocketA = new MseSocket(socketA, {
         policy: 'prefer',
         infoHash,
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
       const mseSocketB = new MseSocket(socketB, {
         policy: 'prefer',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -359,14 +364,14 @@ describe('Encryption Policy', () => {
       const mseSocketA = new MseSocket(socketA, {
         policy: 'required',
         infoHash,
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
       const mseSocketB = new MseSocket(socketB, {
         policy: 'prefer',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -382,14 +387,14 @@ describe('Encryption Policy', () => {
       const mseSocketA = new MseSocket(socketA, {
         policy: 'required',
         infoHash,
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
       const mseSocketB = new MseSocket(socketB, {
         policy: 'required',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -413,7 +418,7 @@ describe('Encryption Policy', () => {
       const mseSocketB = new MseSocket(socketB, {
         policy: 'allow',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -453,7 +458,7 @@ describe('Encryption Policy', () => {
       const mseSocketB = new MseSocket(socketB, {
         policy: 'allow',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 
@@ -490,7 +495,7 @@ describe('Encryption Policy', () => {
       const mseSocketB = new MseSocket(socketB, {
         policy: 'allow',
         knownInfoHashes: [infoHash],
-        sha1,
+        sha1Batch,
         getRandomBytes,
       })
 

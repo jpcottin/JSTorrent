@@ -24,7 +24,7 @@ import { ISessionStore } from '../interfaces/session-store'
 import { IHasher } from '../interfaces/hasher'
 import { SubtleCryptoHasher } from '../adapters/browser/subtle-crypto-hasher'
 import { type EncryptionPolicy, MseSocket } from '../crypto'
-import { concat as concatCrypto, toHex as toHexCrypto } from '../crypto/key-derivation'
+import { toHex as toHexCrypto, computeReq2Hash } from '../crypto/key-derivation'
 import { MemorySessionStore } from '../adapters/memory/memory-session-store'
 import { StorageRootManager } from '../storage/storage-root-manager'
 import type { StorageRoot } from '../storage/types'
@@ -281,6 +281,14 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   private static readonly MAX_PENDING_INCOMING = 50
   /** Track pending incoming connections with their cleanup timers */
   private pendingIncoming = new Set<PeerConnection>()
+
+  // === MSE req2 Map for O(1) Incoming Connection Identification ===
+  /**
+   * Map from hex(SHA1('req2' + infoHash)) to infoHash.
+   * Maintained incrementally as torrents are added/removed.
+   * Used for O(1) lookup during incoming MSE handshakes.
+   */
+  private req2Map = new Map<string, Uint8Array>()
 
   // === Unified Daemon Operation Queue ===
 
@@ -558,20 +566,6 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     }
   }
 
-  /**
-   * Build req2 lookup map from torrents with precomputed hashes.
-   * Used for O(1) MSE incoming connection identification.
-   */
-  private buildReq2Map(): Map<string, Uint8Array> {
-    const map = new Map<string, Uint8Array>()
-    for (const torrent of this.torrents) {
-      if (torrent.req2Hash) {
-        map.set(toHexCrypto(torrent.req2Hash), torrent.infoHash)
-      }
-    }
-    return map
-  }
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async handleIncomingConnection(nativeSocket: any) {
     const rawSocket = this.socketFactory.wrapTcpSocket(nativeSocket)
@@ -600,13 +594,10 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     const shouldHandleMse = this.encryptionPolicy !== 'disabled'
 
     if (shouldHandleMse && this.torrents.length > 0) {
-      // Build O(1) lookup map from precomputed req2 hashes
-      const req2Map = this.buildReq2Map()
-
       const mseSocket = new MseSocket(rawSocket, {
         policy: this.encryptionPolicy,
-        req2Map,
-        sha1: (data) => this.hasher.sha1(data),
+        req2Map: this.req2Map, // Use maintained map for O(1) lookup
+        sha1Batch: (inputs) => this.sha1Batch(inputs),
         getRandomBytes: randomBytes,
       })
 
@@ -751,6 +742,14 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     // Set initial user state
     torrent.userState = options.userState ?? 'active'
 
+    // Precompute req2 hash for MSE incoming connection identification.
+    // This only needs the infoHash (available immediately for all torrents),
+    // so we do it here before any network activity starts.
+    const req2Hash = await computeReq2Hash(torrent.infoHash, (data) => this.hasher.sha1(data))
+    torrent.setReq2Hash(req2Hash)
+    // Add to map for O(1) lookup on incoming connections
+    this.req2Map.set(toHexCrypto(req2Hash), torrent.infoHash)
+
     // Initialize metadata if we have it (torrent file case)
     if (input.infoBuffer && input.parsedTorrent) {
       try {
@@ -818,6 +817,11 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     if (index !== -1) {
       this.torrents.splice(index, 1)
       const infoHash = toHex(torrent.infoHash)
+
+      // Remove from req2 map
+      if (torrent.req2Hash) {
+        this.req2Map.delete(toHexCrypto(torrent.req2Hash))
+      }
 
       // Remove persisted data
       await this.sessionPersistence.removeTorrentData(infoHash)
@@ -919,6 +923,18 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   }
 
   /**
+   * Batch SHA1 computation for MSE handshake.
+   * Uses hasher.sha1Batch if available, otherwise falls back to sequential calls.
+   */
+  private sha1Batch(inputs: Uint8Array[]): Promise<Uint8Array[]> {
+    if (this.hasher.sha1Batch) {
+      return this.hasher.sha1Batch(inputs)
+    }
+    // Fallback: parallel individual calls
+    return Promise.all(inputs.map((input) => this.hasher.sha1(input)))
+  }
+
+  /**
    * Reset a torrent's state (progress, stats, file priorities) without removing it.
    * For magnet torrents, this preserves the infodict so metadata doesn't need to be re-fetched.
    * The torrent will be stopped after reset and needs to be started manually.
@@ -971,31 +987,6 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
 
   getTorrent(infoHash: string): Torrent | undefined {
     return this.torrents.find((t) => toHex(t.infoHash) === infoHash)
-  }
-
-  /**
-   * Precompute req2 hashes for multiple torrents (used on startup/restore).
-   * Uses batch SHA1 if available for efficiency.
-   */
-  async precomputeReq2Hashes(torrents: Torrent[]): Promise<void> {
-    const needsComputation = torrents.filter((t) => t.infoHash && !t.req2Hash)
-    if (needsComputation.length === 0) return
-
-    const textEncoder = new TextEncoder()
-    const req2Prefix = textEncoder.encode('req2')
-
-    const inputs = needsComputation.map((t) => concatCrypto(req2Prefix, t.infoHash))
-
-    let hashes: Uint8Array[]
-    if (this.hasher.sha1Batch && needsComputation.length > 1) {
-      hashes = await this.hasher.sha1Batch(inputs)
-    } else {
-      hashes = await Promise.all(inputs.map((input) => this.hasher.sha1(input)))
-    }
-
-    for (let i = 0; i < needsComputation.length; i++) {
-      needsComputation[i].setReq2Hash(hashes[i])
-    }
   }
 
   async destroy() {

@@ -243,6 +243,38 @@ class PolyfillBindings(
             }
         }
 
+        // __jstorrent_sha1_batch_sync(packed: ArrayBuffer): ArrayBuffer
+        // Synchronous batch SHA1 - computes multiple hashes in one FFI call.
+        // Used for MSE handshake to reduce overhead from 5 calls to 1.
+        //
+        // Input format: [count: u32 LE] then for each: [len: u32 LE] [data: bytes]
+        // Output format: [hash1: 20 bytes] [hash2: 20 bytes] ... (count * 20 bytes)
+        ctx.setGlobalFunctionReturnsBinary("__jstorrent_sha1_batch_sync", 0) { _, binary ->
+            if (binary == null || binary.size < 4) {
+                return@setGlobalFunctionReturnsBinary ByteArray(0)
+            }
+
+            // Parse input
+            val buf = java.nio.ByteBuffer.wrap(binary).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            val count = buf.int
+            if (count <= 0 || count > 100) {
+                // Sanity check: don't allow more than 100 hashes at once
+                return@setGlobalFunctionReturnsBinary ByteArray(0)
+            }
+
+            // Extract each input and compute hashes
+            val results = ByteArray(count * 20)
+            for (i in 0 until count) {
+                val len = buf.int
+                val data = ByteArray(len)
+                buf.get(data)
+                val hash = Hasher.sha1(data)
+                System.arraycopy(hash, 0, results, i * 20, 20)
+            }
+
+            results
+        }
+
         // __jstorrent_sha1_async(data: ArrayBuffer, callbackId: string): void
         // Async version - hashes on background thread, posts result via callback
         //

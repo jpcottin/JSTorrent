@@ -27,7 +27,8 @@ export interface ConnectionConfig {
 /** Context needed for MSE encryption (set by Torrent) */
 export interface EncryptionContext {
   infoHash: Uint8Array
-  sha1: (data: Uint8Array) => Promise<Uint8Array>
+  /** Batch SHA1 function - computes multiple hashes in one call */
+  sha1Batch: (inputs: Uint8Array[]) => Promise<Uint8Array[]>
   getRandomBytes: (length: number) => Uint8Array
 }
 
@@ -207,7 +208,7 @@ export class ConnectionManager {
         const mseSocket = new MseSocket(rawSocket, {
           policy: this.config.encryptionPolicy,
           infoHash: this.encryptionContext!.infoHash,
-          sha1: this.encryptionContext!.sha1,
+          sha1Batch: this.encryptionContext!.sha1Batch,
           getRandomBytes: this.encryptionContext!.getRandomBytes,
         })
 

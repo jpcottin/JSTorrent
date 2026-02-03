@@ -52,6 +52,44 @@ declare global {
 
 export class NativeHasher implements IHasher {
   /**
+   * Compute multiple SHA1 hashes in a single FFI call (synchronous).
+   * Used for MSE handshake to reduce FFI overhead from 5 calls to 1.
+   */
+  async sha1Batch(inputs: Uint8Array[]): Promise<Uint8Array[]> {
+    if (inputs.length === 0) return []
+
+    // Pack inputs: [count: u32 LE] then for each: [len: u32 LE] [data: bytes]
+    let totalSize = 4 // count
+    for (const input of inputs) {
+      totalSize += 4 + input.byteLength // len + data
+    }
+
+    const packed = new ArrayBuffer(totalSize)
+    const view = new DataView(packed)
+    const bytes = new Uint8Array(packed)
+
+    view.setUint32(0, inputs.length, true) // little-endian count
+    let offset = 4
+    for (const input of inputs) {
+      view.setUint32(offset, input.byteLength, true)
+      offset += 4
+      bytes.set(input, offset)
+      offset += input.byteLength
+    }
+
+    // Call native batch function
+    const result = __jstorrent_sha1_batch_sync(packed)
+    const resultBytes = new Uint8Array(result)
+
+    // Unpack results: each hash is 20 bytes
+    const hashes: Uint8Array[] = []
+    for (let i = 0; i < inputs.length; i++) {
+      hashes.push(resultBytes.slice(i * 20, (i + 1) * 20))
+    }
+    return hashes
+  }
+
+  /**
    * Compute SHA1 hash of data (async - doesn't block JS thread).
    */
   async sha1(data: Uint8Array): Promise<Uint8Array> {

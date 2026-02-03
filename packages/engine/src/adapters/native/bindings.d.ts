@@ -326,6 +326,18 @@ declare global {
   function __jstorrent_sha1_async(data: ArrayBuffer, callbackId: string): void
 
   /**
+   * Compute multiple SHA1 hashes in a single call (synchronous).
+   * Used for MSE handshake to reduce FFI overhead.
+   *
+   * Input format: [count: u32 LE] then for each: [len: u32 LE] [data: bytes]
+   * Output format: [hash1: 20 bytes] [hash2: 20 bytes] ... (count * 20 bytes)
+   *
+   * @param packed Packed input data
+   * @returns Packed output hashes (count * 20 bytes)
+   */
+  function __jstorrent_sha1_batch_sync(packed: ArrayBuffer): ArrayBuffer
+
+  /**
    * Callback storage for async hash results.
    * Managed by native-hasher.ts, called via __jstorrent_hash_dispatch_result.
    */

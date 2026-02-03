@@ -17,4 +17,9 @@ export class SubtleCryptoHasher implements IHasher {
     const hashBuffer = await crypto.subtle.digest('SHA-1', buffer)
     return new Uint8Array(hashBuffer)
   }
+
+  async sha1Batch(inputs: Uint8Array[]): Promise<Uint8Array[]> {
+    // SubtleCrypto doesn't have a native batch API, use Promise.all
+    return Promise.all(inputs.map((input) => this.sha1(input)))
+  }
 }

@@ -15,17 +15,27 @@ import {
   CRYPTO_PLAINTEXT,
   MSE_HANDSHAKE_TIMEOUT,
   MSE_SYNC_MAX_BYTES,
+  MSE_KEY_A,
+  MSE_KEY_B,
+  MSE_REQ1,
+  MSE_REQ2,
+  MSE_REQ3,
 } from './constants'
-import {
-  deriveEncryptionKeys,
-  deriveEncryptionKeyBytes,
-  createRC4Pair,
-  computeReq1Hash,
-  computeReq2Xor3,
-  recoverInfoHash,
-  recoverInfoHashWithMap,
-  concat,
-} from './key-derivation'
+import { createRC4Pair, toHex, concat } from './key-derivation'
+
+// Text encoder for hash prefixes
+const encoder = new TextEncoder()
+function encode(str: string): Uint8Array {
+  return encoder.encode(str)
+}
+
+function xor(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const result = new Uint8Array(a.length)
+  for (let i = 0; i < a.length; i++) {
+    result[i] = a[i] ^ b[i]
+  }
+  return result
+}
 
 export type MseRole = 'initiator' | 'responder'
 
@@ -55,7 +65,8 @@ export interface MseHandshakeOptions {
   infoHash?: Uint8Array // Required for initiator
   knownInfoHashes?: Uint8Array[] // For responder to identify torrent (legacy O(N) lookup)
   req2Map?: Map<string, Uint8Array> // For responder (O(1) lookup, preferred)
-  sha1: (data: Uint8Array) => Promise<Uint8Array>
+  /** Batch SHA1 function - computes multiple hashes in one call */
+  sha1Batch: (inputs: Uint8Array[]) => Promise<Uint8Array[]>
   getRandomBytes: (length: number) => Uint8Array
   preferEncrypted?: boolean // Default true
 }
@@ -158,33 +169,29 @@ export class MseHandshake {
     // Compute shared secret
     this.sharedSecret = this.dh.computeSecret(peerPubKey)
 
-    // Derive encryption key bytes (cache for VC sync scanning)
     const infoHash = this.options.infoHash!
-    const keyBytes = await deriveEncryptionKeyBytes(
-      this.sharedSecret,
-      infoHash,
-      true, // isInitiator
-      this.options.sha1,
-    )
-    this.cachedDecryptKey = keyBytes.decryptKey
+    const S = this.sharedSecret
 
-    // Create RC4 ciphers from the key bytes
-    const keys = createRC4Pair(keyBytes.encryptKey, keyBytes.decryptKey)
+    // Batch all 5 SHA1 calls for initiator (down from 5 separate calls)
+    // Order: keyA, keyB, req1, req2, req3
+    const [keyA, keyB, req1Hash, req2, req3] = await this.options.sha1Batch([
+      concat(encode(MSE_KEY_A), S, infoHash), // keyA = SHA1('keyA' + S + infoHash)
+      concat(encode(MSE_KEY_B), S, infoHash), // keyB = SHA1('keyB' + S + infoHash)
+      concat(encode(MSE_REQ1), S), // req1 = SHA1('req1' + S)
+      concat(encode(MSE_REQ2), infoHash), // req2 = SHA1('req2' + infoHash)
+      concat(encode(MSE_REQ3), S), // req3 = SHA1('req3' + S)
+    ])
+
+    // Initiator uses keyA for encrypt, keyB for decrypt
+    this.cachedDecryptKey = keyB
+    const keys = createRC4Pair(keyA, keyB)
     this.encrypt = keys.encrypt
     this.decrypt = keys.decrypt
 
-    // Send PE3
-    await this.sendPe3(onSend, infoHash)
-  }
+    // Compute req2 XOR req3 for torrent identification
+    const req2Xor3 = xor(req2, req3)
 
-  private async sendPe3(onSend: (data: Uint8Array) => void, infoHash: Uint8Array): Promise<void> {
-    // HASH('req1', S) for sync
-    const req1Hash = await computeReq1Hash(this.sharedSecret!, this.options.sha1)
-
-    // HASH('req2', SKEY) XOR HASH('req3', S) for torrent identification
-    const req2Xor3 = await computeReq2Xor3(infoHash, this.sharedSecret!, this.options.sha1)
-
-    // Encrypted payload: VC + crypto_provide + len(padC) + padC + len(IA) + IA
+    // Send PE3: req1Hash + req2Xor3 + encrypted(VC + crypto_provide + padding)
     const padCLen = Math.floor(Math.random() * 512)
     const padC = this.options.getRandomBytes(padCLen)
 
@@ -199,7 +206,7 @@ export class MseHandshake {
     new DataView(encryptedPart.buffer).setUint16(14 + padCLen, iaLen, false)
 
     // Encrypt with handshake key
-    const encrypted = this.encrypt!.process(encryptedPart)
+    const encrypted = this.encrypt.process(encryptedPart)
 
     onSend(concat(req1Hash, req2Xor3, encrypted))
     this.state = 'waiting_vc_sync'
@@ -382,8 +389,9 @@ export class MseHandshake {
     const padding = this.options.getRandomBytes(padLen)
     onSend(concat(myPubKey, padding))
 
-    // Compute the req1 hash we're looking for
-    this.req1Hash = await computeReq1Hash(this.sharedSecret, this.options.sha1)
+    // Compute the req1 hash we're looking for (single hash, can't batch here)
+    const [req1] = await this.options.sha1Batch([concat(encode(MSE_REQ1), this.sharedSecret)])
+    this.req1Hash = req1
     this.state = 'waiting_req1_sync'
     this.syncBytesSearched = 0
   }
@@ -422,25 +430,35 @@ export class MseHandshake {
 
     const xorValue = this.buffer.slice(0, 20)
     this.buffer = this.buffer.slice(20)
+    const S = this.sharedSecret!
 
-    // Recover info hash using O(1) map lookup if available, otherwise fall back to O(N) iteration
+    // Compute req3 = SHA1('req3' + S)
+    const [req3] = await this.options.sha1Batch([concat(encode(MSE_REQ3), S)])
+
+    // XOR to recover req2
+    const req2Computed = xor(xorValue, req3)
+
+    // Recover info hash using O(1) map lookup if available
     let infoHash: Uint8Array | null = null
     if (this.options.req2Map) {
       // Fast path: O(1) lookup using precomputed req2 hashes
-      infoHash = await recoverInfoHashWithMap(
-        xorValue,
-        this.sharedSecret!,
-        this.options.req2Map,
-        this.options.sha1,
-      )
+      infoHash = this.options.req2Map.get(toHex(req2Computed)) ?? null
     } else if (this.options.knownInfoHashes) {
-      // Legacy path: O(N) iteration
-      infoHash = await recoverInfoHash(
-        xorValue,
-        this.sharedSecret!,
-        this.options.knownInfoHashes,
-        this.options.sha1,
-      )
+      // Legacy path: O(N) iteration - compute req2 for each known hash
+      for (const candidate of this.options.knownInfoHashes) {
+        const [expected] = await this.options.sha1Batch([concat(encode(MSE_REQ2), candidate)])
+        let match = true
+        for (let i = 0; i < 20; i++) {
+          if (req2Computed[i] !== expected[i]) {
+            match = false
+            break
+          }
+        }
+        if (match) {
+          infoHash = candidate
+          break
+        }
+      }
     }
 
     if (!infoHash) {
@@ -450,13 +468,13 @@ export class MseHandshake {
 
     this.recoveredInfoHash = infoHash
 
-    // Derive encryption keys
-    const keys = await deriveEncryptionKeys(
-      this.sharedSecret!,
-      infoHash,
-      false, // isInitiator = false (responder)
-      this.options.sha1,
-    )
+    // Batch keyA + keyB (responder uses keyB for encrypt, keyA for decrypt)
+    const [keyA, keyB] = await this.options.sha1Batch([
+      concat(encode(MSE_KEY_A), S, infoHash),
+      concat(encode(MSE_KEY_B), S, infoHash),
+    ])
+
+    const keys = createRC4Pair(keyB, keyA) // Responder: encrypt=keyB, decrypt=keyA
     this.encrypt = keys.encrypt
     this.decrypt = keys.decrypt
 

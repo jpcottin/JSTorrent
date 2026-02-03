@@ -11,4 +11,13 @@ export class NodeHasher implements IHasher {
     hash.update(data)
     return new Uint8Array(hash.digest())
   }
+
+  async sha1Batch(inputs: Uint8Array[]): Promise<Uint8Array[]> {
+    // Node crypto is synchronous, just map over inputs
+    return inputs.map((data) => {
+      const hash = crypto.createHash('sha1')
+      hash.update(data)
+      return new Uint8Array(hash.digest())
+    })
+  }
 }
