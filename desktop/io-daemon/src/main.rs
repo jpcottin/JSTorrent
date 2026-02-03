@@ -9,6 +9,7 @@ const X_PATH_BASE64: HeaderName = HeaderName::from_static("x-path-base64");
 const X_OFFSET: HeaderName = HeaderName::from_static("x-offset");
 const X_LENGTH: HeaderName = HeaderName::from_static("x-length");
 const X_EXPECTED_SHA1: HeaderName = HeaderName::from_static("x-expected-sha1");
+const X_SHA_REASON: HeaderName = HeaderName::from_static("x-sha-reason");
 use clap::Parser;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -332,6 +333,7 @@ fn build_cors_layer(extension_id: Option<&str>, allow_any: bool) -> CorsLayer {
         X_OFFSET,
         X_LENGTH,
         X_EXPECTED_SHA1,
+        X_SHA_REASON,
     ];
 
     if allow_any {

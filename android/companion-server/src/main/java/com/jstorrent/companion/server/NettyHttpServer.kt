@@ -529,10 +529,12 @@ private class NettyHttpHandler(
             return
         }
 
+        val reason = request.headers().get("X-SHA-Reason") ?: "unknown"
         val content = request.content()
         val bytes = ByteArray(content.readableBytes())
         content.readBytes(bytes)
 
+        Log.d(TAG, "SHA1: ${bytes.size} bytes, reason=$reason")
         val hash = com.jstorrent.io.hash.Hasher.sha1(bytes)
         sendBinaryResponse(ctx, request, HttpResponseStatus.OK, hash)
     }
@@ -554,6 +556,7 @@ private class NettyHttpHandler(
             return
         }
 
+        val reason = request.headers().get("X-SHA-Reason") ?: "unknown"
         val body = request.content()
 
         if (body.readableBytes() < 4) {
@@ -568,6 +571,7 @@ private class NettyHttpHandler(
             return
         }
 
+        Log.d(TAG, "SHA1 batch: $count hashes, reason=$reason")
         val results = ByteArray(count * 20)
         val md = java.security.MessageDigest.getInstance("SHA-1")
 
@@ -927,7 +931,7 @@ private class NettyHttpHandler(
         addCorsHeaders(response, request)
         response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, PUT, DELETE, OPTIONS")
         response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS,
-            "Content-Type, Authorization, X-Requested-With, X-JST-Auth, X-JST-ExtensionId, X-JST-InstallId, X-Path-Base64, X-Offset, X-Length, X-Expected-SHA1")
+            "Content-Type, Authorization, X-Requested-With, X-JST-Auth, X-JST-ExtensionId, X-JST-InstallId, X-Path-Base64, X-Offset, X-Length, X-Expected-SHA1, X-SHA-Reason")
         response.headers().set(HttpHeaderNames.CONTENT_LENGTH, 0)
         ctx.writeAndFlush(response)
     }

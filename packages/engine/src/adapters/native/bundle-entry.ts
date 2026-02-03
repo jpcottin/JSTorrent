@@ -101,14 +101,24 @@ const jstorrentApi = {
         }
 
         engine = createNativeEngine(nativeConfig)
+
+        // Initialize subscription manager FIRST (before async work)
+        // This ensures __jstorrent_subscribe is available when Kotlin calls it
+        // after seeing engineReady=true
+        const subscriptionManager = initSubscriptionManager(engine, (payload) => {
+          __jstorrent_on_state_update(payload)
+        })
+        setupSubscriptionBindings(subscriptionManager)
+
+        // Now safe to mark engine as ready - subscription bindings are registered
         engineReady = true
 
         // Restore session and resume engine
         // Startup sequence:
         // 1. Engine created in suspended state
-        // 2. Session restored (torrents re-added)
-        // 3. Engine resumed (networking starts)
-        // 4. Subscription manager initialized (UI subscribes for state)
+        // 2. Subscription bindings registered (UI can subscribe immediately)
+        // 3. Session restored (torrents re-added)
+        // 4. Engine resumed (networking starts, subscriptions start pushing)
         try {
           const restored = await engine.restoreSession()
           if (restored > 0) {
@@ -120,13 +130,6 @@ const jstorrentApi = {
 
         // Resume engine after restoration
         engine.resume()
-
-        // Initialize subscription manager (push-only model)
-        // UI subscribes to data it needs, engine pushes all subscribed data
-        const subscriptionManager = initSubscriptionManager(engine, (payload) => {
-          __jstorrent_on_state_update(payload)
-        })
-        setupSubscriptionBindings(subscriptionManager)
 
         console.log('JSTorrent engine initialized')
       } catch (e) {

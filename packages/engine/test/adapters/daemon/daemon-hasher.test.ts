@@ -25,6 +25,7 @@ describe('DaemonHasher', () => {
       '/hash/sha1',
       undefined,
       testData,
+      undefined,
     )
     expect(result).toBeInstanceOf(Uint8Array)
     expect(result.length).toBe(20)
@@ -49,6 +50,7 @@ describe('DaemonHasher', () => {
       '/hash/sha1',
       undefined,
       testData,
+      undefined,
     )
     expect(result).toEqual(mockHash)
   })
@@ -62,6 +64,24 @@ describe('DaemonHasher', () => {
     const hasher = new DaemonHasher(mockConnection as any)
 
     await expect(hasher.sha1(testData)).rejects.toThrow('Connection failed')
+  })
+
+  it('sha1() passes reason as X-Reason header', async () => {
+    const testData = new Uint8Array([1, 2, 3, 4])
+    const mockHash = new Uint8Array(20).fill(0xab)
+
+    mockConnection.requestBinary.mockResolvedValue(mockHash)
+
+    const hasher = new DaemonHasher(mockConnection as any)
+    await hasher.sha1(testData, 'piece-verify')
+
+    expect(mockConnection.requestBinary).toHaveBeenCalledWith(
+      'POST',
+      '/hash/sha1',
+      undefined,
+      testData,
+      { 'X-SHA-Reason': 'piece-verify' },
+    )
   })
 
   describe('sha1Batch()', () => {
@@ -88,6 +108,7 @@ describe('DaemonHasher', () => {
         '/hash/sha1',
         undefined,
         testData,
+        undefined,
       )
       expect(result).toHaveLength(1)
       expect(result[0]).toEqual(mockHash)
@@ -115,6 +136,7 @@ describe('DaemonHasher', () => {
         '/hash/sha1/batch',
         undefined,
         expect.any(Uint8Array),
+        undefined,
       )
 
       // Verify encoding format: count (4) + len1 (4) + data1 (3) + len2 (4) + data2 (2) = 17 bytes
@@ -146,6 +168,25 @@ describe('DaemonHasher', () => {
       const hasher = new DaemonHasher(mockConnection as any)
       await expect(hasher.sha1Batch([new Uint8Array([1]), new Uint8Array([2])])).rejects.toThrow(
         'Batch failed',
+      )
+    })
+
+    it('passes reason as X-Reason header', async () => {
+      const input1 = new Uint8Array([1, 2, 3])
+      const input2 = new Uint8Array([4, 5])
+      const mockResponse = new Uint8Array(40).fill(0xcc)
+
+      mockConnection.requestBinary.mockResolvedValue(mockResponse)
+
+      const hasher = new DaemonHasher(mockConnection as any)
+      await hasher.sha1Batch([input1, input2], 'mse-init')
+
+      expect(mockConnection.requestBinary).toHaveBeenCalledWith(
+        'POST',
+        '/hash/sha1/batch',
+        undefined,
+        expect.any(Uint8Array),
+        { 'X-SHA-Reason': 'mse-init' },
       )
     })
   })

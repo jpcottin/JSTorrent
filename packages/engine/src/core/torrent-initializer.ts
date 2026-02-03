@@ -54,7 +54,9 @@ export async function initializeTorrentMetadata(
   // Precompute req2 hash for MSE incoming connection identification
   // (skip if already computed in addTorrent - magnets compute earlier)
   if (!torrent.req2Hash) {
-    const req2Hash = await computeReq2Hash(torrent.infoHash, (data) => engine.hasher.sha1(data))
+    const req2Hash = await computeReq2Hash(torrent.infoHash, (data) =>
+      engine.hasher.sha1(data, 'mse-req2'),
+    )
     torrent.setReq2Hash(req2Hash)
   }
 

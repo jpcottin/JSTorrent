@@ -5,7 +5,7 @@ import { IHasher } from '../../interfaces/hasher'
  * Only works in secure contexts (HTTPS, extensions, localhost in some browsers).
  */
 export class SubtleCryptoHasher implements IHasher {
-  async sha1(data: Uint8Array): Promise<Uint8Array> {
+  async sha1(data: Uint8Array, _reason?: string): Promise<Uint8Array> {
     if (!crypto?.subtle) {
       throw new Error('crypto.subtle not available (requires secure context)')
     }
@@ -18,7 +18,7 @@ export class SubtleCryptoHasher implements IHasher {
     return new Uint8Array(hashBuffer)
   }
 
-  async sha1Batch(inputs: Uint8Array[]): Promise<Uint8Array[]> {
+  async sha1Batch(inputs: Uint8Array[], _reason?: string): Promise<Uint8Array[]> {
     // SubtleCrypto doesn't have a native batch API, use Promise.all
     return Promise.all(inputs.map((input) => this.sha1(input)))
   }

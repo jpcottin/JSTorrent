@@ -8,14 +8,15 @@ import { DaemonConnection } from './daemon-connection'
 export class DaemonHasher implements IHasher {
   constructor(private connection: DaemonConnection) {}
 
-  async sha1(data: Uint8Array): Promise<Uint8Array> {
+  async sha1(data: Uint8Array, reason?: string): Promise<Uint8Array> {
+    const headers = reason ? { 'X-SHA-Reason': reason } : undefined
     // Returns raw 20 bytes, not hex
-    return this.connection.requestBinary('POST', '/hash/sha1', undefined, data)
+    return this.connection.requestBinary('POST', '/hash/sha1', undefined, data, headers)
   }
 
-  async sha1Batch(inputs: Uint8Array[]): Promise<Uint8Array[]> {
+  async sha1Batch(inputs: Uint8Array[], reason?: string): Promise<Uint8Array[]> {
     if (inputs.length === 0) return []
-    if (inputs.length === 1) return [await this.sha1(inputs[0])]
+    if (inputs.length === 1) return [await this.sha1(inputs[0], reason)]
 
     // Encode length-prefixed format:
     // count (u32 LE), then [len (u32 LE), data] for each input
@@ -38,11 +39,13 @@ export class DaemonHasher implements IHasher {
       offset += input.length
     }
 
+    const headers = reason ? { 'X-SHA-Reason': reason } : undefined
     const resultBytes = await this.connection.requestBinary(
       'POST',
       '/hash/sha1/batch',
       undefined,
       bytes,
+      headers,
     )
 
     // Parse concatenated 20-byte hashes

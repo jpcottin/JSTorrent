@@ -453,8 +453,8 @@ export class Torrent extends EngineComponent {
     this._connectionManager.setEncryptionContext({
       infoHash: this.infoHash,
       sha1Batch: hasher.sha1Batch
-        ? (inputs) => hasher.sha1Batch!(inputs)
-        : (inputs) => Promise.all(inputs.map((i) => hasher.sha1(i))),
+        ? (inputs, reason) => hasher.sha1Batch!(inputs, reason)
+        : (inputs, reason) => Promise.all(inputs.map((i) => hasher.sha1(i, reason))),
       getRandomBytes: randomBytes,
     })
 
@@ -473,7 +473,7 @@ export class Torrent extends EngineComponent {
     this._metadataFetcher = new MetadataFetcher({
       engine: this.engineInstance,
       infoHash: this.infoHash,
-      sha1: (data: Uint8Array) => this.btEngine.hasher.sha1(data),
+      sha1: (data: Uint8Array) => this.btEngine.hasher.sha1(data, 'metadata-verify'),
     })
     this._metadataFetcher.on('metadata', (buffer) => {
       this._cachedInfoDict = undefined // Clear cache so infoDict getter re-parses
@@ -2442,7 +2442,7 @@ export class Torrent extends EngineComponent {
     if (isBoundaryPiece && this._partsFile) {
       // Boundary piece: verify hash then store in .parts file
       if (expectedHash) {
-        const actualHash = await this.btEngine.hasher.sha1(pieceData)
+        const actualHash = await this.btEngine.hasher.sha1(pieceData, 'piece-verify')
         if (compare(actualHash, expectedHash) !== 0) {
           this.handleHashMismatch(index, contributors)
           return
@@ -2508,7 +2508,7 @@ export class Torrent extends EngineComponent {
 
           if (!usedVerifiedWrite && expectedHash) {
             // Verified write not available - verify hash in TypeScript
-            const actualHash = await this.btEngine.hasher.sha1(pieceData)
+            const actualHash = await this.btEngine.hasher.sha1(pieceData, 'piece-verify')
             if (compare(actualHash, expectedHash) !== 0) {
               this.handleHashMismatch(index, contributors)
               return
@@ -2594,7 +2594,7 @@ export class Torrent extends EngineComponent {
         }
       } else if (expectedHash) {
         // No storage but have hash - verify anyway (shouldn't happen in practice)
-        const actualHash = await this.btEngine.hasher.sha1(pieceData)
+        const actualHash = await this.btEngine.hasher.sha1(pieceData, 'piece-verify')
         if (compare(actualHash, expectedHash) !== 0) {
           this.handleHashMismatch(index, contributors)
           return
@@ -2666,7 +2666,7 @@ export class Torrent extends EngineComponent {
 
       if (!usedVerifiedWrite && expectedHash) {
         // Verified write not available - verify hash in TypeScript
-        const actualHash = await this.btEngine.hasher.sha1(pieceData)
+        const actualHash = await this.btEngine.hasher.sha1(pieceData, 'piece-verify')
         if (compare(actualHash, expectedHash) !== 0) {
           // Hash mismatch during retry - this shouldn't happen since we already
           // verified the data, but handle it anyway
@@ -2848,7 +2848,7 @@ export class Torrent extends EngineComponent {
     const data = await this.contentStorage.read(index, 0, pieceLength)
 
     // Calculate SHA1
-    const hash = await this.btEngine.hasher.sha1(data)
+    const hash = await this.btEngine.hasher.sha1(data, 'piece-upload-verify')
 
     // Compare
     return compare(hash, expectedHash) === 0
@@ -3056,7 +3056,7 @@ export class Torrent extends EngineComponent {
     }
 
     // Calculate SHA1
-    const hash = await this.btEngine.hasher.sha1(data)
+    const hash = await this.btEngine.hasher.sha1(data, 'piece-upload-verify')
 
     // Compare
     return compare(hash, expectedHash) === 0

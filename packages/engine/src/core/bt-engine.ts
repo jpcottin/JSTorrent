@@ -597,7 +597,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       const mseSocket = new MseSocket(rawSocket, {
         policy: this.encryptionPolicy,
         req2Map: this.req2Map, // Use maintained map for O(1) lookup
-        sha1Batch: (inputs) => this.sha1Batch(inputs),
+        sha1Batch: (inputs, reason) => this.sha1Batch(inputs, reason),
         getRandomBytes: randomBytes,
       })
 
@@ -745,7 +745,9 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     // Precompute req2 hash for MSE incoming connection identification.
     // This only needs the infoHash (available immediately for all torrents),
     // so we do it here before any network activity starts.
-    const req2Hash = await computeReq2Hash(torrent.infoHash, (data) => this.hasher.sha1(data))
+    const req2Hash = await computeReq2Hash(torrent.infoHash, (data) =>
+      this.hasher.sha1(data, 'mse-req2'),
+    )
     torrent.setReq2Hash(req2Hash)
     // Add to map for O(1) lookup on incoming connections
     this.req2Map.set(toHexCrypto(req2Hash), torrent.infoHash)
@@ -926,12 +928,12 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
    * Batch SHA1 computation for MSE handshake.
    * Uses hasher.sha1Batch if available, otherwise falls back to sequential calls.
    */
-  private sha1Batch(inputs: Uint8Array[]): Promise<Uint8Array[]> {
+  private sha1Batch(inputs: Uint8Array[], reason?: string): Promise<Uint8Array[]> {
     if (this.hasher.sha1Batch) {
-      return this.hasher.sha1Batch(inputs)
+      return this.hasher.sha1Batch(inputs, reason)
     }
     // Fallback: parallel individual calls
-    return Promise.all(inputs.map((input) => this.hasher.sha1(input)))
+    return Promise.all(inputs.map((input) => this.hasher.sha1(input, reason)))
   }
 
   /**

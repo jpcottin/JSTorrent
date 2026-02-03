@@ -173,7 +173,7 @@ export class TorrentCreator {
           remaining -= bytesRead
 
           if (bufferOffset === pieceLength) {
-            pieceHashes.push(await hasher.sha1(buffer))
+            pieceHashes.push(await hasher.sha1(buffer, 'torrent-create'))
             bufferOffset = 0
           }
         }
@@ -184,7 +184,7 @@ export class TorrentCreator {
 
     // Hash last partial piece
     if (bufferOffset > 0) {
-      pieceHashes.push(await hasher.sha1(buffer.slice(0, bufferOffset)))
+      pieceHashes.push(await hasher.sha1(buffer.slice(0, bufferOffset), 'torrent-create'))
     }
 
     // Concatenate all hashes

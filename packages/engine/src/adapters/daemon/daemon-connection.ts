@@ -500,6 +500,7 @@ export class DaemonConnection {
     path: string,
     params?: Record<string, string | number | boolean>,
     body?: Uint8Array,
+    extraHeaders?: Record<string, string>,
   ): Promise<Uint8Array> {
     const url = new URL(path, this.baseUrl)
     if (params) {
@@ -512,6 +513,7 @@ export class DaemonConnection {
 
     const headers: Record<string, string> = {
       ...this.getHttpHeaders(),
+      ...extraHeaders,
     }
 
     const response = await fetch(url.toString(), {

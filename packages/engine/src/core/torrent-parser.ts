@@ -47,7 +47,7 @@ export class TorrentParser {
     const createdBy = safeDecodeText(decoded['created by'])
     const creationDate = decoded['creation date'] as number | undefined
 
-    const infoHash = await hasher.sha1(infoBuffer)
+    const infoHash = await hasher.sha1(infoBuffer, 'info-hash')
     return this.parseInfoDictionary(
       info,
       infoHash,
@@ -62,7 +62,7 @@ export class TorrentParser {
 
   static async parseInfoBuffer(infoBuffer: Uint8Array, hasher: IHasher): Promise<ParsedTorrent> {
     const info = Bencode.decode(infoBuffer)
-    const infoHash = await hasher.sha1(infoBuffer)
+    const infoHash = await hasher.sha1(infoBuffer, 'info-hash')
     return this.parseInfoDictionary(info, infoHash, undefined, undefined, infoBuffer)
   }
 

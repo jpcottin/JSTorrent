@@ -54,6 +54,12 @@ class EngineServiceRepository(
     private var connectedController: EngineController? = null
     private var collectionJobs: List<Job> = emptyList()
 
+    // Track pending subscription visibility count for when controller isn't available yet.
+    // This handles the race condition where screens call resumeSubscriptions() before
+    // the engine is loaded. When the controller becomes available, we replay the count.
+    private var pendingVisibilityCount = 0
+    private val visibilityLock = Any()
+
     init {
         // Continuously monitor for engine controller availability
         // Reconnects when engine is restarted
@@ -80,6 +86,17 @@ class EngineServiceRepository(
                         launch { currentController.isLoaded.collect { _isLoaded.value = it } },
                         launch { currentController.lastError.collect { _lastError.value = it } }
                     )
+
+                    // Replay pending visibility count that was tracked before controller was available.
+                    // This handles the case where screens called resumeSubscriptions() before engine loaded.
+                    val countToReplay = synchronized(visibilityLock) {
+                        val count = pendingVisibilityCount
+                        pendingVisibilityCount = 0
+                        count
+                    }
+                    repeat(countToReplay) {
+                        currentController.resumeSubscriptions()
+                    }
                 }
 
                 delay(50)
@@ -179,10 +196,26 @@ class EngineServiceRepository(
     }
 
     override fun pauseSubscriptions() {
-        controller?.pauseSubscriptions()
+        val ctrl = controller
+        if (ctrl != null) {
+            ctrl.pauseSubscriptions()
+        } else {
+            // Controller not available yet - track pending state for later replay
+            synchronized(visibilityLock) {
+                pendingVisibilityCount = maxOf(0, pendingVisibilityCount - 1)
+            }
+        }
     }
 
     override fun resumeSubscriptions() {
-        controller?.resumeSubscriptions()
+        val ctrl = controller
+        if (ctrl != null) {
+            ctrl.resumeSubscriptions()
+        } else {
+            // Controller not available yet - track pending state for later replay
+            synchronized(visibilityLock) {
+                pendingVisibilityCount++
+            }
+        }
     }
 }

@@ -22,7 +22,7 @@ export interface MseSocketOptions {
   knownInfoHashes?: Uint8Array[] // For incoming connections (legacy O(N) lookup)
   req2Map?: Map<string, Uint8Array> // For incoming connections (O(1) lookup, preferred)
   /** Batch SHA1 function - computes multiple hashes in one call */
-  sha1Batch: (inputs: Uint8Array[]) => Promise<Uint8Array[]>
+  sha1Batch: (inputs: Uint8Array[], reason?: string) => Promise<Uint8Array[]>
   getRandomBytes: (length: number) => Uint8Array
   onInfoHashRecovered?: (infoHash: Uint8Array) => void // For incoming
 }

@@ -28,7 +28,7 @@ export interface ConnectionConfig {
 export interface EncryptionContext {
   infoHash: Uint8Array
   /** Batch SHA1 function - computes multiple hashes in one call */
-  sha1Batch: (inputs: Uint8Array[]) => Promise<Uint8Array[]>
+  sha1Batch: (inputs: Uint8Array[], reason?: string) => Promise<Uint8Array[]>
   getRandomBytes: (length: number) => Uint8Array
 }
 
