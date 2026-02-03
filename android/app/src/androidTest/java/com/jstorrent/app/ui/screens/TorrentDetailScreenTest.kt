@@ -12,6 +12,7 @@ import com.jstorrent.app.viewmodel.FakeTorrentRepository
 import com.jstorrent.app.viewmodel.TorrentDetailViewModel
 import com.jstorrent.app.viewmodel.createTestTorrent
 import com.jstorrent.quickjs.model.FileInfo
+import com.jstorrent.quickjs.model.FileListResponse
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -170,8 +171,8 @@ class TorrentDetailScreenTest {
         fakeRepository.setLoaded(true)
         fakeRepository.setTorrents(listOf(createTestTorrent(testInfoHash)))
         fakeRepository.filesData = mapOf(
-            testInfoHash to listOf(
-                FileInfo(0, "movie.mp4", 1000000, 500000, 0.5)
+            testInfoHash to FileListResponse(
+                files = listOf(FileInfo(0, "movie.mp4", 1000000, 500000, 0.5))
             )
         )
         viewModel = createViewModel()
