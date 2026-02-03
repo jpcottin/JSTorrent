@@ -111,13 +111,13 @@ class LazyEngineStartupTest {
         val testMagnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Test"
         controller.addTorrentAsync(testMagnet)
 
-        // Wait for torrent to be added
+        // Wait for torrent to be added, then query directly
         delay(500)
 
-        // Verify torrent was added (state should have at least one torrent)
-        val state = controller.state.value
-        assertNotNull("State should not be null", state)
-        assertTrue("Should have at least one torrent", state?.torrents?.isNotEmpty() == true)
+        // Verify torrent was added by querying the engine directly
+        // (state.value is async and may not be updated yet)
+        val torrents = controller.getTorrentListAsync()
+        assertTrue("Should have at least one torrent", torrents.isNotEmpty())
     }
 
     @Test

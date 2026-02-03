@@ -77,12 +77,13 @@ private val maxUploadSlotsPresets = listOf(
 )
 
 private val maxPipelineDepthPresets = listOf(
-    ConnectionLimitPreset(10, "10 (conservative)"),
+    ConnectionLimitPreset(10, "10 (low)"),
     ConnectionLimitPreset(25, "25"),
-    ConnectionLimitPreset(50, "50 (default)"),
+    ConnectionLimitPreset(50, "50 (conservative)"),
     ConnectionLimitPreset(100, "100"),
     ConnectionLimitPreset(250, "250"),
-    ConnectionLimitPreset(500, "500 (aggressive)")
+    ConnectionLimitPreset(500, "500 (default)"),
+    ConnectionLimitPreset(750, "750 (aggressive)")
 )
 
 @OptIn(ExperimentalMaterial3Api::class)

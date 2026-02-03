@@ -18,17 +18,17 @@ JSTorrent is the torrent client that truly runs everywhere, powered by a single 
 │    Only the I/O layer differs.                                     │
 └────────────────────────────────────────────────────────────────────┘
                                   │
-    ┌──────────────┬──────────────┼──────────────┬──────────────┐
-    │              │              │              │              │
-    ▼              ▼              ▼              ▼              ▼
-┌────────┐  ┌────────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
-│ Chrome │  │ Any Browser│  │ QuickJS  │  │   JSC    │  │ Chrome   │
-│  ext   │  │ (no ext)   │  │          │  │          │  │  ext     │
-│        │  │            │  │          │  │          │  │          │
-│Desktop │  │ jstorrent  │  │ Android  │  │   iOS    │  │ ChromeOS │
-│Rust IO │  │ .com +     │  │standalone│  │standalone│  │Kotlin IO │
-│        │  │ Rust IO    │  │          │  │          │  │          │
-└────────┘  └────────────┘  └──────────┘  └──────────┘  └──────────┘
+    ┌──────────────┬──────────────┼──────────────┬──────────────┬──────────────┐
+    │              │              │              │              │              │
+    ▼              ▼              ▼              ▼              ▼              ▼
+┌────────┐  ┌────────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+│ Chrome │  │ Any Browser│  │  Tauri   │  │ QuickJS  │  │   JSC    │  │ Chrome   │
+│  ext   │  │ (no ext)   │  │ WebView  │  │          │  │          │  │  ext     │
+│        │  │            │  │          │  │          │  │          │  │          │
+│Desktop │  │ jstorrent  │  │ Desktop  │  │ Android  │  │   iOS    │  │ ChromeOS │
+│Rust IO │  │ .com +     │  │standalone│  │standalone│  │standalone│  │Kotlin IO │
+│        │  │ Rust IO    │  │ Rust IO  │  │          │  │          │  │          │
+└────────┘  └────────────┘  └──────────┘  └──────────┘  └──────────┘  └──────────┘
 ```
 
 **Why this matters:**
@@ -46,11 +46,12 @@ JSTorrent is the torrent client that truly runs everywhere, powered by a single 
 |----------|------------|-----------|-----|--------------|
 | Desktop (Linux/Win/Mac) | Chrome V8 (extension) | Rust native host | Web (React/Solid) | Chrome Web Store + installers |
 | Desktop (any browser) | Any browser V8* | Rust native host | Web (React/Solid) | jstorrent.com + installers |
+| Desktop (standalone) | Tauri webview | Rust (Tauri commands) | Web (React/Solid) | Direct download (Tauri installer) |
 | ChromeOS | Chrome V8 (extension) | Kotlin companion | Web (React/Solid) | Chrome Web Store + Play Store |
 | Android Standalone | QuickJS | Kotlin io-core | Jetpack Compose | Play Store |
 | iOS | JavaScriptCore | Swift io-core | SwiftUI | App Store / AltStore / Sideload |
 
-\* Works in Firefox, Edge, Brave, etc. via jstorrent.com connecting to localhost. Safari excluded (127.0.0.1 not a secure context).
+\* Works in Firefox, Edge, Brave, etc. via jstorrent.com connecting to localhost. Safari excluded (127.0.0.1 not a secure context). Safari users can use the standalone Tauri app instead.
 
 ---
 

@@ -169,12 +169,13 @@ class TorrentDetailScreenTest {
     @Test
     fun tabs_switchContent() {
         fakeRepository.setLoaded(true)
-        fakeRepository.setTorrents(listOf(createTestTorrent(testInfoHash)))
+        // Set filesData BEFORE setTorrents - setTorrents includes filesData in state
         fakeRepository.filesData = mapOf(
             testInfoHash to FileListResponse(
                 files = listOf(FileInfo(0, "movie.mp4", 1000000, 500000, 0.5))
             )
         )
+        fakeRepository.setTorrents(listOf(createTestTorrent(testInfoHash)))
         viewModel = createViewModel()
 
         composeTestRule.setContent {
@@ -220,7 +221,7 @@ class TorrentDetailScreenTest {
         }
 
         // Click pause button
-        composeTestRule.onNodeWithContentDescription("Pause").performClick()
+        composeTestRule.onNodeWithContentDescription("Pause torrent").performClick()
 
         // Verify pause was called
         assert(fakeRepository.pausedTorrents.contains(testInfoHash)) {
@@ -250,7 +251,7 @@ class TorrentDetailScreenTest {
         }
 
         // Resume button should be visible when paused
-        composeTestRule.onNodeWithContentDescription("Resume").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Resume torrent").assertIsDisplayed()
     }
 
     @Test
