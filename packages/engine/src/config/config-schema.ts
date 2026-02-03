@@ -459,7 +459,7 @@ export const configSchema = {
     type: 'boolean',
     category: 'setting',
     storage: 'sync',
-    default: false,
+    default: true,
     extensionOnly: true,
   },
 

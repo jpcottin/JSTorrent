@@ -21,9 +21,11 @@ import com.jstorrent.quickjs.model.TorrentSummary
 import com.jstorrent.quickjs.model.FileInfo
 import com.jstorrent.quickjs.model.PeerInfo
 import com.jstorrent.quickjs.model.TrackerInfo
+import com.jstorrent.app.storage.RootStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -50,8 +52,11 @@ data class FileState(
 class TorrentDetailViewModel(
     private val repository: TorrentRepository,
     private val infoHash: String,
+    private val rootStore: RootStore? = null,
     private val onEnsureEngineStarted: () -> Unit = {},
-    private val trackerRefreshEnabled: Boolean = true
+    private val trackerRefreshEnabled: Boolean = true,
+    private val getDhtEnabled: () -> Boolean = { true },
+    private val getPexEnabled: () -> Boolean = { true }
 ) : ViewModel() {
 
     init {
@@ -99,6 +104,9 @@ class TorrentDetailViewModel(
     // Cached torrent details (fetched asynchronously)
     private val _cachedDetails = MutableStateFlow<TorrentDetails?>(null)
 
+    // Cached root key from files subscription (for save location display)
+    private val _cachedRootKey = MutableStateFlow<String?>(null)
+
     // Local bitfield maintained from initial fetch + diffs
     private val _pieceBitfield = MutableStateFlow<BitSet?>(null)
 
@@ -110,6 +118,14 @@ class TorrentDetailViewModel(
 
     // Track current subscription type to avoid redundant subscribe calls
     private var currentSubscriptionType: String? = null
+
+    // Pending action state - true when pause/resume has been requested but engine hasn't responded yet
+    // This provides immediate visual feedback when user taps play/pause
+    private val _isPendingAction = MutableStateFlow(false)
+    val isPendingAction: StateFlow<Boolean> = _isPendingAction.asStateFlow()
+
+    // Track last known status to detect when engine has responded
+    private var lastKnownStatus: String? = null
 
     // Note: trackerRefreshEnabled parameter is now unused (subscriptions replace polling)
     // Kept for API compatibility with existing tests
@@ -132,8 +148,9 @@ class TorrentDetailViewModel(
                 if (state?.torrents?.any { it.infoHash == infoHash } != true) return@collect
 
                 // Populate cached flows from subscription data
-                state.files?.get(infoHash)?.let { files ->
-                    _cachedFiles.value = files
+                state.files?.get(infoHash)?.let { filesData ->
+                    _cachedFiles.value = filesData.files
+                    _cachedRootKey.value = filesData.rootKey
                 }
                 state.trackers?.get(infoHash)?.let { trackers ->
                     _cachedTrackers.value = trackers
@@ -180,6 +197,24 @@ class TorrentDetailViewModel(
                     }
                 }
         }
+
+        // Clear pending action state when torrent status changes.
+        // This provides the "response" half of the immediate feedback loop.
+        viewModelScope.launch {
+            repository.state.collect { state ->
+                val torrent = state?.torrents?.find { it.infoHash == infoHash }
+                if (torrent != null && _isPendingAction.value) {
+                    val currentStatus = torrent.status
+                    if (lastKnownStatus != null && currentStatus != lastKnownStatus) {
+                        // Status changed, clear pending state
+                        _isPendingAction.value = false
+                    }
+                    lastKnownStatus = currentStatus
+                } else if (torrent != null) {
+                    lastKnownStatus = torrent.status
+                }
+            }
+        }
     }
 
     /**
@@ -188,12 +223,12 @@ class TorrentDetailViewModel(
      */
     private fun subscribeForTab(tab: DetailTab) {
         val (type, intervalMs) = when (tab) {
-            DetailTab.STATUS -> "files" to 2000    // Need files for size/ETA
-            DetailTab.FILES -> "files" to 2000
-            DetailTab.TRACKERS -> "trackers" to 5000
+            DetailTab.STATUS -> "files" to 1000
+            DetailTab.FILES -> "files" to 1000
+            DetailTab.TRACKERS -> "trackers" to 1000
             DetailTab.PEERS -> "peers" to 1000
             DetailTab.PIECES -> "pieces" to 500
-            DetailTab.DETAILS -> "details" to 10000  // Details rarely change
+            DetailTab.DETAILS -> "details" to 1000
         }
 
         // Only change subscription if type changed
@@ -315,8 +350,10 @@ class TorrentDetailViewModel(
         when {
             error != null && !isLoaded -> TorrentDetailUiState.Error(error)
             !isLoaded -> TorrentDetailUiState.Loading
+            // Engine loaded but hasn't pushed state yet - show loading instead of error
+            state == null -> TorrentDetailUiState.Loading
             else -> {
-                val torrent = state?.torrents?.find { it.infoHash == infoHash }
+                val torrent = state.torrents.find { it.infoHash == infoHash }
                 if (torrent == null) {
                     // If we're in the process of removing, show Loading instead of Error
                     // to avoid jarring "Error" title during navigation transition
@@ -446,15 +483,19 @@ class TorrentDetailViewModel(
 
     /**
      * Pause the current torrent.
+     * Immediately sets pending state for instant UI feedback.
      */
     fun pause() {
+        _isPendingAction.value = true
         repository.pauseTorrent(infoHash)
     }
 
     /**
      * Resume the current torrent.
+     * Immediately sets pending state for instant UI feedback.
      */
     fun resume() {
+        _isPendingAction.value = true
         repository.resumeTorrent(infoHash)
     }
 
@@ -556,7 +597,7 @@ class TorrentDetailViewModel(
             downloaded = downloaded,
             uploaded = summary.uploaded,
             size = totalSize,
-            peersConnected = peers.count { it.state == "connected" },
+            peersConnected = summary.numPeers,
             peersTotal = if (summary.swarmPeers > 0) summary.swarmPeers else null,
             seedersConnected = null,
             seedersTotal = null,
@@ -567,8 +608,8 @@ class TorrentDetailViewModel(
             // Derive piecesCompleted from bitfield when available - this ensures the count
             // stays in sync after diffs are applied in the combine block
             piecesCompleted = bitfield?.cardinality() ?: pieces?.piecesCompleted,
-            piecesTotal = pieces?.piecesTotal,
-            pieceSize = pieces?.pieceSize,
+            piecesTotal = details?.pieceCount ?: pieces?.piecesTotal,
+            pieceSize = details?.pieceSize ?: pieces?.pieceSize,
             pieceBitfield = bitfield,
             activePiecesPartial = activePieceStates?.partial?.toSet(),
             activePiecesRequested = activePieceStates?.requested?.toSet(),
@@ -579,11 +620,15 @@ class TorrentDetailViewModel(
             addedAt = details?.addedAt,
             completedAt = details?.completedAt,
             magnetUrl = details?.magnetUrl,
-            rootKey = details?.rootKey,
+            // Prefer rootKey from files subscription (always available) over details (only on Details tab)
+            rootKey = _cachedRootKey.value ?: details?.rootKey,
+            rootDisplayName = (_cachedRootKey.value ?: details?.rootKey)?.let { rootStore?.getRoot(it)?.displayName },
             comment = details?.comment,
             createdBy = details?.createdBy,
             creationDate = details?.creationDate,
-            isPrivate = details?.isPrivate ?: false
+            isPrivate = details?.isPrivate ?: false,
+            dhtEnabled = getDhtEnabled(),
+            pexEnabled = getPexEnabled()
         )
     }
 
@@ -680,10 +725,14 @@ class TorrentDetailViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(TorrentDetailViewModel::class.java)) {
                 val app = application as com.jstorrent.app.JSTorrentApplication
+                val configHub = app.getConfigHub()
                 return TorrentDetailViewModel(
                     repository = EngineServiceRepository(application),
                     infoHash = infoHash,
-                    onEnsureEngineStarted = { app.ensureEngineStarted() }
+                    rootStore = RootStore(application),
+                    onEnsureEngineStarted = { app.ensureEngineStarted() },
+                    getDhtEnabled = { configHub.dhtEnabled },
+                    getPexEnabled = { configHub.pexEnabled }
                 ) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")

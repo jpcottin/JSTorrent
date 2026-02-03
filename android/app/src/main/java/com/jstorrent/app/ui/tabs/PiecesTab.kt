@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -118,14 +120,16 @@ fun PiecesTab(
 
 /**
  * Legend showing piece state colors.
+ * Uses FlowRow to wrap items to next line when space is constrained.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PieceLegend() {
     val completedColor = MaterialTheme.colorScheme.primary
 
-    Row(
+    FlowRow(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         LegendItem(color = completedColor, label = "Complete")
         LegendItem(color = RespondedColor, label = "Verifying")

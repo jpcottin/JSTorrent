@@ -12,10 +12,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,6 +33,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.jstorrent.app.R
+import com.jstorrent.app.ui.dialogs.ClearAllDataDialog
+import com.jstorrent.app.ui.dialogs.ResetSettingsDialog
 import com.jstorrent.app.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,19 +85,32 @@ fun AdvancedSettingsScreen(
             }
 
             item {
-                ClearSettingsButton(
-                    onClick = { viewModel.showClearConfirmation() },
-                    enabled = uiState.downloadRoots.isNotEmpty()
+                ResetSettingsButton(
+                    onClick = { viewModel.showResetSettingsConfirmation() }
+                )
+            }
+
+            item {
+                ClearAllDataButton(
+                    onClick = { viewModel.showClearAllDataConfirmation() }
                 )
             }
         }
     }
 
-    // Clear confirmation dialog
-    if (uiState.showClearConfirmation) {
-        ClearConfirmationDialog(
-            onDismiss = { viewModel.dismissClearConfirmation() },
-            onConfirm = { viewModel.clearAllRoots() }
+    // Reset settings confirmation dialog
+    if (uiState.showResetSettingsConfirmation) {
+        ResetSettingsDialog(
+            onDismiss = { viewModel.dismissResetSettingsConfirmation() },
+            onConfirm = { viewModel.resetSettings() }
+        )
+    }
+
+    // Clear all data confirmation dialog
+    if (uiState.showClearAllDataConfirmation) {
+        ClearAllDataDialog(
+            onDismiss = { viewModel.dismissClearAllDataConfirmation() },
+            onConfirm = { deleteFiles -> viewModel.clearAllData(deleteFiles) }
         )
     }
 }
@@ -145,22 +159,17 @@ private fun SwitchToCompanionModeButton(
 }
 
 @Composable
-private fun ClearSettingsButton(
+private fun ResetSettingsButton(
     onClick: () -> Unit,
-    enabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     Card(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
+            .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(
-            containerColor = if (enabled) {
-                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            }
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         )
     ) {
         Row(
@@ -170,34 +179,22 @@ private fun ClearSettingsButton(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Default.Delete,
+                imageVector = Icons.Default.Refresh,
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
-                tint = if (enabled) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                }
+                tint = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column {
                 Text(
-                    text = stringResource(R.string.settings_advanced_clear_settings_label),
+                    text = stringResource(R.string.settings_advanced_reset_settings_label),
                     style = MaterialTheme.typography.bodyLarge,
-                    color = if (enabled) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    }
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = stringResource(R.string.settings_advanced_clear_settings_description),
+                    text = stringResource(R.string.settings_advanced_reset_settings_description),
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (enabled) {
-                        MaterialTheme.colorScheme.onErrorContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    }
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -205,35 +202,44 @@ private fun ClearSettingsButton(
 }
 
 @Composable
-private fun ClearConfirmationDialog(
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit
+private fun ClearAllDataButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Icon(
-                imageVector = Icons.Default.Warning,
+                imageVector = Icons.Default.DeleteForever,
                 contentDescription = null,
+                modifier = Modifier.size(24.dp),
                 tint = MaterialTheme.colorScheme.error
             )
-        },
-        title = { Text(stringResource(R.string.settings_advanced_clear_confirm_title)) },
-        text = {
-            Text(stringResource(R.string.settings_advanced_clear_confirm_message))
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
                 Text(
-                    text = stringResource(R.string.settings_advanced_clear_confirm_button),
+                    text = stringResource(R.string.settings_advanced_clear_all_data_label),
+                    style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.error
                 )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
+                Text(
+                    text = stringResource(R.string.settings_advanced_clear_all_data_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
             }
         }
-    )
+    }
 }

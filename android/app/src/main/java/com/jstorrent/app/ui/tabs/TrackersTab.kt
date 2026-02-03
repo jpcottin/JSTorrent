@@ -47,7 +47,6 @@ import com.jstorrent.app.ui.theme.JSTorrentTheme
 fun TrackersTab(
     trackers: List<TrackerUi>,
     dhtEnabled: Boolean,
-    lsdEnabled: Boolean,
     pexEnabled: Boolean,
     modifier: Modifier = Modifier,
     onAddTracker: (() -> Unit)? = null
@@ -72,11 +71,10 @@ fun TrackersTab(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // DHT/LSD/PeX status section
+            // DHT/PeX status section
             item {
-                DhtLsdPexSection(
+                DhtPexSection(
                     dhtEnabled = dhtEnabled,
-                    lsdEnabled = lsdEnabled,
                     pexEnabled = pexEnabled
                 )
             }
@@ -115,12 +113,12 @@ fun TrackersTab(
 }
 
 /**
- * DHT/LSD/PeX status indicators.
+ * DHT/PeX status indicators.
+ * Note: LSD (Local Service Discovery) is not yet implemented.
  */
 @Composable
-private fun DhtLsdPexSection(
+private fun DhtPexSection(
     dhtEnabled: Boolean,
-    lsdEnabled: Boolean,
     pexEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -138,11 +136,6 @@ private fun DhtLsdPexSection(
             StatusChip(
                 label = "DHT",
                 isEnabled = dhtEnabled,
-                modifier = Modifier.weight(1f)
-            )
-            StatusChip(
-                label = "LSD",
-                isEnabled = lsdEnabled,
                 modifier = Modifier.weight(1f)
             )
             StatusChip(
@@ -358,7 +351,6 @@ private fun TrackersTabPreview() {
                 )
             ),
             dhtEnabled = true,
-            lsdEnabled = true,
             pexEnabled = false
         )
     }
@@ -371,7 +363,6 @@ private fun TrackersTabEmptyPreview() {
         TrackersTab(
             trackers = emptyList(),
             dhtEnabled = true,
-            lsdEnabled = false,
             pexEnabled = true
         )
     }

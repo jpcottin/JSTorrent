@@ -150,6 +150,7 @@ data class TorrentDetailUi(
     val completedAt: Long? = null,    // Epoch milliseconds when completed, null if in progress
     val magnetUrl: String? = null,    // Full magnet URI with trackers
     val rootKey: String? = null,      // Storage root key for file access
+    val rootDisplayName: String? = null, // Human-readable storage location
     // Optional metadata from .torrent file (not available for magnets)
     val comment: String? = null,
     val createdBy: String? = null,

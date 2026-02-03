@@ -42,10 +42,12 @@ data class FileInfo(
 
 /**
  * Wrapper for file list query response.
+ * Includes rootKey for save location display.
  */
 @Serializable
 data class FileListResponse(
-    val files: List<FileInfo>
+    val files: List<FileInfo>,
+    val rootKey: String? = null
 )
 
 /**
@@ -168,7 +170,7 @@ data class EngineState(
     val activePieceStates: Map<String, String>? = null, // infoHash -> hex-encoded binary (see below)
     // Subscription data (present only when subscribed to specific types)
     val peers: Map<String, List<PeerInfo>>? = null,
-    val files: Map<String, List<FileInfo>>? = null,
+    val files: Map<String, FileListResponse>? = null,
     val trackers: Map<String, List<TrackerInfo>>? = null,
     val pieces: Map<String, PiecesData>? = null,
     val details: Map<String, TorrentDetails>? = null

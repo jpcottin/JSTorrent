@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { SubscriptionManager, GLOBAL_HASH } from '../../../src/adapters/native/subscriptions'
+import { SubscriptionManager, TORRENTS_HASH } from '../../../src/adapters/native/subscriptions'
 import type { BtEngine } from '../../../src/core/bt-engine'
 import type { Torrent } from '../../../src/core/torrent'
 import { EventEmitter } from 'events'
@@ -128,7 +128,7 @@ describe('SubscriptionManager', () => {
 
   describe('subscribe', () => {
     it('should add subscription to the set', () => {
-      manager.subscribe('state', GLOBAL_HASH, 500)
+      manager.subscribe('state', TORRENTS_HASH, 500)
       expect(manager.hasSubscriptions()).toBe(true)
       expect(manager.getSubscriptionCount()).toBe(1)
     })
@@ -141,12 +141,12 @@ describe('SubscriptionManager', () => {
     })
 
     it('should trigger immediate push on subscribe', () => {
-      manager.subscribe('state', GLOBAL_HASH, 500)
+      manager.subscribe('state', TORRENTS_HASH, 500)
       expect(pushCallback).toHaveBeenCalledTimes(1)
     })
 
     it('should set the push interval', () => {
-      manager.subscribe('state', GLOBAL_HASH, 1000)
+      manager.subscribe('state', TORRENTS_HASH, 1000)
       pushCallback.mockClear()
 
       // Advance time less than interval - should not push
@@ -159,7 +159,7 @@ describe('SubscriptionManager', () => {
     })
 
     it('should update interval when subscribing with different interval', () => {
-      manager.subscribe('state', GLOBAL_HASH, 1000)
+      manager.subscribe('state', TORRENTS_HASH, 1000)
       pushCallback.mockClear()
 
       manager.subscribe('peers', 'a'.repeat(40), 200)
@@ -211,7 +211,7 @@ describe('SubscriptionManager', () => {
     })
 
     it('should not affect other hashes', () => {
-      manager.subscribe('state', GLOBAL_HASH, 500)
+      manager.subscribe('state', TORRENTS_HASH, 500)
       manager.subscribe('peers', 'a'.repeat(40), 500)
 
       manager.unsubscribeAll('a'.repeat(40))
@@ -223,7 +223,7 @@ describe('SubscriptionManager', () => {
 
   describe('pause/resume', () => {
     it('should stop push loop when paused', () => {
-      manager.subscribe('state', GLOBAL_HASH, 500)
+      manager.subscribe('state', TORRENTS_HASH, 500)
       pushCallback.mockClear()
 
       manager.pause()
@@ -233,7 +233,7 @@ describe('SubscriptionManager', () => {
     })
 
     it('should restart push loop when resumed', () => {
-      manager.subscribe('state', GLOBAL_HASH, 500)
+      manager.subscribe('state', TORRENTS_HASH, 500)
       manager.pause()
       pushCallback.mockClear()
 
@@ -244,7 +244,7 @@ describe('SubscriptionManager', () => {
     })
 
     it('should continue pushing at interval after resume', () => {
-      manager.subscribe('state', GLOBAL_HASH, 500)
+      manager.subscribe('state', TORRENTS_HASH, 500)
       manager.pause()
       manager.resume()
       pushCallback.mockClear()
@@ -256,7 +256,7 @@ describe('SubscriptionManager', () => {
 
   describe('clear', () => {
     it('should remove all subscriptions', () => {
-      manager.subscribe('state', GLOBAL_HASH, 500)
+      manager.subscribe('state', TORRENTS_HASH, 500)
       manager.subscribe('peers', 'a'.repeat(40), 500)
 
       manager.clear()
@@ -266,7 +266,7 @@ describe('SubscriptionManager', () => {
     })
 
     it('should stop the push loop', () => {
-      manager.subscribe('state', GLOBAL_HASH, 500)
+      manager.subscribe('state', TORRENTS_HASH, 500)
       manager.clear()
       pushCallback.mockClear()
 
@@ -288,8 +288,8 @@ describe('SubscriptionManager', () => {
   })
 
   describe('payload building', () => {
-    it('should include torrents only when state is subscribed', () => {
-      manager.subscribe('state', GLOBAL_HASH, 500)
+    it('should include torrents only when torrents type is subscribed', () => {
+      manager.subscribe('torrents', TORRENTS_HASH, 500)
 
       const call = pushCallback.mock.calls[0][0]
       const payload = JSON.parse(call)
@@ -298,7 +298,7 @@ describe('SubscriptionManager', () => {
       expect(payload.torrents.length).toBe(1)
     })
 
-    it('should NOT include torrents when state is not subscribed', () => {
+    it('should NOT include torrents when torrents type is not subscribed', () => {
       manager.subscribe('peers', 'a'.repeat(40), 500)
 
       const call = pushCallback.mock.calls[0][0]
@@ -328,7 +328,7 @@ describe('SubscriptionManager', () => {
 
       expect(payload.files).toBeDefined()
       expect(payload.files[hash]).toBeDefined()
-      expect(payload.files[hash].length).toBe(2)
+      expect(payload.files[hash].files.length).toBe(2)
     })
 
     it('should include trackers data when subscribed', () => {
@@ -375,7 +375,7 @@ describe('SubscriptionManager', () => {
       const emptyManager = new SubscriptionManager(emptyEngine, emptyPush)
 
       // Manually trigger a push by subscribing and immediately unsubscribing
-      emptyManager.subscribe('state', GLOBAL_HASH, 500)
+      emptyManager.subscribe('torrents', TORRENTS_HASH, 500)
       const payload = JSON.parse(emptyPush.mock.calls[0][0])
 
       // With no torrents, should still have torrents array (just empty)
@@ -397,7 +397,7 @@ describe('SubscriptionManager', () => {
 
     it('should include multiple subscription types in single payload', () => {
       const hash = 'a'.repeat(40)
-      manager.subscribe('state', GLOBAL_HASH, 500)
+      manager.subscribe('torrents', TORRENTS_HASH, 500)
       pushCallback.mockClear()
       manager.subscribe('peers', hash, 500)
       pushCallback.mockClear()
@@ -413,8 +413,8 @@ describe('SubscriptionManager', () => {
   })
 
   describe('piece changes tracking', () => {
-    it('should include piece changes in state payload', () => {
-      manager.subscribe('state', GLOBAL_HASH, 500)
+    it('should include piece changes in torrents payload', () => {
+      manager.subscribe('torrents', TORRENTS_HASH, 500)
       pushCallback.mockClear()
 
       // Simulate piece completion
@@ -467,8 +467,8 @@ describe('SubscriptionManager', () => {
   })
 
   describe('active piece states', () => {
-    it('should include active piece states in state payload', () => {
-      manager.subscribe('state', GLOBAL_HASH, 500)
+    it('should include active piece states in torrents payload', () => {
+      manager.subscribe('torrents', TORRENTS_HASH, 500)
 
       const call = pushCallback.mock.calls[0][0]
       const payload = JSON.parse(call)

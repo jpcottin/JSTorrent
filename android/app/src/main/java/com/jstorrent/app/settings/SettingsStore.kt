@@ -96,6 +96,18 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean(KEY_HAS_SHOWN_NOTIFICATION_PROMPT, false)
         set(value) = prefs.edit { putBoolean(KEY_HAS_SHOWN_NOTIFICATION_PROMPT, value) }
 
+    /**
+     * Reset all settings to defaults.
+     * Preserves hasShownNotificationPrompt to avoid re-showing first-launch prompts.
+     */
+    fun resetToDefaults() {
+        val preserveNotificationPrompt = hasShownNotificationPrompt
+        prefs.edit { clear() }
+        if (preserveNotificationPrompt) {
+            hasShownNotificationPrompt = true
+        }
+    }
+
     companion object {
         private const val PREFS_NAME = "jstorrent_settings"
 

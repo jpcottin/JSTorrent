@@ -20,11 +20,23 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * UI state for the settings screen.
  */
+/**
+ * State for the remove folder confirmation dialog.
+ */
+data class RemoveFolderDialogState(
+    val key: String,
+    val displayName: String,
+    val torrentCount: Int
+)
+
 data class SettingsUiState(
     // Storage
     val downloadRoots: List<DownloadRoot> = emptyList(),
     val defaultRootKey: String? = null,
-    val showClearConfirmation: Boolean = false,
+    val removeFolderDialog: RemoveFolderDialogState? = null,
+    // Reset/Clear dialogs
+    val showResetSettingsConfirmation: Boolean = false,
+    val showClearAllDataConfirmation: Boolean = false,
     // Bandwidth
     val downloadSpeedUnlimited: Boolean = true,
     val downloadSpeedLimit: Int = 1048576, // 1 MB/s
@@ -201,31 +213,88 @@ class SettingsViewModel(
         refreshRoots()
     }
 
+    // =========================================================================
+    // Reset Settings (keeps torrents and folders)
+    // =========================================================================
+
     /**
-     * Show the clear all settings confirmation dialog.
+     * Show the reset settings confirmation dialog.
      */
-    fun showClearConfirmation() {
-        _uiState.value = _uiState.value.copy(showClearConfirmation = true)
+    fun showResetSettingsConfirmation() {
+        _uiState.value = _uiState.value.copy(showResetSettingsConfirmation = true)
     }
 
     /**
-     * Dismiss the clear all settings confirmation dialog.
+     * Dismiss the reset settings confirmation dialog.
      */
-    fun dismissClearConfirmation() {
-        _uiState.value = _uiState.value.copy(showClearConfirmation = false)
+    fun dismissResetSettingsConfirmation() {
+        _uiState.value = _uiState.value.copy(showResetSettingsConfirmation = false)
     }
 
     /**
-     * Clear all download roots.
+     * Reset all settings to defaults.
+     * Keeps torrents, download folders, and metrics.
      */
-    fun clearAllRoots() {
+    fun resetSettings() {
+        // Reset engine settings (bandwidth, connections, protocol, proxy)
+        configHub.resetToDefaults()
+
+        // Reset Android-only settings (network restrictions, power management, behavior)
+        settingsStore.resetToDefaults()
+
+        // Refresh UI state from stores (now showing defaults)
+        refreshAllSettings()
+
+        dismissResetSettingsConfirmation()
+    }
+
+    // =========================================================================
+    // Clear All Data (full wipe)
+    // =========================================================================
+
+    /**
+     * Show the clear all data confirmation dialog.
+     */
+    fun showClearAllDataConfirmation() {
+        _uiState.value = _uiState.value.copy(showClearAllDataConfirmation = true)
+    }
+
+    /**
+     * Dismiss the clear all data confirmation dialog.
+     */
+    fun dismissClearAllDataConfirmation() {
+        _uiState.value = _uiState.value.copy(showClearAllDataConfirmation = false)
+    }
+
+    /**
+     * Clear all app data (full wipe like reinstall).
+     * Removes all torrents, settings, and download folders.
+     * Preserves installId and metrics for analytics continuity.
+     *
+     * @param deleteFiles If true, also delete downloaded files from disk
+     */
+    fun clearAllData(deleteFiles: Boolean) {
+        // 1. Remove all torrents from engine (optionally deleting files)
+        val engineState = app.engineController?.state?.value
+        val torrents = engineState?.torrents ?: emptyList()
+        for (torrent in torrents) {
+            app.engineController?.removeTorrent(torrent.infoHash, deleteFiles)
+        }
+
+        // 2. Reset all settings to defaults
+        configHub.resetToDefaults()
+        settingsStore.resetToDefaults()
+
+        // 3. Clear all download folders
         val roots = rootStore.listRoots()
         for (root in roots) {
             rootStore.removeRoot(root.key)
         }
-        configHub.defaultRootKey = null
-        refreshRoots()
-        dismissClearConfirmation()
+
+        // 4. Refresh UI state
+        refreshAllSettings()
+
+        dismissClearAllDataConfirmation()
     }
 
     // =========================================================================

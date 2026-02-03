@@ -22,7 +22,7 @@ import './bindings.d.ts'
 /**
  * Subscription types:
  *
- * 'state' (hash: '_global') - Torrent list summary:
+ * 'torrents' (hash: '') - Torrent list summary:
  *   - torrents: TorrentSummary[] (name, progress %, speed, state)
  *
  * Per-torrent types (hash: infohash hex):
@@ -32,10 +32,10 @@ import './bindings.d.ts'
  *   'pieces'   - Piece map, recent changes, active download states
  *   'details'  - Extended torrent info (creation date, comment, etc.)
  */
-export type SubscriptionType = 'state' | 'peers' | 'files' | 'trackers' | 'pieces' | 'details'
+export type SubscriptionType = 'torrents' | 'peers' | 'files' | 'trackers' | 'pieces' | 'details'
 
-/** Special hash for global subscriptions (torrent list) */
-export const GLOBAL_HASH = '_global'
+/** Hash value for torrent list subscription (empty = all torrents) */
+export const TORRENTS_HASH = ''
 
 // ============================================================
 // Payload Types
@@ -84,6 +84,11 @@ export interface FileInfo {
   priority: number
 }
 
+export interface FilesData {
+  files: FileInfo[]
+  rootKey: string | null
+}
+
 export interface TrackerInfo {
   url: string
   type: string
@@ -126,7 +131,7 @@ export interface TorrentDetails {
  * Only includes fields that are subscribed to.
  */
 export interface StatePayload {
-  // Included when subscribed to 'state' (hash: '_global')
+  // Included when subscribed to 'torrents' (hash: '')
   torrents?: TorrentSummary[]
 
   // Legacy piece changes (for backward compatibility during migration)
@@ -135,7 +140,7 @@ export interface StatePayload {
 
   // Included based on per-torrent subscriptions
   peers?: Record<string, PeerInfo[]>
-  files?: Record<string, FileInfo[]>
+  files?: Record<string, FilesData>
   trackers?: Record<string, TrackerInfo[]>
   pieces?: Record<string, PiecesData>
   details?: Record<string, TorrentDetails>
@@ -193,9 +198,9 @@ export class SubscriptionManager {
   }
 
   /**
-   * Subscribe to data for a torrent (or 'state' for base torrent list).
+   * Subscribe to data for a torrent (or 'torrents' for torrent list).
    *
-   * For 'state' subscription, hash should be '_global'.
+   * For 'torrents' subscription, hash should be '' (empty string).
    * Restarts push loop immediately for fast first update.
    */
   subscribe(type: SubscriptionType, hash: string, intervalMs: number): void {
@@ -207,7 +212,7 @@ export class SubscriptionManager {
     types.add(type)
     this.pushInterval = intervalMs
     console.log(
-      `[subscriptions] Subscribe: ${type} for ${hash === GLOBAL_HASH ? 'global' : hash.slice(0, 8)}... (interval=${intervalMs}ms)`,
+      `[subscriptions] Subscribe: ${type} for ${hash === TORRENTS_HASH ? 'all' : hash.slice(0, 8)}... (interval=${intervalMs}ms)`,
     )
     this.restartLoop()
   }
@@ -223,7 +228,7 @@ export class SubscriptionManager {
         this.subs.delete(hash)
       }
       console.log(
-        `[subscriptions] Unsubscribe: ${type} for ${hash === GLOBAL_HASH ? 'global' : hash.slice(0, 8)}...`,
+        `[subscriptions] Unsubscribe: ${type} for ${hash === TORRENTS_HASH ? 'all' : hash.slice(0, 8)}...`,
       )
     }
   }
@@ -234,7 +239,7 @@ export class SubscriptionManager {
   unsubscribeAll(hash: string): void {
     if (this.subs.has(hash)) {
       console.log(
-        `[subscriptions] Unsubscribe all for ${hash === GLOBAL_HASH ? 'global' : hash.slice(0, 8)}...`,
+        `[subscriptions] Unsubscribe all for ${hash === TORRENTS_HASH ? 'all' : hash.slice(0, 8)}...`,
       )
       this.subs.delete(hash)
     }
@@ -336,9 +341,9 @@ export class SubscriptionManager {
   private buildPayload(): StatePayload {
     const payload: StatePayload = {}
 
-    // Include torrent list only if subscribed to 'state'
-    const globalSubs = this.subs.get(GLOBAL_HASH)
-    if (globalSubs?.has('state')) {
+    // Include torrent list only if subscribed to 'torrents'
+    const torrentsSubs = this.subs.get(TORRENTS_HASH)
+    if (torrentsSubs?.has('torrents')) {
       payload.torrents = this.buildTorrentSummaries()
 
       // Include piece changes and active states at global level (legacy)
@@ -355,7 +360,7 @@ export class SubscriptionManager {
 
     // Add per-torrent subscribed data
     for (const [hash, types] of this.subs) {
-      if (hash === GLOBAL_HASH) continue
+      if (hash === TORRENTS_HASH) continue
 
       for (const type of types) {
         const data = this.getData(type, hash)
@@ -367,7 +372,7 @@ export class SubscriptionManager {
               break
             case 'files':
               payload.files ??= {}
-              payload.files[hash] = data as FileInfo[]
+              payload.files[hash] = data as FilesData
               break
             case 'trackers':
               payload.trackers ??= {}
@@ -455,16 +460,25 @@ export class SubscriptionManager {
     }))
   }
 
-  private getFilesData(torrent: Torrent): FileInfo[] {
-    if (!torrent.files) return []
-    return torrent.files.map((f, index) => ({
-      index,
-      path: f.path,
-      size: f.length,
-      downloaded: f.downloaded,
-      progress: f.length > 0 ? f.downloaded / f.length : 0,
-      priority: torrent.filePriorities[index] ?? 0,
-    }))
+  private getFilesData(torrent: Torrent): FilesData {
+    const hash = toHex(torrent.infoHash)
+    const storageRoot = this.engine.storageRootManager.getRootForTorrent(hash)
+
+    const files = torrent.files
+      ? torrent.files.map((f, index) => ({
+          index,
+          path: f.path,
+          size: f.length,
+          downloaded: f.downloaded,
+          progress: f.length > 0 ? f.downloaded / f.length : 0,
+          priority: torrent.filePriorities[index] ?? 0,
+        }))
+      : []
+
+    return {
+      files,
+      rootKey: storageRoot?.key ?? null,
+    }
   }
 
   private getTrackersData(torrent: Torrent): TrackerInfo[] {

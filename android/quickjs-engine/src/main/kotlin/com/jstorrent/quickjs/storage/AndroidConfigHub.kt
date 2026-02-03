@@ -329,6 +329,35 @@ class AndroidConfigHub(
         }
     }
 
+    /**
+     * Reset all config settings to defaults.
+     * Clears all config:* keys from storage and notifies the JS engine.
+     */
+    fun resetToDefaults() {
+        // Clear all config keys from SQLite
+        val clearedCount = store.clear(CONFIG_PREFIX)
+        Log.i(TAG, "Reset to defaults: cleared $clearedCount config keys")
+
+        // Notify JS engine with default values
+        val bridge = configBridgeProvider()
+        if (bridge != null) {
+            bridge.setDownloadSpeedLimit(0) // unlimited
+            bridge.setUploadSpeedLimit(0) // unlimited
+            bridge.setMaxPeersPerTorrent(20)
+            bridge.setMaxGlobalPeers(200)
+            bridge.setMaxUploadSlots(4)
+            bridge.setMaxPipelineDepth(DEFAULT_MAX_PIPELINE_DEPTH)
+            bridge.setEncryptionPolicy("allow")
+            bridge.setDhtEnabled(true)
+            bridge.setPexEnabled(true)
+            bridge.setUpnpEnabled(true)
+            bridge.setProxyEnabled(false)
+        }
+
+        // Emit change events for UI subscribers
+        _changes.tryEmit(ConfigChangeEvent("_reset", null, null))
+    }
+
     companion object {
         /** Default max pipeline depth - must match DEFAULT_MAX_PIPELINE_DEPTH in config-schema.ts */
         const val DEFAULT_MAX_PIPELINE_DEPTH = 500

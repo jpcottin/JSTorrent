@@ -78,6 +78,15 @@ fun StorageSettingsScreen(
                 SectionHeader(title = stringResource(R.string.settings_storage_download_folders_section))
             }
 
+            item {
+                Text(
+                    text = stringResource(R.string.settings_storage_explanation),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+
             if (uiState.downloadRoots.isEmpty()) {
                 item {
                     EmptyStorageState(onAddClick = onAddRootClick)

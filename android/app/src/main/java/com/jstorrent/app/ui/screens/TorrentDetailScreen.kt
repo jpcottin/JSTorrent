@@ -2,6 +2,8 @@ package com.jstorrent.app.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.documentfile.provider.DocumentFile
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -47,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import com.jstorrent.app.R
 import com.jstorrent.app.model.DetailTab
@@ -63,6 +66,7 @@ import com.jstorrent.app.ui.tabs.StatusTab
 import com.jstorrent.app.ui.tabs.TrackersTab
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 import com.jstorrent.app.storage.RootStore
+import com.jstorrent.app.ui.components.CompactPlayPauseButton
 import com.jstorrent.app.ui.components.SharedMenuItems
 import com.jstorrent.app.viewmodel.TorrentDetailViewModel
 
@@ -83,6 +87,7 @@ fun TorrentDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val selectedTab by viewModel.selectedTab.collectAsState()
+    val isPendingAction by viewModel.isPendingAction.collectAsState()
 
     // Lifecycle-aware polling: pause when screen is not visible (e.g., navigated
     // to DHT view or app backgrounded), resume when screen becomes visible again.
@@ -138,20 +143,14 @@ fun TorrentDetailScreen(
                             }
                         },
                         actions = {
-                            // Play/Pause button
-                            IconButton(
-                                onClick = {
+                            // Play/Pause button with processing indicator
+                            CompactPlayPauseButton(
+                                isPaused = isPaused,
+                                onToggle = {
                                     if (isPaused) viewModel.resume() else viewModel.pause()
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                                    contentDescription = stringResource(
-                                        if (isPaused) R.string.torrent_detail_resume_button
-                                        else R.string.torrent_detail_pause_button
-                                    )
-                                )
-                            }
+                                },
+                                isLoading = isPendingAction
+                            )
 
                             // Overflow menu
                             IconButton(onClick = { showMenu = true }) {
@@ -162,7 +161,8 @@ fun TorrentDetailScreen(
                             }
                             DropdownMenu(
                                 expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
+                                onDismissRequest = { showMenu = false },
+                                offset = DpOffset(8.dp, 0.dp)
                             ) {
                                 // Screen-specific items at top
                                 DropdownMenuItem(
@@ -198,6 +198,7 @@ fun TorrentDetailScreen(
                     )
                 }
             ) { innerPadding ->
+                val context = LocalContext.current
                 DetailContent(
                     torrent = torrent,
                     selectedTab = selectedTab,
@@ -209,6 +210,7 @@ fun TorrentDetailScreen(
                     onSelectNoFiles = { viewModel.deselectAllFiles() },
                     onApplyFileChanges = { viewModel.applyFileChanges() },
                     onCancelFileChanges = { viewModel.cancelFileChanges() },
+                    onOpenSaveLocation = { openFolder(context, torrent.rootKey) },
                     modifier = Modifier.padding(innerPadding)
                 )
             }
@@ -301,6 +303,7 @@ private fun DetailContent(
     onSelectNoFiles: () -> Unit,
     onApplyFileChanges: () -> Unit,
     onCancelFileChanges: () -> Unit,
+    onOpenSaveLocation: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -358,7 +361,10 @@ private fun DetailContent(
             modifier = Modifier.fillMaxSize()
         ) { page ->
             when (tabs[page]) {
-                DetailTab.DETAILS -> DetailsTab(torrent = torrent)
+                DetailTab.DETAILS -> DetailsTab(
+                    torrent = torrent,
+                    onOpenSaveLocation = onOpenSaveLocation
+                )
                 DetailTab.STATUS -> StatusTab(torrent = torrent)
                 DetailTab.FILES -> FilesTab(
                     files = torrent.files,
@@ -371,12 +377,13 @@ private fun DetailContent(
                     onSelectAll = onSelectAllFiles,
                     onSelectNone = onSelectNoFiles,
                     onApplyChanges = onApplyFileChanges,
-                    onCancelChanges = onCancelFileChanges
+                    onCancelChanges = onCancelFileChanges,
+                    rootDisplayName = torrent.rootDisplayName,
+                    onOpenSaveLocation = onOpenSaveLocation
                 )
                 DetailTab.TRACKERS -> TrackersTab(
                     trackers = torrent.trackers,
                     dhtEnabled = torrent.dhtEnabled,
-                    lsdEnabled = torrent.lsdEnabled,
                     pexEnabled = torrent.pexEnabled
                 )
                 DetailTab.PEERS -> PeersTab(peers = torrent.peers)
@@ -474,6 +481,91 @@ private fun openFile(
         Toast.makeText(
             context,
             context.getString(R.string.torrent_detail_open_file_error, e.message),
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+}
+
+/**
+ * Open the save location folder in a file manager.
+ * Uses SAF (Storage Access Framework) to access the folder via DocumentFile.
+ */
+private fun openFolder(
+    context: android.content.Context,
+    rootKey: String?
+) {
+    if (rootKey == null) {
+        Toast.makeText(
+            context,
+            context.getString(R.string.torrent_detail_storage_unknown),
+            Toast.LENGTH_SHORT
+        ).show()
+        return
+    }
+
+    val rootStore = RootStore(context)
+    val rootUri = rootStore.resolveKey(rootKey)
+    if (rootUri == null) {
+        Toast.makeText(
+            context,
+            context.getString(R.string.torrent_detail_storage_root_not_found),
+            Toast.LENGTH_SHORT
+        ).show()
+        return
+    }
+
+    val docFile = DocumentFile.fromTreeUri(context, rootUri)
+    if (docFile == null || !docFile.exists()) {
+        Toast.makeText(
+            context,
+            context.getString(R.string.torrent_detail_storage_root_not_found),
+            Toast.LENGTH_SHORT
+        ).show()
+        return
+    }
+
+    // Try approach 1: DocumentsContract with proper document URI (Android 11+)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        try {
+            val documentId = DocumentsContract.getTreeDocumentId(rootUri)
+            val documentUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
+            val browseIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(documentUri, DocumentsContract.Document.MIME_TYPE_DIR)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(browseIntent)
+            return
+        } catch (e: Exception) {
+            // Fall through to next approach
+        }
+    }
+
+    // Try approach 2: Google Files app (common on Pixel devices)
+    try {
+        val filesIntent = Intent(Intent.ACTION_VIEW).apply {
+            setPackage("com.google.android.apps.nbu.files")
+            data = docFile.uri
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(filesIntent)
+        return
+    } catch (e: Exception) {
+        // Fall through to next approach
+    }
+
+    // Try approach 3: Generic file manager with chooser
+    try {
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+            data = docFile.uri
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(viewIntent, context.getString(R.string.torrent_detail_open_folder))
+        context.startActivity(chooser)
+        return
+    } catch (e: Exception) {
+        Toast.makeText(
+            context,
+            context.getString(R.string.torrent_detail_open_folder_error, e.message),
             Toast.LENGTH_SHORT
         ).show()
     }

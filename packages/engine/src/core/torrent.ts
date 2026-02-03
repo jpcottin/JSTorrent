@@ -2408,6 +2408,12 @@ export class Torrent extends EngineComponent {
    * Uses verified write when available (io-daemon) for atomic hash verification.
    */
   private async finalizePiece(index: number, piece: ActivePiece): Promise<void> {
+    // IMPORTANT: Capture contributors NOW before any async operations.
+    // stopNetwork() can be called while we're awaiting disk writes (e.g., if another
+    // piece fails), which calls activePieces.destroy() and clears all piece data
+    // including blockSenders. Without this, handleHashMismatch would see empty contributors.
+    const contributors = Array.from(piece.getContributingPeers())
+
     // Assemble the complete piece
     const pieceData = piece.assemble()
     const expectedHash = this.getPieceHash(index)
@@ -2421,7 +2427,7 @@ export class Torrent extends EngineComponent {
       if (expectedHash) {
         const actualHash = await this.btEngine.hasher.sha1(pieceData)
         if (compare(actualHash, expectedHash) !== 0) {
-          this.handleHashMismatch(index, piece)
+          this.handleHashMismatch(index, contributors)
           return
         }
       }
@@ -2487,7 +2493,7 @@ export class Torrent extends EngineComponent {
             // Verified write not available - verify hash in TypeScript
             const actualHash = await this.btEngine.hasher.sha1(pieceData)
             if (compare(actualHash, expectedHash) !== 0) {
-              this.handleHashMismatch(index, piece)
+              this.handleHashMismatch(index, contributors)
               return
             }
           }
@@ -2498,7 +2504,7 @@ export class Torrent extends EngineComponent {
           // Hash mismatch: re-request from different peers (handled separately)
           if (writeError.isHashMismatch || (e instanceof Error && e.name === 'HashMismatchError')) {
             this._writeRetryCount.delete(index) // Clear retry count on hash mismatch
-            this.handleHashMismatch(index, piece)
+            this.handleHashMismatch(index, contributors)
             return
           }
 
@@ -2573,7 +2579,7 @@ export class Torrent extends EngineComponent {
         // No storage but have hash - verify anyway (shouldn't happen in practice)
         const actualHash = await this.btEngine.hasher.sha1(pieceData)
         if (compare(actualHash, expectedHash) !== 0) {
-          this.handleHashMismatch(index, piece)
+          this.handleHashMismatch(index, contributors)
           return
         }
       }
@@ -2762,9 +2768,12 @@ export class Torrent extends EngineComponent {
    * - Sole contributor to a failed piece = immediate ban (proof of guilt)
    * - Multiple failures with same peer as common denominator = likely ban
    * - Swarm health affects threshold (sparse swarm = more cautious)
+   *
+   * @param contributors - Pre-captured list of peer IDs that contributed blocks.
+   *   Must be captured at the start of finalizePiece before any async operations,
+   *   because stopNetwork() can clear piece data while finalization is in progress.
    */
-  private handleHashMismatch(index: number, piece: ActivePiece): void {
-    const contributors = Array.from(piece.getContributingPeers())
+  private handleHashMismatch(index: number, contributors: string[]): void {
     this.logger.warn(`Piece ${index} failed hash check. Contributors: ${contributors.join(', ')}`)
 
     // Get swarm health for threshold adjustment

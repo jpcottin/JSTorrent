@@ -115,10 +115,10 @@ interface TorrentRepository {
     // =========================================================================
 
     /**
-     * Subscribe to data updates for a torrent (or global state).
+     * Subscribe to data updates for a torrent (or torrent list).
      *
-     * @param type Subscription type: "state", "peers", "files", "trackers", "pieces", "details"
-     * @param hash Torrent info hash, or "_global" for global state (torrent list)
+     * @param type Subscription type: "torrents", "peers", "files", "trackers", "pieces", "details"
+     * @param hash Torrent info hash, or "" for torrent list
      * @param intervalMs Push interval in milliseconds
      */
     fun subscribe(type: String, hash: String, intervalMs: Int)
@@ -127,7 +127,7 @@ interface TorrentRepository {
      * Unsubscribe from a specific data type for a torrent.
      *
      * @param type Subscription type
-     * @param hash Torrent info hash, or "_global" for global state
+     * @param hash Torrent info hash, or "" for torrent list
      */
     fun unsubscribe(type: String, hash: String)
 

@@ -92,6 +92,7 @@ fun TorrentListScreen(
     onShutdownClick: () -> Unit = {},
     onSpeedClick: () -> Unit = {},
     onDhtInfoClick: () -> Unit = {},
+    onDebugShowReviewDialog: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -191,7 +192,7 @@ fun TorrentListScreen(
                                 uploadSpeed = aggregateUploadSpeed,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.offset(x = 12.dp, y = 36.dp)
+                                modifier = Modifier.offset(x = 36.dp, y = 36.dp)
                             )
                         }
                     }
@@ -326,6 +327,15 @@ fun TorrentListScreen(
                                     viewModel.addTorrent(TestTorrentHelper.buildBigBuckBunnyMagnet())
                                 }
                             )
+                            if (onDebugShowReviewDialog != null) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.debug_show_review_dialog)) },
+                                    onClick = {
+                                        showMenu = false
+                                        onDebugShowReviewDialog()
+                                    }
+                                )
+                            }
                         }
                         // Shared menu items at bottom (Speed, DHT Info, Settings, Shutdown)
                         HorizontalDivider()

@@ -43,12 +43,12 @@ class TorrentListViewModel(
             }
         }
 
-        // Subscribe to global state (torrent list) once engine is loaded
+        // Subscribe to torrent list once engine is loaded
         viewModelScope.launch {
             repository.isLoaded.collect { isLoaded ->
                 if (isLoaded) {
-                    // Subscribe to global state with 500ms push interval
-                    repository.subscribe("state", "_global", 500)
+                    // Subscribe to torrent list with 1000ms push interval
+                    repository.subscribe("torrents", "", 1000)
                 }
             }
         }
@@ -462,10 +462,10 @@ class TorrentListViewModel(
      */
     fun onScreenResumed() {
         repository.resumeSubscriptions()
-        // Re-subscribe to ensure we're getting global state updates.
+        // Re-subscribe to ensure we're getting torrent list updates.
         // The detail view may have changed subscriptions while we were paused.
         if (repository.isLoaded.value) {
-            repository.subscribe("state", "_global", 500)
+            repository.subscribe("torrents", "", 1000)
         }
     }
 
@@ -474,7 +474,7 @@ class TorrentListViewModel(
      */
     override fun onCleared() {
         super.onCleared()
-        repository.unsubscribe("state", "_global")
+        repository.unsubscribe("torrents", "")
     }
 
     // =========================================================================

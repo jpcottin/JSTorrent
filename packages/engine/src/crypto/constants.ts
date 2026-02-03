@@ -29,3 +29,10 @@ export const BT_PROTOCOL_HEADER = 0x13 // First byte of "\x13BitTorrent protocol
 // Handshake timeouts
 export const MSE_HANDSHAKE_TIMEOUT = 30000 // 30 seconds per spec
 export const MSE_SYNC_MAX_BYTES = 512 // Max padding before sync pattern
+
+// Hash prefix strings (per MSE spec)
+export const MSE_REQ1 = 'req1' // Sync marker: HASH(req1, S)
+export const MSE_REQ2 = 'req2' // Torrent ID: HASH(req2, SKEY)
+export const MSE_REQ3 = 'req3' // Torrent ID: HASH(req3, S)
+export const MSE_KEY_A = 'keyA' // Encryption key A: HASH(keyA, S, SKEY)
+export const MSE_KEY_B = 'keyB' // Encryption key B: HASH(keyB, S, SKEY)

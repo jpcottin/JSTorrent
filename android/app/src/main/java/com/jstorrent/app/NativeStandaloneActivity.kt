@@ -40,6 +40,8 @@ import com.jstorrent.app.settings.MetricsStore
 import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.app.storage.RootStore
 import com.jstorrent.app.ui.dialogs.NotificationPermissionDialog
+import com.jstorrent.app.ui.dialogs.ReviewPromptDialog
+import com.jstorrent.app.review.ReviewHelper
 import com.jstorrent.app.ui.navigation.TorrentNavHost
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 import com.jstorrent.app.viewmodel.TorrentListViewModel
@@ -73,6 +75,7 @@ class NativeStandaloneActivity : ComponentActivity() {
     private var testStorageMode = mutableStateOf<String?>(null)
     private var isAddingRoot = mutableStateOf(false)
     private var showNotificationDialog = mutableStateOf(false)
+    private var showReviewDialog = mutableStateOf(false)
 
     // For navigating to a specific torrent from notification tap
     private var initialInfoHash = mutableStateOf<String?>(null)
@@ -144,6 +147,9 @@ class NativeStandaloneActivity : ComponentActivity() {
                         listViewModel = viewModel,
                         onAddRootClick = { launchAddRoot() },
                         onShutdownClick = { shutdown() },
+                        onDebugShowReviewDialog = if (BuildConfig.DEBUG) {
+                            { showReviewDialog.value = true }
+                        } else null,
                         initialInfoHash = initialInfoHash.value,
                         navigateToListTrigger = navigateToListTrigger.value,
                         onNavigatedToList = { navigateToListTrigger.value = 0 }
@@ -164,6 +170,33 @@ class NativeStandaloneActivity : ComponentActivity() {
                         onNotNow = {
                             settingsStore.hasShownNotificationPrompt = true
                             showNotificationDialog.value = false
+                        }
+                    )
+                }
+
+                // Review prompt dialog
+                if (showReviewDialog.value) {
+                    ReviewPromptDialog(
+                        onLeaveReview = {
+                            showReviewDialog.value = false
+                            metricsStore.recordReviewPromptShown()
+                            // Launch In-App Review flow
+                            ReviewHelper.launchReviewFlow(this@NativeStandaloneActivity) { success ->
+                                if (success) {
+                                    // Mark as completed so we don't ask again
+                                    metricsStore.reviewCompleted = true
+                                }
+                            }
+                        },
+                        onNotNow = {
+                            showReviewDialog.value = false
+                            metricsStore.recordReviewPromptShown()
+                            // Will re-ask after DAYS_BETWEEN_PROMPTS (30 days)
+                        },
+                        onNeverAskAgain = {
+                            showReviewDialog.value = false
+                            metricsStore.reviewDeclined = true
+                            // Won't show again
                         }
                     )
                 }
@@ -199,6 +232,11 @@ class NativeStandaloneActivity : ComponentActivity() {
         // The engine's callGlobalFunction uses latch.await() which blocks the calling thread
         lifecycleScope.launch(Dispatchers.IO) {
             syncRootsWithEngine()
+        }
+
+        // Check if we should show the review prompt (after other dialogs)
+        if (!showNotificationDialog.value && metricsStore.shouldShowReviewPrompt()) {
+            showReviewDialog.value = true
         }
     }
 

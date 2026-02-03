@@ -8,13 +8,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
@@ -54,6 +59,8 @@ fun FilesTab(
     onSelectNone: () -> Unit,
     onApplyChanges: () -> Unit,
     onCancelChanges: () -> Unit,
+    rootDisplayName: String? = null,
+    onOpenSaveLocation: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     if (files.isEmpty()) {
@@ -61,6 +68,15 @@ fun FilesTab(
     } else {
         Box(modifier = modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
+                // Save location header
+                if (rootDisplayName != null) {
+                    SaveLocationHeader(
+                        displayName = rootDisplayName,
+                        onOpen = onOpenSaveLocation
+                    )
+                    HorizontalDivider()
+                }
+
                 // Select All / Select None header
                 SelectionHeader(
                     onSelectAll = onSelectAll,
@@ -97,6 +113,46 @@ fun FilesTab(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(16.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Header showing save location with open folder button.
+ */
+@Composable
+private fun SaveLocationHeader(
+    displayName: String,
+    onOpen: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.tab_files_save_location),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = displayName,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        if (onOpen != null) {
+            IconButton(onClick = onOpen) {
+                Icon(
+                    imageVector = Icons.Default.OpenInNew,
+                    contentDescription = stringResource(R.string.tab_files_open_folder),
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
         }

@@ -141,6 +141,9 @@ dependencies {
     // AppCompat (needed for AddRootActivity)
     implementation(libs.androidx.appcompat)
 
+    // Google Play In-App Review
+    implementation(libs.play.review.ktx)
+
     testImplementation(libs.junit)
     testImplementation(libs.java.websocket)
     testImplementation(libs.kotlinx.serialization.json)

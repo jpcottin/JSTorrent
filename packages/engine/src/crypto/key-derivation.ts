@@ -2,6 +2,7 @@
  * MSE/PE key derivation functions
  */
 import { RC4 } from './rc4'
+import { MSE_REQ1, MSE_REQ2, MSE_REQ3, MSE_KEY_A, MSE_KEY_B } from './constants'
 
 /**
  * Derive raw encryption key bytes from shared secret and info hash.
@@ -15,8 +16,8 @@ export async function deriveEncryptionKeyBytes(
   isInitiator: boolean,
   sha1: (data: Uint8Array) => Promise<Uint8Array>,
 ): Promise<{ encryptKey: Uint8Array; decryptKey: Uint8Array }> {
-  const keyAInput = concat(encode('keyA'), sharedSecret, infoHash)
-  const keyBInput = concat(encode('keyB'), sharedSecret, infoHash)
+  const keyAInput = concat(encode(MSE_KEY_A), sharedSecret, infoHash)
+  const keyBInput = concat(encode(MSE_KEY_B), sharedSecret, infoHash)
 
   const keyA = await sha1(keyAInput)
   const keyB = await sha1(keyBInput)
@@ -73,7 +74,7 @@ export async function computeReq1Hash(
   sharedSecret: Uint8Array,
   sha1: (data: Uint8Array) => Promise<Uint8Array>,
 ): Promise<Uint8Array> {
-  return sha1(concat(encode('req1'), sharedSecret))
+  return sha1(concat(encode(MSE_REQ1), sharedSecret))
 }
 
 /**
@@ -84,8 +85,8 @@ export async function computeReq2Xor3(
   sharedSecret: Uint8Array,
   sha1: (data: Uint8Array) => Promise<Uint8Array>,
 ): Promise<Uint8Array> {
-  const req2 = await sha1(concat(encode('req2'), infoHash))
-  const req3 = await sha1(concat(encode('req3'), sharedSecret))
+  const req2 = await sha1(concat(encode(MSE_REQ2), infoHash))
+  const req3 = await sha1(concat(encode(MSE_REQ3), sharedSecret))
   return xor(req2, req3)
 }
 
@@ -99,11 +100,11 @@ export async function recoverInfoHash(
   knownInfoHashes: Uint8Array[],
   sha1: (data: Uint8Array) => Promise<Uint8Array>,
 ): Promise<Uint8Array | null> {
-  const req3 = await sha1(concat(encode('req3'), sharedSecret))
+  const req3 = await sha1(concat(encode(MSE_REQ3), sharedSecret))
   const req2Computed = xor(xorValue, req3)
 
   for (const infoHash of knownInfoHashes) {
-    const expected = await sha1(concat(encode('req2'), infoHash))
+    const expected = await sha1(concat(encode(MSE_REQ2), infoHash))
     if (arraysEqual(req2Computed, expected)) {
       return infoHash
     }

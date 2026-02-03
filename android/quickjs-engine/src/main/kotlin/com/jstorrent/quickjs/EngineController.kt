@@ -73,6 +73,13 @@ class EngineController(
     private var bindings: NativeBindings? = null
     private var configBridge: ConfigBridge? = null
 
+    // Reference count for subscription visibility.
+    // Multiple screens can request subscriptions active; only pause when count reaches 0.
+    // This handles race conditions when navigating between screens (e.g., list's ON_RESUME
+    // fires before detail's ON_PAUSE).
+    private var subscriptionVisibilityCount = 0
+    private val subscriptionLock = Any()
+
     // State exposed to UI
     private val _state = MutableStateFlow<EngineState?>(null)
     val state: StateFlow<EngineState?> = _state.asStateFlow()
@@ -804,10 +811,10 @@ class EngineController(
     // ============================================================
 
     /**
-     * Subscribe to data updates for a torrent (or global state).
+     * Subscribe to data updates for a torrent (or torrent list).
      *
-     * @param type Subscription type: "state", "peers", "files", "trackers", "pieces", "details"
-     * @param hash Torrent info hash, or "_global" for global state (torrent list)
+     * @param type Subscription type: "torrents", "peers", "files", "trackers", "pieces", "details"
+     * @param hash Torrent info hash, or "" for torrent list
      * @param intervalMs Push interval in milliseconds
      */
     fun subscribe(type: String, hash: String, intervalMs: Int) {
@@ -815,21 +822,21 @@ class EngineController(
         eng.jsThread.post {
             eng.context.callGlobalFunction("__jstorrent_subscribe", type, hash, intervalMs.toString())
         }
-        Log.d(TAG, "subscribe: $type for ${if (hash == "_global") "global" else hash.take(8)}...")
+        Log.d(TAG, "subscribe: $type for ${if (hash.isEmpty()) "all" else hash.take(8)}...")
     }
 
     /**
      * Unsubscribe from a specific data type for a torrent.
      *
      * @param type Subscription type
-     * @param hash Torrent info hash, or "_global" for global state
+     * @param hash Torrent info hash, or "" for torrent list
      */
     fun unsubscribe(type: String, hash: String) {
         val eng = engine ?: return
         eng.jsThread.post {
             eng.context.callGlobalFunction("__jstorrent_unsubscribe", type, hash)
         }
-        Log.d(TAG, "unsubscribe: $type for ${if (hash == "_global") "global" else hash.take(8)}...")
+        Log.d(TAG, "unsubscribe: $type for ${if (hash.isEmpty()) "all" else hash.take(8)}...")
     }
 
     /**
@@ -849,25 +856,45 @@ class EngineController(
     /**
      * Pause all subscription pushes.
      * Call when screen is not visible to save resources.
+     *
+     * Uses reference counting: only actually pauses when no screen wants subscriptions active.
+     * This handles race conditions when navigating between screens.
      */
     fun pauseSubscriptions() {
         val eng = engine ?: return
-        eng.jsThread.post {
-            eng.context.callGlobalFunction("__jstorrent_pause_subscriptions")
+        val shouldPause = synchronized(subscriptionLock) {
+            subscriptionVisibilityCount = maxOf(0, subscriptionVisibilityCount - 1)
+            Log.d(TAG, "pauseSubscriptions: count=$subscriptionVisibilityCount")
+            subscriptionVisibilityCount == 0
         }
-        Log.d(TAG, "pauseSubscriptions")
+        if (shouldPause) {
+            eng.jsThread.post {
+                eng.context.callGlobalFunction("__jstorrent_pause_subscriptions")
+            }
+            Log.d(TAG, "pauseSubscriptions: actually pausing")
+        }
     }
 
     /**
      * Resume subscription pushes.
      * Call when screen becomes visible again.
+     *
+     * Uses reference counting: always resumes when any screen wants subscriptions active.
      */
     fun resumeSubscriptions() {
         val eng = engine ?: return
-        eng.jsThread.post {
-            eng.context.callGlobalFunction("__jstorrent_resume_subscriptions")
+        val shouldResume = synchronized(subscriptionLock) {
+            val wasZero = subscriptionVisibilityCount == 0
+            subscriptionVisibilityCount++
+            Log.d(TAG, "resumeSubscriptions: count=$subscriptionVisibilityCount")
+            wasZero
         }
-        Log.d(TAG, "resumeSubscriptions")
+        if (shouldResume) {
+            eng.jsThread.post {
+                eng.context.callGlobalFunction("__jstorrent_resume_subscriptions")
+            }
+            Log.d(TAG, "resumeSubscriptions: actually resuming")
+        }
     }
 
     // ============================================================
@@ -1197,6 +1224,11 @@ class EngineController(
 
         _isLoaded.value = false
         _state.value = null
+
+        // Reset subscription visibility count for next engine load
+        synchronized(subscriptionLock) {
+            subscriptionVisibilityCount = 0
+        }
 
         Log.i(TAG, "Engine shut down")
     }

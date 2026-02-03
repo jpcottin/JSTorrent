@@ -36,6 +36,7 @@
     <string name="debug_add_test_1gb">Add Test Torrent (1GB)</string>
     <string name="debug_add_ubuntu">Add Ubuntu Server Torrent</string>
     <string name="debug_add_bunny">Add Big Buck Bunny</string>
+    <string name="debug_show_review_dialog">Show Review Dialog</string>
 
     <!-- AddTorrentDialog -->
     <string name="dialog_add_torrent_title">Add Torrent</string>
@@ -60,6 +61,13 @@
     <string name="dialog_bulk_remove_confirm_button">Remove</string>
     <string name="dialog_bulk_remove_cancel_button">Cancel</string>
 
+    <!-- ReviewPromptDialog -->
+    <string name="dialog_review_title">Enjoying JSTorrent?</string>
+    <string name="dialog_review_message">A quick review helps others find JSTorrent.</string>
+    <string name="dialog_review_leave_review">Leave a review!</string>
+    <string name="dialog_review_not_now">Later</string>
+    <string name="dialog_review_never">Don\'t ask again</string>
+
     <!-- TorrentDetailScreen -->
     <string name="torrent_detail_back_button">Back</string>
     <string name="torrent_detail_resume_button">Resume</string>
@@ -73,6 +81,8 @@
     <string name="torrent_detail_file_not_found">File not found</string>
     <string name="torrent_detail_open_with">Open with</string>
     <string name="torrent_detail_open_file_error">Could not open file: %1$s</string>
+    <string name="torrent_detail_open_folder">Open folder</string>
+    <string name="torrent_detail_open_folder_error">Could not open folder: %1$s</string>
 
     <!-- SettingsScreen -->
     <string name="settings_title">Settings</string>
@@ -153,6 +163,7 @@
 
     <!-- StorageSettingsScreen -->
     <string name="settings_storage_download_folders_section">Download Folders</string>
+    <string name="settings_storage_explanation">New downloads are saved to the default folder (marked with a star). Other folders are kept to allow seeding and resuming existing downloads.</string>
     <string name="settings_storage_no_folder_configured">No download folder configured</string>
     <string name="settings_storage_tap_to_add">Tap to add a download folder</string>
     <string name="settings_storage_default_folder">Default folder</string>
@@ -163,6 +174,9 @@
     <string name="settings_storage_set_as_default">Set as default</string>
     <string name="settings_storage_remove_folder">Remove folder</string>
     <string name="settings_storage_add_folder">Add download folder</string>
+    <string name="settings_storage_remove_folder_title">Remove folder?</string>
+    <string name="settings_storage_remove_folder_message">Removing this folder may disrupt %1$d torrent(s) that are downloading to or seeding from it.</string>
+    <string name="settings_storage_remove_folder_confirm">Remove</string>
 
     <!-- PowerManagementSettingsScreen -->
     <string name="settings_power_background_section">Background Activity</string>
@@ -187,11 +201,21 @@
     <string name="settings_advanced_companion_mode_label">Switch to Companion Mode</string>
     <string name="settings_advanced_companion_mode_description">Use with Chrome extension instead</string>
     <string name="settings_advanced_reset_section">Reset</string>
-    <string name="settings_advanced_clear_settings_label">Clear all settings</string>
-    <string name="settings_advanced_clear_settings_description">Remove all download folders</string>
-    <string name="settings_advanced_clear_confirm_title">Clear all settings?</string>
-    <string name="settings_advanced_clear_confirm_message">This will remove all download folders. Your downloaded files will not be deleted.</string>
-    <string name="settings_advanced_clear_confirm_button">Clear</string>
+    <string name="settings_advanced_reset_settings_label">Reset settings</string>
+    <string name="settings_advanced_reset_settings_description">Restore all settings to defaults</string>
+    <string name="settings_advanced_clear_all_data_label">Clear all data</string>
+    <string name="settings_advanced_clear_all_data_description">Remove all torrents, settings, and folders</string>
+
+    <!-- ResetSettingsDialog -->
+    <string name="dialog_reset_settings_title">Reset settings?</string>
+    <string name="dialog_reset_settings_message">This will restore all settings to their defaults. Your torrents and download folders will not be affected.</string>
+    <string name="dialog_reset_settings_confirm_button">Reset</string>
+
+    <!-- ClearAllDataDialog -->
+    <string name="dialog_clear_all_data_title">Clear all data?</string>
+    <string name="dialog_clear_all_data_message">This will remove all torrents, settings, and download folders. This is like reinstalling the app.</string>
+    <string name="dialog_clear_all_data_delete_files_label">Also delete downloaded files</string>
+    <string name="dialog_clear_all_data_confirm_button">Clear All</string>
 
     <!-- StatusTab -->
     <string name="tab_status_partial_suffix"> (partial)</string>
@@ -216,6 +240,8 @@
     <string name="tab_files_selection_changed">File selection changed</string>
     <string name="tab_files_empty_title">No files</string>
     <string name="tab_files_empty_description">File information not yet available</string>
+    <string name="tab_files_save_location">Save location</string>
+    <string name="tab_files_open_folder">Open folder</string>
 
     <!-- PeersTab -->
     <string name="tab_peers_empty_title">No peers connected</string>

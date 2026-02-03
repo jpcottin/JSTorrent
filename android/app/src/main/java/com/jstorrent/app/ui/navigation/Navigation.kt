@@ -75,6 +75,7 @@ fun TorrentNavHost(
     listViewModel: TorrentListViewModel,
     onAddRootClick: () -> Unit,
     onShutdownClick: () -> Unit = {},
+    onDebugShowReviewDialog: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     initialInfoHash: String? = null,
     navigateToListTrigger: Int = 0,
@@ -118,7 +119,8 @@ fun TorrentNavHost(
                 },
                 onDhtInfoClick = {
                     navController.navigate(Routes.DHT_INFO)
-                }
+                },
+                onDebugShowReviewDialog = onDebugShowReviewDialog
             )
         }
 

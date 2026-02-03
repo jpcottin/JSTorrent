@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -43,6 +44,7 @@ import com.jstorrent.app.util.Formatters
 @Composable
 fun DetailsTab(
     torrent: TorrentDetailUi,
+    onOpenSaveLocation: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -77,6 +79,15 @@ fun DetailsTab(
             pieceSize = torrent.pieceSize,
             pieceCount = torrent.piecesTotal
         )
+
+        // Save location section
+        if (torrent.rootDisplayName != null) {
+            HorizontalDivider()
+            SaveLocationSection(
+                displayName = torrent.rootDisplayName,
+                onOpen = onOpenSaveLocation
+            )
+        }
 
         // Torrent metadata section (only show if any metadata is available)
         if (torrent.comment != null || torrent.createdBy != null ||
@@ -182,6 +193,42 @@ private fun SizeSection(
             label = "Piece Count",
             value = pieceCount?.let { Formatters.formatNumber(it) } ?: "Unknown"
         )
+    }
+}
+
+@Composable
+private fun SaveLocationSection(
+    displayName: String,
+    onOpen: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = "SAVE LOCATION",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = displayName,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f)
+            )
+            if (onOpen != null) {
+                IconButton(onClick = onOpen) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInNew,
+                        contentDescription = "Open folder",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -303,7 +350,8 @@ private fun DetailsTabPreview() {
                 peers = emptyList(),
                 addedAt = 1735045203000,  // Dec 24, 2024 5:20:03 AM
                 completedAt = 1735074809000,  // Dec 24, 2024 1:33:29 PM
-                magnetUrl = "magnet:?xt=urn:btih:95c6c298c84fee2eee10c044d673537da158f0f8&dn=ubuntu-22.04.3-desktop-amd64.iso"
+                magnetUrl = "magnet:?xt=urn:btih:95c6c298c84fee2eee10c044d673537da158f0f8&dn=ubuntu-22.04.3-desktop-amd64.iso",
+                rootDisplayName = "Download/JSTorrent"
             )
         )
     }
