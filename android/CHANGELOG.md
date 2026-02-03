@@ -2,6 +2,17 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.10] - 2026-02-03
+
+### Changed
+- Enabled R8 minification and resource shrinking (83% smaller APK, ~9.5MB vs ~55MB)
+- Added 16KB memory page size support for Android 15+ devices
+
+## [1.0.9] - 2026-02-03
+
+### Added
+- Feedback/bug report feature
+
 ## [1.0.8] - 2026-01-31
 
 ### Added

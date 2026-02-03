@@ -119,6 +119,36 @@ emu test-native                         # Install app, launch with test magnet
 
 See `android/scripts/` for more: `emu-logs.sh`, `emu-install.sh`, `dev` commands for real devices.
 
+## Android Releases
+
+When the user asks to release a new Android version:
+
+1. **Update the changelog first** at `android/CHANGELOG.md`:
+   - Add a new section for the version with the date
+   - List changes under Added/Changed/Fixed sections
+   - The release script will warn if no changelog entry exists
+
+2. **Use the release script** to bump version, commit, and tag:
+   ```bash
+   ./scripts/release-android.sh <version>
+   ```
+   Example: `./scripts/release-android.sh 1.0.11`
+
+   This script:
+   - Increments versionCode automatically
+   - Sets versionName to the provided version
+   - Commits the change
+   - Creates git tag `android-v{version}`
+   - Pushes commit and tag to origin
+
+3. **The user will manually build the Play Store bundle** using:
+   ```bash
+   ./scripts/build-playstore-bundle.sh
+   ```
+   This requires the upload keystore at `android/app/signing/upload.keystore` and prompts for the password.
+
+**Do NOT** manually edit build.gradle.kts for version bumps - always use the release script.
+
 ## MCP Servers
 
 This project has two MCP servers for debugging and controlling Chrome/ChromeOS.

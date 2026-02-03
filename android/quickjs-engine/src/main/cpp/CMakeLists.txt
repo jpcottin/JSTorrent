@@ -60,3 +60,8 @@ set_target_properties(quickjs-jni PROPERTIES
     C_STANDARD 11
     C_STANDARD_REQUIRED ON
 )
+
+# 16KB page size support (required for Android 15+ devices)
+target_link_options(quickjs-jni PRIVATE
+    -Wl,-z,max-page-size=16384
+)

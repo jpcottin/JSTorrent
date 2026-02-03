@@ -3,10 +3,6 @@
 set -e
 
 SCRIPT_DIR="$(dirname "$0")"
-
-# Build and copy web assets first
-"$SCRIPT_DIR/update-android-web-assets.sh"
-
 cd "$SCRIPT_DIR/../android"
 
 # Path relative to app/ module (for gradle)
@@ -32,6 +28,16 @@ echo
     -PUPLOAD_KEY_PASSWORD="$PASSWORD"
 
 OUTPUT="app/build/outputs/bundle/release/app-release.aab"
+MAPPING="app/build/outputs/mapping/release/mapping.txt"
+
 echo ""
-echo "Bundle created at: $(pwd)/$OUTPUT"
-echo "Upload this file to Play Console."
+echo "=== Build Complete ==="
+echo ""
+echo "Bundle: $(pwd)/$OUTPUT"
+echo "Size:   $(du -h "$OUTPUT" | cut -f1)"
+echo ""
+echo "Mapping file: $(pwd)/$MAPPING"
+echo "Size:         $(du -h "$MAPPING" | cut -f1)"
+echo ""
+echo "Upload the bundle to Play Console."
+echo "Upload the mapping file to: App bundle explorer → Release → Downloads → Upload"

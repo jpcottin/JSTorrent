@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build website and copy standalone assets to Android
+# Build website and copy assets to Android (if needed)
 set -e
 
 cd "$(dirname "$0")/.."
@@ -14,15 +14,16 @@ pnpm build
 echo "Copying assets to Android..."
 cd ..
 
-# Remove old assets
-rm -rf "$ANDROID_ASSETS/standalone" "$ANDROID_ASSETS/standalone_full" "$ANDROID_ASSETS/assets"
+# Ensure assets directory exists
+mkdir -p "$ANDROID_ASSETS"
 
-# Copy new assets
-cp -r "$WEBSITE_DIR/dist/standalone" "$ANDROID_ASSETS/"
-cp -r "$WEBSITE_DIR/dist/standalone_full" "$ANDROID_ASSETS/"
-cp -r "$WEBSITE_DIR/dist/assets" "$ANDROID_ASSETS/"
+# Copy assets that exist (standalone dirs are legacy, may not exist)
+for dir in standalone standalone_full assets; do
+    if [ -d "$WEBSITE_DIR/dist/$dir" ]; then
+        rm -rf "$ANDROID_ASSETS/$dir"
+        cp -r "$WEBSITE_DIR/dist/$dir" "$ANDROID_ASSETS/"
+        echo "  Copied $dir"
+    fi
+done
 
-echo "Done. Assets copied to $ANDROID_ASSETS/"
-echo ""
-echo "Directories updated:"
-ls -la "$ANDROID_ASSETS/"
+echo "Done."
