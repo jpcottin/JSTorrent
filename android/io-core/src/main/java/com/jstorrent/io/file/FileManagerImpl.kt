@@ -73,6 +73,62 @@ private class PooledFileHandle(
 }
 
 /**
+ * Pooled SAF file handle using FileChannel for lock-free positioned I/O.
+ * Similar to PooledFileHandle but for SAF content:// URIs.
+ */
+private class PooledSafHandle(
+    val cacheKey: String,  // "$rootUri|$relativePath"
+    val pfd: android.os.ParcelFileDescriptor,
+    @Volatile var lastAccessTime: Long = System.currentTimeMillis()
+) {
+    // Use FileOutputStream to get FileChannel from ParcelFileDescriptor
+    private val fos = FileOutputStream(pfd.fileDescriptor)
+    val channel: java.nio.channels.FileChannel = fos.channel
+
+    /**
+     * Write data at the given position without seeking.
+     * Uses FileChannel.write(buffer, position) which is atomic and thread-safe.
+     */
+    fun writeAt(offset: Long, data: ByteArray) {
+        lastAccessTime = System.currentTimeMillis()
+        val buffer = ByteBuffer.wrap(data)
+        var written = 0
+        while (buffer.hasRemaining()) {
+            written += channel.write(buffer, offset + written)
+        }
+    }
+
+    /**
+     * Read data from the given position without seeking.
+     */
+    fun readAt(offset: Long, length: Int): ByteArray {
+        lastAccessTime = System.currentTimeMillis()
+        val buffer = ByteBuffer.allocate(length)
+        var totalRead = 0
+        while (buffer.hasRemaining()) {
+            val read = channel.read(buffer, offset + totalRead)
+            if (read == -1) break
+            totalRead += read
+        }
+        if (totalRead < length) {
+            throw IllegalStateException("Could not read $length bytes, only got $totalRead")
+        }
+        buffer.flip()
+        return buffer.array()
+    }
+
+    fun close() {
+        try {
+            channel.close()
+            fos.close()
+            pfd.close()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error closing SAF handle: $cacheKey", e)
+        }
+    }
+}
+
+/**
  * SAF-based FileManager implementation with LRU caching.
  * Also supports file:// URIs using standard Java File I/O.
  *
@@ -112,6 +168,14 @@ class FileManagerImpl(
     @Volatile private var lastEvictionCheck = System.currentTimeMillis()
 
     /**
+     * Pool of open SAF file handles.
+     * Key: "$rootUri|$relativePath"
+     */
+    private val safHandlePool = LinkedHashMap<String, PooledSafHandle>(maxFileHandles, 0.75f, true)
+    private val safHandleLock = ReentrantLock()
+    @Volatile private var lastSafEvictionCheck = System.currentTimeMillis()
+
+    /**
      * Check if URI is a file:// scheme that should use native File I/O.
      */
     private fun isFileUri(uri: Uri): Boolean = uri.scheme == "file"
@@ -127,35 +191,13 @@ class FileManagerImpl(
             return readNative(rootUri, relativePath, offset, length)
         }
 
-        val file = getCachedFile(rootUri, relativePath)
-            ?: throw FileManagerException.FileNotFound(relativePath)
-
         try {
-            context.contentResolver.openFileDescriptor(file.uri, "r")?.use { pfd ->
-                FileInputStream(pfd.fileDescriptor).use { fis ->
-                    val channel = fis.channel
-                    channel.position(offset)
-
-                    val buffer = ByteBuffer.allocate(length)
-                    var totalRead = 0
-                    while (buffer.hasRemaining()) {
-                        val read = channel.read(buffer)
-                        if (read == -1) break
-                        totalRead += read
-                    }
-
-                    if (totalRead < length) {
-                        throw FileManagerException.InsufficientData(relativePath, length, totalRead)
-                    }
-
-                    buffer.flip()
-                    val bytes = ByteArray(buffer.remaining())
-                    buffer.get(bytes)
-                    return bytes
-                }
-            } ?: throw FileManagerException.CannotOpenFile(relativePath)
+            val handle = getPooledSafHandle(rootUri, relativePath)
+            return handle.readAt(offset, length)
         } catch (e: FileManagerException) {
             throw e
+        } catch (e: IllegalStateException) {
+            throw FileManagerException.InsufficientData(relativePath, length, 0)
         } catch (e: Exception) {
             Log.e(TAG, "Error reading file: ${e.message}", e)
             throw FileManagerException.ReadError(relativePath, e)
@@ -169,38 +211,8 @@ class FileManagerImpl(
         }
 
         try {
-            // Try cache first for existing files
-            var file = getCachedFile(rootUri, relativePath)
-
-            if (file == null) {
-                // Not in cache - use per-path lock to prevent race condition
-                // where multiple concurrent writes all try to create the same file
-                val cacheKey = "$rootUri|$relativePath"
-                val lock = creationLocks.computeIfAbsent(cacheKey) { ReentrantLock() }
-                lock.withLock {
-                    // Double-check after acquiring lock - another thread may have created it
-                    file = getCachedFile(rootUri, relativePath)
-                    if (file == null) {
-                        file = createFile(rootUri, relativePath)
-                            ?: throw FileManagerException.CannotCreateFile(relativePath)
-                        cacheFile(rootUri, relativePath, file)
-                    }
-                }
-                // Clean up lock if no one else waiting (optional, prevents memory leak)
-                if (!lock.hasQueuedThreads()) {
-                    creationLocks.remove(cacheKey, lock)
-                }
-            }
-
-            // Use ParcelFileDescriptor for true random access writes
-            // file is guaranteed non-null here (either from cache or created above)
-            context.contentResolver.openFileDescriptor(file!!.uri, "rw")?.use { pfd ->
-                FileOutputStream(pfd.fileDescriptor).use { fos ->
-                    val channel = fos.channel
-                    channel.position(offset)
-                    channel.write(ByteBuffer.wrap(data))
-                }
-            } ?: throw FileManagerException.CannotOpenFile(relativePath)
+            val handle = getPooledSafHandle(rootUri, relativePath)
+            handle.writeAt(offset, data)
         } catch (e: FileManagerException) {
             throw e
         } catch (e: Exception) {
@@ -293,6 +305,13 @@ class FileManagerImpl(
         if (isFileUri(rootUri)) {
             return deleteNative(rootUri, relativePath)
         }
+
+        // Close any pooled handle for this file before deleting
+        val cacheKey = "$rootUri|$relativePath"
+        safHandleLock.withLock {
+            safHandlePool.remove(cacheKey)?.close()
+        }
+
         val doc = resolvePath(rootUri, relativePath) ?: return false
         val deleted = doc.delete()
         if (deleted) {
@@ -300,6 +319,13 @@ class FileManagerImpl(
             val cachePrefix = "$rootUri|$relativePath"
             synchronized(cacheLock) {
                 documentFileCache.keys.removeAll { it.startsWith(cachePrefix) }
+            }
+            // Also close any handles for descendants
+            safHandleLock.withLock {
+                val toClose = safHandlePool.keys.filter { it.startsWith(cachePrefix) }
+                for (key in toClose) {
+                    safHandlePool.remove(key)?.close()
+                }
             }
         }
         return deleted
@@ -431,6 +457,103 @@ class FileManagerImpl(
     }
 
     // =========================================================================
+    // SAF Handle Pool helpers
+    // =========================================================================
+
+    /**
+     * Get or create a pooled SAF file handle.
+     * Creates file and parent directories if needed.
+     */
+    private fun getPooledSafHandle(rootUri: Uri, relativePath: String): PooledSafHandle {
+        val cacheKey = "$rootUri|$relativePath"
+
+        safHandleLock.withLock {
+            // Check if already in pool
+            safHandlePool[cacheKey]?.let { return it }
+
+            // Evict idle handles if pool is full
+            maybeEvictSafHandles()
+
+            // Get or create the DocumentFile (release lock during SAF operations)
+        }
+
+        // Do file creation outside the pool lock to avoid holding lock during SAF calls
+        var file = getCachedFile(rootUri, relativePath)
+        if (file == null) {
+            // Use per-path lock to prevent race during file creation
+            val lock = creationLocks.computeIfAbsent(cacheKey) { ReentrantLock() }
+            lock.withLock {
+                file = getCachedFile(rootUri, relativePath)
+                if (file == null) {
+                    file = createFile(rootUri, relativePath)
+                        ?: throw FileManagerException.CannotCreateFile(relativePath)
+                    cacheFile(rootUri, relativePath, file)
+                }
+            }
+            if (!lock.hasQueuedThreads()) {
+                creationLocks.remove(cacheKey, lock)
+            }
+        }
+
+        // Open ParcelFileDescriptor in read-write mode
+        val pfd = context.contentResolver.openFileDescriptor(file!!.uri, "rw")
+            ?: throw FileManagerException.CannotOpenFile(relativePath)
+
+        val handle = PooledSafHandle(cacheKey, pfd)
+
+        // Add to pool with lock
+        safHandleLock.withLock {
+            // Check again if another thread added it while we were creating
+            safHandlePool[cacheKey]?.let {
+                // Another thread beat us, close our handle and use theirs
+                handle.close()
+                return it
+            }
+            safHandlePool[cacheKey] = handle
+        }
+
+        return handle
+    }
+
+    /**
+     * Evict SAF handles that haven't been used recently or if pool is too large.
+     * Must be called with safHandleLock held.
+     */
+    private fun maybeEvictSafHandles() {
+        val now = System.currentTimeMillis()
+
+        // Only check every second
+        if (now - lastSafEvictionCheck < 1000) return
+        lastSafEvictionCheck = now
+
+        val toEvict = mutableListOf<String>()
+
+        for ((key, handle) in safHandlePool) {
+            if (now - handle.lastAccessTime > handleIdleTimeoutMs) {
+                toEvict.add(key)
+            }
+        }
+
+        // Also evict oldest if over capacity
+        while (safHandlePool.size - toEvict.size >= maxFileHandles) {
+            val oldest = safHandlePool.entries.firstOrNull { it.key !in toEvict }
+            if (oldest != null) {
+                toEvict.add(oldest.key)
+            } else {
+                break
+            }
+        }
+
+        for (key in toEvict) {
+            safHandlePool.remove(key)?.close()
+        }
+
+        if (toEvict.isNotEmpty()) {
+            Log.d(TAG, "Evicted ${toEvict.size} SAF handles, pool size: ${safHandlePool.size}")
+        }
+    }
+
+    // =========================================================================
     // Native File I/O helpers (for file:// URIs)
     // =========================================================================
 
@@ -534,7 +657,7 @@ class FileManagerImpl(
     }
 
     /**
-     * Close all pooled file handles.
+     * Close all pooled file handles (both native and SAF).
      */
     fun closeAllHandles() {
         fileHandleLock.withLock {
@@ -542,8 +665,16 @@ class FileManagerImpl(
                 handle.close()
             }
             fileHandlePool.clear()
-            Log.d(TAG, "Closed all file handles")
         }
+
+        safHandleLock.withLock {
+            for ((_, handle) in safHandlePool) {
+                handle.close()
+            }
+            safHandlePool.clear()
+        }
+
+        Log.d(TAG, "Closed all file handles")
     }
 
     private fun readNative(rootUri: Uri, relativePath: String, offset: Long, length: Int): ByteArray {
