@@ -165,11 +165,6 @@ class CallbackManager {
       offset += 4
 
       const textDecoder = new TextDecoder()
-      const callbacks = (
-        globalThis as unknown as {
-          __jstorrent_hash_callbacks?: Record<string, (hash: ArrayBuffer) => void>
-        }
-      ).__jstorrent_hash_callbacks
 
       for (let i = 0; i < count; i++) {
         const callbackIdLen = bytes[offset]
@@ -182,12 +177,8 @@ class CallbackManager {
         const hash = packed.slice(offset, offset + hashLen)
         offset += hashLen
 
-        // Dispatch to registered callback (same as __jstorrent_hash_dispatch_result)
-        const callback = callbacks?.[callbackId]
-        if (callback) {
-          delete callbacks[callbackId]
-          callback(hash)
-        }
+        // Dispatch via the proper handler that decrements pendingHashCount
+        globalThis.__jstorrent_hash_dispatch_result(callbackId, hash)
       }
     }
 
