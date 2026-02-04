@@ -2,6 +2,13 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.12] - 2026-02-04
+
+### Fixed
+- Engine startup race conditions with command queueing
+- Stale cache entries after torrent removal
+- Race conditions in batch operations (pause/resume/remove selected)
+
 ## [1.0.11] - 2026-02-04
 
 ### Added
