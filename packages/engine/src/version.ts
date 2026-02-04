@@ -6,7 +6,7 @@
  */
 declare const JSTORRENT_VERSION: string | undefined
 export const VERSION: string =
-  typeof JSTORRENT_VERSION !== 'undefined' ? JSTORRENT_VERSION : '1.0.0'
+  typeof JSTORRENT_VERSION !== 'undefined' ? JSTORRENT_VERSION : '1.0.1'
 
 /**
  * Convert semantic version "X.Y.Z" to Azureus-style 4-char code "XYZW".
