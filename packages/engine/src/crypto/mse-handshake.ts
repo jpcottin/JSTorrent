@@ -22,6 +22,7 @@ import {
   MSE_REQ3,
 } from './constants'
 import { createRC4Pair, toHex, concat } from './key-derivation'
+import { Sha1Reason } from '../interfaces/hasher'
 
 // Text encoder for hash prefixes
 const encoder = new TextEncoder()
@@ -64,9 +65,15 @@ export interface MseHandshakeOptions {
   role: MseRole
   infoHash?: Uint8Array // Required for initiator
   knownInfoHashes?: Uint8Array[] // For responder to identify torrent (legacy O(N) lookup)
-  req2Map?: Map<string, Uint8Array> // For responder (O(1) lookup, preferred)
+  /**
+   * Lookup function to identify which torrent an incoming connection is for.
+   * Takes the MSE connection identifier (req2 hash) and returns the infoHash
+   * if the torrent exists and should accept connections, null otherwise.
+   * This allows rejecting stopped/inactive torrents before computing encryption keys.
+   */
+  identifyTorrent?: (connectionIdHex: string) => Uint8Array | null
   /** Batch SHA1 function - computes multiple hashes in one call */
-  sha1Batch: (inputs: Uint8Array[], reason?: string) => Promise<Uint8Array[]>
+  sha1Batch: (inputs: Uint8Array[], reason?: Sha1Reason) => Promise<Uint8Array[]>
   getRandomBytes: (length: number) => Uint8Array
   preferEncrypted?: boolean // Default true
 }
@@ -441,14 +448,15 @@ export class MseHandshake {
     // Compute req3 = SHA1('req3' + S)
     const [req3] = await this.options.sha1Batch([concat(encode(MSE_REQ3), S)], 'mse-resp-req3')
 
-    // XOR to recover req2
-    const req2Computed = xor(xorValue, req3)
+    // XOR to recover the connection identifier (req2 hash)
+    const connectionId = xor(xorValue, req3)
 
-    // Recover info hash using O(1) map lookup if available
+    // Recover info hash using O(1) lookup if available
     let infoHash: Uint8Array | null = null
-    if (this.options.req2Map) {
-      // Fast path: O(1) lookup using precomputed req2 hashes
-      infoHash = this.options.req2Map.get(toHex(req2Computed)) ?? null
+    if (this.options.identifyTorrent) {
+      // Fast path: O(1) lookup via caller-provided function
+      // Also allows caller to reject inactive torrents before key computation
+      infoHash = this.options.identifyTorrent(toHex(connectionId))
     } else if (this.options.knownInfoHashes) {
       // Legacy path: O(N) iteration - compute req2 for each known hash
       for (const candidate of this.options.knownInfoHashes) {
@@ -458,7 +466,7 @@ export class MseHandshake {
         )
         let match = true
         for (let i = 0; i < 20; i++) {
-          if (req2Computed[i] !== expected[i]) {
+          if (connectionId[i] !== expected[i]) {
             match = false
             break
           }

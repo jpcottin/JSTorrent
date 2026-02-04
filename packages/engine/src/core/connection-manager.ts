@@ -2,6 +2,7 @@ import { Swarm, SwarmPeer, peerKey } from './swarm'
 import { PeerSelector } from './peer-selector'
 import { PeerConnection } from './peer-connection'
 import { ISocketFactory, ITcpSocket } from '../interfaces/socket'
+import { Sha1Reason } from '../interfaces/hasher'
 import type { Logger, ILoggingEngine } from '../logging/logger'
 import { MseSocket, EncryptionPolicy } from '../crypto'
 
@@ -28,7 +29,7 @@ export interface ConnectionConfig {
 export interface EncryptionContext {
   infoHash: Uint8Array
   /** Batch SHA1 function - computes multiple hashes in one call */
-  sha1Batch: (inputs: Uint8Array[], reason?: string) => Promise<Uint8Array[]>
+  sha1Batch: (inputs: Uint8Array[], reason?: Sha1Reason) => Promise<Uint8Array[]>
   getRandomBytes: (length: number) => Uint8Array
 }
 

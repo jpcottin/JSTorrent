@@ -5,7 +5,7 @@
  * blocking the JS thread during SHA1 computation.
  */
 
-import type { IHasher } from '../../interfaces/hasher'
+import type { IHasher, Sha1Reason } from '../../interfaces/hasher'
 import './bindings.d.ts'
 
 // Callback ID counter
@@ -55,7 +55,7 @@ export class NativeHasher implements IHasher {
    * Compute multiple SHA1 hashes in a single FFI call (synchronous).
    * Used for MSE handshake to reduce FFI overhead from 5 calls to 1.
    */
-  async sha1Batch(inputs: Uint8Array[], _reason?: string): Promise<Uint8Array[]> {
+  async sha1Batch(inputs: Uint8Array[], _reason?: Sha1Reason): Promise<Uint8Array[]> {
     if (inputs.length === 0) return []
 
     // Pack inputs: [count: u32 LE] then for each: [len: u32 LE] [data: bytes]
@@ -92,7 +92,7 @@ export class NativeHasher implements IHasher {
   /**
    * Compute SHA1 hash of data (async - doesn't block JS thread).
    */
-  async sha1(data: Uint8Array, _reason?: string): Promise<Uint8Array> {
+  async sha1(data: Uint8Array, _reason?: Sha1Reason): Promise<Uint8Array> {
     const startTime = Date.now()
 
     // Optimization: Only slice if the Uint8Array is a view into a larger buffer

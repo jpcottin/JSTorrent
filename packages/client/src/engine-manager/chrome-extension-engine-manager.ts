@@ -4,6 +4,7 @@ import {
   DaemonSocketFactory,
   DaemonFileSystem,
   DaemonHasher,
+  RoutingHasher,
   StorageRootManager,
   ExternalChromeStorageSessionStore,
   Socks5SocketFactory,
@@ -326,7 +327,10 @@ export class ChromeExtensionEngineManager implements IEngineManager {
 
     // 6. Create engine (suspended) with ConfigHub
     // Engine will auto-apply settings and subscribe to changes via ConfigHub
-    const hasher = new DaemonHasher(this.daemonConnection)
+    // Use RoutingHasher to route small/latency-sensitive ops to local SubtleCrypto
+    // and large operations to DaemonHasher (important for ChromeOS performance)
+    const daemonHasher = new DaemonHasher(this.daemonConnection)
+    const hasher = new RoutingHasher(daemonHasher)
 
     // Create socket factory, optionally wrapped with SOCKS5 proxy
     let socketFactory: ISocketFactory = new DaemonSocketFactory(this.daemonConnection)

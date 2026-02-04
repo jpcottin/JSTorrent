@@ -239,17 +239,18 @@ export class Torrent extends EngineComponent {
   private _cachedInfoDict?: Record<string, unknown>
 
   /**
-   * Precomputed SHA1('req2' + infoHash) for MSE incoming connection identification.
-   * Set during metadata initialization.
+   * Precomputed identifier for MSE incoming connection routing.
+   * This is SHA1('req2' + infoHash) per the MSE/PE specification.
+   * Allows O(1) lookup to match incoming encrypted connections to this torrent.
    */
-  private _req2Hash: Uint8Array | null = null
+  private _mseIdentifier: Uint8Array | null = null
 
-  get req2Hash(): Uint8Array | null {
-    return this._req2Hash
+  get mseIdentifier(): Uint8Array | null {
+    return this._mseIdentifier
   }
 
-  setReq2Hash(hash: Uint8Array): void {
-    this._req2Hash = hash
+  setMseIdentifier(id: Uint8Array): void {
+    this._mseIdentifier = id
   }
 
   /**

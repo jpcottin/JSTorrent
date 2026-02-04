@@ -1,4 +1,4 @@
-import { IHasher } from '../../interfaces/hasher'
+import { IHasher, Sha1Reason } from '../../interfaces/hasher'
 import { DaemonConnection } from './daemon-connection'
 
 /**
@@ -8,13 +8,13 @@ import { DaemonConnection } from './daemon-connection'
 export class DaemonHasher implements IHasher {
   constructor(private connection: DaemonConnection) {}
 
-  async sha1(data: Uint8Array, reason?: string): Promise<Uint8Array> {
+  async sha1(data: Uint8Array, reason?: Sha1Reason): Promise<Uint8Array> {
     const headers = reason ? { 'X-SHA-Reason': reason } : undefined
     // Returns raw 20 bytes, not hex
     return this.connection.requestBinary('POST', '/hash/sha1', undefined, data, headers)
   }
 
-  async sha1Batch(inputs: Uint8Array[], reason?: string): Promise<Uint8Array[]> {
+  async sha1Batch(inputs: Uint8Array[], reason?: Sha1Reason): Promise<Uint8Array[]> {
     if (inputs.length === 0) return []
     if (inputs.length === 1) return [await this.sha1(inputs[0], reason)]
 

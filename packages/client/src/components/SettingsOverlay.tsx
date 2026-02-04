@@ -259,6 +259,9 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     }
   }
 
+  // State for clear all data operation
+  const [clearingData, setClearingData] = useState(false)
+
   // Handle reset all settings
   const handleResetAllSettings = async () => {
     const confirmed = standaloneConfirm(
@@ -271,6 +274,53 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
       await resetAll()
       clearAllUISettings()
       window.location.reload()
+    }
+  }
+
+  // Handle clear all data (torrents + settings)
+  const handleClearAllData = async (deleteFiles: boolean) => {
+    setClearingData(true)
+    try {
+      // 1. Remove all torrents from engine
+      const engine = engineManager.engine
+      if (engine) {
+        const torrents = [...engine.torrents]
+        for (const torrent of torrents) {
+          try {
+            if (deleteFiles) {
+              await engine.removeTorrentWithData(torrent)
+            } else {
+              await engine.removeTorrent(torrent)
+            }
+          } catch (e) {
+            console.error('[Settings] Failed to remove torrent:', e)
+          }
+        }
+      }
+
+      // 2. Clear session storage (session:* keys) but preserve installId and metrics
+      // This is done by sending a message to the service worker
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        try {
+          await chrome.runtime.sendMessage({ type: 'CLEAR_SESSION_STORAGE' })
+        } catch (e) {
+          console.error('[Settings] Failed to clear session storage:', e)
+        }
+      }
+
+      // 3. Reset all settings
+      await resetAll()
+
+      // 4. Clear UI settings
+      clearAllUISettings()
+
+      // 5. Reload page
+      window.location.reload()
+    } catch (e) {
+      console.error('[Settings] Failed to clear all data:', e)
+      standaloneAlert('Failed to clear all data. Please try again.')
+    } finally {
+      setClearingData(false)
     }
   }
 
@@ -350,6 +400,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                 settings={settings}
                 config={config}
                 onResetAllSettings={handleResetAllSettings}
+                onClearAllData={handleClearAllData}
+                clearingData={clearingData}
               />
             )}
           </div>
@@ -909,6 +961,8 @@ const NetworkTab: React.FC<NetworkTabProps> = ({ settings, config, engineManager
 
 interface AdvancedTabProps extends TabProps {
   onResetAllSettings: () => void
+  onClearAllData: (deleteFiles: boolean) => Promise<void>
+  clearingData: boolean
 }
 
 // Log level options for global setting
@@ -934,9 +988,24 @@ const LOG_COMPONENT_CONFIG_KEYS = {
 
 type LogComponentName = keyof typeof LOG_COMPONENT_CONFIG_KEYS
 
-const AdvancedTab: React.FC<AdvancedTabProps> = ({ settings, config, onResetAllSettings }) => {
+const AdvancedTab: React.FC<AdvancedTabProps> = ({
+  settings,
+  config,
+  onResetAllSettings,
+  onClearAllData,
+  clearingData,
+}) => {
   // Component overrides collapsed by default
   const [overridesExpanded, setOverridesExpanded] = useState(false)
+  // Clear all data dialog state
+  const [showClearDataDialog, setShowClearDataDialog] = useState(false)
+  const [deleteFilesChecked, setDeleteFilesChecked] = useState(false)
+
+  const handleClearAllData = async () => {
+    await onClearAllData(deleteFilesChecked)
+    setShowClearDataDialog(false)
+    setDeleteFilesChecked(false)
+  }
 
   // Get the value for a component log level from the snapshot
   const getComponentLogLevel = (comp: LogComponentName): ComponentLogLevel => {
@@ -1045,15 +1114,69 @@ const AdvancedTab: React.FC<AdvancedTabProps> = ({ settings, config, onResetAllS
       </Section>
 
       <Section title="Danger Zone">
-        <div style={{ color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md, 12px)' }}>
-          Restore all settings to their default values. This includes network limits, notification
-          preferences, theme, and UI layout. Your download locations and downloaded files will not
-          be affected.
+        <div style={styles.dangerItem}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 500 }}>Reset Settings</div>
+            <div style={{ fontSize: 'var(--font-xs, 12px)', color: 'var(--text-secondary)' }}>
+              Restore all settings to defaults. Your torrents and files are not affected.
+            </div>
+          </div>
+          <button onClick={onResetAllSettings} style={styles.dangerButtonSmall}>
+            Reset
+          </button>
         </div>
-        <button onClick={onResetAllSettings} style={styles.dangerButton}>
-          Reset All Settings
-        </button>
+        <div style={styles.dangerItem}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 500 }}>Clear All Data</div>
+            <div style={{ fontSize: 'var(--font-xs, 12px)', color: 'var(--text-secondary)' }}>
+              Remove all torrents and reset all settings. Like reinstalling the extension.
+            </div>
+          </div>
+          <button
+            onClick={() => setShowClearDataDialog(true)}
+            style={styles.dangerButtonSmall}
+            disabled={clearingData}
+          >
+            {clearingData ? 'Clearing...' : 'Clear All'}
+          </button>
+        </div>
       </Section>
+
+      {/* Clear All Data Confirmation Dialog */}
+      {showClearDataDialog && (
+        <div style={styles.dialogBackdrop} onClick={() => setShowClearDataDialog(false)}>
+          <div style={styles.dialog} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.dialogTitle}>Clear all data?</h3>
+            <p style={styles.dialogMessage}>
+              This will remove all torrents, settings, and UI preferences. This is like reinstalling
+              the extension.
+            </p>
+            <label style={styles.dialogCheckbox}>
+              <input
+                type="checkbox"
+                checked={deleteFilesChecked}
+                onChange={(e) => setDeleteFilesChecked(e.target.checked)}
+              />
+              Also delete downloaded files
+            </label>
+            <div style={styles.dialogButtons}>
+              <button
+                onClick={() => setShowClearDataDialog(false)}
+                style={styles.dialogButtonCancel}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleClearAllData}
+                style={styles.dialogButtonDanger}
+                disabled={clearingData}
+              >
+                {clearingData ? 'Clearing...' : 'Clear All'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1549,5 +1672,88 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 'var(--spacing-sm, 8px)',
     cursor: 'pointer',
     userSelect: 'none',
+  },
+  dangerItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 'var(--spacing-md, 12px)',
+    padding: 'var(--spacing-sm, 10px) var(--spacing-md, 12px)',
+    background: 'var(--bg-tertiary)',
+    borderRadius: '4px',
+    border: '1px solid var(--border-light)',
+    marginBottom: 'var(--spacing-sm, 8px)',
+  },
+  dangerButtonSmall: {
+    padding: 'var(--spacing-xs, 6px) var(--spacing-md, 12px)',
+    background: 'var(--accent-error, #ef4444)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: 'var(--font-sm, 14px)',
+    whiteSpace: 'nowrap',
+  },
+  dialogBackdrop: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    background: 'rgba(0, 0, 0, 0.6)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2000,
+  },
+  dialog: {
+    background: 'var(--bg-primary)',
+    borderRadius: '8px',
+    padding: 'var(--spacing-lg, 20px)',
+    maxWidth: '400px',
+    width: '90%',
+    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+    border: '1px solid var(--border-color)',
+  },
+  dialogTitle: {
+    margin: '0 0 var(--spacing-md, 12px) 0',
+    fontSize: 'var(--font-lg, 18px)',
+    fontWeight: 600,
+  },
+  dialogMessage: {
+    margin: '0 0 var(--spacing-lg, 16px) 0',
+    color: 'var(--text-secondary)',
+    lineHeight: 1.5,
+  },
+  dialogCheckbox: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 'var(--spacing-sm, 8px)',
+    padding: 'var(--spacing-sm, 10px) var(--spacing-md, 12px)',
+    background: 'var(--bg-warning, rgba(234, 179, 8, 0.1))',
+    border: '1px solid var(--border-warning, #eab308)',
+    borderRadius: '4px',
+    marginBottom: 'var(--spacing-lg, 16px)',
+    cursor: 'pointer',
+  },
+  dialogButtons: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: 'var(--spacing-sm, 8px)',
+  },
+  dialogButtonCancel: {
+    padding: 'var(--spacing-sm, 8px) var(--spacing-lg, 16px)',
+    background: 'var(--bg-secondary)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--border-color)',
+    borderRadius: '4px',
+    cursor: 'pointer',
+  },
+  dialogButtonDanger: {
+    padding: 'var(--spacing-sm, 8px) var(--spacing-lg, 16px)',
+    background: 'var(--accent-error, #ef4444)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
   },
 }

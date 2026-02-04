@@ -57,10 +57,16 @@ class TorrentListViewModel(
         // This provides the "response" half of the immediate feedback loop
         viewModelScope.launch {
             repository.state.collect { state ->
-                if (state != null && _pendingTorrents.value.isNotEmpty()) {
-                    // Clear pending for any torrents that now appear in engine state
+                if (state != null) {
                     val engineInfoHashes = state.torrents.map { it.infoHash }.toSet()
-                    _pendingTorrents.value = _pendingTorrents.value - engineInfoHashes
+                    // Clear play/pause pending for torrents that now appear in engine state
+                    if (_pendingTorrents.value.isNotEmpty()) {
+                        _pendingTorrents.value = _pendingTorrents.value - engineInfoHashes
+                    }
+                    // Clear removal pending for torrents that have disappeared from engine state
+                    if (_pendingRemovalTorrents.value.isNotEmpty()) {
+                        _pendingRemovalTorrents.value = _pendingRemovalTorrents.value.intersect(engineInfoHashes)
+                    }
                 }
             }
         }
@@ -81,6 +87,10 @@ class TorrentListViewModel(
     // This provides immediate visual feedback when user taps play/pause while engine is starting
     private val _pendingTorrents = MutableStateFlow<Set<String>>(emptySet())
     val pendingTorrents: StateFlow<Set<String>> = _pendingTorrents.asStateFlow()
+
+    // Pending removal state - torrents being removed, shows "Removing" status with faded appearance
+    private val _pendingRemovalTorrents = MutableStateFlow<Set<String>>(emptySet())
+    val pendingRemovalTorrents: StateFlow<Set<String>> = _pendingRemovalTorrents.asStateFlow()
 
     // Track when each torrent was last actively downloading (for stable speed sorting)
     // When a torrent stops, it keeps its position based on when it was last active
@@ -382,8 +392,10 @@ class TorrentListViewModel(
     /**
      * Remove a torrent by info hash.
      * Stage 2: Starts engine on demand if not running.
+     * Immediately marks torrent as pending removal for instant UI feedback.
      */
     fun removeTorrent(infoHash: String, deleteFiles: Boolean = false) {
+        _pendingRemovalTorrents.value = _pendingRemovalTorrents.value + infoHash
         onEnsureEngineStarted()
         repository.removeTorrent(infoHash, deleteFiles)
     }
@@ -533,8 +545,10 @@ class TorrentListViewModel(
     /**
      * Remove all selected torrents.
      * Stage 2: Starts engine on demand if not running.
+     * Immediately marks torrents as pending removal for instant UI feedback.
      */
     fun removeSelected(deleteFiles: Boolean) {
+        _pendingRemovalTorrents.value = _pendingRemovalTorrents.value + _selectedTorrents.value
         onEnsureEngineStarted()
         _selectedTorrents.value.forEach { hash ->
             repository.removeTorrent(hash, deleteFiles)

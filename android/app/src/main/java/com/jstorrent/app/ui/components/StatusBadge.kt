@@ -89,6 +89,7 @@ fun formatStatusComposable(status: String): String = when (status) {
     "checking" -> stringResource(R.string.status_checking)
     "error" -> stringResource(R.string.status_error)
     "queued" -> stringResource(R.string.status_queued)
+    "removing" -> stringResource(R.string.status_removing)
     else -> status.replaceFirstChar { it.uppercase() }
 }
 
@@ -104,6 +105,7 @@ fun statusColor(status: String): Color = when (status) {
     "checking" -> MaterialTheme.colorScheme.secondary
     "queued" -> MaterialTheme.colorScheme.secondary
     "error" -> MaterialTheme.colorScheme.error
+    "removing" -> MaterialTheme.colorScheme.outline
     else -> MaterialTheme.colorScheme.onSurface
 }
 
@@ -201,6 +203,17 @@ private fun StatusBadgeCheckingPreview() {
         StatusBadge(
             status = "checking",
             showBackground = true,
+            modifier = Modifier.padding(8.dp)
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun StatusBadgeRemovingPreview() {
+    JSTorrentTheme {
+        StatusBadge(
+            status = "removing",
             modifier = Modifier.padding(8.dp)
         )
     }

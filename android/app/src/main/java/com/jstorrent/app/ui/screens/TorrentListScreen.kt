@@ -105,6 +105,7 @@ fun TorrentListScreen(
     val filterCounts by viewModel.filterCounts.collectAsState()
     val engineError by viewModel.engineError.collectAsState()
     val pendingTorrents by viewModel.pendingTorrents.collectAsState()
+    val pendingRemovalTorrents by viewModel.pendingRemovalTorrents.collectAsState()
 
     // Lifecycle-aware subscriptions: pause when screen is not visible (e.g., navigated
     // to detail view or app backgrounded), resume when screen becomes visible again.
@@ -405,6 +406,7 @@ fun TorrentListScreen(
                         isSelectionMode = isSelectionMode,
                         selectedTorrents = selectedTorrents,
                         pendingTorrents = pendingTorrents,
+                        pendingRemovalTorrents = pendingRemovalTorrents,
                         isLive = state.isLive,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -520,6 +522,7 @@ private fun TorrentListContent(
     isSelectionMode: Boolean,
     selectedTorrents: Set<String>,
     pendingTorrents: Set<String>,
+    pendingRemovalTorrents: Set<String>,
     isLive: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -556,7 +559,8 @@ private fun TorrentListContent(
                         isSelectionMode = isSelectionMode,
                         isSelected = torrent.infoHash in selectedTorrents,
                         isLive = isLive,
-                        isPending = torrent.infoHash in pendingTorrents
+                        isPending = torrent.infoHash in pendingTorrents,
+                        isPendingRemoval = torrent.infoHash in pendingRemovalTorrents
                     )
                 }
             }

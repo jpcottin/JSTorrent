@@ -11,6 +11,7 @@
  *   // Now use like normal ITcpSocket - encryption is transparent
  */
 import { ITcpSocket } from '../interfaces/socket'
+import { Sha1Reason } from '../interfaces/hasher'
 import { MseHandshake, MseRole } from './mse-handshake'
 import { RC4 } from './rc4'
 
@@ -20,9 +21,14 @@ export interface MseSocketOptions {
   policy: EncryptionPolicy
   infoHash?: Uint8Array // For outgoing connections
   knownInfoHashes?: Uint8Array[] // For incoming connections (legacy O(N) lookup)
-  req2Map?: Map<string, Uint8Array> // For incoming connections (O(1) lookup, preferred)
+  /**
+   * Lookup function to identify which torrent an incoming connection is for.
+   * Takes the MSE connection identifier (req2 hash) and returns the infoHash
+   * if the torrent exists and should accept connections, null otherwise.
+   */
+  identifyTorrent?: (connectionIdHex: string) => Uint8Array | null
   /** Batch SHA1 function - computes multiple hashes in one call */
-  sha1Batch: (inputs: Uint8Array[], reason?: string) => Promise<Uint8Array[]>
+  sha1Batch: (inputs: Uint8Array[], reason?: Sha1Reason) => Promise<Uint8Array[]>
   getRandomBytes: (length: number) => Uint8Array
   onInfoHashRecovered?: (infoHash: Uint8Array) => void // For incoming
 }
@@ -107,7 +113,7 @@ export class MseSocket implements ITcpSocket {
       role,
       infoHash: this.options.infoHash,
       knownInfoHashes: this.options.knownInfoHashes,
-      req2Map: this.options.req2Map,
+      identifyTorrent: this.options.identifyTorrent,
       sha1Batch: this.options.sha1Batch,
       getRandomBytes: this.options.getRandomBytes,
     })

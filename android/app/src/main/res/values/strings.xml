@@ -282,6 +282,7 @@
     <string name="status_checking">Checking...</string>
     <string name="status_error">Error</string>
     <string name="status_queued">Queued</string>
+    <string name="status_removing">Removing…</string>
 
     <!-- SharedMenuItems -->
     <string name="component_shared_menu_speed">Speed</string>

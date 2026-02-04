@@ -21,7 +21,7 @@ import {
 import { UPnPManager, NetworkInterface } from '../upnp'
 
 import { ISessionStore } from '../interfaces/session-store'
-import { IHasher } from '../interfaces/hasher'
+import { IHasher, Sha1Reason } from '../interfaces/hasher'
 import { SubtleCryptoHasher } from '../adapters/browser/subtle-crypto-hasher'
 import { type EncryptionPolicy, MseSocket } from '../crypto'
 import { toHex as toHexCrypto, computeReq2Hash } from '../crypto/key-derivation'
@@ -282,13 +282,14 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   /** Track pending incoming connections with their cleanup timers */
   private pendingIncoming = new Set<PeerConnection>()
 
-  // === MSE req2 Map for O(1) Incoming Connection Identification ===
+  // === MSE Identifier Map for O(1) Incoming Connection Routing ===
   /**
-   * Map from hex(SHA1('req2' + infoHash)) to infoHash.
+   * Maps MSE connection identifiers to torrent infoHashes.
+   * The identifier is SHA1('req2' + infoHash) per the MSE/PE spec.
    * Maintained incrementally as torrents are added/removed.
-   * Used for O(1) lookup during incoming MSE handshakes.
+   * Used for O(1) lookup to route incoming encrypted connections.
    */
-  private req2Map = new Map<string, Uint8Array>()
+  private torrentByMseId = new Map<string, Uint8Array>()
 
   // === Unified Daemon Operation Queue ===
 
@@ -596,7 +597,13 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     if (shouldHandleMse && this.torrents.length > 0) {
       const mseSocket = new MseSocket(rawSocket, {
         policy: this.encryptionPolicy,
-        req2Map: this.req2Map, // Use maintained map for O(1) lookup
+        // Identify which torrent this connection is for; return null if inactive.
+        identifyTorrent: (connectionIdHex) => {
+          const infoHash = this.torrentByMseId.get(connectionIdHex)
+          if (!infoHash) return null
+          const torrent = this.getTorrent(toHex(infoHash))
+          return torrent?.isActive ? infoHash : null
+        },
         sha1Batch: (inputs, reason) => this.sha1Batch(inputs, reason),
         getRandomBytes: randomBytes,
       })
@@ -742,15 +749,13 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     // Set initial user state
     torrent.userState = options.userState ?? 'active'
 
-    // Precompute req2 hash for MSE incoming connection identification.
-    // This only needs the infoHash (available immediately for all torrents),
-    // so we do it here before any network activity starts.
-    const req2Hash = await computeReq2Hash(torrent.infoHash, (data) =>
+    // Precompute MSE identifier for incoming connection routing.
+    // This is SHA1('req2' + infoHash) - only needs infoHash so we do it early.
+    const mseId = await computeReq2Hash(torrent.infoHash, (data) =>
       this.hasher.sha1(data, 'mse-req2'),
     )
-    torrent.setReq2Hash(req2Hash)
-    // Add to map for O(1) lookup on incoming connections
-    this.req2Map.set(toHexCrypto(req2Hash), torrent.infoHash)
+    torrent.setMseIdentifier(mseId)
+    this.torrentByMseId.set(toHexCrypto(mseId), torrent.infoHash)
 
     // Initialize metadata if we have it (torrent file case)
     if (input.infoBuffer && input.parsedTorrent) {
@@ -820,9 +825,9 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       this.torrents.splice(index, 1)
       const infoHash = toHex(torrent.infoHash)
 
-      // Remove from req2 map
-      if (torrent.req2Hash) {
-        this.req2Map.delete(toHexCrypto(torrent.req2Hash))
+      // Remove from MSE identifier map
+      if (torrent.mseIdentifier) {
+        this.torrentByMseId.delete(toHexCrypto(torrent.mseIdentifier))
       }
 
       // Remove persisted data
@@ -928,7 +933,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
    * Batch SHA1 computation for MSE handshake.
    * Uses hasher.sha1Batch if available, otherwise falls back to sequential calls.
    */
-  private sha1Batch(inputs: Uint8Array[], reason?: string): Promise<Uint8Array[]> {
+  private sha1Batch(inputs: Uint8Array[], reason?: Sha1Reason): Promise<Uint8Array[]> {
     if (this.hasher.sha1Batch) {
       return this.hasher.sha1Batch(inputs, reason)
     }

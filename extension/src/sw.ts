@@ -630,6 +630,32 @@ function handleMessage(
     return true
   }
 
+  // Clear session storage (session:* keys) but preserve installId and metrics
+  if (message.type === 'CLEAR_SESSION_STORAGE') {
+    chrome.storage.local
+      .get(null)
+      .then((all) => {
+        // Keys to preserve: installId, metrics:*, daemon:hasConnectedSuccessfully
+        const keysToRemove = Object.keys(all).filter((k) => {
+          if (k === 'installId') return false
+          if (k.startsWith('metrics:')) return false
+          if (k === 'daemon:hasConnectedSuccessfully') return false
+          // Remove session:* keys and any other torrent-related data
+          return k.startsWith('session:') || k.startsWith('torrent:')
+        })
+        console.log('[SW] Clearing session storage keys:', keysToRemove.length)
+        return chrome.storage.local.remove(keysToRemove)
+      })
+      .then(() => {
+        sendResponse({ ok: true })
+      })
+      .catch((e) => {
+        console.error('[SW] Failed to clear session storage:', e)
+        sendResponse({ ok: false, error: String(e) })
+      })
+    return true
+  }
+
   // ChromeOS bootstrap actions
   if (message.type === 'CHROMEOS_OPEN_INTENT') {
     chromeosBootstrap?.openIntent()

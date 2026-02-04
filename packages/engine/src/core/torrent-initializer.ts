@@ -51,13 +51,13 @@ export async function initializeTorrentMetadata(
   // Set metadata on torrent
   torrent.setMetadata(infoBuffer)
 
-  // Precompute req2 hash for MSE incoming connection identification
+  // Precompute MSE identifier for incoming connection routing
   // (skip if already computed in addTorrent - magnets compute earlier)
-  if (!torrent.req2Hash) {
-    const req2Hash = await computeReq2Hash(torrent.infoHash, (data) =>
+  if (!torrent.mseIdentifier) {
+    const mseId = await computeReq2Hash(torrent.infoHash, (data) =>
       engine.hasher.sha1(data, 'mse-req2'),
     )
-    torrent.setReq2Hash(req2Hash)
+    torrent.setMseIdentifier(mseId)
   }
 
   // Set private flag (BEP 27) - disables DHT/PEX for private torrents

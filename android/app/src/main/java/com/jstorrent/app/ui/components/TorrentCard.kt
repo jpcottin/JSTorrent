@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -54,6 +55,7 @@ import com.jstorrent.quickjs.model.TorrentSummary
  *               Currently unused but kept for potential future differentiation.
  * @param isPending True when action is pending (shows loading spinner on play/pause button).
  *                  Provides immediate feedback when user taps while engine is starting.
+ * @param isPendingRemoval True when torrent is being removed (shows "Removing" status with faded appearance).
  * @param modifier Optional modifier
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -68,9 +70,12 @@ fun TorrentCard(
     isSelected: Boolean = false,
     isLive: Boolean = true,
     isPending: Boolean = false,
+    isPendingRemoval: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val isPaused = torrent.status == "stopped"
+    // Override status to "removing" when pending removal
+    val displayStatus = if (isPendingRemoval) "removing" else torrent.status
 
     // Animate card background color for selection
     val cardBackgroundColor by animateColorAsState(
@@ -86,6 +91,7 @@ fun TorrentCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .alpha(if (isPendingRemoval) 0.5f else 1f)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -151,14 +157,14 @@ fun TorrentCard(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f, fill = false)
                     ) {
-                        StatusBadge(status = torrent.status)
+                        StatusBadge(status = displayStatus)
                         Text(
                             text = " • ",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         val errorMsg = torrent.errorMessage
-                        if (torrent.status == "error" && errorMsg != null) {
+                        if (displayStatus == "error" && errorMsg != null) {
                             // Show error message for error state
                             Text(
                                 text = errorMsg,
@@ -186,8 +192,8 @@ fun TorrentCard(
                             )
                         }
                     }
-                    // ETA right-aligned (only show when downloading with speed > 0, not for error state)
-                    if (torrent.status != "error") {
+                    // ETA right-aligned (only show when downloading with speed > 0, not for error/removing state)
+                    if (displayStatus != "error" && displayStatus != "removing") {
                         torrent.eta?.let { eta ->
                             if (eta > 0 && torrent.progress < 0.999) {
                                 Text(
@@ -496,6 +502,27 @@ private fun TorrentCardUnselectedPreview() {
             onResume = {},
             isSelectionMode = true,
             isSelected = false,
+            modifier = Modifier.padding(8.dp)
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun TorrentCardRemovingPreview() {
+    JSTorrentTheme {
+        TorrentCard(
+            torrent = TorrentSummary(
+                infoHash = "rem789",
+                name = "Torrent Being Removed",
+                progress = 0.65,
+                downloadSpeed = 0,
+                uploadSpeed = 0,
+                status = "downloading"
+            ),
+            onPause = {},
+            onResume = {},
+            isPendingRemoval = true,
             modifier = Modifier.padding(8.dp)
         )
     }
