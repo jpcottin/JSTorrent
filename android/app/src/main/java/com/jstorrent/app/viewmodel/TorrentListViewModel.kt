@@ -397,6 +397,8 @@ class TorrentListViewModel(
      */
     fun removeTorrent(infoHash: String, deleteFiles: Boolean = false) {
         _pendingRemovalTorrents.value = _pendingRemovalTorrents.value + infoHash
+        // Also remove from in-memory cache to prevent stale data when falling back to cache
+        cache?.removeFromCache(setOf(infoHash))
         onEnsureEngineStarted()
         repository.removeTorrent(infoHash, deleteFiles)
     }
@@ -533,8 +535,11 @@ class TorrentListViewModel(
      * Stage 2: Starts engine on demand if not running.
      */
     fun pauseSelected() {
+        val hashesToPause = _selectedTorrents.value
+        if (hashesToPause.isEmpty()) return
+
         onEnsureEngineStarted()
-        _selectedTorrents.value.forEach { hash ->
+        hashesToPause.forEach { hash ->
             repository.pauseTorrent(hash)
         }
         clearSelection()
@@ -545,8 +550,11 @@ class TorrentListViewModel(
      * Stage 2: Starts engine on demand if not running.
      */
     fun resumeSelected() {
+        val hashesToResume = _selectedTorrents.value
+        if (hashesToResume.isEmpty()) return
+
         onEnsureEngineStarted()
-        _selectedTorrents.value.forEach { hash ->
+        hashesToResume.forEach { hash ->
             repository.resumeTorrent(hash)
         }
         clearSelection()
@@ -558,9 +566,16 @@ class TorrentListViewModel(
      * Immediately marks torrents as pending removal for instant UI feedback.
      */
     fun removeSelected(deleteFiles: Boolean) {
-        _pendingRemovalTorrents.value = _pendingRemovalTorrents.value + _selectedTorrents.value
+        // Capture selected torrents once to avoid race conditions where selection
+        // could be cleared between reading for pending state and the removal loop
+        val hashesToRemove = _selectedTorrents.value
+        if (hashesToRemove.isEmpty()) return
+
+        _pendingRemovalTorrents.value = _pendingRemovalTorrents.value + hashesToRemove
+        // Also remove from in-memory cache to prevent stale data when falling back to cache
+        cache?.removeFromCache(hashesToRemove)
         onEnsureEngineStarted()
-        _selectedTorrents.value.forEach { hash ->
+        hashesToRemove.forEach { hash ->
             repository.removeTorrent(hash, deleteFiles)
         }
         clearSelection()

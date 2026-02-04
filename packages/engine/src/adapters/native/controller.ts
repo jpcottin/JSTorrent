@@ -8,6 +8,42 @@
  * - Commands (Kotlin → JS): __jstorrent_cmd_*
  * - Queries (Kotlin → JS): __jstorrent_query_*
  * - Callbacks (JS → Kotlin): __jstorrent_on_*
+ *
+ * ## Command Queueing Pattern
+ *
+ * IMPORTANT: All commands that modify torrent state (add, remove, pause, resume)
+ * MUST use the `executeOrQueue()` helper to handle the case where the engine
+ * is not yet ready.
+ *
+ * Why JS-side queueing instead of Kotlin-side queueing:
+ * - The Kotlin layer may think the engine is "ready" (controller exists, isLoaded=true)
+ *   before the JS engine is actually ready to process commands
+ * - There's a window after QuickJS context creation but before engine.init() completes
+ *   where commands would fail
+ * - JS-side queueing ensures commands wait for the actual engine instance to exist
+ * - The queue is flushed by flushCommandQueue() after engine.init() completes
+ *
+ * Pattern for commands:
+ * ```typescript
+ * __jstorrent_cmd_foo = (arg: string): void => {
+ *   executeOrQueue('foo', () => {
+ *     const engine = getEngine()
+ *     if (!engine) return
+ *     // ... do work
+ *   })
+ * }
+ * ```
+ *
+ * For async commands that return Promises, queue the work but return a pending result:
+ * ```typescript
+ * __jstorrent_cmd_bar = async (arg: string): Promise<Result> => {
+ *   if (!isReady()) {
+ *     commandQueue.push(() => { doActualWork() })
+ *     return { ok: true, queued: true }
+ *   }
+ *   // ... do work and return result
+ * }
+ * ```
  */
 
 import type { BtEngine } from '../../core/bt-engine'
@@ -101,6 +137,9 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
    * Add a torrent from magnet link or base64-encoded .torrent data.
    * Returns a Promise that resolves when the torrent is added.
    *
+   * If the engine is not ready, the command is queued and executed once ready.
+   * The Promise resolves immediately with { ok: true, queued: true } in this case.
+   *
    * Can be awaited from Kotlin using callGlobalFunctionAwaitPromise().
    */
   ;(globalThis as Record<string, unknown>).__jstorrent_cmd_add_torrent = async (
@@ -110,9 +149,24 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
     infoHash?: string
     name?: string
     isDuplicate?: boolean
+    queued?: boolean
     error?: string
   }> => {
-    const engine = requireEngine('addTorrent')
+    // Queue if engine not ready - this handles the race condition where Kotlin
+    // thinks engine is ready (controller exists) but JS engine.init() hasn't completed
+    if (!isReady()) {
+      console.log('[controller] addTorrent: Engine not ready, queueing command')
+      commandQueue.push(() => {
+        // Re-invoke - by the time this runs, engine will be ready
+        const fn = (globalThis as Record<string, unknown>).__jstorrent_cmd_add_torrent as (
+          m: string,
+        ) => Promise<unknown>
+        fn(magnetOrBase64)
+      })
+      return { ok: true, queued: true }
+    }
+
+    const engine = getEngine()
     if (!engine) {
       return { ok: false, error: 'Engine not ready' }
     }
@@ -198,13 +252,31 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
    * Remove a torrent.
    * Returns a Promise that resolves when the torrent is fully removed.
    *
+   * If the engine is not ready, the command is queued and executed once ready.
+   * The Promise resolves immediately with { ok: true, queued: true } in this case.
+   *
    * Can be awaited from Kotlin using callGlobalFunctionAwaitPromise().
    */
   ;(globalThis as Record<string, unknown>).__jstorrent_cmd_remove = async (
     infoHash: string,
     deleteFiles: boolean,
-  ): Promise<{ ok: boolean; error?: string }> => {
-    const engine = requireEngine('remove')
+  ): Promise<{ ok: boolean; queued?: boolean; error?: string }> => {
+    // Queue if engine not ready - this handles the race condition where Kotlin
+    // thinks engine is ready (controller exists) but JS engine.init() hasn't completed
+    if (!isReady()) {
+      console.log(`[controller] remove: Engine not ready, queueing command for ${infoHash}`)
+      commandQueue.push(() => {
+        // Re-invoke - by the time this runs, engine will be ready
+        const fn = (globalThis as Record<string, unknown>).__jstorrent_cmd_remove as (
+          h: string,
+          d: boolean,
+        ) => Promise<unknown>
+        fn(infoHash, deleteFiles)
+      })
+      return { ok: true, queued: true }
+    }
+
+    const engine = getEngine()
     if (!engine) {
       return { ok: false, error: 'Engine not ready' }
     }
@@ -234,11 +306,25 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
   /**
    * Recheck (verify) torrent data.
    * Returns a Promise that resolves when the check completes.
+   *
+   * If the engine is not ready, the command is queued and executed once ready.
    */
   ;(globalThis as Record<string, unknown>).__jstorrent_cmd_recheck = async (
     infoHash: string,
-  ): Promise<{ ok: boolean; error?: string }> => {
-    const engine = requireEngine('recheck')
+  ): Promise<{ ok: boolean; queued?: boolean; error?: string }> => {
+    // Queue if engine not ready
+    if (!isReady()) {
+      console.log(`[controller] recheck: Engine not ready, queueing command for ${infoHash}`)
+      commandQueue.push(() => {
+        const fn = (globalThis as Record<string, unknown>).__jstorrent_cmd_recheck as (
+          h: string,
+        ) => Promise<unknown>
+        fn(infoHash)
+      })
+      return { ok: true, queued: true }
+    }
+
+    const engine = getEngine()
     if (!engine) {
       return { ok: false, error: 'Engine not ready' }
     }

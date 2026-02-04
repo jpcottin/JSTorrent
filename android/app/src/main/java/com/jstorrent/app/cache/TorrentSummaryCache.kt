@@ -76,6 +76,20 @@ open class TorrentSummaryCache(context: Context?) {
     open val isLoaded: Flow<Boolean> = _isLoaded.asStateFlow()
 
     /**
+     * Remove torrents from the in-memory cache.
+     * Call this when torrents are removed to prevent stale cache data from being shown
+     * when the UI falls back to cache (e.g., when engine torrent list becomes empty).
+     *
+     * Note: This only updates the in-memory cache. The SQLite store is updated by the
+     * JS engine when the removal is processed.
+     */
+    open fun removeFromCache(infoHashes: Set<String>) {
+        if (infoHashes.isEmpty()) return
+        _cachedSummaries.value = _cachedSummaries.value.filter { it.infoHash !in infoHashes }
+        Log.d(TAG, "Removed ${infoHashes.size} torrents from cache, ${_cachedSummaries.value.size} remaining")
+    }
+
+    /**
      * Load cached summaries from SQLite.
      * Call this on app startup before engine initialization.
      */

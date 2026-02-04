@@ -28,6 +28,25 @@ import kotlinx.coroutines.launch
  *
  * Uses bridged StateFlows to handle the race condition where the ViewModel
  * may be created before the engine is initialized.
+ *
+ * ## Command Queueing Architecture
+ *
+ * IMPORTANT: All command queueing happens on the JS side, NOT here in Kotlin.
+ *
+ * Why JS-side queueing:
+ * - The Kotlin controller may exist (ensureEngineStarted() returned) before
+ *   the JS engine is actually ready to process commands
+ * - There's a window after QuickJS context creation but before engine.init() completes
+ * - JS-side queueing (via executeOrQueue in controller.ts) ensures commands wait
+ *   for the actual engine instance to exist
+ *
+ * What this means for Kotlin code:
+ * - Use simple `controller?.fooAsync()` calls - if controller is null, the call
+ *   is a no-op (engine not started yet, user action triggers ensureEngineStarted)
+ * - Do NOT implement Kotlin-side command queues - they fight with JS-side queuing
+ *   and create confusing dual-queue behavior
+ * - The only exception is subscription visibility count (pauseSubscriptions/resumeSubscriptions)
+ *   which tracks UI lifecycle state, not engine commands
  */
 class EngineServiceRepository(
     private val application: Application
@@ -57,6 +76,8 @@ class EngineServiceRepository(
     // Track pending subscription visibility count for when controller isn't available yet.
     // This handles the race condition where screens call resumeSubscriptions() before
     // the engine is loaded. When the controller becomes available, we replay the count.
+    // NOTE: This is the ONLY Kotlin-side queue - it tracks UI lifecycle state, not commands.
+    // All command queueing happens on the JS side (see controller.ts executeOrQueue).
     private var pendingVisibilityCount = 0
     private val visibilityLock = Any()
 
@@ -97,12 +118,19 @@ class EngineServiceRepository(
                     repeat(countToReplay) {
                         currentController.resumeSubscriptions()
                     }
+                    // NOTE: Command queueing (add, remove, pause, resume) happens on JS side,
+                    // not here. See controller.ts executeOrQueue() and the class doc above.
                 }
 
                 delay(50)
             }
         }
     }
+
+    // =========================================================================
+    // Commands - All use JS-side queueing via controller.ts executeOrQueue()
+    // DO NOT add Kotlin-side queues here - see class doc for why
+    // =========================================================================
 
     override fun addTorrent(magnetOrBase64: String) {
         scope.launch { controller?.addTorrentAsync(magnetOrBase64) }
@@ -117,6 +145,10 @@ class EngineServiceRepository(
     }
 
     override fun removeTorrent(infoHash: String, deleteFiles: Boolean) {
+        // NOTE: If controller is null, this is a no-op. The ViewModel layer calls
+        // onEnsureEngineStarted() before this, which starts the engine synchronously.
+        // If the JS engine isn't quite ready yet, JS-side queueing handles it.
+        // See controller.ts __jstorrent_cmd_remove for the JS-side queue.
         scope.launch { controller?.removeTorrentAsync(infoHash, deleteFiles) }
     }
 
