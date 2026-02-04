@@ -489,6 +489,11 @@ export class Torrent extends EngineComponent {
       isPeerConnected: (peer) => this.connectedPeers.includes(peer),
       canServePiece: (index) => this.canServePiece(index),
       recordUpload: (bytes) => this.btEngine.bandwidthTracker.record('peer:payload', bytes, 'up'),
+      chokePeer: (peer) => {
+        if (peer.amChoking) return
+        peer.amChoking = true
+        peer.sendMessage(MessageType.CHOKE)
+      },
     })
     this._uploader.setContentStorage(this.contentStorage ?? null)
 
@@ -2442,55 +2447,15 @@ export class Torrent extends EngineComponent {
 
     if (isBoundaryPiece && this._partsFile) {
       // Boundary piece: verify hash then store in .parts file
-      // Use sha1Transfer if available - it returns the data buffer which we need
-      // for subsequent writes (regular sha1 may detach the buffer via worker transfer)
-      let validPieceData = pieceData
-      if (expectedHash) {
-        let actualHash: Uint8Array
-        if (this.btEngine.hasher.sha1Transfer) {
-          const result = await this.btEngine.hasher.sha1Transfer(pieceData, 'piece-verify')
-          actualHash = result.hash
-          validPieceData = result.data
-        } else {
-          actualHash = await this.btEngine.hasher.sha1(pieceData, 'piece-verify')
-        }
-        if (compare(actualHash, expectedHash) !== 0) {
-          this.handleHashMismatch(index, contributors)
-          return
-        }
-      }
-
-      try {
-        // Drain disk queue before modifying .parts
-        await this._diskQueue.drain()
-
-        // Write to .parts file
-        await this._partsFile.addPieceAndFlush(index, validPieceData)
-
-        // Resume disk queue
-        this._diskQueue.resume()
-
-        // Track in partsFilePieces set
-        this._partsFilePieces.add(index)
-
-        // Also write the wanted portions to their files immediately
-        // (skipped file portions stay only in .parts)
-        if (this.contentStorage) {
-          await this.contentStorage.writePieceFilteredByPriority(index, validPieceData)
-        }
-
-        this.logger.debug(
-          `Boundary piece ${index} stored in .parts file (wanted portions written to files)`,
-        )
-      } catch (e) {
-        this._diskQueue.resume()
-        const errorMsg = e instanceof Error ? e.message : String(e)
-        this.logger.error(`Failed to write boundary piece to .parts:`, errorMsg)
-        this.errorMessage = `Write failed: ${errorMsg}`
-        this.stopNetwork()
-        this.activePieces?.removeFullyResponded(index)
-        ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
-        return
+      // Use sha1TransferThen callback pattern for type-safe buffer handling after transfer
+      const result = await this.verifyAndWriteBoundaryPiece(
+        index,
+        pieceData,
+        expectedHash,
+        contributors,
+      )
+      if (!result.success) {
+        return // Hash mismatch or write error already handled
       }
 
       // Mark as verified in internal bitfield
@@ -2498,7 +2463,7 @@ export class Torrent extends EngineComponent {
       this.activePieces?.removeFullyResponded(index)
 
       // Track disk write throughput
-      ;(this.engine as BtEngine).bandwidthTracker.record('disk', pieceData.length, 'down')
+      ;(this.engine as BtEngine).bandwidthTracker.record('disk', result.bytesWritten, 'down')
 
       // Update cached downloaded bytes on file objects
       for (const file of this._files) {
@@ -2651,6 +2616,78 @@ export class Torrent extends EngineComponent {
       // Schedule throttled persistence for piece completions
       // (avoids excessive storage writes during fast downloads)
       btEngine.sessionPersistence?.schedulePiecePersistence(this)
+    }
+  }
+
+  /**
+   * Verify hash and write a boundary piece to .parts file.
+   * Uses sha1TransferThen callback pattern for type-safe buffer handling -
+   * the original pieceData is not accessible inside the callback, preventing
+   * accidental use of the detached buffer after transfer.
+   *
+   * @returns success=true with bytesWritten, or success=false if hash mismatch or error
+   */
+  private async verifyAndWriteBoundaryPiece(
+    index: number,
+    pieceData: Uint8Array,
+    expectedHash: Uint8Array | undefined,
+    contributors: string[],
+  ): Promise<{ success: true; bytesWritten: number } | { success: false }> {
+    // Helper to write piece data to .parts and content storage
+    const writePiece = async (data: Uint8Array): Promise<void> => {
+      await this._diskQueue.drain()
+      await this._partsFile!.addPieceAndFlush(index, data)
+      this._diskQueue.resume()
+      this._partsFilePieces.add(index)
+      if (this.contentStorage) {
+        await this.contentStorage.writePieceFilteredByPriority(index, data)
+      }
+      this.logger.debug(
+        `Boundary piece ${index} stored in .parts file (wanted portions written to files)`,
+      )
+    }
+
+    try {
+      if (expectedHash && this.btEngine.hasher.sha1TransferThen) {
+        // Use callback pattern: pieceData is not accessible inside the callback,
+        // preventing accidental use of detached buffer after transfer
+        const bytesWritten = await this.btEngine.hasher.sha1TransferThen(
+          pieceData,
+          async (hash, validData) => {
+            if (compare(hash, expectedHash) !== 0) {
+              return null // Signal hash mismatch
+            }
+            await writePiece(validData)
+            return validData.length
+          },
+          'piece-verify',
+        )
+        if (bytesWritten === null) {
+          this.handleHashMismatch(index, contributors)
+          return { success: false }
+        }
+        return { success: true, bytesWritten }
+      } else {
+        // Fallback: regular sha1 (no buffer transfer, pieceData stays valid)
+        if (expectedHash) {
+          const actualHash = await this.btEngine.hasher.sha1(pieceData, 'piece-verify')
+          if (compare(actualHash, expectedHash) !== 0) {
+            this.handleHashMismatch(index, contributors)
+            return { success: false }
+          }
+        }
+        await writePiece(pieceData)
+        return { success: true, bytesWritten: pieceData.length }
+      }
+    } catch (e) {
+      this._diskQueue.resume()
+      const errorMsg = e instanceof Error ? e.message : String(e)
+      this.logger.error(`Failed to write boundary piece to .parts:`, errorMsg)
+      this.errorMessage = `Write failed: ${errorMsg}`
+      this.stopNetwork()
+      this.activePieces?.removeFullyResponded(index)
+      ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+      return { success: false }
     }
   }
 

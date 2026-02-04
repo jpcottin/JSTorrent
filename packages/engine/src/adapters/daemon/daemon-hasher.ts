@@ -2,8 +2,13 @@ import { IHasher, Sha1Reason } from '../../interfaces/hasher'
 import { DaemonConnection } from './daemon-connection'
 
 /**
- * Hasher that delegates to io-daemon.
+ * Hasher that delegates to io-daemon via HTTP.
  * Works in any context since hashing happens in Rust.
+ *
+ * NOTE: Currently unused. The Chrome extension uses WorkerHasher (web worker)
+ * as the delegate for RoutingHasher instead. Retained for potential future use
+ * cases like headless Node.js clients without web workers, or environments
+ * where native Rust hashing provides better throughput.
  */
 export class DaemonHasher implements IHasher {
   constructor(private connection: DaemonConnection) {}

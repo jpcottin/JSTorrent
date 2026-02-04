@@ -196,7 +196,7 @@ describe('RoutingHasher', () => {
     })
   })
 
-  describe('sha1Transfer()', () => {
+  describe('sha1TransferThen()', () => {
     it('uses transferring hasher when provided', async () => {
       const mockTransferringHasher = {
         sha1: vi.fn().mockResolvedValue({
@@ -210,19 +210,55 @@ describe('RoutingHasher', () => {
       const hasher = new RoutingHasher(mockDelegate, mockTransferringHasher)
       const data = new Uint8Array([1, 2, 3, 4])
 
-      const result = await hasher.sha1Transfer(data, 'piece-verify')
+      const result = await hasher.sha1TransferThen(
+        data,
+        (hash, validData) => ({ hash: hash.slice(), data: validData.slice() }),
+        'piece-verify',
+      )
 
       expect(result.hash).toEqual(new Uint8Array(20).fill(0xcc))
       expect(result.data).toEqual(new Uint8Array([1, 2, 3, 4]))
       expect(mockTransferringHasher.sha1).toHaveBeenCalledWith(data, 'piece-verify')
     })
 
+    it('callback receives valid data and hash', async () => {
+      const mockTransferringHasher = {
+        sha1: vi.fn().mockResolvedValue({
+          hash: new Uint8Array(20).fill(0xaa),
+          data: new Uint8Array([5, 6, 7, 8]),
+        }),
+        isAvailable: true,
+        destroy: vi.fn(),
+      } as unknown as TransferringWorkerHasher
+
+      const hasher = new RoutingHasher(mockDelegate, mockTransferringHasher)
+      const data = new Uint8Array([5, 6, 7, 8])
+
+      // Callback should receive valid data that can be used
+      const result = await hasher.sha1TransferThen(
+        data,
+        (hash, validData) => {
+          // Inside callback, validData is the transferred buffer
+          expect(validData.length).toBe(4)
+          expect(validData[0]).toBe(5)
+          expect(hash.length).toBe(20)
+          return validData.length // Return something to verify callback ran
+        },
+        'piece-verify',
+      )
+
+      expect(result).toBe(4)
+    })
+
     it('falls back to copying when no transferring hasher provided', async () => {
       const hasher = new RoutingHasher(mockDelegate) // No transferring hasher
-
       const data = new Uint8Array([1, 2, 3, 4])
 
-      const result = await hasher.sha1Transfer(data, 'piece-verify')
+      const result = await hasher.sha1TransferThen(
+        data,
+        (hash, validData) => ({ hash, data: validData }),
+        'piece-verify',
+      )
 
       // Should have used SubtleCrypto for small data (fallback path copies first)
       expect(result.hash).toEqual(subtleHashResult)
@@ -231,20 +267,24 @@ describe('RoutingHasher', () => {
       expect(result.data).not.toBe(data)
     })
 
-    it('returned data is usable after call (fallback path)', async () => {
+    it('returned data is usable in callback (fallback path)', async () => {
       const hasher = new RoutingHasher(mockDelegate)
       const data = new Uint8Array([0x11, 0x22, 0x33, 0x44])
 
-      const result = await hasher.sha1Transfer(data)
+      const result = await hasher.sha1TransferThen(data, (hash, validData) => {
+        // Data should be valid and usable inside callback
+        expect(validData[0]).toBe(0x11)
+        expect(validData[3]).toBe(0x44)
+        expect(validData.buffer.byteLength).toBe(4)
 
-      // Returned data should be valid and usable
-      expect(result.data[0]).toBe(0x11)
-      expect(result.data[3]).toBe(0x44)
-      expect(result.data.buffer.byteLength).toBe(4)
+        // Should be able to copy it
+        const copy = validData.slice()
+        expect(copy).toEqual(data)
 
-      // Should be able to copy it
-      const copy = result.data.slice()
-      expect(copy).toEqual(data)
+        return 'callback executed'
+      })
+
+      expect(result).toBe('callback executed')
     })
 
     it('uses delegate for large payloads in fallback path', async () => {
@@ -252,13 +292,31 @@ describe('RoutingHasher', () => {
       const largeData = new Uint8Array(100 * 1024) // 100KB
       largeData.fill(0x42)
 
-      const result = await hasher.sha1Transfer(largeData, 'piece-verify')
+      const result = await hasher.sha1TransferThen(
+        largeData,
+        (hash, validData) => ({ hash, data: validData, originalRef: largeData }),
+        'piece-verify',
+      )
 
       // Should use delegate for large payloads
       expect(result.hash).toEqual(delegateHashResult)
       // Data should be a copy
       expect(result.data).not.toBe(largeData)
       expect(result.data[0]).toBe(0x42)
+    })
+
+    it('supports async callbacks', async () => {
+      const hasher = new RoutingHasher(mockDelegate)
+      const data = new Uint8Array([1, 2, 3])
+
+      const result = await hasher.sha1TransferThen(data, async (hash, validData) => {
+        // Simulate async work
+        await new Promise((resolve) => setTimeout(resolve, 1))
+        return { hash, length: validData.length }
+      })
+
+      expect(result.hash).toEqual(subtleHashResult)
+      expect(result.length).toBe(3)
     })
   })
 })

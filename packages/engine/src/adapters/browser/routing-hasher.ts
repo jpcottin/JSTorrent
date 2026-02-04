@@ -56,27 +56,29 @@ export class RoutingHasher implements IHasher {
   }
 
   /**
-   * Compute SHA1 hash with zero-copy buffer transfer.
-   * Uses TransferringWorkerHasher if available, otherwise falls back to
-   * copying the data and using regular sha1.
+   * Compute SHA1 hash with zero-copy buffer transfer, processing result in a callback.
+   * Uses TransferringWorkerHasher if available, otherwise falls back to copying.
    *
-   * IMPORTANT: After this call, the original `data` buffer is INVALID.
-   * You MUST use the returned `data` for any subsequent operations.
+   * The callback pattern ensures the original `data` variable is not accidentally used
+   * after transfer - it's out of scope inside the callback, providing compile-time safety.
    *
-   * @param data - Data to hash (will be consumed, original becomes invalid)
+   * @param data - Data to hash (will be consumed, original becomes invalid after call)
+   * @param process - Callback receiving the hash and valid data buffer
    * @param reason - Optional reason for the hash
-   * @returns Object with hash and data (valid for use after call)
+   * @returns Result of the process callback
    */
-  async sha1Transfer(
+  async sha1TransferThen<T>(
     data: Uint8Array,
+    process: (hash: Uint8Array, data: Uint8Array) => T | Promise<T>,
     reason?: Sha1Reason,
-  ): Promise<{ hash: Uint8Array; data: Uint8Array }> {
+  ): Promise<T> {
     if (this.transferringHasher) {
-      return this.transferringHasher.sha1(data, reason)
+      const result = await this.transferringHasher.sha1(data, reason)
+      return process(result.hash, result.data)
     }
     // Fallback: copy data before hashing so original remains valid
     const dataCopy = data.slice()
     const hash = await this.sha1(dataCopy, reason)
-    return { hash, data: dataCopy }
+    return process(hash, dataCopy)
   }
 }
