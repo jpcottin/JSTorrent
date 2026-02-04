@@ -4,6 +4,11 @@ All notable changes to the @jstorrent/engine package are documented here.
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-02-04
+
+### Fixed
+- Include CLI build script in package (fixes npm publish)
+
 ## [1.0.1] - 2026-02-04
 
 ### Fixed
