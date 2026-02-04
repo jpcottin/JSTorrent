@@ -1292,7 +1292,7 @@ dependencies = [
 
 [[package]]
 name = "jstorrent-common"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "dirs",
@@ -1305,7 +1305,7 @@ dependencies = [
 
 [[package]]
 name = "jstorrent-host"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -1337,7 +1337,7 @@ dependencies = [
 
 [[package]]
 name = "jstorrent-io-daemon"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -1371,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "jstorrent-link-handler"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "base64 0.21.7",

@@ -2,6 +2,10 @@
 
 All notable changes to the desktop native host components are documented here.
 
+## [1.0.1] - 2026-02-04
+
+- No functional changes from 1.0.0 (re-release due to CI issue)
+
 ## [1.0.0] - 2026-02-04
 
 ### Added
