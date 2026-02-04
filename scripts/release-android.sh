@@ -16,15 +16,11 @@ fi
 TAG="android-v${VERSION}"
 BUILD_GRADLE="android/app/build.gradle.kts"
 
-# Check that changelog has been updated
+# Check that changelog has been updated (hard fail)
 if ! grep -q "## \[${VERSION}\]" android/CHANGELOG.md 2>/dev/null; then
-  echo "Warning: android/CHANGELOG.md doesn't have an entry for version ${VERSION}"
-  echo "Please update the changelog before releasing."
-  read -p "Continue anyway? [y/N] " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    exit 1
-  fi
+  echo "Error: android/CHANGELOG.md doesn't have an entry for version ${VERSION}"
+  echo "Please add a '## [${VERSION}]' section before releasing."
+  exit 1
 fi
 
 # Get current versionCode and increment

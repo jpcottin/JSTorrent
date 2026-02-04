@@ -16,6 +16,14 @@ if [[ ! "$VERSION" =~ ^[0-9] ]]; then
 fi
 
 TAG="system-bridge-v${VERSION}"
+CHANGELOG="$REPO_ROOT/desktop/CHANGELOG.md"
+
+# Check that changelog has been updated (hard fail)
+if ! grep -q "## \[${VERSION}\]" "$CHANGELOG" 2>/dev/null; then
+  echo "Error: $CHANGELOG doesn't have an entry for version ${VERSION}"
+  echo "Please add a '## [${VERSION}]' section before releasing."
+  exit 1
+fi
 
 # Update Cargo.toml versions (cross-platform sed -i)
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -31,7 +39,7 @@ fi
 
 # Commit version bump
 git add "$REPO_ROOT/desktop/Cargo.toml" "$REPO_ROOT/desktop/io-daemon/Cargo.toml" "$REPO_ROOT/desktop/Cargo.lock"
-git commit -m "chore: bump system-bridge version to ${VERSION}"
+git commit -m "Release System Bridge v${VERSION}"
 
 # Push commit and tag
 git push origin HEAD

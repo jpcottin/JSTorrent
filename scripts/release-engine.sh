@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -e
+
+VERSION="$1"
+
+if [ -z "$VERSION" ]; then
+  echo "Usage: $0 <version>"
+  exit 1
+fi
+
+if [[ ! "$VERSION" =~ ^[0-9] ]]; then
+  echo "Error: Version must start with a number (e.g., 1.0.0, not v1.0.0)"
+  exit 1
+fi
+
+TAG="engine-v${VERSION}"
+PACKAGE_JSON="packages/engine/package.json"
+CHANGELOG="packages/engine/CHANGELOG.md"
+
+# Check that changelog has been updated (hard fail)
+if ! grep -q "## \[${VERSION}\]" "$CHANGELOG" 2>/dev/null; then
+  echo "Error: $CHANGELOG doesn't have an entry for version ${VERSION}"
+  echo "Please add a '## [${VERSION}]' section before releasing."
+  exit 1
+fi
+
+# Get current version
+CURRENT_VERSION=$(grep -o '"version": "[^"]*"' "$PACKAGE_JSON" | grep -o '[0-9][^"]*')
+echo "Updating engine version: $CURRENT_VERSION -> $VERSION"
+
+# Update package.json version
+sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$PACKAGE_JSON"
+
+# Also update the fallback version in version.ts
+VERSION_TS="packages/engine/src/version.ts"
+if [ -f "$VERSION_TS" ]; then
+  sed -i '' "s/: '[0-9][^']*'/: '$VERSION'/" "$VERSION_TS"
+  git add "$VERSION_TS"
+fi
+
+# Commit, tag, and push
+git add "$PACKAGE_JSON"
+git commit -m "Release Engine v${VERSION}"
+git tag "$TAG"
+git push origin main "$TAG"
+
+echo "Released Engine v${VERSION}"
+echo "CI will build and publish to npm: https://github.com/kzahel/jstorrent/actions"
+echo ""
+echo "After publish, users can install with:"
+echo "  npm install -g @jstorrent/engine"
+echo "  jstorrent --help"

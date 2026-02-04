@@ -2,6 +2,8 @@
 
 All notable changes to the Chrome extension are documented here.
 
+## [Unreleased]
+
 ## [1.0.0] - 2026-02-04
 
 ### Added
@@ -31,8 +33,6 @@ All notable changes to the Chrome extension are documented here.
 
 ### Added
 - Initial changelog
-
-## [Unreleased]
 
 <!-- Template for new releases:
 ## [x.x.x] - YYYY-MM-DD

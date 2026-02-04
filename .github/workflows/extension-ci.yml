@@ -73,3 +73,56 @@ jobs:
 
       - name: Run Playwright tests
         run: pnpm run test:e2e
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/extension-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: extension
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build extension (with public key)
+        run: pnpm run build
+
+      - name: Package extension
+        run: |
+          cd dist
+          zip -r ../jstorrent-extension.zip .
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#extension-v}" >> $GITHUB_OUTPUT
+
+      - name: Extract changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#extension-v}"
+          awk "/^## \\[$VERSION\\]/{found=1; next} /^## \\[/{found=0} found" CHANGELOG.md > /tmp/release-notes.md
+          echo "Release notes for $VERSION:"
+          cat /tmp/release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Extension v${{ steps.version.outputs.VERSION }}
+          body_path: /tmp/release-notes.md
+          files: extension/jstorrent-extension.zip

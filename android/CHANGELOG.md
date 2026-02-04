@@ -2,6 +2,18 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.11] - 2026-02-04
+
+### Added
+- Torrent recheck functionality (verify and re-download corrupted pieces)
+- File truncation support for accurate file sizes
+- Conservative seeding mode with pending read limit
+- Worker hasher for improved hashing performance
+
+### Fixed
+- Startup race conditions
+- Connection race conditions during torrent removal
+
 ## [1.0.10] - 2026-02-03
 
 ### Changed

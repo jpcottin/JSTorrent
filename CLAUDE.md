@@ -119,35 +119,78 @@ emu test-native                         # Install app, launch with test magnet
 
 See `android/scripts/` for more: `emu-logs.sh`, `emu-install.sh`, `dev` commands for real devices.
 
-## Android Releases
+## Releases
 
-When the user asks to release a new Android version:
+All components follow the same release pattern:
+1. Update the component's `CHANGELOG.md` with a `## [VERSION]` section (required - scripts will fail without it)
+2. Run the release script: `./scripts/release-{component}.sh <version>`
+3. CI automatically builds and publishes artifacts when the tag is pushed
 
-1. **Update the changelog first** at `android/CHANGELOG.md`:
-   - Add a new section for the version with the date
-   - List changes under Added/Changed/Fixed sections
-   - The release script will warn if no changelog entry exists
+**Commit message format:** `Release {Component} v{VERSION}` (e.g., `Release Engine v1.0.1`)
 
-2. **Use the release script** to bump version, commit, and tag:
-   ```bash
-   ./scripts/release-android.sh <version>
-   ```
-   Example: `./scripts/release-android.sh 1.0.11`
+### Engine (CLI) Releases
 
-   This script:
-   - Increments versionCode automatically
-   - Sets versionName to the provided version
-   - Commits the change
-   - Creates git tag `android-v{version}`
-   - Pushes commit and tag to origin
+```bash
+./scripts/release-engine.sh <version>
+```
 
-3. **The user will manually build the Play Store bundle** using:
-   ```bash
-   ./scripts/build-playstore-bundle.sh
-   ```
-   This requires the upload keystore at `android/app/signing/upload.keystore` and prompts for the password.
+- Updates `packages/engine/package.json` and `packages/engine/src/version.ts`
+- Creates tag: `engine-v{version}`
+- CI publishes to npm as `@jstorrent/engine`
+- Changelog: `packages/engine/CHANGELOG.md`
 
-**Do NOT** manually edit build.gradle.kts for version bumps - always use the release script.
+### Extension Releases
+
+```bash
+./scripts/release-extension.sh <version>
+```
+
+- Updates `extension/public/manifest.json`
+- Creates tag: `extension-v{version}`
+- CI creates GitHub Release with ZIP attachment
+- Changelog: `extension/CHANGELOG.md`
+
+### Android Releases
+
+```bash
+./scripts/release-android.sh <version>
+```
+
+- Increments `versionCode` automatically, sets `versionName`
+- Creates tag: `android-v{version}`
+- CI creates GitHub Release with signed APK and AAB
+- Changelog: `android/CHANGELOG.md`
+
+**Play Store bundle:** After CI completes, manually build with:
+```bash
+./scripts/build-playstore-bundle.sh
+```
+Requires upload keystore at `android/app/signing/upload.keystore`.
+
+**Do NOT** manually edit build.gradle.kts for version bumps.
+
+### System Bridge Releases
+
+```bash
+./scripts/release-system-bridge.sh <version>
+```
+
+- Updates `desktop/Cargo.toml` and `desktop/io-daemon/Cargo.toml`
+- Creates tag: `system-bridge-v{version}`
+- CI builds installers for Windows, macOS (signed/notarized), and Linux
+- CI creates GitHub Release with platform installers
+- Changelog: `desktop/CHANGELOG.md`
+
+### Website Releases
+
+```bash
+./scripts/release-website.sh <version>
+```
+
+- Creates tag: `website-v{version}` (no version file changes)
+- Website auto-deploys on any push to main that touches `website/`
+- The tag is for version tracking only; deployment is not gated by tags
+- No changelog required
 
 ## MCP Servers
 
