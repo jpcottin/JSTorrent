@@ -38,7 +38,7 @@ fi
 (cd "$REPO_ROOT/desktop" && cargo check --quiet)
 
 # Commit version bump
-git add "$REPO_ROOT/desktop/Cargo.toml" "$REPO_ROOT/desktop/io-daemon/Cargo.toml" "$REPO_ROOT/desktop/Cargo.lock"
+git add "$REPO_ROOT/desktop/Cargo.toml" "$REPO_ROOT/desktop/io-daemon/Cargo.toml" "$REPO_ROOT/desktop/Cargo.lock" "$CHANGELOG"
 git commit -m "Release System Bridge v${VERSION}"
 
 # Push commit and tag

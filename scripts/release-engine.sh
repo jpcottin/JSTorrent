@@ -35,11 +35,10 @@ sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$PACKAGE_JSON"
 VERSION_TS="packages/engine/src/version.ts"
 if [ -f "$VERSION_TS" ]; then
   sed -i '' "s/: '[0-9][^']*'/: '$VERSION'/" "$VERSION_TS"
-  git add "$VERSION_TS"
 fi
 
 # Commit, tag, and push
-git add "$PACKAGE_JSON"
+git add "$PACKAGE_JSON" "$CHANGELOG" "$VERSION_TS"
 git commit -m "Release Engine v${VERSION}"
 git tag "$TAG"
 git push origin main "$TAG"

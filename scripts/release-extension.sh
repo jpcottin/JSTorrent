@@ -32,7 +32,7 @@ echo "Updating manifest version: $CURRENT_VERSION -> $VERSION"
 sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$MANIFEST"
 
 # Commit, tag, and push
-git add "$MANIFEST"
+git add "$MANIFEST" "$CHANGELOG"
 git commit -m "Release Extension v${VERSION}"
 git tag "$TAG"
 git push origin main "$TAG"

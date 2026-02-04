@@ -15,10 +15,11 @@ fi
 
 TAG="android-v${VERSION}"
 BUILD_GRADLE="android/app/build.gradle.kts"
+CHANGELOG="android/CHANGELOG.md"
 
 # Check that changelog has been updated (hard fail)
-if ! grep -q "## \[${VERSION}\]" android/CHANGELOG.md 2>/dev/null; then
-  echo "Error: android/CHANGELOG.md doesn't have an entry for version ${VERSION}"
+if ! grep -q "## \[${VERSION}\]" "$CHANGELOG" 2>/dev/null; then
+  echo "Error: $CHANGELOG doesn't have an entry for version ${VERSION}"
   echo "Please add a '## [${VERSION}]' section before releasing."
   exit 1
 fi
@@ -34,7 +35,7 @@ sed -i '' "s/versionCode = $CURRENT_CODE/versionCode = $NEW_CODE/" "$BUILD_GRADL
 sed -i '' "s/versionName = \"[^\"]*\"/versionName = \"$VERSION\"/" "$BUILD_GRADLE"
 
 # Commit, tag, and push
-git add "$BUILD_GRADLE"
+git add "$BUILD_GRADLE" "$CHANGELOG"
 git commit -m "Release Android v${VERSION}"
 git tag "$TAG"
 git push origin main "$TAG"
