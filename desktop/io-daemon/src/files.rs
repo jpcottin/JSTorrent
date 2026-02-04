@@ -28,6 +28,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/files/*path", get(read_file_deprecated).post(write_file_deprecated))
         .route("/files/ensure_dir", post(ensure_dir))
         .route("/ops/stat", get(stat_file))
+        .route("/ops/exists", get(exists_file))
         .route("/ops/list", get(list_dir))
         .route("/ops/delete", post(delete_file))
         .route("/ops/truncate", post(truncate_file))
@@ -334,6 +335,28 @@ async fn stat_file(
         is_directory: metadata.is_dir(),
         is_file: metadata.is_file(),
     }))
+}
+
+#[derive(Deserialize)]
+struct ExistsParams {
+    path: String,
+    root_key: String,
+}
+
+#[derive(Serialize)]
+struct ExistsResult {
+    exists: bool,
+}
+
+async fn exists_file(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(params): axum::extract::Query<ExistsParams>,
+) -> Result<Json<ExistsResult>, (StatusCode, String)> {
+    let full_path = validate_path(&state, &params.root_key, &params.path)?;
+
+    let exists = fs::metadata(&full_path).await.is_ok();
+
+    Ok(Json(ExistsResult { exists }))
 }
 
 #[derive(Deserialize)]

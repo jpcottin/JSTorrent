@@ -31,6 +31,12 @@ export class TorrentContentStorage extends EngineComponent {
    */
   private fileHandles: Map<string, IFileHandle> = new Map()
   private openingFiles: Map<string, Promise<IFileHandle>> = new Map()
+  /**
+   * Paths that failed to open (e.g., file not found). Cached to avoid repeated
+   * failed open attempts during recheck of torrents with missing files.
+   * Cleared on close() so deleted files can be re-detected after being restored.
+   */
+  private failedPaths: Set<string> = new Set()
   private pieceLength: number = 0
   private filePriorities: number[] = []
 
@@ -99,6 +105,8 @@ export class TorrentContentStorage extends EngineComponent {
     }
     this.fileHandles.clear()
     this.openingFiles.clear()
+    // Clear failed paths so re-added files are detected on next recheck
+    this.failedPaths.clear()
   }
 
   /**
@@ -109,6 +117,11 @@ export class TorrentContentStorage extends EngineComponent {
    * so caching just stores metadata objects with no real benefit.
    */
   private async getFileHandle(path: string): Promise<IFileHandle> {
+    // Fast path: already known to be missing
+    if (this.failedPaths.has(path)) {
+      throw new Error(`File open failed (cached): ${path}`)
+    }
+
     if (this.fileHandles.has(path)) {
       return this.fileHandles.get(path)!
     }
@@ -126,13 +139,20 @@ export class TorrentContentStorage extends EngineComponent {
     // and ensure cleanup happens even if getFileSystem() throws synchronously.
     // Using a wrapper promise that handles both sync and async errors properly.
     const openPromise = (async () => {
-      const fs = this.storageHandle.getFileSystem()
-      const handle = await fs.open(path, 'r+')
-      this.fileHandles.set(path, handle)
-      this.logger.debug(
-        `DiskManager ${this.id}: Set handle for '${path}'. Keys now: ${Array.from(this.fileHandles.keys())}`,
-      )
-      return handle
+      try {
+        const fs = this.storageHandle.getFileSystem()
+        const handle = await fs.open(path, 'r+')
+        this.fileHandles.set(path, handle)
+        this.logger.debug(
+          `DiskManager ${this.id}: Set handle for '${path}'. Keys now: ${Array.from(this.fileHandles.keys())}`,
+        )
+        return handle
+      } catch (err) {
+        // Cache the failure to avoid repeated open attempts for missing files
+        this.failedPaths.add(path)
+        this.logger.debug(`DiskManager ${this.id}: File open failed, caching: '${path}'`)
+        throw err
+      }
     })()
 
     this.openingFiles.set(path, openPromise)

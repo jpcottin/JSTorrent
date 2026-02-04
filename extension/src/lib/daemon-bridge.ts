@@ -131,11 +131,36 @@ export class DaemonBridge {
     return () => this.eventListeners.delete(listener)
   }
 
+  // Guard against concurrent connect() calls
+  private connectPromise: Promise<boolean> | null = null
+
   /**
    * Attempt to connect to the daemon.
    * Returns true if connection succeeded.
+   * Serializes concurrent calls - if already connecting, returns the existing promise.
    */
   async connect(): Promise<boolean> {
+    // If already connecting, return existing promise to avoid race conditions
+    if (this.connectPromise) {
+      console.log('[DaemonBridge] connect() already in progress, returning existing promise')
+      return this.connectPromise
+    }
+
+    // If already connected, return immediately
+    if (this.state.status === 'connected') {
+      console.log('[DaemonBridge] connect() called but already connected')
+      return true
+    }
+
+    this.connectPromise = this.doConnect()
+    try {
+      return await this.connectPromise
+    } finally {
+      this.connectPromise = null
+    }
+  }
+
+  private async doConnect(): Promise<boolean> {
     this.updateState({ status: 'connecting', lastError: null })
 
     try {

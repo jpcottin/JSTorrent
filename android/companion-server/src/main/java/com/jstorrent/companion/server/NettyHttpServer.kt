@@ -273,6 +273,7 @@ private class NettyHttpHandler(
                 path.startsWith("/read/") && method == HttpMethod.GET -> handleRead(ctx, request, path)
                 path.startsWith("/write/") && method == HttpMethod.POST -> handleWrite(ctx, request, path)
                 path.startsWith("/write-batch/") && method == HttpMethod.POST -> handleWriteBatch(ctx, request, path)
+                path.startsWith("/ops/exists") && method == HttpMethod.GET -> handleOpsExists(ctx, request)
 
                 else -> sendNotFound(ctx, request)
             }
@@ -655,6 +656,46 @@ private class NettyHttpHandler(
             val (status, message) = fileManagerExceptionToHttpResponse(e)
             sendError(ctx, request, status, message)
         }
+    }
+
+    /**
+     * Check if a file exists (without returning 404 for non-existent files).
+     * Used by DaemonFileSystem.exists() to avoid noisy 404s in network panel.
+     */
+    private fun handleOpsExists(ctx: ChannelHandlerContext, request: FullHttpRequest) {
+        if (getExtensionHeaders(request) == null && !isStandaloneAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing extension headers")
+            return
+        }
+        if (!validateAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.UNAUTHORIZED, "Invalid token")
+            return
+        }
+
+        val query = QueryStringDecoder(request.uri())
+        val rootKey = query.parameters()["root_key"]?.firstOrNull()
+        val relativePath = query.parameters()["path"]?.firstOrNull()
+
+        if (rootKey == null || relativePath == null) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing root_key or path parameter")
+            return
+        }
+
+        // Validate path (prevent directory traversal)
+        if (relativePath.contains("..")) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid path")
+            return
+        }
+
+        // Resolve root key to SAF URI
+        val rootUri = deps.rootStore.resolveKey(rootKey)
+        if (rootUri == null) {
+            sendError(ctx, request, HttpResponseStatus.FORBIDDEN, "Invalid root key")
+            return
+        }
+
+        val exists = fileManager.exists(rootUri, relativePath)
+        sendJsonResponse(ctx, request, HttpResponseStatus.OK, """{"exists":$exists}""")
     }
 
     private fun handleWrite(ctx: ChannelHandlerContext, request: FullHttpRequest, path: String) {

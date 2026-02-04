@@ -46,12 +46,11 @@ export class DaemonFileSystem implements IFileSystem {
   }
 
   async exists(path: string): Promise<boolean> {
-    try {
-      await this.stat(path)
-      return true
-    } catch (_e) {
-      return false
-    }
+    const result = await this.connection.request<{ exists: boolean }>('GET', '/ops/exists', {
+      path,
+      root_key: this.rootKey,
+    })
+    return result.exists
   }
 
   async readdir(path: string): Promise<string[]> {
