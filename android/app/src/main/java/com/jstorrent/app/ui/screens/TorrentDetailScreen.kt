@@ -83,6 +83,7 @@ fun TorrentDetailScreen(
     onSpeedClick: () -> Unit,
     onDhtInfoClick: () -> Unit,
     onShutdownClick: () -> Unit,
+    onRemoveInitiated: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -221,6 +222,8 @@ fun TorrentDetailScreen(
                     torrentName = torrent.name,
                     onDismiss = { showRemoveDialog = false },
                     onConfirm = { deleteFiles ->
+                        // Notify list view to show "Removing" treatment before navigating
+                        onRemoveInitiated(torrent.infoHash)
                         viewModel.remove(deleteFiles)
                         showRemoveDialog = false
                         onNavigateBack()

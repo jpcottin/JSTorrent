@@ -82,6 +82,8 @@ export class NativeHostConnection implements INativeHostConnection {
   private connected = false
   private disconnected = false
   private disconnectCallbacks: Array<() => void> = []
+  // Guard against concurrent connect() calls
+  private connectPromise: Promise<void> | null = null
 
   constructor() {
     if (singletonCreated) {
@@ -105,12 +107,35 @@ export class NativeHostConnection implements INativeHostConnection {
   }
 
   async connect(): Promise<void> {
+    // If already connecting, return existing promise to avoid race conditions
+    if (this.connectPromise) {
+      console.log(
+        '[NativeHostConnection] connect() already in progress, returning existing promise',
+      )
+      return this.connectPromise
+    }
+
+    // If already connected, return immediately
+    if (this.connected && !this.disconnected) {
+      console.log('[NativeHostConnection] connect() called but already connected')
+      return
+    }
+
     // Allow reconnection if previous connection died
     if (this.disconnected) {
       console.log('[NativeHostConnection] Reconnecting after previous disconnect')
       this.resetState()
     }
 
+    this.connectPromise = this.doConnect()
+    try {
+      return await this.connectPromise
+    } finally {
+      this.connectPromise = null
+    }
+  }
+
+  private doConnect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
         this.port = chrome.runtime.connectNative('com.jstorrent.native')

@@ -401,6 +401,15 @@ class TorrentListViewModel(
     }
 
     /**
+     * Mark a torrent as pending removal without actually removing it.
+     * Used when removal is initiated from another screen (e.g., detail view)
+     * so the list shows the "Removing" treatment when navigating back.
+     */
+    fun markPendingRemoval(infoHash: String) {
+        _pendingRemovalTorrents.value = _pendingRemovalTorrents.value + infoHash
+    }
+
+    /**
      * Pause all torrents.
      * Stage 2: Starts engine on demand if not running.
      */
