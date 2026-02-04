@@ -119,9 +119,6 @@ class TorrentDetailViewModel(
     // Track current subscription type to avoid redundant subscribe calls
     private var currentSubscriptionType: String? = null
 
-    // Track whether we've subscribed to "torrents" for the torrent summary
-    private var subscribedToTorrents = false
-
     // Pending action state - true when pause/resume has been requested but engine hasn't responded yet
     // This provides immediate visual feedback when user taps play/pause
     private val _isPendingAction = MutableStateFlow(false)
@@ -141,7 +138,6 @@ class TorrentDetailViewModel(
                 if (isLoaded && _isScreenVisible.value) {
                     // Reset subscription tracking on engine (re)load since JS side resets
                     currentSubscriptionType = null
-                    subscribedToTorrents = false
                     subscribeForTab(_selectedTab.value)
                 }
             }
@@ -151,7 +147,10 @@ class TorrentDetailViewModel(
         // This replaces the old RPC-based fetching.
         viewModelScope.launch {
             repository.state.collect { state ->
-                if (state?.torrents?.any { it.infoHash == infoHash } != true) return@collect
+                // Check if this torrent exists (either in torrents list or torrent map)
+                val hasTorrent = state?.torrents?.any { it.infoHash == infoHash } == true ||
+                    state?.torrent?.containsKey(infoHash) == true
+                if (!hasTorrent) return@collect
 
                 // Populate cached flows from subscription data
                 state.files?.get(infoHash)?.let { filesData ->
@@ -209,6 +208,7 @@ class TorrentDetailViewModel(
         viewModelScope.launch {
             repository.state.collect { state ->
                 val torrent = state?.torrents?.find { it.infoHash == infoHash }
+                    ?: state?.torrent?.get(infoHash)
                 if (torrent != null && _isPendingAction.value) {
                     val currentStatus = torrent.status
                     if (lastKnownStatus != null && currentStatus != lastKnownStatus) {
@@ -227,7 +227,7 @@ class TorrentDetailViewModel(
      * Subscribe to the appropriate data type for the given tab.
      * Unsubscribes from previous per-torrent subscription first.
      *
-     * Always subscribes to "torrents" (empty hash) to get the torrent summary,
+     * Always subscribes to "torrent" (with infoHash) to get this torrent's summary,
      * plus the tab-specific data type for the current torrent.
      */
     private fun subscribeForTab(tab: DetailTab) {
@@ -243,15 +243,10 @@ class TorrentDetailViewModel(
         // Only change per-torrent subscription if type changed
         if (currentSubscriptionType != type) {
             repository.unsubscribeAll(infoHash)
+            // Subscribe to both "torrent" (for summary) and the tab-specific type
+            repository.subscribe("torrent", infoHash, intervalMs)
             repository.subscribe(type, infoHash, intervalMs)
             currentSubscriptionType = type
-        }
-
-        // Always ensure we're subscribed to "torrents" for the torrent summary
-        // This is needed because per-torrent subscriptions don't include the summary
-        if (!subscribedToTorrents) {
-            repository.subscribe("torrents", "", 1000)
-            subscribedToTorrents = true
         }
     }
 
@@ -272,10 +267,9 @@ class TorrentDetailViewModel(
         _isScreenVisible.value = true
         repository.resumeSubscriptions()
         // Re-subscribe in case engine was restarted while paused
-        // Reset subscription flags to force fresh subscriptions (JS side resets on engine restart)
+        // Reset subscription flag to force fresh subscriptions (JS side resets on engine restart)
         if (repository.isLoaded.value) {
             currentSubscriptionType = null
-            subscribedToTorrents = false
             subscribeForTab(_selectedTab.value)
         }
     }
@@ -285,11 +279,8 @@ class TorrentDetailViewModel(
      */
     override fun onCleared() {
         super.onCleared()
+        // Unsubscribe from all per-torrent subscriptions (including "torrent")
         repository.unsubscribeAll(infoHash)
-        // Also unsubscribe from "torrents" if we were subscribed
-        if (subscribedToTorrents) {
-            repository.unsubscribe("torrents", "")
-        }
     }
 
     /**
@@ -376,7 +367,9 @@ class TorrentDetailViewModel(
             // Engine loaded but hasn't pushed state yet - show loading instead of error
             state == null -> TorrentDetailUiState.Loading
             else -> {
+                // Check both torrents list (from global subscription) and torrent map (from per-torrent subscription)
                 val torrent = state.torrents.find { it.infoHash == infoHash }
+                    ?: state.torrent?.get(infoHash)
                 if (torrent == null) {
                     // If we're in the process of removing, show Loading instead of Error
                     // to avoid jarring "Error" title during navigation transition

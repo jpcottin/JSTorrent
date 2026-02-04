@@ -32,7 +32,14 @@ import './bindings.d.ts'
  *   'pieces'   - Piece map, recent changes, active download states
  *   'details'  - Extended torrent info (creation date, comment, etc.)
  */
-export type SubscriptionType = 'torrents' | 'peers' | 'files' | 'trackers' | 'pieces' | 'details'
+export type SubscriptionType =
+  | 'torrents'
+  | 'torrent'
+  | 'peers'
+  | 'files'
+  | 'trackers'
+  | 'pieces'
+  | 'details'
 
 /** Hash value for torrent list subscription (empty = all torrents) */
 export const TORRENTS_HASH = ''
@@ -134,6 +141,10 @@ export interface TorrentDetails {
 export interface StatePayload {
   // Included when subscribed to 'torrents' (hash: '')
   torrents?: TorrentSummary[]
+
+  // Included when subscribed to 'torrent' (hash: specific infoHash)
+  // Maps infoHash -> TorrentSummary for single-torrent subscriptions
+  torrent?: Record<string, TorrentSummary>
 
   // Legacy piece changes (for backward compatibility during migration)
   pieceChanges?: Record<string, number[]>
@@ -381,6 +392,10 @@ export class SubscriptionManager {
         const data = this.getData(type, hash)
         if (data !== null) {
           switch (type) {
+            case 'torrent':
+              payload.torrent ??= {}
+              payload.torrent[hash] = data as TorrentSummary
+              break
             case 'peers':
               payload.peers ??= {}
               payload.peers[hash] = data as PeerInfo[]
@@ -414,6 +429,8 @@ export class SubscriptionManager {
     if (!torrent) return null
 
     switch (type) {
+      case 'torrent':
+        return this.buildTorrentSummary(torrent)
       case 'peers':
         return this.getPeersData(torrent)
       case 'files':
@@ -434,7 +451,11 @@ export class SubscriptionManager {
   // ============================================================
 
   private buildTorrentSummaries(): TorrentSummary[] {
-    return this.engine.torrents.map((t) => ({
+    return this.engine.torrents.map((t) => this.buildTorrentSummary(t))
+  }
+
+  private buildTorrentSummary(t: Torrent): TorrentSummary {
+    return {
       infoHash: toHex(t.infoHash),
       name: t.name,
       progress: t.progress,
@@ -450,7 +471,7 @@ export class SubscriptionManager {
       eta: t.eta,
       errorMessage: t.errorMessage,
       checkingProgress: t.checkingProgress,
-    }))
+    }
   }
 
   private getPeersData(torrent: Torrent): PeerInfo[] {

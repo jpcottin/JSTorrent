@@ -155,8 +155,8 @@ class TorrentListViewModel(
                 TorrentListUiState.Error(dataSource.error)
             }
 
-            // Engine is loaded AND has sent state - use live state
-            dataSource.isLoaded && dataSource.state != null -> {
+            // Engine is loaded AND has sent state with torrents - use live state
+            dataSource.isLoaded && dataSource.state != null && engineTorrents.isNotEmpty() -> {
                 val filteredTorrents = engineTorrents
                     .filterByStatus(filter)
                     .sortWithLastActive()
@@ -169,7 +169,8 @@ class TorrentListViewModel(
                 )
             }
 
-            // Engine is loaded but hasn't sent state yet - show cache to prevent flicker
+            // Engine is loaded but torrents empty AND cache has data - prefer cache during subscription transitions
+            // This prevents flicker when navigating back from detail view (subscription gap)
             dataSource.isLoaded && dataSource.cachedSummaries.isNotEmpty() -> {
                 val torrents = dataSource.cachedSummaries.map { cached ->
                     with(cache!!) { cached.toTorrentSummary() }
@@ -177,16 +178,16 @@ class TorrentListViewModel(
                 val filteredTorrents = torrents
                     .filterByStatus(filter)
                     .sortWithLastActive()
-                android.util.Log.d("TorrentListVM", "-> Engine starting, showing cache, ${filteredTorrents.size} torrents")
+                android.util.Log.d("TorrentListVM", "-> Engine loaded, showing cache during transition, ${filteredTorrents.size} torrents")
                 TorrentListUiState.Loaded(
                     torrents = filteredTorrents,
                     filter = filter,
                     sortOrder = sortOrder,
-                    isLive = false  // Still cached until engine sends state
+                    isLive = false  // Show as not-live until engine sends state with torrents
                 )
             }
 
-            // Engine is loaded, no state yet, no cache - show empty list
+            // Engine is loaded, no state or empty torrents, no cache - show empty list (truly empty)
             dataSource.isLoaded -> {
                 android.util.Log.d("TorrentListVM", "-> Live state, empty")
                 TorrentListUiState.Loaded(

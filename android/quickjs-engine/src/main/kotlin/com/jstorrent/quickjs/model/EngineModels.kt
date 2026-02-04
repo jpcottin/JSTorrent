@@ -166,6 +166,7 @@ data class TorrentDetails(
 @Serializable
 data class EngineState(
     val torrents: List<TorrentSummary> = emptyList(),
+    val torrent: Map<String, TorrentSummary>? = null, // Single torrent summaries (for detail view)
     val pieceChanges: Map<String, List<Int>>? = null, // infoHash -> newly completed piece indices
     val activePieceStates: Map<String, String>? = null, // infoHash -> hex-encoded binary (see below)
     // Subscription data (present only when subscribed to specific types)
