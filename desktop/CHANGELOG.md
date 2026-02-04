@@ -2,6 +2,14 @@
 
 All notable changes to the desktop native host components are documented here.
 
+## [1.0.0] - 2026-02-04
+
+### Added
+- File truncation support for sparse file handling
+
+### Changed
+- Improved error handling in file operations
+
 ## [0.1.12] - 2026-02-04
 
 ### Added
