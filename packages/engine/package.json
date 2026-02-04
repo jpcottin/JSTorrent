@@ -1,10 +1,13 @@
 {
   "name": "@jstorrent/engine",
-  "version": "0.1.0",
-  "description": "Core BitTorrent engine for JSTorrent",
+  "version": "1.0.0",
+  "description": "BitTorrent client for Node.js - download torrents from the command line",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "jstorrent": "./dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -21,11 +24,32 @@
     "./presets/native": {
       "types": "./dist/presets/native.d.ts",
       "import": "./dist/presets/native.js"
+    },
+    "./presets/node": {
+      "types": "./dist/presets/node.d.ts",
+      "import": "./dist/presets/node.js"
     }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kzahel/jstorrent.git",
+    "directory": "packages/engine"
+  },
+  "homepage": "https://jstorrent.com",
+  "bugs": {
+    "url": "https://github.com/kzahel/jstorrent/issues"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "scripts": {
     "postinstall": "[ -f src/geo/ipv4-country-data.ts ] || cp src/geo/ipv4-country-data.stub.ts src/geo/ipv4-country-data.ts",
-    "build": "tsc",
+    "build": "tsc && node bundle/build-cli.mjs",
+    "build:cli": "node bundle/build-cli.mjs",
     "bundle:native": "node bundle/build-native.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
