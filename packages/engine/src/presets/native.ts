@@ -13,10 +13,15 @@ import { NativeHasher } from '../adapters/native/native-hasher'
 import { flushBatchedWrites } from '../adapters/native/native-batching-disk-queue'
 import { StorageRootManager, StorageRoot } from '../storage/storage-root-manager'
 import { Socks5SocketFactory } from '../proxy'
+import { TorrentUploader } from '../core/torrent-uploader'
 import type { ISocketFactory } from '../interfaces/socket'
 import type { NetworkInterface } from '../upnp/upnp-manager'
 import type { LogEntry } from '../logging/logger'
 import type { ConfigHub } from '../config/config-hub'
+
+// XXX HACK: Enable conservative seeding for native (QuickJS) to limit disk read concurrency.
+// See TorrentUploader.MAX_PENDING_READS for details on the lazy unchoke limitation.
+TorrentUploader.MAX_PENDING_READS = 8
 
 /**
  * Get network interfaces from the native layer.

@@ -38,7 +38,11 @@ export class TorrentUploader extends EngineComponent {
   /**
    * Max pending disk reads before choking peers due to backpressure.
    * 0 = disabled (no backpressure choking).
-   * Can be overridden for tests: TorrentUploader.MAX_PENDING_READS = 0
+   *
+   * XXX HACK: This uses lazy unchoke (waits for 10s unchoke algorithm cycle).
+   * TODO: Implement proper backpressure recovery - track which peers were
+   * choked due to backpressure and unchoke them immediately when pendingReads
+   * drops below threshold. Current approach causes unnecessary upload stalls.
    */
   static MAX_PENDING_READS = 0
 
