@@ -2,6 +2,25 @@
 
 All notable changes to the desktop native host components are documented here.
 
+## [0.1.12] - 2026-02-04
+
+### Added
+- Standalone daemon mode for ChromeOS companion app
+- SHA1 batch hashing endpoint for improved performance
+- Routing hasher with worker thread support
+- SAF file handle pooling
+- Daemon stats endpoint
+- BEP 6/21 (Fast Extension) protocol support
+
+### Changed
+- Improved hasher interface with batching support
+- Allow /control WebSocket without HTTP auth in standalone mode
+
+### Fixed
+- CORS issue on production sites
+- Standalone daemon pairing and token handling
+- HTTP client error handling improvements
+
 ## [0.1.11] - 2026-02-04
 
 ### Added
