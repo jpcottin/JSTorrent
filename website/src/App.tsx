@@ -9,7 +9,7 @@ const PLAYSTORE_URL = 'https://play.google.com/store/apps/details?id=com.jstorre
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/kzahel/jstorrent/releases'
 
 // Build-time value from CI, falls back to hardcoded version
-const FALLBACK_TAG = import.meta.env.VITE_SYSTEM_BRIDGE_TAG || 'v0.1.11'
+const FALLBACK_TAG = import.meta.env.VITE_SYSTEM_BRIDGE_TAG || 'v0.1.12'
 
 interface ReleaseInfo {
   tag: string

@@ -54,7 +54,7 @@ jobs:
             echo "tag=${TAG#system-bridge-}" >> $GITHUB_OUTPUT
             echo "Found latest system-bridge release: $TAG"
           else
-            echo "tag=v0.1.11" >> $GITHUB_OUTPUT
+            echo "tag=v0.1.12" >> $GITHUB_OUTPUT
             echo "No system-bridge release found, using fallback"
           fi
         env:

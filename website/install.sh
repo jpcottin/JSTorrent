@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-FALLBACK_TAG="v0.1.11"
+FALLBACK_TAG="v0.1.12"
 
 # Fetch latest system-bridge release tag from GitHub API
 echo "Checking for latest release..."
