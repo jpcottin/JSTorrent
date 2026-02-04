@@ -553,6 +553,20 @@ class EngineController(
     }
 
     /**
+     * Recheck (verify) torrent data (suspend version).
+     * Awaits until the recheck is complete.
+     */
+    suspend fun recheckTorrentAsync(infoHash: String): String? {
+        checkLoaded()
+        val result = engine!!.callGlobalFunctionAwaitPromise(
+            "__jstorrent_cmd_recheck",
+            infoHash
+        )
+        Log.i(TAG, "recheckTorrentAsync completed: $infoHash")
+        return result
+    }
+
+    /**
      * Set file priorities for a torrent (suspend version).
      *
      * @param infoHash The torrent's info hash

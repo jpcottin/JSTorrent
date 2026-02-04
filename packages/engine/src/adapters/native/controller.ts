@@ -31,6 +31,28 @@ function getTorrentSize(t: Torrent): number {
   return (t.piecesCount - 1) * t.pieceLength + t.lastPieceLength
 }
 
+// Queue for commands that arrive before engine is ready
+// This prevents commands from being silently dropped during engine startup
+const commandQueue: Array<() => void> = []
+
+/**
+ * Flush all queued commands. Called after engine is ready.
+ */
+export function flushCommandQueue(): void {
+  if (commandQueue.length > 0) {
+    console.log(`[controller] Flushing ${commandQueue.length} queued commands`)
+    const commands = [...commandQueue]
+    commandQueue.length = 0
+    for (const cmd of commands) {
+      try {
+        cmd()
+      } catch (e) {
+        console.error('[controller] Error executing queued command:', e)
+      }
+    }
+  }
+}
+
 /**
  * Set up the controller commands and queries.
  * Called early during initialization, before engine is ready.
@@ -42,10 +64,11 @@ function getTorrentSize(t: Torrent): number {
 export function setupController(getEngine: () => BtEngine | null, isReady: () => boolean): void {
   /**
    * Helper to get engine, logging error if not ready.
+   * Returns null if engine is not ready, but commands should be queued instead of dropped.
    */
   const requireEngine = (caller: string): BtEngine | null => {
     if (!isReady()) {
-      console.warn(`[controller] ${caller}: Engine not ready yet`)
+      // Don't log warning here - let the caller decide whether to queue
       return null
     }
     const engine = getEngine()
@@ -54,6 +77,20 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
       return null
     }
     return engine
+  }
+
+  /**
+   * Helper to queue a command if engine not ready, or execute immediately if ready.
+   * Returns true if command was executed immediately, false if queued.
+   */
+  const executeOrQueue = (caller: string, command: () => void): boolean => {
+    if (isReady()) {
+      command()
+      return true
+    }
+    console.log(`[controller] ${caller}: Engine not ready, queueing command`)
+    commandQueue.push(command)
+    return false
   }
 
   // ============================================================
@@ -131,24 +168,30 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
 
   /**
    * Pause a torrent.
+   * If engine is not ready, the command is queued and executed once ready.
    */
   ;(globalThis as Record<string, unknown>).__jstorrent_cmd_pause = (infoHash: string): void => {
-    const engine = requireEngine('pause')
-    if (!engine) return
-    const torrent = engine.getTorrent(infoHash)
-    if (torrent) {
-      torrent.userStop() // Use userStop() to update userState and persist
-    }
+    executeOrQueue('pause', () => {
+      const engine = getEngine()
+      if (!engine) return
+      const torrent = engine.getTorrent(infoHash)
+      if (torrent) {
+        torrent.userStop() // Use userStop() to update userState and persist
+      }
+    })
   }
 
   /**
    * Resume a torrent.
+   * If engine is not ready, the command is queued and executed once ready.
    */
   ;(globalThis as Record<string, unknown>).__jstorrent_cmd_resume = (infoHash: string): void => {
-    const engine = requireEngine('resume')
-    if (!engine) return
-    const torrent = engine.getTorrent(infoHash)
-    torrent?.userStart() // Use userStart() to update userState and persist
+    executeOrQueue('resume', () => {
+      const engine = getEngine()
+      if (!engine) return
+      const torrent = engine.getTorrent(infoHash)
+      torrent?.userStart() // Use userStart() to update userState and persist
+    })
   }
 
   /**
@@ -183,6 +226,35 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
       return { ok: true }
     } catch (e) {
       console.error('[controller] remove error:', e)
+      __jstorrent_on_error(JSON.stringify({ error: String(e) }))
+      return { ok: false, error: String(e) }
+    }
+  }
+
+  /**
+   * Recheck (verify) torrent data.
+   * Returns a Promise that resolves when the check completes.
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_cmd_recheck = async (
+    infoHash: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const engine = requireEngine('recheck')
+    if (!engine) {
+      return { ok: false, error: 'Engine not ready' }
+    }
+
+    const torrent = engine.getTorrent(infoHash)
+    if (!torrent) {
+      console.warn(`[controller] recheck: Torrent not found: ${infoHash}`)
+      return { ok: false, error: 'Torrent not found' }
+    }
+
+    try {
+      await torrent.recheckData()
+      console.log(`[controller] Torrent recheck completed: ${infoHash}`)
+      return { ok: true }
+    } catch (e) {
+      console.error('[controller] recheck error:', e)
       __jstorrent_on_error(JSON.stringify({ error: String(e) }))
       return { ok: false, error: String(e) }
     }

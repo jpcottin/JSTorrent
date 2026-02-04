@@ -1,4 +1,4 @@
-name: Android E2E Tests
+name: Android Tests
 
 on:
   push:
@@ -90,11 +90,13 @@ jobs:
           path: android/app/build/reports/tests/testDebugUnitTest/
 
   # Instrumented tests require Android emulator
+  # Disabled: emulator startup unreliable on CI (frequent timeouts). Run locally with:
+  #   source android/scripts/android-env.sh && emu start
+  #   ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notPackage=com.jstorrent.app.companion,com.jstorrent.app.e2e
   instrumented-tests:
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # TODO: Change back to main-only after verification:
-    # if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
 
     strategy:
       matrix:

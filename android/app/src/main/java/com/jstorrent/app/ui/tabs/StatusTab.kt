@@ -97,7 +97,7 @@ private fun ProgressSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            StatusBadge(status = torrent.status, suffix = if (isPartial) stringResource(R.string.tab_status_partial_suffix) else null)
+            StatusBadge(status = torrent.status, suffix = if (isPartial) stringResource(R.string.tab_status_partial_suffix) else null, checkingProgress = torrent.checkingProgress)
             Text(
                 text = Formatters.formatPercent(torrent.progress),
                 style = MaterialTheme.typography.titleLarge,

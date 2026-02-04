@@ -50,6 +50,12 @@ interface TorrentRepository {
     fun removeTorrent(infoHash: String, deleteFiles: Boolean = false)
 
     /**
+     * Recheck (verify) torrent data.
+     * @param infoHash The torrent's info hash
+     */
+    fun recheckTorrent(infoHash: String)
+
+    /**
      * Replace an existing torrent (if present) and add fresh.
      * Awaits removal completion before adding to avoid race conditions.
      * @param magnetOrBase64 Magnet link or base64-encoded .torrent

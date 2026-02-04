@@ -120,6 +120,10 @@ class EngineServiceRepository(
         scope.launch { controller?.removeTorrentAsync(infoHash, deleteFiles) }
     }
 
+    override fun recheckTorrent(infoHash: String) {
+        scope.launch { controller?.recheckTorrentAsync(infoHash) }
+    }
+
     override suspend fun replaceAndAddTorrent(magnetOrBase64: String, infoHash: String?) {
         // Remove existing torrent first (if infoHash provided) and wait for completion
         if (infoHash != null) {

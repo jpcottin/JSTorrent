@@ -117,6 +117,7 @@ data class TorrentDetailUi(
     val name: String,
     val status: String,
     val progress: Double,
+    val checkingProgress: Double = 0.0, // 0-1, only meaningful when status == "checking"
     val downloadSpeed: Long,
     val uploadSpeed: Long,
     val downloaded: Long,

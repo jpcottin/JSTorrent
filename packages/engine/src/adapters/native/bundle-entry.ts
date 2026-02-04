@@ -10,7 +10,7 @@ import './polyfills'
 
 // Import preset and controller
 import { createNativeEngine, NativeEngineConfig } from '../../presets/native'
-import { setupController } from './controller'
+import { setupController, flushCommandQueue } from './controller'
 import { NativeConfigHub } from './native-config-hub'
 import { initSubscriptionManager, setupSubscriptionBindings } from './subscriptions'
 import type { BtEngine } from '../../core/bt-engine'
@@ -35,8 +35,9 @@ const jstorrentApi = {
    * Initialize the engine with configuration.
    * Must be called before any other methods.
    *
-   * Note: This is async but we expose it synchronously to native.
-   * The engine will be functional immediately, session restore happens in background.
+   * Note: This returns immediately but engine init continues in background.
+   * The engine will only accept commands after session restore completes
+   * (engineReady=true), preventing lost commands and UI flicker.
    */
   init(config: {
     contentRoots: Array<{
@@ -102,23 +103,28 @@ const jstorrentApi = {
 
         engine = createNativeEngine(nativeConfig)
 
-        // Initialize subscription manager FIRST (before async work)
-        // This ensures __jstorrent_subscribe is available when Kotlin calls it
-        // after seeing engineReady=true
-        const subscriptionManager = initSubscriptionManager(engine, (payload) => {
-          __jstorrent_on_state_update(payload)
-        })
+        // Initialize subscription manager (before session restore)
+        // This sets up the subscription bindings that Kotlin will call after engineReady=true
+        // Pass isReady callback to delay pushes until session restore completes
+        const subscriptionManager = initSubscriptionManager(
+          engine,
+          (payload) => {
+            __jstorrent_on_state_update(payload)
+          },
+          () => engineReady,
+        )
         setupSubscriptionBindings(subscriptionManager)
 
-        // Now safe to mark engine as ready - subscription bindings are registered
-        engineReady = true
-
-        // Restore session and resume engine
+        // Restore session BEFORE marking engine ready
+        // This ensures:
+        // 1. Commands (resume, pause) won't be lost (torrent exists when command arrives)
+        // 2. First state push includes restored torrents (no UI flicker)
         // Startup sequence:
         // 1. Engine created in suspended state
-        // 2. Subscription bindings registered (UI can subscribe immediately)
+        // 2. Subscription bindings registered
         // 3. Session restored (torrents re-added)
-        // 4. Engine resumed (networking starts, subscriptions start pushing)
+        // 4. Engine marked ready (commands now accepted)
+        // 5. Engine resumed (networking starts, subscriptions start pushing)
         try {
           const restored = await engine.restoreSession()
           if (restored > 0) {
@@ -127,6 +133,13 @@ const jstorrentApi = {
         } catch (e) {
           console.error('JSTorrent: Failed to restore session:', e)
         }
+
+        // Now safe to mark engine as ready - session is restored, torrents exist
+        engineReady = true
+
+        // Flush any commands that were queued while engine was starting
+        // This handles the race condition where user taps resume before session restore completes
+        flushCommandQueue()
 
         // Resume engine after restoration
         engine.resume()

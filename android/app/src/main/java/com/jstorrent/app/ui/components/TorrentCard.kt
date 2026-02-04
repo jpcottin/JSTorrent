@@ -157,7 +157,7 @@ fun TorrentCard(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f, fill = false)
                     ) {
-                        StatusBadge(status = displayStatus)
+                        StatusBadge(status = displayStatus, checkingProgress = torrent.checkingProgress)
                         Text(
                             text = " • ",
                             style = MaterialTheme.typography.bodySmall,
@@ -283,7 +283,7 @@ fun SimpleTorrentCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                StatusBadge(status = torrent.status)
+                StatusBadge(status = torrent.status, checkingProgress = torrent.checkingProgress)
                 Text(
                     text = Formatters.formatPercent(torrent.progress),
                     style = MaterialTheme.typography.bodySmall

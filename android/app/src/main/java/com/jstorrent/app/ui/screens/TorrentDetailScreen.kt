@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -166,6 +167,17 @@ fun TorrentDetailScreen(
                                 offset = DpOffset(8.dp, 0.dp)
                             ) {
                                 // Screen-specific items at top
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.torrent_detail_recheck_button)) },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.recheck()
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Refresh, contentDescription = null)
+                                    },
+                                    enabled = torrent.status != "checking"
+                                )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.torrent_detail_remove_button)) },
                                     onClick = {

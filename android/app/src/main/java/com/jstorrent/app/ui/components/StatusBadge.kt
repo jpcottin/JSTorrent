@@ -28,6 +28,7 @@ import com.jstorrent.app.ui.theme.JSTorrentTheme
  * @param modifier Optional modifier
  * @param showBackground Whether to show colored background (badge style)
  * @param suffix Optional suffix to append (e.g., " (partial)")
+ * @param checkingProgress Progress (0-1) when status is "checking", ignored otherwise
  */
 @Composable
 fun StatusBadge(
@@ -35,9 +36,10 @@ fun StatusBadge(
     modifier: Modifier = Modifier,
     showBackground: Boolean = false,
     style: TextStyle = MaterialTheme.typography.labelMedium,
-    suffix: String? = null
+    suffix: String? = null,
+    checkingProgress: Double = 0.0
 ) {
-    val displayText = formatStatusComposable(status) + (suffix ?: "")
+    val displayText = formatStatusComposable(status, checkingProgress) + (suffix ?: "")
     val targetColor = statusColor(status)
 
     // Smooth color transition when status changes
@@ -79,14 +81,15 @@ fun StatusBadge(
 
 /**
  * Formats status string to display text using localized string resources.
+ * @param checkingProgress Progress (0-1) when status is "checking", displayed as percentage
  */
 @Composable
-fun formatStatusComposable(status: String): String = when (status) {
+fun formatStatusComposable(status: String, checkingProgress: Double = 0.0): String = when (status) {
     "downloading" -> stringResource(R.string.status_downloading)
     "downloading_metadata" -> stringResource(R.string.status_downloading_metadata)
     "seeding" -> stringResource(R.string.status_seeding)
     "stopped" -> stringResource(R.string.status_paused)
-    "checking" -> stringResource(R.string.status_checking)
+    "checking" -> "${(checkingProgress * 100).toInt()}% ${stringResource(R.string.status_checking_label)}"
     "error" -> stringResource(R.string.status_error)
     "queued" -> stringResource(R.string.status_queued)
     "removing" -> stringResource(R.string.status_removing)

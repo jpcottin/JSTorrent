@@ -260,7 +260,8 @@ data class TorrentSummary(
     val uploaded: Long = 0,
     val addedAt: Long = 0, // Epoch milliseconds when added
     val eta: Long? = null, // Estimated time to completion in seconds, null if not calculable
-    val errorMessage: String? = null // Error description when status == "error"
+    val errorMessage: String? = null, // Error description when status == "error"
+    val checkingProgress: Double = 0.0 // 0-1, only meaningful when status == "checking"
 )
 
 /**

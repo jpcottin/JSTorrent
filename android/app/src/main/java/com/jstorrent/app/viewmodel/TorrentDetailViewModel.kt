@@ -531,6 +531,13 @@ class TorrentDetailViewModel(
     }
 
     /**
+     * Recheck (verify) the current torrent's data.
+     */
+    fun recheck() {
+        repository.recheckTorrent(infoHash)
+    }
+
+    /**
      * Check if the torrent is currently paused.
      */
     fun isPaused(): Boolean {
@@ -615,6 +622,7 @@ class TorrentDetailViewModel(
             name = summary.name,
             status = summary.status,
             progress = summary.progress,
+            checkingProgress = summary.checkingProgress,
             downloadSpeed = summary.downloadSpeed,
             uploadSpeed = summary.uploadSpeed,
             downloaded = downloaded,

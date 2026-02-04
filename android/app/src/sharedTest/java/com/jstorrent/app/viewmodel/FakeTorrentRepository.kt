@@ -37,6 +37,7 @@ class FakeTorrentRepository : TorrentRepository {
     val pausedTorrents = mutableListOf<String>()
     val resumedTorrents = mutableListOf<String>()
     val removedTorrents = mutableListOf<Pair<String, Boolean>>()
+    val recheckedTorrents = mutableListOf<String>()
     var pauseAllCalled = false
     var resumeAllCalled = false
 
@@ -98,6 +99,7 @@ class FakeTorrentRepository : TorrentRepository {
         pausedTorrents.clear()
         resumedTorrents.clear()
         removedTorrents.clear()
+        recheckedTorrents.clear()
         pauseAllCalled = false
         resumeAllCalled = false
         filesData = emptyMap()
@@ -157,6 +159,21 @@ class FakeTorrentRepository : TorrentRepository {
         // Update state to reflect removal
         _state.value?.let { currentState ->
             val updatedTorrents = currentState.torrents.filter { it.infoHash != infoHash }
+            _state.value = EngineState(updatedTorrents)
+        }
+    }
+
+    override fun recheckTorrent(infoHash: String) {
+        recheckedTorrents.add(infoHash)
+        // Update state to reflect checking status
+        _state.value?.let { currentState ->
+            val updatedTorrents = currentState.torrents.map { torrent ->
+                if (torrent.infoHash == infoHash) {
+                    torrent.copy(status = "checking")
+                } else {
+                    torrent
+                }
+            }
             _state.value = EngineState(updatedTorrents)
         }
     }

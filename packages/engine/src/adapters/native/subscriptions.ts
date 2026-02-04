@@ -56,6 +56,7 @@ export interface TorrentSummary {
   addedAt: number
   eta: number | null
   errorMessage: string | undefined
+  checkingProgress: number // 0-1, only meaningful when status='checking'
 }
 
 export interface PeerInfo {
@@ -163,6 +164,7 @@ export class SubscriptionManager {
   private loopTimeout: ReturnType<typeof setTimeout> | null = null
   private engine: BtEngine
   private onPush: (payload: string) => void
+  private isReady: () => boolean
 
   // Track pending piece changes per torrent (cleared after each push)
   private pendingPieceChanges = new Map<string, Set<number>>()
@@ -170,9 +172,14 @@ export class SubscriptionManager {
   // Track piece listeners per torrent for cleanup
   private pieceListeners = new Map<string, (index: number) => void>()
 
-  constructor(engine: BtEngine, onPush: (payload: string) => void) {
+  constructor(
+    engine: BtEngine,
+    onPush: (payload: string) => void,
+    isReady: () => boolean = () => true,
+  ) {
     this.engine = engine
     this.onPush = onPush
+    this.isReady = isReady
 
     // Auto-cleanup when torrent removed
     engine.on('torrent-removed', (torrent) => {
@@ -322,6 +329,14 @@ export class SubscriptionManager {
   private loop(): void {
     if (this.paused) return
 
+    // Don't push until engine is ready (session restored, torrents loaded)
+    // This prevents pushing empty torrent list during engine startup
+    if (!this.isReady()) {
+      // Retry after a short delay
+      this.loopTimeout = setTimeout(() => this.loop(), 50)
+      return
+    }
+
     try {
       const payload = this.buildPayload()
       this.onPush(JSON.stringify(payload))
@@ -434,6 +449,7 @@ export class SubscriptionManager {
       addedAt: t.addedAt,
       eta: t.eta,
       errorMessage: t.errorMessage,
+      checkingProgress: t.checkingProgress,
     }))
   }
 
@@ -660,17 +676,21 @@ let subscriptionManager: SubscriptionManager | null = null
 
 /**
  * Initialize the subscription manager.
- * Called from bundle-entry.ts after engine is ready.
+ * Called from bundle-entry.ts during engine initialization.
+ *
+ * @param isReady - Callback that returns true when engine is fully ready (session restored).
+ *                  Subscriptions won't push data until this returns true.
  */
 export function initSubscriptionManager(
   engine: BtEngine,
   onPush: (payload: string) => void,
+  isReady: () => boolean = () => true,
 ): SubscriptionManager {
   if (subscriptionManager) {
     console.warn('[subscriptions] Subscription manager already initialized')
     return subscriptionManager
   }
-  subscriptionManager = new SubscriptionManager(engine, onPush)
+  subscriptionManager = new SubscriptionManager(engine, onPush, isReady)
   return subscriptionManager
 }
 

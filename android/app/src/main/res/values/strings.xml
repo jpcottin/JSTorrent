@@ -74,6 +74,7 @@
     <string name="torrent_detail_pause_button">Pause</string>
     <string name="torrent_detail_menu_button">Menu</string>
     <string name="torrent_detail_remove_button">Remove torrent</string>
+    <string name="torrent_detail_recheck_button">Verify data</string>
     <string name="torrent_detail_error_title">Error</string>
     <string name="torrent_detail_file_not_downloaded">File is not fully downloaded yet</string>
     <string name="torrent_detail_storage_unknown">Storage location unknown</string>
@@ -280,6 +281,7 @@
     <string name="status_seeding">Seeding</string>
     <string name="status_paused">Paused</string>
     <string name="status_checking">Checking...</string>
+    <string name="status_checking_label">Checking</string>
     <string name="status_error">Error</string>
     <string name="status_queued">Queued</string>
     <string name="status_removing">Removing…</string>
