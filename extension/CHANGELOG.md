@@ -4,6 +4,11 @@ All notable changes to the Chrome extension are documented here.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-02-04
+
+### Changed
+- Test release to verify CI workflow
+
 ## [1.0.0] - 2026-02-04
 
 ### Added
