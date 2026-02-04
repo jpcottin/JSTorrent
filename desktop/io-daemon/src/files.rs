@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use std::io::SeekFrom;
+use std::io::{ErrorKind, SeekFrom};
 use crate::AppState;
 
 // 64MB limit for piece writes (must match MAX_PIECE_SIZE in engine)
@@ -258,7 +258,14 @@ async fn read_file_v2(
         buffer.resize(len as usize, 0);
         file.read_exact(&mut buffer)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| {
+                let status = if e.kind() == ErrorKind::UnexpectedEof {
+                    StatusCode::RANGE_NOT_SATISFIABLE
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                };
+                (status, e.to_string())
+            })?;
     } else {
         file.read_to_end(&mut buffer)
             .await

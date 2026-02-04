@@ -1,15 +1,6 @@
 import { IHasher, Sha1Reason } from '../../interfaces/hasher'
 import { SubtleCryptoHasher } from './subtle-crypto-hasher'
 
-export interface WorkerHasherOptions {
-  /**
-   * If true, copy buffer before transfer.
-   * Use when caller may reuse buffer after calling sha1().
-   * Default: false (zero-copy transfer)
-   */
-  copy?: boolean
-}
-
 interface PendingRequest {
   resolve: (result: Uint8Array | Uint8Array[]) => void
   reject: (error: Error) => void
@@ -21,8 +12,11 @@ interface PendingRequest {
  *
  * Benefits:
  * - Main thread stays responsive during large hashes
- * - Zero-copy buffer transfer via transferables (default)
  * - Parallelization for batch operations
+ *
+ * This hasher COPIES data before sending to the worker, so the original
+ * buffer remains valid after sha1() returns. For zero-copy transfer
+ * (where the caller must use returned data), use TransferringWorkerHasher.
  *
  * Falls back to SubtleCryptoHasher if Worker API unavailable.
  */
@@ -32,10 +26,8 @@ export class WorkerHasher implements IHasher {
   private pending = new Map<number, PendingRequest>()
   private nextId = 0
   private fallback: SubtleCryptoHasher | null = null
-  private copyByDefault: boolean
 
-  constructor(options?: WorkerHasherOptions) {
-    this.copyByDefault = options?.copy ?? false
+  constructor() {
     if (typeof crypto !== 'undefined' && crypto.subtle) {
       this.fallback = new SubtleCryptoHasher()
     }
@@ -115,26 +107,16 @@ export class WorkerHasher implements IHasher {
   }
 
   /**
-   * Get buffer ready for transfer.
-   * If copy mode, creates a copy. Otherwise returns a buffer that will be transferred (zero-copy).
+   * Copy buffer for transfer to worker.
+   * Always copies so the original buffer remains valid after sha1() returns.
    */
-  private getTransferBuffer(data: Uint8Array): ArrayBuffer {
-    if (this.copyByDefault) {
-      // Copy mode: caller may reuse buffer
-      return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
-    }
-    // Zero-copy: transfer the underlying buffer
-    // If data is a view into a larger buffer, we must slice to get only our portion
-    if (data.byteOffset === 0 && data.byteLength === data.buffer.byteLength) {
-      return data.buffer as ArrayBuffer
-    }
-    // View into larger buffer - must slice (this is a copy, unavoidable)
+  private copyBufferForTransfer(data: Uint8Array): ArrayBuffer {
     return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
   }
 
   private hashViaWorker(data: Uint8Array): Promise<Uint8Array> {
     const id = this.nextId++
-    const buffer = this.getTransferBuffer(data)
+    const buffer = this.copyBufferForTransfer(data)
     return new Promise((resolve, reject) => {
       this.pending.set(id, {
         resolve: resolve as (r: Uint8Array | Uint8Array[]) => void,
@@ -147,7 +129,7 @@ export class WorkerHasher implements IHasher {
 
   private batchViaWorker(inputs: Uint8Array[]): Promise<Uint8Array[]> {
     const id = this.nextId++
-    const buffers = inputs.map((data) => this.getTransferBuffer(data))
+    const buffers = inputs.map((data) => this.copyBufferForTransfer(data))
     return new Promise((resolve, reject) => {
       this.pending.set(id, {
         resolve: resolve as (r: Uint8Array | Uint8Array[]) => void,

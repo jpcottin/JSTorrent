@@ -344,7 +344,12 @@ export class TorrentContentStorage extends EngineComponent {
       batchData = {
         fileHandle: daemonHandle,
         fileRelativeOffset,
-        data,
+        // Copy the data now to avoid race with buffer pool recycling.
+        // The original piece buffer may be released back to the pool after
+        // writePieceVerified returns, but before the batch write executes.
+        // This copy has byteOffset=0 and buffer.byteLength===data.length,
+        // so writeBatch can use .buffer directly without slicing.
+        data: data.slice(),
         expectedHash,
         fileKey: `${singleFile!.path}`, // Unique key for this file
       }

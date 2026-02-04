@@ -369,10 +369,9 @@ export class DaemonFileHandle implements IFileHandle {
         rootKey: this.rootKey,
         path: this.path,
         position: w.offset,
-        data: w.data.buffer.slice(
-          w.data.byteOffset,
-          w.data.byteOffset + w.data.byteLength,
-        ) as ArrayBuffer,
+        // Use buffer directly - batchData.data is already a copy with byteOffset=0
+        // and buffer.byteLength matching data.length (copied in writePieceVerified)
+        data: w.data.buffer as ArrayBuffer,
         expectedHashHex: toHex(w.expectedHash),
         callbackId,
       }

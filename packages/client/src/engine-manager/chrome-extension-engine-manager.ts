@@ -5,6 +5,7 @@ import {
   DaemonFileSystem,
   RoutingHasher,
   WorkerHasher,
+  TransferringWorkerHasher,
   StorageRootManager,
   ExternalChromeStorageSessionStore,
   Socks5SocketFactory,
@@ -329,10 +330,12 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     // Engine will auto-apply settings and subscribe to changes via ConfigHub
     // Use RoutingHasher to route small/latency-sensitive ops to local SubtleCrypto
     // and large operations to WorkerHasher (offloads hashing to Web Worker)
-    // Note: Single-file pieces use verified write (daemon hashes atomically),
-    // so WorkerHasher is only used for boundary pieces and torrent creation
+    // TransferringWorkerHasher is used for boundary pieces where we need the data
+    // back after hashing (it uses zero-copy transfer to/from the worker)
+    // Note: Single-file pieces use verified write (daemon hashes atomically)
     const delegateHasher = new WorkerHasher()
-    const hasher = new RoutingHasher(delegateHasher)
+    const transferringHasher = new TransferringWorkerHasher()
+    const hasher = new RoutingHasher(delegateHasher, transferringHasher)
 
     // Create socket factory, optionally wrapped with SOCKS5 proxy
     let socketFactory: ISocketFactory = new DaemonSocketFactory(this.daemonConnection)
@@ -371,6 +374,10 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     console.log(`[ChromeExtensionEngineManager] Restored ${restored} torrents`)
 
     // 8. Resume engine
+    // Guard: engine may have been destroyed during restoreSession() if daemon disconnected
+    if (!this.engine) {
+      throw new Error('Engine was destroyed during initialization (daemon disconnected)')
+    }
     this.engine.resume()
     console.log('[ChromeExtensionEngineManager] Engine resumed')
 
@@ -398,6 +405,10 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       )
       for (const { event, payload } of this.pendingNativeEvents) {
         await this.handleNativeEvent(event, payload)
+        // Guard: engine may have been destroyed during event processing
+        if (!this.engine) {
+          throw new Error('Engine was destroyed during initialization (daemon disconnected)')
+        }
       }
       this.pendingNativeEvents = []
     }

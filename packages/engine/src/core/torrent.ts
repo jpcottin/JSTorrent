@@ -2442,8 +2442,18 @@ export class Torrent extends EngineComponent {
 
     if (isBoundaryPiece && this._partsFile) {
       // Boundary piece: verify hash then store in .parts file
+      // Use sha1Transfer if available - it returns the data buffer which we need
+      // for subsequent writes (regular sha1 may detach the buffer via worker transfer)
+      let validPieceData = pieceData
       if (expectedHash) {
-        const actualHash = await this.btEngine.hasher.sha1(pieceData, 'piece-verify')
+        let actualHash: Uint8Array
+        if (this.btEngine.hasher.sha1Transfer) {
+          const result = await this.btEngine.hasher.sha1Transfer(pieceData, 'piece-verify')
+          actualHash = result.hash
+          validPieceData = result.data
+        } else {
+          actualHash = await this.btEngine.hasher.sha1(pieceData, 'piece-verify')
+        }
         if (compare(actualHash, expectedHash) !== 0) {
           this.handleHashMismatch(index, contributors)
           return
@@ -2455,7 +2465,7 @@ export class Torrent extends EngineComponent {
         await this._diskQueue.drain()
 
         // Write to .parts file
-        await this._partsFile.addPieceAndFlush(index, pieceData)
+        await this._partsFile.addPieceAndFlush(index, validPieceData)
 
         // Resume disk queue
         this._diskQueue.resume()
@@ -2466,7 +2476,7 @@ export class Torrent extends EngineComponent {
         // Also write the wanted portions to their files immediately
         // (skipped file portions stay only in .parts)
         if (this.contentStorage) {
-          await this.contentStorage.writePieceFilteredByPriority(index, pieceData)
+          await this.contentStorage.writePieceFilteredByPriority(index, validPieceData)
         }
 
         this.logger.debug(

@@ -39,7 +39,11 @@ export { LocalStorageSessionStore } from './adapters/browser/local-storage-sessi
 export { ExternalChromeStorageSessionStore } from './adapters/browser/external-chrome-storage-session-store'
 export { SubtleCryptoHasher } from './adapters/browser/subtle-crypto-hasher'
 export { RoutingHasher } from './adapters/browser/routing-hasher'
-export { WorkerHasher, type WorkerHasherOptions } from './adapters/browser/worker-hasher'
+export { WorkerHasher } from './adapters/browser/worker-hasher'
+export {
+  TransferringWorkerHasher,
+  type TransferringHashResult,
+} from './adapters/browser/transferring-worker-hasher'
 export { DaemonConnection } from './adapters/daemon/daemon-connection'
 export type {
   IDaemonConnection,

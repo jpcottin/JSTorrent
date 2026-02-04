@@ -12,12 +12,16 @@ interface HashRequest {
   id: number
   data?: ArrayBuffer
   batch?: ArrayBuffer[]
+  /** If true, transfer the data buffer back along with the hash */
+  returnData?: boolean
 }
 
 interface HashResponse {
   id: number
   hash?: ArrayBuffer
   hashes?: ArrayBuffer[]
+  /** Original data buffer, returned when returnData was true */
+  data?: ArrayBuffer
   error?: string
 }
 
@@ -29,7 +33,7 @@ const workerSelf = self as unknown as {
 }
 
 workerSelf.onmessage = async (e: MessageEvent<HashRequest>) => {
-  const { id, data, batch } = e.data
+  const { id, data, batch, returnData } = e.data
 
   try {
     if (batch) {
@@ -37,7 +41,12 @@ workerSelf.onmessage = async (e: MessageEvent<HashRequest>) => {
       workerSelf.postMessage({ id, hashes }, hashes as Transferable[])
     } else if (data) {
       const hash = await crypto.subtle.digest('SHA-1', data)
-      workerSelf.postMessage({ id, hash }, [hash])
+      if (returnData) {
+        // Transfer both hash and original data back to main thread
+        workerSelf.postMessage({ id, hash, data }, [hash, data])
+      } else {
+        workerSelf.postMessage({ id, hash }, [hash])
+      }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Hash failed'

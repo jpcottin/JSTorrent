@@ -55,4 +55,24 @@ export interface IHasher {
    * @returns Array of 20-byte hashes in same order
    */
   sha1Batch?(inputs: Uint8Array[], reason?: Sha1Reason): Promise<Uint8Array[]>
+
+  /**
+   * Compute SHA1 hash with zero-copy buffer transfer.
+   * Optional - only implemented by hashers that transfer buffers (like TransferringWorkerHasher).
+   *
+   * IMPORTANT: After this call, the original `data` buffer is INVALID.
+   * You MUST use the returned `data` for any subsequent operations.
+   *
+   * Use this for large payloads (piece verification) where:
+   * 1. Zero-copy transfer provides performance benefits
+   * 2. You need to use the data after hashing
+   *
+   * @param data - Data to hash (will be consumed, original becomes invalid)
+   * @param reason - Optional reason for the hash (for debugging/tracing)
+   * @returns Object with 20-byte hash and the data buffer (valid for use after call)
+   */
+  sha1Transfer?(
+    data: Uint8Array,
+    reason?: Sha1Reason,
+  ): Promise<{ hash: Uint8Array; data: Uint8Array }>
 }

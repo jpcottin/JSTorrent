@@ -161,25 +161,14 @@ describe('WorkerHasher', () => {
   })
 
   describe('buffer handling', () => {
-    it('transfers buffer by default (zero-copy)', async () => {
+    it('always copies buffer (original remains valid)', async () => {
       const hasher = new WorkerHasher()
       const data = new Uint8Array([1, 2, 3, 4])
       const originalBuffer = data.buffer
 
       await hasher.sha1(data)
 
-      // The buffer should have been transferred (same reference passed to postMessage)
-      expect(postedMessages[0].data).toBe(originalBuffer)
-    })
-
-    it('copies buffer when copy option is true', async () => {
-      const hasher = new WorkerHasher({ copy: true })
-      const data = new Uint8Array([1, 2, 3, 4])
-      const originalBuffer = data.buffer
-
-      await hasher.sha1(data)
-
-      // The buffer should be a copy (different reference)
+      // The buffer should be a copy (different reference), original remains valid
       expect(postedMessages[0].data).not.toBe(originalBuffer)
       // But same content
       expect(new Uint8Array(postedMessages[0].data!)).toEqual(data)

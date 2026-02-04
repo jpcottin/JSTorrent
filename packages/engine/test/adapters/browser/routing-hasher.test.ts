@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { RoutingHasher } from '../../../src/adapters/browser/routing-hasher'
+import { TransferringWorkerHasher } from '../../../src/adapters/browser/transferring-worker-hasher'
 import type { IHasher, Sha1Reason } from '../../../src/interfaces/hasher'
 
 describe('RoutingHasher', () => {
@@ -192,6 +193,72 @@ describe('RoutingHasher', () => {
 
       expect(result).toEqual(batchResult)
       expect(mockDelegate.sha1Batch).toHaveBeenCalledWith(inputs, 'mse-init')
+    })
+  })
+
+  describe('sha1Transfer()', () => {
+    it('uses transferring hasher when provided', async () => {
+      const mockTransferringHasher = {
+        sha1: vi.fn().mockResolvedValue({
+          hash: new Uint8Array(20).fill(0xcc),
+          data: new Uint8Array([1, 2, 3, 4]),
+        }),
+        isAvailable: true,
+        destroy: vi.fn(),
+      } as unknown as TransferringWorkerHasher
+
+      const hasher = new RoutingHasher(mockDelegate, mockTransferringHasher)
+      const data = new Uint8Array([1, 2, 3, 4])
+
+      const result = await hasher.sha1Transfer(data, 'piece-verify')
+
+      expect(result.hash).toEqual(new Uint8Array(20).fill(0xcc))
+      expect(result.data).toEqual(new Uint8Array([1, 2, 3, 4]))
+      expect(mockTransferringHasher.sha1).toHaveBeenCalledWith(data, 'piece-verify')
+    })
+
+    it('falls back to copying when no transferring hasher provided', async () => {
+      const hasher = new RoutingHasher(mockDelegate) // No transferring hasher
+
+      const data = new Uint8Array([1, 2, 3, 4])
+
+      const result = await hasher.sha1Transfer(data, 'piece-verify')
+
+      // Should have used SubtleCrypto for small data (fallback path copies first)
+      expect(result.hash).toEqual(subtleHashResult)
+      expect(result.data).toEqual(data)
+      // Data should be a copy, not the same reference
+      expect(result.data).not.toBe(data)
+    })
+
+    it('returned data is usable after call (fallback path)', async () => {
+      const hasher = new RoutingHasher(mockDelegate)
+      const data = new Uint8Array([0x11, 0x22, 0x33, 0x44])
+
+      const result = await hasher.sha1Transfer(data)
+
+      // Returned data should be valid and usable
+      expect(result.data[0]).toBe(0x11)
+      expect(result.data[3]).toBe(0x44)
+      expect(result.data.buffer.byteLength).toBe(4)
+
+      // Should be able to copy it
+      const copy = result.data.slice()
+      expect(copy).toEqual(data)
+    })
+
+    it('uses delegate for large payloads in fallback path', async () => {
+      const hasher = new RoutingHasher(mockDelegate) // No transferring hasher
+      const largeData = new Uint8Array(100 * 1024) // 100KB
+      largeData.fill(0x42)
+
+      const result = await hasher.sha1Transfer(largeData, 'piece-verify')
+
+      // Should use delegate for large payloads
+      expect(result.hash).toEqual(delegateHashResult)
+      // Data should be a copy
+      expect(result.data).not.toBe(largeData)
+      expect(result.data[0]).toBe(0x42)
     })
   })
 })
