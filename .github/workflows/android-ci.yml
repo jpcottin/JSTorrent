@@ -130,9 +130,19 @@ jobs:
           name: android-mapping
           path: android/app/build/outputs/mapping/release/mapping.txt
 
+      - name: Extract changelog
+        run: |
+          # Extract version from tag (android-v1.0.11 -> 1.0.11)
+          VERSION="${GITHUB_REF_NAME#android-v}"
+          # Extract the section for this version from CHANGELOG.md
+          awk "/^## \\[$VERSION\\]/{found=1; next} /^## \\[/{found=0} found" CHANGELOG.md > /tmp/release-notes.md
+          echo "Release notes for $VERSION:"
+          cat /tmp/release-notes.md
+
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
+          body_path: /tmp/release-notes.md
           files: |
             android/app/build/outputs/apk/release/app-release.apk
             android/app/build/outputs/bundle/release/app-release.aab
