@@ -437,6 +437,7 @@ class ForegroundNotificationService : Service() {
      * Also detects completion and error state transitions to show notifications.
      */
     private fun startNotificationUpdates() {
+        notificationUpdateJob?.cancel()
         notificationUpdateJob = ioScope.launch {
             // Seed previousStates with current state before starting the loop.
             // This prevents showing completion notifications for torrents that were

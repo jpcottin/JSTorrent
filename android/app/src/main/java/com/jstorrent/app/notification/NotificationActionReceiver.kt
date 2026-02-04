@@ -10,8 +10,8 @@ import android.util.Log
 import android.widget.Toast
 import com.jstorrent.app.JSTorrentApplication
 import com.jstorrent.app.service.ForegroundNotificationService
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 
 private const val TAG = "NotificationActionReceiver"
@@ -42,11 +42,11 @@ class NotificationActionReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_PAUSE_ALL -> {
                 Log.i(TAG, "Pausing all torrents")
-                pauseAllTorrents(context)
+                doAsync { pauseAllTorrents(context) }
             }
             ACTION_RESUME_ALL -> {
                 Log.i(TAG, "Resuming all torrents")
-                resumeAllTorrents(context)
+                doAsync { resumeAllTorrents(context) }
             }
             ACTION_QUIT -> {
                 Log.i(TAG, "Quitting app")
@@ -67,6 +67,21 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 if (uriString != null) {
                     openFolder(context, Uri.parse(uriString))
                 }
+            }
+        }
+    }
+
+    /**
+     * Run a suspend block asynchronously while keeping the receiver alive.
+     * Uses goAsync() to extend the receiver's lifetime beyond onReceive().
+     */
+    private fun doAsync(block: suspend () -> Unit) {
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                block()
+            } finally {
+                pendingResult.finish()
             }
         }
     }
@@ -147,16 +162,14 @@ class NotificationActionReceiver : BroadcastReceiver() {
      * Pause all active torrents using the engine controller from the Application.
      * Works regardless of whether the ForegroundNotificationService is running.
      */
-    private fun pauseAllTorrents(context: Context) {
+    private suspend fun pauseAllTorrents(context: Context) {
         val app = context.applicationContext as? JSTorrentApplication ?: return
         val controller = app.engineController ?: return
         val torrents = controller.state.value?.torrents ?: return
 
-        GlobalScope.launch(Dispatchers.IO) {
-            torrents.forEach { torrent ->
-                if (torrent.status != "stopped") {
-                    controller.pauseTorrentAsync(torrent.infoHash)
-                }
+        torrents.forEach { torrent ->
+            if (torrent.status != "stopped") {
+                controller.pauseTorrentAsync(torrent.infoHash)
             }
         }
     }
@@ -165,16 +178,14 @@ class NotificationActionReceiver : BroadcastReceiver() {
      * Resume all stopped torrents using the engine controller from the Application.
      * Works regardless of whether the ForegroundNotificationService is running.
      */
-    private fun resumeAllTorrents(context: Context) {
+    private suspend fun resumeAllTorrents(context: Context) {
         val app = context.applicationContext as? JSTorrentApplication ?: return
         val controller = app.engineController ?: return
         val torrents = controller.state.value?.torrents ?: return
 
-        GlobalScope.launch(Dispatchers.IO) {
-            torrents.forEach { torrent ->
-                if (torrent.status == "stopped") {
-                    controller.resumeTorrentAsync(torrent.infoHash)
-                }
+        torrents.forEach { torrent ->
+            if (torrent.status == "stopped") {
+                controller.resumeTorrentAsync(torrent.infoHash)
             }
         }
     }

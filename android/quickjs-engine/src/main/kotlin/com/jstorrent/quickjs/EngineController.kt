@@ -31,11 +31,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.Closeable
 
 private const val TAG = "EngineController"
+private const val SHUTDOWN_TIMEOUT_MS = 3000L
 
 /**
  * High-level controller for the JSTorrent engine.
@@ -1203,10 +1206,16 @@ class EngineController(
         stopHostDrivenTick()
 
         // Gracefully shutdown JS engine (saves DHT state, stops torrents)
+        // Use timeout to prevent ANR if JS thread is stuck
         engine?.let { eng ->
             try {
-                kotlinx.coroutines.runBlocking {
-                    eng.callGlobalFunctionAsync("__jstorrent_cmd_shutdown")
+                runBlocking {
+                    val completed = withTimeoutOrNull(SHUTDOWN_TIMEOUT_MS) {
+                        eng.callGlobalFunctionAsync("__jstorrent_cmd_shutdown")
+                    }
+                    if (completed == null) {
+                        Log.w(TAG, "JS shutdown timed out after ${SHUTDOWN_TIMEOUT_MS}ms, forcing close")
+                    }
                 }
                 Log.i(TAG, "JS engine shutdown complete")
             } catch (e: Exception) {

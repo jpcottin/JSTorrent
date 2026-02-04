@@ -292,8 +292,25 @@ class QuickJsEngine : Closeable {
         jsThread.post {
             context.close()
         }
-        jsThread.quitSafely()
+
+        // Use quit() instead of quitSafely() - we don't need to process pending
+        // messages since all durable state is in SQLite/disk, not in-flight JS
+        jsThread.quit()
         jsThread.join(1000)
+
+        // Verify thread actually terminated
+        if (jsThread.isAlive) {
+            Log.w(TAG, "JS thread did not terminate within 1s, interrupting")
+            jsThread.interrupt()
+            jsThread.join(500)
+
+            if (jsThread.isAlive) {
+                Log.e(TAG, "JS thread still alive after interrupt - thread leaked. Stack trace:")
+                jsThread.stackTrace.forEach { frame ->
+                    Log.e(TAG, "  at $frame")
+                }
+            }
+        }
     }
 
     // =========================================================================

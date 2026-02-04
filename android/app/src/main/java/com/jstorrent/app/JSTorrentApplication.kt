@@ -16,6 +16,7 @@ import com.jstorrent.quickjs.model.ContentRoot
 import com.jstorrent.quickjs.model.EngineConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
@@ -208,6 +209,9 @@ class JSTorrentApplication : Application() {
     // Scope for engine - lives for process lifetime
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    // Job for torrent state observation - must be canceled on engine shutdown
+    private var torrentStateObservationJob: Job? = null
+
     /**
      * Initialize the engine. Called from Activity on first launch.
      * Idempotent and thread-safe - safe to call multiple times from multiple threads.
@@ -298,6 +302,8 @@ class JSTorrentApplication : Application() {
      */
     fun shutdownEngine() {
         synchronized(engineLock) {
+            torrentStateObservationJob?.cancel()
+            torrentStateObservationJob = null
             _engineController?.close()
             _engineController = null
         }
@@ -340,10 +346,11 @@ class JSTorrentApplication : Application() {
 
     /**
      * Observe torrent state changes and notify the service lifecycle manager.
-     * Runs in engineScope so it lives for the process lifetime.
+     * Cancels any existing observation to prevent leaking old EngineController instances.
      */
     private fun startTorrentStateObservation(controller: EngineController) {
-        engineScope.launch {
+        torrentStateObservationJob?.cancel()
+        torrentStateObservationJob = engineScope.launch {
             controller.state.collect { state ->
                 val torrents = state?.torrents ?: emptyList()
                 serviceLifecycleManager.onTorrentStateChanged(torrents)

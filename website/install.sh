@@ -1,8 +1,20 @@
 #!/bin/bash
-set -xe
+set -e
 
-# Update this AND src/App.tsx TAG when releasing a new native version
-TAG="v0.1.11"
+FALLBACK_TAG="v0.1.11"
+
+# Fetch latest system-bridge release tag from GitHub API
+echo "Checking for latest release..."
+TAG=$(curl -fsSL "https://api.github.com/repos/kzahel/jstorrent/releases" 2>/dev/null | \
+  grep -o '"tag_name": "system-bridge-v[^"]*"' | head -1 | \
+  sed 's/.*system-bridge-\(v[^"]*\)".*/\1/' || echo "")
+
+if [ -z "$TAG" ]; then
+  echo "Could not fetch latest release, using fallback: $FALLBACK_TAG"
+  TAG="$FALLBACK_TAG"
+else
+  echo "Found latest release: $TAG"
+fi
 
 # Detect OS
 if [[ "$(uname -s)" != "Linux" ]]; then

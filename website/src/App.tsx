@@ -5,13 +5,62 @@ const chromeApi = (globalThis as any).chrome as any
 
 const EXTENSION_ID = 'dbokmlpefliilbjldladbimlcfgbolhk'
 const WEBSTORE_URL = `https://chromewebstore.google.com/detail/jstorrent/${EXTENSION_ID}`
-
-// Update this AND install.sh when releasing a new native version
-const TAG = 'v0.1.11'
-
-const WINDOWS_INSTALLER = `https://github.com/kzahel/jstorrent/releases/download/system-bridge-${TAG}/jstorrent-system-bridge-install-windows-x86_64.exe`
-const MACOS_INSTALLER = `https://github.com/kzahel/jstorrent/releases/download/system-bridge-${TAG}/jstorrent-system-bridge-install-macos-x86_64.pkg`
 const PLAYSTORE_URL = 'https://play.google.com/store/apps/details?id=com.jstorrent.app'
+const GITHUB_RELEASES_URL = 'https://api.github.com/repos/kzahel/jstorrent/releases'
+
+// Build-time value from CI, falls back to hardcoded version
+const FALLBACK_TAG = import.meta.env.VITE_SYSTEM_BRIDGE_TAG || 'v0.1.11'
+
+interface ReleaseInfo {
+  tag: string
+  windowsUrl: string
+  macosUrl: string
+}
+
+function makeReleaseInfo(tag: string): ReleaseInfo {
+  return {
+    tag,
+    windowsUrl: `https://github.com/kzahel/jstorrent/releases/download/system-bridge-${tag}/jstorrent-system-bridge-install-windows-x86_64.exe`,
+    macosUrl: `https://github.com/kzahel/jstorrent/releases/download/system-bridge-${tag}/jstorrent-system-bridge-install-macos-x86_64.pkg`,
+  }
+}
+
+interface GitHubRelease {
+  tag_name: string
+  assets: Array<{ name: string; browser_download_url: string }>
+}
+
+function useLatestRelease(): ReleaseInfo {
+  const [release, setRelease] = useState<ReleaseInfo>(() => makeReleaseInfo(FALLBACK_TAG))
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(GITHUB_RELEASES_URL)
+      .then((res) => res.json())
+      .then((releases: GitHubRelease[]) => {
+        if (cancelled) return
+        const latest = releases.find((r) => r.tag_name.startsWith('system-bridge-v'))
+        if (latest) {
+          const tag = latest.tag_name.replace('system-bridge-', '')
+          const windows = latest.assets.find((a) => a.name.includes('windows'))
+          const macos = latest.assets.find((a) => a.name.includes('macos'))
+          setRelease({
+            tag,
+            windowsUrl: windows?.browser_download_url ?? makeReleaseInfo(tag).windowsUrl,
+            macosUrl: macos?.browser_download_url ?? makeReleaseInfo(tag).macosUrl,
+          })
+        }
+      })
+      .catch(() => {
+        // Keep fallback on error
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return release
+}
 
 type Platform = 'windows' | 'mac' | 'linux' | 'chromeos'
 
@@ -44,6 +93,7 @@ function App() {
   const [extensionInstalled, setExtensionInstalled] = useState<boolean | null>(null)
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>(detectPlatform)
+  const release = useLatestRelease()
 
   useEffect(() => {
     // Check extension status with comprehensive info
@@ -205,8 +255,8 @@ function App() {
           {selectedPlatform === 'windows' && (
             <>
               <p>Download and run the Windows installer:</p>
-              <a href={WINDOWS_INSTALLER} className="btn btn-primary">
-                Download for Windows ({TAG})
+              <a href={release.windowsUrl} className="btn btn-primary">
+                Download for Windows ({release.tag})
               </a>
             </>
           )}
@@ -214,8 +264,8 @@ function App() {
           {selectedPlatform === 'mac' && (
             <>
               <p>Download and run the macOS installer:</p>
-              <a href={MACOS_INSTALLER} className="btn btn-primary">
-                Download for macOS ({TAG})
+              <a href={release.macosUrl} className="btn btn-primary">
+                Download for macOS ({release.tag})
               </a>
             </>
           )}

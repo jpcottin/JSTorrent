@@ -213,3 +213,15 @@ jobs:
         run: |
           chmod +x scripts/verify-linux-installer.sh
           ./scripts/verify-linux-installer.sh
+
+  # Trigger website rebuild to pick up new release
+  trigger-website-rebuild:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger website deploy
+        run: |
+          gh workflow run deploy-website.yml --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
