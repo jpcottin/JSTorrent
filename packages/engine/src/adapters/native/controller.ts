@@ -249,6 +249,45 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
   }
 
   /**
+   * Suspend the engine - stop all network activity globally.
+   * Torrents preserve their userState but stop networking.
+   * New torrents added while suspended won't start networking.
+   * Use for WiFi-only / VPN-only mode when network conditions aren't met.
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_cmd_suspend = (): void => {
+    executeOrQueue('suspend', () => {
+      const engine = getEngine()
+      if (!engine) return
+      engine.suspend()
+    })
+  }
+
+  /**
+   * Resume the engine - restart network activity.
+   * Only torrents with userState 'active' will start networking.
+   * Call when network conditions are restored (WiFi/VPN connected).
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_cmd_resume_engine = (): void => {
+    executeOrQueue('resume_engine', () => {
+      const engine = getEngine()
+      if (!engine) return
+      engine.resume()
+    })
+  }
+
+  /**
+   * Query whether the engine is currently suspended.
+   * Returns JSON: { suspended: boolean }
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_query_suspended = (): string => {
+    const engine = requireEngine('query_suspended')
+    if (!engine) {
+      return JSON.stringify({ suspended: false })
+    }
+    return JSON.stringify({ suspended: engine.isSuspended })
+  }
+
+  /**
    * Remove a torrent.
    * Returns a Promise that resolves when the torrent is fully removed.
    *

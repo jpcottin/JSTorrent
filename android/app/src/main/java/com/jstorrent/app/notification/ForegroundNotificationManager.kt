@@ -37,14 +37,20 @@ class ForegroundNotificationManager(private val context: Context) {
         val uploadSpeed: Long,
         val hasActiveTorrents: Boolean,
         // For single-torrent display
-        val singleTorrent: TorrentSummary? = null
+        val singleTorrent: TorrentSummary? = null,
+        // Network restriction status ("waiting_wifi", "waiting_vpn", or null)
+        val restrictionStatus: String? = null
     )
 
     /**
      * Build notification from current torrent list.
      */
     fun buildNotification(torrents: List<TorrentSummary>): Notification {
-        val state = computeState(torrents)
+        // Get restriction status from enforcer
+        val app = context.applicationContext as? JSTorrentApplication
+        val restrictionStatus = app?.networkRestrictionEnforcer?.getRestrictionStatus()
+
+        val state = computeState(torrents, restrictionStatus)
         return createNotification(state)
     }
 
@@ -60,7 +66,7 @@ class ForegroundNotificationManager(private val context: Context) {
     /**
      * Compute notification state from torrent list.
      */
-    private fun computeState(torrents: List<TorrentSummary>): NotificationState {
+    private fun computeState(torrents: List<TorrentSummary>, restrictionStatus: String? = null): NotificationState {
         var downloading = 0
         var seeding = 0
         var totalDown = 0L
@@ -102,7 +108,8 @@ class ForegroundNotificationManager(private val context: Context) {
             downloadSpeed = totalDown,
             uploadSpeed = totalUp,
             hasActiveTorrents = hasActive,
-            singleTorrent = singleTorrent
+            singleTorrent = singleTorrent,
+            restrictionStatus = restrictionStatus
         )
     }
 
@@ -211,8 +218,18 @@ class ForegroundNotificationManager(private val context: Context) {
 
     /**
      * Build status line like "2 downloading · 1 seeding" or "No active torrents"
+     * Shows restriction status when network conditions block downloads.
      */
     private fun buildStatusLine(state: NotificationState): String {
+        // Show restriction status if active
+        state.restrictionStatus?.let { status ->
+            return when (status) {
+                "waiting_wifi" -> "Paused \u2013 waiting for WiFi"
+                "waiting_vpn" -> "Paused \u2013 waiting for VPN"
+                else -> "Paused \u2013 network restricted"
+            }
+        }
+
         val parts = mutableListOf<String>()
 
         if (state.downloadingCount > 0) {

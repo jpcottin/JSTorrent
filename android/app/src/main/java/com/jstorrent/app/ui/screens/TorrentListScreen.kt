@@ -75,11 +75,9 @@ import com.jstorrent.app.ui.components.TorrentCard
 import com.jstorrent.app.ui.dialogs.AddTorrentDialog
 import com.jstorrent.app.ui.dialogs.BulkRemoveTorrentDialog
 import com.jstorrent.app.ui.theme.JSTorrentTheme
-import com.jstorrent.app.service.ForegroundNotificationService
-import com.jstorrent.app.service.ServiceState
+import com.jstorrent.app.JSTorrentApplication
 import com.jstorrent.app.viewmodel.TorrentListViewModel
 import com.jstorrent.quickjs.model.TorrentSummary
-import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * Main torrent list screen.
@@ -110,14 +108,14 @@ fun TorrentListScreen(
     val pendingTorrents by viewModel.pendingTorrents.collectAsState()
     val pendingRemovalTorrents by viewModel.pendingRemovalTorrents.collectAsState()
 
-    // Get service state to show "Waiting for WiFi/VPN" status
-    val serviceState by (ForegroundNotificationService.instance?.serviceState
-        ?: MutableStateFlow(ServiceState.STOPPED)).collectAsState()
-    val networkWaitingStatus: String? = when (serviceState) {
-        ServiceState.PAUSED_WIFI -> "waiting_wifi"
-        ServiceState.PAUSED_VPN -> "waiting_vpn"
-        else -> null
+    // Get network restriction status to show "Waiting for WiFi/VPN" status
+    // The enforcer lives in Application and is the authoritative source for restriction state
+    val context = LocalContext.current
+    val enforcer = remember {
+        (context.applicationContext as? JSTorrentApplication)?.networkRestrictionEnforcer
     }
+    val networkWaitingStatus by (enforcer?.restrictionStatus
+        ?: kotlinx.coroutines.flow.MutableStateFlow<String?>(null)).collectAsState()
 
     // Lifecycle-aware subscriptions: pause when screen is not visible (e.g., navigated
     // to detail view or app backgrounded), resume when screen becomes visible again.
@@ -133,7 +131,6 @@ fun TorrentListScreen(
     }
 
     // Show toast when engine reports an error (e.g., JS initialization failure)
-    val context = LocalContext.current
     LaunchedEffect(engineError) {
         engineError?.let { error ->
             Toast.makeText(

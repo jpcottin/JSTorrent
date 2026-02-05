@@ -254,6 +254,7 @@ data class TorrentSummary(
     val downloadSpeed: Long,
     val uploadSpeed: Long,
     val status: String,
+    val userState: String = "active", // User's intended state: "active", "stopped", or "queued"
     val numPeers: Int = 0,
     val swarmPeers: Int = 0,
     val skippedFilesCount: Int = 0,
@@ -273,7 +274,14 @@ data class EngineConfig(
     val contentRoots: List<ContentRoot>,
     val defaultContentRoot: String? = null,
     val port: Int? = null,
-    val storageMode: String? = null  // "native" or "null" (for performance testing)
+    val storageMode: String? = null,  // "native" or "null" (for performance testing)
+    /**
+     * Whether the engine should remain suspended after initialization.
+     * When true, engine.resume() is NOT called after session restore.
+     * Use this for WiFi-only/VPN-only mode when network conditions don't allow downloads.
+     * The caller is responsible for calling resumeEngineAsync() when appropriate.
+     */
+    val shouldRemainSuspended: Boolean = false
 )
 
 /**

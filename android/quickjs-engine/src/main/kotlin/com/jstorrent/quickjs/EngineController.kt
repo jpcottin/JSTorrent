@@ -593,6 +593,49 @@ class EngineController(
     }
 
     // =========================================================================
+    // Engine Suspend/Resume - for WiFi-only / VPN-only mode
+    // =========================================================================
+
+    /**
+     * Suspend the engine - stop all network activity globally.
+     * Torrents preserve their userState but stop networking.
+     * New torrents added while suspended won't start networking.
+     * Use for WiFi-only / VPN-only mode when network conditions aren't met.
+     */
+    suspend fun suspendEngineAsync() {
+        checkLoaded()
+        engine!!.callGlobalFunctionAsync("__jstorrent_cmd_suspend")
+        Log.i(TAG, "Engine suspended")
+    }
+
+    /**
+     * Resume the engine - restart network activity.
+     * Only torrents with userState 'active' will start networking.
+     * Call when network conditions are restored (WiFi/VPN connected).
+     */
+    suspend fun resumeEngineAsync() {
+        checkLoaded()
+        engine!!.callGlobalFunctionAsync("__jstorrent_cmd_resume_engine")
+        Log.i(TAG, "Engine resumed")
+    }
+
+    /**
+     * Check if the engine is currently suspended.
+     */
+    fun isEngineSuspended(): Boolean {
+        val eng = engine ?: return false
+        val resultJson = eng.callGlobalFunction("__jstorrent_query_suspended") as? String
+            ?: return false
+        return try {
+            // Parse { "suspended": true/false }
+            resultJson.contains("true")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse suspended state", e)
+            false
+        }
+    }
+
+    // =========================================================================
     // Async Root Management - safe to call from Main thread
     // =========================================================================
 

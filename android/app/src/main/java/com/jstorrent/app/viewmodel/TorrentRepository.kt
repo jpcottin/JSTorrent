@@ -64,14 +64,31 @@ interface TorrentRepository {
     suspend fun replaceAndAddTorrent(magnetOrBase64: String, infoHash: String?)
 
     /**
-     * Pause all torrents.
+     * Pause all torrents (changes userState to stopped).
+     * Use for user-initiated "pause all" or shutdown.
      */
     fun pauseAll()
 
     /**
-     * Resume all torrents.
+     * Resume all torrents (changes userState to active for stopped torrents).
+     * Use for user-initiated "resume all".
      */
     fun resumeAll()
+
+    /**
+     * Suspend the engine - stop all network activity globally.
+     * Preserves each torrent's userState (doesn't mark them as stopped).
+     * New torrents added while suspended won't start networking.
+     * Use for WiFi-only / VPN-only mode when network conditions aren't met.
+     */
+    fun suspendEngine()
+
+    /**
+     * Resume the engine - restart network activity.
+     * Only torrents with userState 'active' will start networking.
+     * Use when network conditions are restored (WiFi/VPN connected).
+     */
+    fun resumeEngine()
 
     /**
      * Set file priorities for a torrent.

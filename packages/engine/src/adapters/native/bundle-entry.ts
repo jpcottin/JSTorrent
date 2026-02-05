@@ -48,6 +48,12 @@ const jstorrentApi = {
     defaultContentRoot?: string
     port?: number
     storageMode?: 'native' | 'null'
+    /**
+     * Whether the engine should remain suspended after initialization.
+     * When true, engine.resume() is NOT called after session restore.
+     * Use this for WiFi-only/VPN-only mode when network conditions don't allow downloads.
+     */
+    shouldRemainSuspended?: boolean
   }): void {
     if (engine) {
       throw new Error('Engine already initialized')
@@ -141,10 +147,16 @@ const jstorrentApi = {
         // This handles the race condition where user taps resume before session restore completes
         flushCommandQueue()
 
-        // Resume engine after restoration
-        engine.resume()
-
-        console.log('JSTorrent engine initialized')
+        // Resume engine after restoration, unless shouldRemainSuspended is true
+        // (e.g., WiFi-only mode enabled but WiFi not connected)
+        if (config.shouldRemainSuspended) {
+          console.log(
+            'JSTorrent engine initialized (remaining suspended due to network restrictions)',
+          )
+        } else {
+          engine.resume()
+          console.log('JSTorrent engine initialized')
+        }
       } catch (e) {
         console.error('JSTorrent: Failed to initialize engine:', e)
         __jstorrent_on_error(JSON.stringify({ error: String(e) }))

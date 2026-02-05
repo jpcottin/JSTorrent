@@ -77,11 +77,14 @@ fun TorrentCard(
     networkWaitingStatus: String? = null,
     modifier: Modifier = Modifier
 ) {
-    val isPaused = torrent.status == "stopped"
+    // Use userState (user's intent) for the play/pause button, not status (actual state)
+    // This way, when engine is suspended for network restrictions, button shows pause
+    // because user still intends the torrent to run when network is available
+    val isPaused = torrent.userState == "stopped"
     // Override status based on priority: removing > waiting_wifi/vpn > actual status
     val displayStatus = when {
         isPendingRemoval -> "removing"
-        networkWaitingStatus != null && isPaused -> networkWaitingStatus
+        networkWaitingStatus != null && torrent.status == "stopped" && !isPaused -> networkWaitingStatus
         else -> torrent.status
     }
 

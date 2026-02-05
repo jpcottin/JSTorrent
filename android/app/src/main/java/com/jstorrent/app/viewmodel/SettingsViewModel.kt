@@ -416,23 +416,23 @@ class SettingsViewModel(
 
     /**
      * Set WiFi-only mode.
-     * Persists the setting and also notifies running service to start/stop WiFi monitoring.
+     * Persists the setting and notifies the NetworkRestrictionEnforcer.
      */
     fun setWifiOnly(enabled: Boolean) {
         settingsStore.wifiOnlyEnabled = enabled
-        // WiFi monitoring is handled by ForegroundNotificationService, notify it if running
-        ForegroundNotificationService.instance?.setWifiOnlyEnabled(enabled)
+        // Notify enforcer of setting change (enforcer lives in Application, not service)
+        app.networkRestrictionEnforcer?.onWifiOnlySettingChanged(enabled)
         _uiState.value = _uiState.value.copy(wifiOnlyEnabled = enabled)
     }
 
     /**
      * Set VPN-only mode.
-     * Persists the setting and also notifies running service to start/stop VPN monitoring.
+     * Persists the setting and notifies the NetworkRestrictionEnforcer.
      */
     fun setVpnOnly(enabled: Boolean) {
         settingsStore.vpnOnlyEnabled = enabled
-        // VPN monitoring is handled by ForegroundNotificationService, notify it if running
-        ForegroundNotificationService.instance?.setVpnOnlyEnabled(enabled)
+        // Notify enforcer of setting change (enforcer lives in Application, not service)
+        app.networkRestrictionEnforcer?.onVpnOnlySettingChanged(enabled)
         _uiState.value = _uiState.value.copy(vpnOnlyEnabled = enabled)
     }
 
@@ -649,7 +649,7 @@ class SettingsViewModel(
                 return SettingsViewModel(
                     app,
                     RootStore(context),
-                    SettingsStore(context),
+                    app.settingsStore,  // Use shared instance from Application
                     configHub,
                     notificationGranted
                 ) as T

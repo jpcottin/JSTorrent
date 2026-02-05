@@ -102,6 +102,8 @@ class FakeTorrentRepository : TorrentRepository {
         recheckedTorrents.clear()
         pauseAllCalled = false
         resumeAllCalled = false
+        suspendEngineCalled = false
+        resumeEngineCalled = false
         filesData = emptyMap()
         trackersData = emptyMap()
         peersData = emptyMap()
@@ -209,6 +211,18 @@ class FakeTorrentRepository : TorrentRepository {
             }
             _state.value = EngineState(updatedTorrents)
         }
+    }
+
+    // Track engine suspend/resume calls
+    var suspendEngineCalled = false
+    var resumeEngineCalled = false
+
+    override fun suspendEngine() {
+        suspendEngineCalled = true
+    }
+
+    override fun resumeEngine() {
+        resumeEngineCalled = true
     }
 
     override fun setFilePriorities(infoHash: String, priorities: Map<Int, Int>) {

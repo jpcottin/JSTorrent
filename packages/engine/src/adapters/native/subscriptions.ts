@@ -55,6 +55,7 @@ export interface TorrentSummary {
   downloadSpeed: number
   uploadSpeed: number
   status: string // TorrentActivityState
+  userState: string // TorrentUserState - user's intended state: 'active' | 'stopped' | 'queued'
   numPeers: number
   swarmPeers: number
   skippedFilesCount: number
@@ -462,6 +463,7 @@ export class SubscriptionManager {
       downloadSpeed: t.downloadSpeed,
       uploadSpeed: t.uploadSpeed,
       status: t.activityState,
+      userState: t.userState,
       numPeers: t.numPeers,
       swarmPeers: t.swarm.total,
       skippedFilesCount: t.filePriorities.filter((p) => p === 1).length,

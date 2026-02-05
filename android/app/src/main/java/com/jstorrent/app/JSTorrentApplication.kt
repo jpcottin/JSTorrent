@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.net.Uri
 import android.util.Log
 import com.jstorrent.app.cache.TorrentSummaryCache
+import com.jstorrent.app.network.NetworkRestrictionEnforcer
+import com.jstorrent.app.network.NetworkStateProvider
 import com.jstorrent.app.service.ServiceLifecycleManager
 import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.app.storage.RootStore
@@ -52,6 +54,12 @@ class JSTorrentApplication : Application() {
         TorrentSummaryCache(this)
     }
 
+    // Shared SettingsStore instance - use this instead of creating new instances
+    // This ensures all components see the same settings values
+    val settingsStore: SettingsStore by lazy {
+        SettingsStore(this)
+    }
+
     // Shared SQLite KV store for config and session storage
     private val sqliteKVStore: SqliteKVStore by lazy {
         SqliteKVStore(this)
@@ -81,13 +89,16 @@ class JSTorrentApplication : Application() {
         createNotificationChannels()
         deleteLegacyChannels()
 
+        // Initialize network state provider for WiFi-only/VPN-only mode checking
+        NetworkStateProvider.initialize(this)
+
         // Initialize service lifecycle manager with shutdown/restore callbacks
         // When background downloads are disabled, we completely shut down the engine
         // to prevent the 100ms tick loop from draining battery
         // Stage 4: Also pass cache for checking active torrents when engine not running
         serviceLifecycleManager = ServiceLifecycleManager(
             context = this,
-            settingsStore = SettingsStore(this),
+            settingsStore = settingsStore,  // Use shared instance
             torrentSummaryCache = torrentSummaryCache,
             onShutdownForBackground = { shutdownEngineForBackground() },
             onRestoreFromBackground = { restoreEngineFromBackground() },
@@ -212,6 +223,14 @@ class JSTorrentApplication : Application() {
     // Job for torrent state observation - must be canceled on engine shutdown
     private var torrentStateObservationJob: Job? = null
 
+    // Network restriction enforcer - enforces WiFi-only/VPN-only policies
+    // Lives here (not in ForegroundNotificationService) so it works when app is in foreground
+    @Volatile
+    private var _networkRestrictionEnforcer: NetworkRestrictionEnforcer? = null
+
+    val networkRestrictionEnforcer: NetworkRestrictionEnforcer?
+        get() = _networkRestrictionEnforcer
+
     /**
      * Initialize the engine. Called from Activity on first launch.
      * Idempotent and thread-safe - safe to call multiple times from multiple threads.
@@ -250,12 +269,32 @@ class JSTorrentApplication : Application() {
                 roots.any { it.key == key }
             } ?: roots.firstOrNull()?.key
 
+            // Create network restriction enforcer before engine init
+            // This determines if engine should start suspended
+            val networkProvider = NetworkStateProvider.getInstance()
+            val enforcer = NetworkRestrictionEnforcer(
+                settingsStore = settingsStore,
+                networkStateProvider = networkProvider,
+                scope = engineScope,
+                onSuspend = { controller.suspendEngineAsync() },
+                onResume = { controller.resumeEngineAsync() }
+            )
+            _networkRestrictionEnforcer = enforcer
+
+            // Check if downloads should be blocked due to WiFi-only or VPN-only mode
+            // If blocked, engine should remain suspended after init
+            val shouldRemainSuspended = enforcer.shouldBlockDownloads()
+            if (shouldRemainSuspended) {
+                Log.i(TAG, "Engine will remain suspended due to network restrictions (WiFi-only or VPN-only mode)")
+            }
+
             val config = EngineConfig(
                 contentRoots = roots.map { root ->
                     ContentRoot(key = root.key, label = root.displayName, path = root.uri)
                 },
                 defaultContentRoot = defaultKey,
-                storageMode = if (storageMode == "null") "null" else null
+                storageMode = if (storageMode == "null") "null" else null,
+                shouldRemainSuspended = shouldRemainSuspended
             )
 
             controller.loadEngine(config)
@@ -270,6 +309,9 @@ class JSTorrentApplication : Application() {
 
             // Apply saved settings
             applyEngineSettings(controller)
+
+            // Start network restriction enforcement
+            enforcer.start()
 
             return controller
         }
@@ -302,6 +344,10 @@ class JSTorrentApplication : Application() {
      */
     fun shutdownEngine() {
         synchronized(engineLock) {
+            // Stop network restriction enforcement
+            _networkRestrictionEnforcer?.stop()
+            _networkRestrictionEnforcer = null
+
             torrentStateObservationJob?.cancel()
             torrentStateObservationJob = null
             _engineController?.close()

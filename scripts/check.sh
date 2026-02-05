@@ -141,13 +141,13 @@ if [ "$FULL" = true ]; then
     echo ""
     echo "Android instrumented tests..."
     run_quiet "instrumented tests" "$ROOT_DIR/android" \
-        "./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notClass=com.jstorrent.app.e2e.DownloadE2ETest"
+        "./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notPackage=com.jstorrent.app.e2e"
 
     # Android E2E tests (requires seeder)
     echo ""
     echo "Android E2E tests..."
     run_quiet "android e2e" "$ROOT_DIR/android" \
-        "./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.jstorrent.app.e2e.DownloadE2ETest"
+        "./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.jstorrent.app.e2e"
 
     # Seeder will be cleaned up by trap
 fi

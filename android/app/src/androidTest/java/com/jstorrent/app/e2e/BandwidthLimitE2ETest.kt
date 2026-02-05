@@ -111,8 +111,8 @@ class BandwidthLimitE2ETest : E2EBaseTest() {
         // Wait for limit to take effect.
         // SpeedCalculator uses a 5-second rolling window, so we need to wait
         // at least 5 seconds for the window to "flush out" old high-speed data.
-        // We add 1 extra second for TokenBucket burst capacity.
-        Thread.sleep(6000)
+        // We add extra time for TokenBucket burst capacity and measurement settling.
+        Thread.sleep(10000)
 
         // Measure new speed
         val limitedTorrent = getTorrentByHash(expectedHash)

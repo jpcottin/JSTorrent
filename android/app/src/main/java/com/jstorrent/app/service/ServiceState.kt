@@ -8,11 +8,5 @@ enum class ServiceState {
     STOPPED,
 
     /** Service is running normally */
-    RUNNING,
-
-    /** Service is paused due to WiFi-only mode (cellular detected) */
-    PAUSED_WIFI,
-
-    /** Service is paused due to VPN-only mode (no VPN detected) */
-    PAUSED_VPN
+    RUNNING
 }

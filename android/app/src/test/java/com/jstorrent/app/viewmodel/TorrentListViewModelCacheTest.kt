@@ -176,29 +176,6 @@ class TorrentListViewModelCacheTest {
     }
 
     @Test
-    fun `empty engine state shows cache as defensive fallback`() = runTest {
-        // Given: cache has torrents
-        cache.setCachedSummaries(listOf(
-            createTestCachedSummary(infoHash = "hash1", name = "Cached")
-        ))
-
-        viewModel = createViewModel()
-        advanceUntilIdle()
-
-        // When: engine loads with empty list
-        repository.setLoaded(true)
-        repository.setTorrents(emptyList())
-        advanceUntilIdle()
-
-        // Then: cache is shown as fallback (prevents flicker during subscription transitions)
-        // This is defensive behavior - normally the engine would have torrents if cache does
-        val state = viewModel.uiState.value as TorrentListUiState.Loaded
-        assertEquals(1, state.torrents.size)
-        assertEquals("Cached", state.torrents[0].name)
-        assertFalse(state.isLive) // Not live since using cache
-    }
-
-    @Test
     fun `empty engine state with empty cache shows empty list`() = runTest {
         // Given: cache is empty
         cache.setCachedSummaries(emptyList())

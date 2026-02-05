@@ -107,11 +107,11 @@ source android/scripts/android-env.sh   # Load emu/dev commands
 emu start                               # Start emulator
 
 # Instrumented tests (fast, no external deps)
-./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notClass=com.jstorrent.app.e2e.DownloadE2ETest
+./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notPackage=com.jstorrent.app.e2e
 
 # E2E tests (requires Python seeder)
 pnpm seed-for-test &  # Auto-kills any existing seeder on port 6881
-./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.jstorrent.app.e2e.DownloadE2ETest
+./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.jstorrent.app.e2e
 
 # Manual E2E testing
 emu test-native                         # Install app, launch with test magnet

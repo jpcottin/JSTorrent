@@ -14,7 +14,6 @@ import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
 import com.jstorrent.app.JSTorrentApplication
-import com.jstorrent.app.network.NetworkMonitor
 import com.jstorrent.app.power.DozeMonitor
 import com.jstorrent.app.notification.ForegroundNotificationManager
 import com.jstorrent.app.notification.TorrentNotificationManager
@@ -48,10 +47,14 @@ private const val TAG = "ForegroundNotificationService"
  * Responsibilities:
  * - Runs as a foreground service to prevent process death
  * - Shows persistent notification with pause/resume/quit actions
- * - Monitors WiFi state for wifi-only mode
  * - Sends completion/error notifications for torrents
+ * - Manages wake locks for background downloads
  *
- * Note: The engine itself lives in the Application (app.engineController),
+ * Note: Network restriction enforcement (WiFi-only, VPN-only) is handled by
+ * NetworkRestrictionEnforcer in JSTorrentApplication, not here. This ensures
+ * network restrictions work regardless of whether this service is running.
+ *
+ * The engine itself lives in the Application (app.engineController),
  * not in this service. This service just keeps the process alive.
  *
  * Usage:
@@ -84,13 +87,6 @@ class ForegroundNotificationService : Service() {
         val status: String
     )
     private val previousStates = mutableMapOf<String, TorrentStateSnapshot>()
-
-    // Network monitoring for WiFi-only and VPN-only modes
-    private var networkMonitor: NetworkMonitor? = null
-    private var wifiMonitorJob: Job? = null
-    private var wasPausedByWifi = false  // Track if we paused due to WiFi loss
-    private var vpnMonitorJob: Job? = null
-    private var wasPausedByVpn = false  // Track if we paused due to VPN loss
 
     // Wake locks to prevent deep sleep and WiFi throttling during downloads
     // Note: Wake locks are only held while actively downloading, not while seeding
@@ -154,7 +150,6 @@ class ForegroundNotificationService : Service() {
         configHub = app.getConfigHub()
         metricsStore = MetricsStore(this)
         torrentNotificationManager = TorrentNotificationManager(this)
-        networkMonitor = NetworkMonitor(this)
         dozeMonitor = DozeMonitor(this)
 
         // Set singleton
@@ -164,15 +159,10 @@ class ForegroundNotificationService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "Service starting")
 
-        // Start notification updates and network monitoring
+        // Start notification updates
         // Engine is already initialized by Activity before service starts
+        // Network restriction enforcement is handled by NetworkRestrictionEnforcer in Application
         startNotificationUpdates()
-        if (settingsStore.wifiOnlyEnabled) {
-            startWifiMonitoring()
-        }
-        if (settingsStore.vpnOnlyEnabled) {
-            startVpnMonitoring()
-        }
 
         // Acquire wake locks if enabled AND there are active downloads
         // (Wake locks are only for downloading, not seeding)
@@ -200,12 +190,6 @@ class ForegroundNotificationService : Service() {
     override fun onDestroy() {
         Log.i(TAG, "Service destroying")
         instance = null
-
-        // Stop network monitoring
-        stopWifiMonitoring()
-        stopVpnMonitoring()
-        networkMonitor?.stop()
-        networkMonitor = null
 
         // Stop Doze monitoring
         dozeMonitor?.stop()
@@ -313,6 +297,24 @@ class ForegroundNotificationService : Service() {
      */
     suspend fun resumeTorrentAsync(infoHash: String) {
         controller?.resumeTorrentAsync(infoHash)
+    }
+
+    /**
+     * Suspend the engine - stop all network activity globally.
+     * Preserves userState for each torrent.
+     * Use for WiFi-only / VPN-only mode when network conditions aren't met.
+     */
+    suspend fun suspendEngineAsync() {
+        controller?.suspendEngineAsync()
+    }
+
+    /**
+     * Resume the engine - restart network activity.
+     * Only torrents with userState='active' will start networking.
+     * Use when network conditions are restored (WiFi/VPN connected).
+     */
+    suspend fun resumeEngineAsync() {
+        controller?.resumeEngineAsync()
     }
 
     /**
@@ -470,22 +472,13 @@ class ForegroundNotificationService : Service() {
      * Check for torrent state transitions and show notifications.
      */
     private suspend fun checkStateTransitions(torrents: List<TorrentSummary>) {
-        val currentServiceState = _serviceState.value
-
         for (torrent in torrents) {
             val prev = previousStates[torrent.infoHash]
 
-            // Detect newly added torrent: not tracked before
-            if (prev == null) {
-                // If WiFi-only or VPN-only mode is blocking downloads, pause the new torrent
-                if (currentServiceState == ServiceState.PAUSED_WIFI ||
-                    currentServiceState == ServiceState.PAUSED_VPN) {
-                    if (torrent.status != "stopped") {
-                        Log.i(TAG, "Pausing newly added torrent due to network restriction: ${torrent.name}")
-                        pauseTorrentAsync(torrent.infoHash)
-                    }
-                }
-            }
+            // Note: We don't pause individual torrents when network is restricted.
+            // The engine-level suspend handles this - new torrents added to a suspended
+            // engine won't start networking, but their userState remains "active" so
+            // they'll automatically resume when the engine is resumed.
 
             // Detect completion: wasn't complete before, now is
             if (torrent.progress >= 1.0 && (prev == null || prev.progress < 1.0)) {
@@ -589,200 +582,6 @@ class ForegroundNotificationService : Service() {
                 }
             }
         }
-    }
-
-    // =========================================================================
-    // WiFi Monitoring for WiFi-Only Mode
-    // =========================================================================
-
-    /**
-     * Start monitoring WiFi state for WiFi-only mode.
-     */
-    private fun startWifiMonitoring() {
-        networkMonitor?.start()
-
-        wifiMonitorJob?.cancel()
-        wifiMonitorJob = ioScope.launch {
-            networkMonitor?.isWifiConnected?.collectLatest { isWifi ->
-                handleWifiStateChange(isWifi)
-            }
-        }
-        Log.i(TAG, "WiFi monitoring started")
-    }
-
-    /**
-     * Stop WiFi monitoring.
-     */
-    private fun stopWifiMonitoring() {
-        wifiMonitorJob?.cancel()
-        wifiMonitorJob = null
-        Log.i(TAG, "WiFi monitoring stopped")
-    }
-
-    /**
-     * Handle WiFi state changes when WiFi-only mode is enabled.
-     */
-    private fun handleWifiStateChange(isWifiConnected: Boolean) {
-        if (!settingsStore.wifiOnlyEnabled) return
-
-        if (!isWifiConnected && _serviceState.value == ServiceState.RUNNING) {
-            // Lost WiFi, pause everything
-            Log.i(TAG, "WiFi lost, pausing all torrents")
-            _serviceState.value = ServiceState.PAUSED_WIFI
-            wasPausedByWifi = true
-            pauseAllTorrents()
-
-            // Show toast on main thread
-            mainHandler.post {
-                Toast.makeText(
-                    this@ForegroundNotificationService,
-                    "Paused - waiting for WiFi",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-        } else if (isWifiConnected && _serviceState.value == ServiceState.PAUSED_WIFI) {
-            // WiFi restored, resume
-            Log.i(TAG, "WiFi restored, resuming all torrents")
-            _serviceState.value = ServiceState.RUNNING
-            if (wasPausedByWifi) {
-                resumeAllTorrents()
-                wasPausedByWifi = false
-            }
-
-            mainHandler.post {
-                Toast.makeText(
-                    this@ForegroundNotificationService,
-                    "WiFi connected - resuming",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-        }
-    }
-
-    /**
-     * Enable or disable WiFi-only mode at runtime.
-     * Called from SettingsViewModel when user toggles the setting.
-     */
-    fun setWifiOnlyEnabled(enabled: Boolean) {
-        settingsStore.wifiOnlyEnabled = enabled
-
-        if (enabled) {
-            startWifiMonitoring()
-            // Check current state immediately
-            val isWifi = networkMonitor?.isWifiConnected?.value ?: true
-            if (!isWifi) {
-                handleWifiStateChange(false)
-            }
-        } else {
-            // Disable WiFi-only: resume if we were paused
-            if (_serviceState.value == ServiceState.PAUSED_WIFI) {
-                _serviceState.value = ServiceState.RUNNING
-                if (wasPausedByWifi) {
-                    resumeAllTorrents()
-                    wasPausedByWifi = false
-                }
-            }
-            stopWifiMonitoring()
-        }
-
-        Log.i(TAG, "WiFi-only mode ${if (enabled) "enabled" else "disabled"}")
-    }
-
-    // =========================================================================
-    // VPN Monitoring for VPN-Only Mode
-    // =========================================================================
-
-    /**
-     * Start monitoring VPN state for VPN-only mode.
-     */
-    private fun startVpnMonitoring() {
-        networkMonitor?.start()
-
-        vpnMonitorJob?.cancel()
-        vpnMonitorJob = ioScope.launch {
-            networkMonitor?.isVpnConnected?.collectLatest { isVpn ->
-                handleVpnStateChange(isVpn)
-            }
-        }
-        Log.i(TAG, "VPN monitoring started")
-    }
-
-    /**
-     * Stop VPN monitoring.
-     */
-    private fun stopVpnMonitoring() {
-        vpnMonitorJob?.cancel()
-        vpnMonitorJob = null
-        Log.i(TAG, "VPN monitoring stopped")
-    }
-
-    /**
-     * Handle VPN state changes when VPN-only mode is enabled.
-     */
-    private fun handleVpnStateChange(isVpnConnected: Boolean) {
-        if (!settingsStore.vpnOnlyEnabled) return
-
-        if (!isVpnConnected && _serviceState.value == ServiceState.RUNNING) {
-            // Lost VPN, pause everything
-            Log.i(TAG, "VPN lost, pausing all torrents")
-            _serviceState.value = ServiceState.PAUSED_VPN
-            wasPausedByVpn = true
-            pauseAllTorrents()
-
-            // Show toast on main thread
-            mainHandler.post {
-                Toast.makeText(
-                    this@ForegroundNotificationService,
-                    "Paused - waiting for VPN",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-        } else if (isVpnConnected && _serviceState.value == ServiceState.PAUSED_VPN) {
-            // VPN restored, resume
-            Log.i(TAG, "VPN restored, resuming all torrents")
-            _serviceState.value = ServiceState.RUNNING
-            if (wasPausedByVpn) {
-                resumeAllTorrents()
-                wasPausedByVpn = false
-            }
-
-            mainHandler.post {
-                Toast.makeText(
-                    this@ForegroundNotificationService,
-                    "VPN connected - resuming",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-        }
-    }
-
-    /**
-     * Enable or disable VPN-only mode at runtime.
-     * Called from SettingsViewModel when user toggles the setting.
-     */
-    fun setVpnOnlyEnabled(enabled: Boolean) {
-        settingsStore.vpnOnlyEnabled = enabled
-
-        if (enabled) {
-            startVpnMonitoring()
-            // Check current state immediately
-            val isVpn = networkMonitor?.isVpnConnected?.value ?: false
-            if (!isVpn) {
-                handleVpnStateChange(false)
-            }
-        } else {
-            // Disable VPN-only: resume if we were paused
-            if (_serviceState.value == ServiceState.PAUSED_VPN) {
-                _serviceState.value = ServiceState.RUNNING
-                if (wasPausedByVpn) {
-                    resumeAllTorrents()
-                    wasPausedByVpn = false
-                }
-            }
-            stopVpnMonitoring()
-        }
-
-        Log.i(TAG, "VPN-only mode ${if (enabled) "enabled" else "disabled"}")
     }
 
     // =========================================================================

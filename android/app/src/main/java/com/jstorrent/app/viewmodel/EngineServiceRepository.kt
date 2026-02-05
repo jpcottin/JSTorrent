@@ -1,6 +1,7 @@
 package com.jstorrent.app.viewmodel
 
 import android.app.Application
+import android.util.Log
 import com.jstorrent.app.JSTorrentApplication
 import com.jstorrent.quickjs.EngineController
 import com.jstorrent.quickjs.model.EngineState
@@ -11,8 +12,8 @@ import com.jstorrent.quickjs.model.SpeedSamplesResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -133,7 +134,12 @@ class EngineServiceRepository(
     // =========================================================================
 
     override fun addTorrent(magnetOrBase64: String) {
-        scope.launch { controller?.addTorrentAsync(magnetOrBase64) }
+        // No special handling needed for WiFi-only / VPN-only mode.
+        // When engine is suspended, new torrents won't start networking automatically.
+        // The torrent.start() method checks engine.isSuspended and returns early if true.
+        scope.launch {
+            controller?.addTorrentAsync(magnetOrBase64)
+        }
     }
 
     override fun pauseTorrent(infoHash: String) {
@@ -162,6 +168,7 @@ class EngineServiceRepository(
             controller?.removeTorrentAsync(infoHash, deleteFiles = true)
         }
         // Then add the new torrent
+        // No special handling needed for WiFi-only / VPN-only mode - see addTorrent() comment.
         controller?.addTorrentAsync(magnetOrBase64)
     }
 
@@ -186,6 +193,24 @@ class EngineServiceRepository(
                     controller?.resumeTorrentAsync(torrent.infoHash)
                 }
             }
+        }
+    }
+
+    override fun suspendEngine() {
+        // Suspend engine-level network activity (preserves userState)
+        // New torrents added while suspended won't start networking.
+        scope.launch {
+            controller?.suspendEngineAsync()
+            Log.i("EngineServiceRepo", "Engine suspended")
+        }
+    }
+
+    override fun resumeEngine() {
+        // Resume engine-level network activity
+        // Only torrents with userState='active' will start networking.
+        scope.launch {
+            controller?.resumeEngineAsync()
+            Log.i("EngineServiceRepo", "Engine resumed")
         }
     }
 
