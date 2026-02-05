@@ -2,6 +2,18 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.13] - 2026-02-05
+
+### Fixed
+- ForegroundServiceDidNotStartInTimeException crash on Android 12+
+- Foreground service lifecycle on rapid stop/start cycles
+- Subscription lifecycle across engine restarts
+
+### Changed
+- Show network waiting status in torrent list
+- Auto-pause new torrents when network is restricted
+- Navigate to torrent list after clearing all data
+
 ## [1.0.12] - 2026-02-04
 
 ### Fixed
