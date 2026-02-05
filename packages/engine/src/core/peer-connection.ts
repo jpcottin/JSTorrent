@@ -54,6 +54,7 @@ export class PeerConnection extends EngineComponent {
   private socket: ITcpSocket
   private buffer = new ChunkedBuffer()
   public handshakeReceived = false
+  private corruptionLogged = false // Only log corruption details once per connection
 
   // Send queue for batching - flushed at end of tick
   private sendQueue: Uint8Array[] = []
@@ -452,9 +453,7 @@ export class PeerConnection extends EngineComponent {
     if (!this.handshakeReceived) {
       // Need 68 bytes for handshake
       const handshakeBytes = this.buffer.peekBytes(0, 68)
-      if (!handshakeBytes) {
-        return // Wait for more data
-      }
+      if (!handshakeBytes) return // Wait for more data
 
       const result = PeerWireProtocol.parseHandshake(handshakeBytes)
       if (result) {
@@ -468,13 +467,31 @@ export class PeerConnection extends EngineComponent {
         this.emit('handshake', this.infoHash, this.peerId, this.peerExtensions)
         // Continue processing in case there are more messages
       } else {
+        console.warn(`[peer] processBuffer: handshake parse failed, buffer=${this.buffer.length}`)
         return // Wait for more data
       }
     }
 
+    let messagesProcessed = 0
     while (this.buffer.length > 4) {
       const length = this.buffer.peekUint32(0)
       if (length === null) break
+
+      // Detect corrupted stream: no valid BitTorrent message exceeds 16MB
+      if (length > 16 * 1024 * 1024) {
+        if (!this.corruptionLogged) {
+          this.corruptionLogged = true
+          const firstBytes = this.buffer.peekBytes(0, Math.min(40, this.buffer.length))
+          const hex = firstBytes ? toHex(firstBytes) : 'null'
+          const info = this.buffer.debugInfo()
+          console.warn(
+            `[peer] CORRUPTED STREAM: msgLen=${length} (${(length / 1024 / 1024).toFixed(1)}MB), ` +
+              `first40=${hex}, bufLen=${this.buffer.length}, ` +
+              `bufInfo=${JSON.stringify(info)}, peer=${this.remoteAddress}:${this.remotePort}`,
+          )
+        }
+        break
+      }
 
       const totalLength = 4 + length
       if (this.buffer.length < totalLength) break
@@ -509,6 +526,7 @@ export class PeerConnection extends EngineComponent {
               this.requestsPending--
             }
 
+            messagesProcessed++
             continue
           }
         }
@@ -521,6 +539,7 @@ export class PeerConnection extends EngineComponent {
         if (msg) {
           this.handleMessage(msg)
         }
+        messagesProcessed++
       } catch (err) {
         this.logger.error('Error parsing message:', { err })
         this.close()

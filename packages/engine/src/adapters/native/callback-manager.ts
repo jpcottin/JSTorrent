@@ -73,7 +73,20 @@ class CallbackManager {
 
         // Dispatch to socket handler (just buffers, no processing per Phase 1)
         const handlers = this.tcpHandlers.get(socketId)
+        if (!handlers?.onData) {
+          // DEBUG: Log dropped data due to missing handler
+          console.warn(
+            `[callback-manager] No handler for socketId ${socketId}, dropping ${len} bytes`,
+          )
+        }
         handlers?.onData?.(data)
+      }
+
+      // Validate batch framing: offset should exactly match buffer size
+      if (offset !== packed.byteLength) {
+        console.warn(
+          `[callback-manager] TCP batch framing error: offset=${offset}, bufferSize=${packed.byteLength}, count=${count}`,
+        )
       }
     }
 

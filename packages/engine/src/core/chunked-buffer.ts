@@ -227,4 +227,32 @@ export class ChunkedBuffer {
     this._length = 0
     this.consumedInFirstChunk = 0
   }
+
+  /**
+   * Debug info: returns internal state for corruption diagnostics.
+   * Recomputes actual length from chunks to detect bookkeeping errors.
+   */
+  debugInfo(): {
+    chunks: number
+    consumed: number
+    trackedLen: number
+    actualLen: number
+    chunkSizes: number[]
+  } {
+    let actualLen = 0
+    const chunkSizes: number[] = []
+    for (let i = 0; i < this.chunks.length; i++) {
+      const size = this.chunks[i].length
+      chunkSizes.push(size)
+      actualLen += size
+    }
+    actualLen -= this.consumedInFirstChunk
+    return {
+      chunks: this.chunks.length,
+      consumed: this.consumedInFirstChunk,
+      trackedLen: this._length,
+      actualLen,
+      chunkSizes: chunkSizes.slice(0, 5), // first 5 chunk sizes
+    }
+  }
 }

@@ -382,72 +382,43 @@ class TcpBindings(
             override fun onTcpClose(socketId: Int, hadError: Boolean, errorCode: Int) {
                 Log.d(TAG, "onTcpClose: socket=$socketId, hadError=$hadError, errorCode=$errorCode")
 
-                // IMPORTANT: Flush any pending TCP data for this socket BEFORE delivering close.
-                // Data is batched for tick processing, but close is delivered immediately.
-                // Without this flush, close arrives before data for fast connections (e.g., UPnP HTTP).
-                val pendingForSocket = mutableListOf<TcpDataEvent>()
-                val remaining = mutableListOf<TcpDataEvent>()
-                while (true) {
-                    val event = pendingTcpData.poll() ?: break
-                    if (event.socketId == socketId) {
-                        pendingForSocket.add(event)
-                    } else {
-                        remaining.add(event)
-                    }
-                }
-                // Put back events for other sockets
-                remaining.forEach { pendingTcpData.add(it) }
-
-                // Deliver pending data for this socket before close
-                if (pendingForSocket.isNotEmpty() && hasDataCallback) {
-                    val totalBytes = pendingForSocket.sumOf { it.data.size }
-                    Log.d(TAG, "onTcpClose: flushing ${pendingForSocket.size} pending data events ($totalBytes bytes) for socket $socketId before close")
-
-                    // Pack events into batch format (same format as drainAndPackTcpBatch)
-                    // Format: [count: u32 LE] then for each: [socketId: u32 LE] [len: u32 LE] [data: len bytes]
-                    val packedSize = 4 + pendingForSocket.sumOf { 8 + it.data.size }
-                    val buf = ByteBuffer.allocate(packedSize).order(ByteOrder.LITTLE_ENDIAN)
-                    buf.putInt(pendingForSocket.size)
-                    for (event in pendingForSocket) {
-                        buf.putInt(event.socketId)
-                        buf.putInt(event.data.size)
-                        buf.put(event.data)
-                    }
-                    val packed = buf.array()
-
-                    jsThread.post {
-                        // Use batch dispatcher which is known to work
+                // Post everything to JS thread to avoid race condition with drainAndPackTcpBatch.
+                // The old approach drained the shared pendingTcpData queue from the I/O thread,
+                // which could interleave with drainAndPackTcpBatch on the JS thread, causing
+                // out-of-order data delivery and corrupting other sockets' message streams.
+                jsThread.post {
+                    // Flush ALL pending TCP data first (ensures data arrives before close).
+                    // This is the same drain that __jstorrent_tcp_flush does, and runs on the
+                    // same thread, so there's no concurrent access to the queue.
+                    val packed = drainAndPackTcpBatch()
+                    if (packed != null) {
                         ctx.callGlobalFunctionWithBinary(
                             "__jstorrent_tcp_dispatch_batch",
                             packed,
-                            0,  // binary is first argument
+                            0,
                             null
                         )
-                        jsThread.scheduleJobPump(ctx)
                     }
-                }
 
-                // Send error callback first if there was an error
-                if (hadError && hasErrorCallback) {
-                    jsThread.post {
+                    // Error callback if applicable
+                    if (hadError && hasErrorCallback) {
                         ctx.callGlobalFunction(
                             "__jstorrent_tcp_dispatch_error",
                             socketId.toString(),
                             "Socket error (code: $errorCode)"
                         )
-                        jsThread.scheduleJobPump(ctx)
                     }
-                }
 
-                if (hasCloseCallback) {
-                    jsThread.post {
+                    // Close callback
+                    if (hasCloseCallback) {
                         ctx.callGlobalFunction(
                             "__jstorrent_tcp_dispatch_close",
                             socketId.toString(),
                             hadError.toString()
                         )
-                        jsThread.scheduleJobPump(ctx)
                     }
+
+                    jsThread.scheduleJobPump(ctx)
                 }
             }
 
