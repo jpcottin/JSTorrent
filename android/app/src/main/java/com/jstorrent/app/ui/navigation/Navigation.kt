@@ -351,6 +351,10 @@ fun TorrentNavHost(
             AdvancedSettingsScreen(
                 viewModel = settingsViewModel,
                 onNavigateBack = { navController.popBackStack() },
+                onClearAllDataCompleted = {
+                    // Navigate back to the torrent list after clearing all data
+                    navController.popBackStack(Routes.TORRENT_LIST, inclusive = false)
+                },
                 isChromebook = isChromebook,
                 onSwitchToCompanionMode = if (isChromebook) {
                     {

@@ -48,6 +48,7 @@ import com.jstorrent.app.viewmodel.SettingsViewModel
 fun AdvancedSettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateBack: () -> Unit,
+    onClearAllDataCompleted: () -> Unit = {},
     isChromebook: Boolean = false,
     onSwitchToCompanionMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -131,7 +132,10 @@ fun AdvancedSettingsScreen(
     if (uiState.showClearAllDataConfirmation) {
         ClearAllDataDialog(
             onDismiss = { viewModel.dismissClearAllDataConfirmation() },
-            onConfirm = { deleteFiles -> viewModel.clearAllData(deleteFiles) }
+            onConfirm = { deleteFiles ->
+                viewModel.clearAllData(deleteFiles)
+                onClearAllDataCompleted()
+            }
         )
     }
 }
