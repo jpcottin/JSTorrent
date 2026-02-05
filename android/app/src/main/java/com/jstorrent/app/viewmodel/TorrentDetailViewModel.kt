@@ -116,8 +116,8 @@ class TorrentDetailViewModel(
     // Track screen visibility for lifecycle-aware subscriptions
     private val _isScreenVisible = MutableStateFlow(true)
 
-    // Track current subscription type to avoid redundant subscribe calls
-    private var currentSubscriptionType: String? = null
+    // Active subscription handles - closed when switching tabs or when ViewModel is cleared
+    private var subscriptionHandles = mutableListOf<SubscriptionHandle>()
 
     // Pending action state - true when pause/resume has been requested but engine hasn't responded yet
     // This provides immediate visual feedback when user taps play/pause
@@ -131,17 +131,9 @@ class TorrentDetailViewModel(
     // Kept for API compatibility with existing tests
 
     init {
-        // Subscribe to "files" initially for STATUS tab (needed for size/ETA)
-        // This happens when the engine is loaded
-        viewModelScope.launch {
-            repository.isLoaded.collect { isLoaded ->
-                if (isLoaded && _isScreenVisible.value) {
-                    // Reset subscription tracking on engine (re)load since JS side resets
-                    currentSubscriptionType = null
-                    subscribeForTab(_selectedTab.value)
-                }
-            }
-        }
+        // Subscribe to data for the current tab.
+        // SubscriptionTracker handles pending state when engine isn't loaded yet.
+        subscribeForTab(_selectedTab.value)
 
         // Populate cached flows from subscription data in state.
         // This replaces the old RPC-based fetching.
@@ -195,12 +187,9 @@ class TorrentDetailViewModel(
         // Tab-reactive subscription management.
         // When tab changes, subscribe to the appropriate data type.
         viewModelScope.launch {
-            combine(_selectedTab, _isScreenVisible) { tab, visible -> tab to visible }
-                .collect { (tab, visible) ->
-                    if (visible && repository.isLoaded.value) {
-                        subscribeForTab(tab)
-                    }
-                }
+            _selectedTab.collect { tab ->
+                subscribeForTab(tab)
+            }
         }
 
         // Clear pending action state when torrent status changes.
@@ -225,7 +214,7 @@ class TorrentDetailViewModel(
 
     /**
      * Subscribe to the appropriate data type for the given tab.
-     * Unsubscribes from previous per-torrent subscription first.
+     * Closes previous subscriptions and creates new ones.
      *
      * Always subscribes to "torrent" (with infoHash) to get this torrent's summary,
      * plus the tab-specific data type for the current torrent.
@@ -240,36 +229,36 @@ class TorrentDetailViewModel(
             DetailTab.DETAILS -> "details" to 1000
         }
 
-        // Only change per-torrent subscription if type changed
-        if (currentSubscriptionType != type) {
-            repository.unsubscribeAll(infoHash)
-            // Subscribe to both "torrent" (for summary) and the tab-specific type
-            repository.subscribe("torrent", infoHash, intervalMs)
-            repository.subscribe(type, infoHash, intervalMs)
-            currentSubscriptionType = type
-        }
+        // Close previous subscriptions
+        subscriptionHandles.forEach { it.close() }
+        subscriptionHandles.clear()
+
+        // Subscribe to both "torrent" (for summary) and the tab-specific type
+        subscriptionHandles.add(repository.subscribe("torrent", infoHash, intervalMs))
+        subscriptionHandles.add(repository.subscribe(type, infoHash, intervalMs))
     }
 
     /**
      * Called when the screen is paused (navigated away or backgrounded).
-     * Unregisters as update consumer to save resources.
+     *
+     * Note: Subscriptions stay active for fast resume.
+     * Visibility is managed automatically by SubscriptionTracker.
      */
     fun onScreenPaused() {
         _isScreenVisible.value = false
-        repository.unregisterUpdateConsumer()
+        // No-op: subscriptions stay active for fast resume
     }
 
     /**
      * Called when the screen is resumed (navigated back or foregrounded).
-     * Registers as update consumer and re-subscribes if needed.
+     *
+     * Note: Subscriptions are created in init and stay active.
+     * If they were somehow closed, recreate them.
      */
     fun onScreenResumed() {
         _isScreenVisible.value = true
-        repository.registerUpdateConsumer()
-        // Re-subscribe in case engine was restarted while paused
-        // Reset subscription flag to force fresh subscriptions (JS side resets on engine restart)
-        if (repository.isLoaded.value) {
-            currentSubscriptionType = null
+        // Recreate subscriptions if they were closed (defensive)
+        if (subscriptionHandles.isEmpty() || subscriptionHandles.all { it.isClosed }) {
             subscribeForTab(_selectedTab.value)
         }
     }
@@ -279,8 +268,8 @@ class TorrentDetailViewModel(
      */
     override fun onCleared() {
         super.onCleared()
-        // Unsubscribe from all per-torrent subscriptions (including "torrent")
-        repository.unsubscribeAll(infoHash)
+        subscriptionHandles.forEach { it.close() }
+        subscriptionHandles.clear()
     }
 
     /**
@@ -551,7 +540,6 @@ class TorrentDetailViewModel(
         // With subscriptions, re-subscribing will push fresh data.
         // Force a re-subscription to get the latest piece state.
         if (_selectedTab.value == DetailTab.PIECES) {
-            currentSubscriptionType = null  // Force re-subscription
             subscribeForTab(DetailTab.PIECES)
         }
     }

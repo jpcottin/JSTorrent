@@ -35,6 +35,10 @@ class TorrentListViewModel(
     private val onTorrentAdded: () -> Unit = {}
 ) : ViewModel() {
 
+    // Subscription handle for torrent list updates.
+    // The tracker handles ref-counting and pending state, so we can subscribe immediately.
+    private var torrentsSubscription: SubscriptionHandle? = null
+
     init {
         // Load cache asynchronously on initialization
         cache?.let { summaryCache ->
@@ -43,15 +47,10 @@ class TorrentListViewModel(
             }
         }
 
-        // Subscribe to torrent list once engine is loaded
-        viewModelScope.launch {
-            repository.isLoaded.collect { isLoaded ->
-                if (isLoaded) {
-                    // Subscribe to torrent list with 1000ms push interval
-                    repository.subscribe("torrents", "", 1000)
-                }
-            }
-        }
+        // Subscribe to torrent list immediately.
+        // SubscriptionTracker handles the case where engine isn't loaded yet - it will
+        // replay the subscription when the controller becomes available.
+        torrentsSubscription = repository.subscribe("torrents", "", 1000)
 
         // Clear pending state when engine reports torrent state updates
         // This provides the "response" half of the immediate feedback loop
@@ -475,22 +474,26 @@ class TorrentListViewModel(
 
     /**
      * Called when the screen is paused (navigated away or backgrounded).
-     * Unregisters as update consumer to save resources.
+     *
+     * Note: We keep the subscription active during pause for fast resume.
+     * The subscription will be automatically paused by SubscriptionTracker
+     * if all subscriptions are closed (e.g., when ViewModel is cleared).
      */
     fun onScreenPaused() {
-        repository.unregisterUpdateConsumer()
+        // No-op: subscription stays active for fast resume
+        // Visibility is now managed automatically by SubscriptionTracker
     }
 
     /**
      * Called when the screen is resumed (navigated back or foregrounded).
-     * Registers as update consumer and re-subscribes to global state.
+     *
+     * Note: Subscription is created in init and stays active, so no re-subscribe needed.
+     * If the subscription was somehow closed (shouldn't happen), recreate it.
      */
     fun onScreenResumed() {
-        repository.registerUpdateConsumer()
-        // Re-subscribe to ensure we're getting torrent list updates.
-        // The detail view may have changed subscriptions while we were paused.
-        if (repository.isLoaded.value) {
-            repository.subscribe("torrents", "", 1000)
+        // Recreate subscription if it was closed (defensive)
+        if (torrentsSubscription?.isClosed == true) {
+            torrentsSubscription = repository.subscribe("torrents", "", 1000)
         }
     }
 
@@ -499,7 +502,8 @@ class TorrentListViewModel(
      */
     override fun onCleared() {
         super.onCleared()
-        repository.unsubscribe("torrents", "")
+        torrentsSubscription?.close()
+        torrentsSubscription = null
     }
 
     // =========================================================================

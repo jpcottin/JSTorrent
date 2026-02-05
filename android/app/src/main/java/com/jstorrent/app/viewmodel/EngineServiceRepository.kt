@@ -30,6 +30,18 @@ import kotlinx.coroutines.launch
  * Uses bridged StateFlows to handle the race condition where the ViewModel
  * may be created before the engine is initialized.
  *
+ * ## Subscription Architecture
+ *
+ * Subscriptions use reference counting via [SubscriptionTracker]:
+ * - Each [subscribe] call returns a unique [SubscriptionHandle]
+ * - Multiple handles can exist for the same topic (type + hash)
+ * - The actual JS subscription is created when first handle is created
+ * - The actual JS subscription is removed when last handle is closed
+ * - Handles persist across engine restarts - subscriptions are replayed to new controllers
+ *
+ * This eliminates the old problem where one consumer calling unsubscribe() would
+ * break other consumers' subscriptions.
+ *
  * ## Command Queueing Architecture
  *
  * IMPORTANT: All command queueing happens on the JS side, NOT here in Kotlin.
@@ -46,12 +58,16 @@ import kotlinx.coroutines.launch
  *   is a no-op (engine not started yet, user action triggers ensureEngineStarted)
  * - Do NOT implement Kotlin-side command queues - they fight with JS-side queuing
  *   and create confusing dual-queue behavior
- * - The only exception is subscription visibility count (registerUpdateConsumer/unregisterUpdateConsumer)
- *   which tracks UI lifecycle state, not engine commands
+ * - Subscriptions are the exception - they ARE tracked Kotlin-side via SubscriptionTracker
+ *   so they can be replayed when the engine restarts
  */
 class EngineServiceRepository(
     private val application: Application
 ) : TorrentRepository {
+
+    companion object {
+        private const val TAG = "EngineServiceRepo"
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -74,14 +90,26 @@ class EngineServiceRepository(
     private var connectedController: EngineController? = null
     private var collectionJobs: List<Job> = emptyList()
 
-    // Track subscription visibility count across engine restarts.
-    // This handles two scenarios:
-    // 1. Screens call registerUpdateConsumer() before the engine is loaded
-    // 2. Engine restarts (new EngineController) - we need to replay the current count
-    // NOTE: This is the ONLY Kotlin-side queue - it tracks UI lifecycle state, not commands.
-    // All command queueing happens on the JS side (see controller.ts executeOrQueue).
-    private var visibilityCount = 0
-    private val visibilityLock = Any()
+    // Subscription tracker with reference counting.
+    // Handles survive engine restarts - they are replayed when a new controller connects.
+    private val subscriptionTracker = SubscriptionTracker(
+        onSubscribe = { type, hash, intervalMs ->
+            Log.d(TAG, "SubscriptionTracker.onSubscribe: $type for ${hashDisplay(hash)}")
+            controller?.subscribe(type, hash, intervalMs)
+        },
+        onUnsubscribe = { type, hash ->
+            Log.d(TAG, "SubscriptionTracker.onUnsubscribe: $type for ${hashDisplay(hash)}")
+            controller?.unsubscribe(type, hash)
+        },
+        onPause = {
+            Log.d(TAG, "SubscriptionTracker.onPause")
+            controller?.pauseSubscriptions()
+        },
+        onResume = {
+            Log.d(TAG, "SubscriptionTracker.onResume")
+            controller?.resumeSubscriptions()
+        }
+    )
 
     init {
         // Continuously monitor for engine controller availability
@@ -110,16 +138,19 @@ class EngineServiceRepository(
                         launch { currentController.lastError.collect { _lastError.value = it } }
                     )
 
-                    // Replay visibility count to the new controller.
+                    // Replay subscriptions to the new controller.
                     // This handles both:
-                    // 1. Screens called registerUpdateConsumer() before engine loaded
+                    // 1. Subscriptions created before engine loaded
                     // 2. Engine restarted (new controller) - need to restore subscription state
-                    // We do NOT reset the count - it persists across engine restarts.
-                    val countToReplay = synchronized(visibilityLock) { visibilityCount }
-                    Log.d("EngineServiceRepo", "Replaying visibility count: $countToReplay to new controller")
-                    repeat(countToReplay) {
-                        currentController.registerUpdateConsumer()
-                    }
+                    Log.d(TAG, "New controller connected, replaying subscriptions")
+                    subscriptionTracker.replayTo(
+                        subscribe = { type, hash, intervalMs ->
+                            currentController.subscribe(type, hash, intervalMs)
+                        },
+                        resume = {
+                            currentController.resumeSubscriptions()
+                        }
+                    )
                     // NOTE: Command queueing (add, remove, pause, resume) happens on JS side,
                     // not here. See controller.ts executeOrQueue() and the class doc above.
                 }
@@ -202,7 +233,7 @@ class EngineServiceRepository(
         // New torrents added while suspended won't start networking.
         scope.launch {
             controller?.suspendEngineAsync()
-            Log.i("EngineServiceRepo", "Engine suspended")
+            Log.i(TAG, "Engine suspended")
         }
     }
 
@@ -211,7 +242,7 @@ class EngineServiceRepository(
         // Only torrents with userState='active' will start networking.
         scope.launch {
             controller?.resumeEngineAsync()
-            Log.i("EngineServiceRepo", "Engine resumed")
+            Log.i(TAG, "Engine resumed")
         }
     }
 
@@ -245,37 +276,20 @@ class EngineServiceRepository(
     // Subscription API
     // =========================================================================
 
-    override fun subscribe(type: String, hash: String, intervalMs: Int) {
-        controller?.subscribe(type, hash, intervalMs)
+    /**
+     * Subscribe to data updates and return a handle to release the subscription.
+     *
+     * The subscription is tracked Kotlin-side via [SubscriptionTracker] with ref-counting.
+     * Multiple handles can exist for the same topic - the actual JS subscription is only
+     * removed when all handles are closed.
+     *
+     * Subscriptions can be created before the engine is loaded. They will be replayed
+     * to the controller when it becomes available.
+     */
+    override fun subscribe(type: String, hash: String, intervalMs: Int): SubscriptionHandle {
+        return subscriptionTracker.subscribe(type, hash, intervalMs)
     }
 
-    override fun unsubscribe(type: String, hash: String) {
-        controller?.unsubscribe(type, hash)
-    }
-
-    override fun unsubscribeAll(hash: String) {
-        controller?.unsubscribeAll(hash)
-    }
-
-    override fun unregisterUpdateConsumer() {
-        // Always track the count so we can replay it if the engine restarts.
-        // The count persists across engine restarts - this is the source of truth
-        // for how many screens/services are currently expecting updates.
-        synchronized(visibilityLock) {
-            visibilityCount = maxOf(0, visibilityCount - 1)
-        }
-        // Forward to controller if available
-        controller?.unregisterUpdateConsumer()
-    }
-
-    override fun registerUpdateConsumer() {
-        // Always track the count so we can replay it if the engine restarts.
-        // The count persists across engine restarts - this is the source of truth
-        // for how many screens/services are currently expecting updates.
-        synchronized(visibilityLock) {
-            visibilityCount++
-        }
-        // Forward to controller if available
-        controller?.registerUpdateConsumer()
-    }
+    private fun hashDisplay(hash: String): String =
+        if (hash.isEmpty()) "all" else "${hash.take(8)}..."
 }

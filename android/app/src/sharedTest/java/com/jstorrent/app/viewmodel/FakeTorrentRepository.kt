@@ -112,10 +112,8 @@ class FakeTorrentRepository : TorrentRepository {
         dhtStatsData = null
         // Reset subscription tracking
         subscriptions.clear()
-        unsubscriptions.clear()
-        unsubscribeAllCalls.clear()
-        unregisterUpdateConsumerCalled = false
-        registerUpdateConsumerCalled = false
+        activeHandles.forEach { it.close() }
+        activeHandles.clear()
     }
 
     // ==========================================================================
@@ -264,29 +262,33 @@ class FakeTorrentRepository : TorrentRepository {
 
     // Track subscription calls for verification
     val subscriptions = mutableListOf<Triple<String, String, Int>>()  // (type, hash, intervalMs)
-    val unsubscriptions = mutableListOf<Pair<String, String>>()  // (type, hash)
-    val unsubscribeAllCalls = mutableListOf<String>()  // hash
-    var unregisterUpdateConsumerCalled = false
-    var registerUpdateConsumerCalled = false
+    val activeHandles = mutableListOf<SubscriptionHandle>()
 
-    override fun subscribe(type: String, hash: String, intervalMs: Int) {
+    override fun subscribe(type: String, hash: String, intervalMs: Int): SubscriptionHandle {
         subscriptions.add(Triple(type, hash, intervalMs))
+        val handle = FakeSubscriptionHandle(
+            id = java.util.UUID.randomUUID().toString(),
+            type = type,
+            hash = hash
+        )
+        activeHandles.add(handle)
+        return handle
     }
+}
 
-    override fun unsubscribe(type: String, hash: String) {
-        unsubscriptions.add(Pair(type, hash))
-    }
+/**
+ * Fake subscription handle for testing.
+ */
+class FakeSubscriptionHandle(
+    override val id: String,
+    override val type: String,
+    override val hash: String
+) : SubscriptionHandle {
+    override var isClosed: Boolean = false
+        private set
 
-    override fun unsubscribeAll(hash: String) {
-        unsubscribeAllCalls.add(hash)
-    }
-
-    override fun unregisterUpdateConsumer() {
-        unregisterUpdateConsumerCalled = true
-    }
-
-    override fun registerUpdateConsumer() {
-        registerUpdateConsumerCalled = true
+    override fun close() {
+        isClosed = true
     }
 }
 

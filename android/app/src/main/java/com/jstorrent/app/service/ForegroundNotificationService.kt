@@ -15,6 +15,8 @@ import android.util.Log
 import android.widget.Toast
 import com.jstorrent.app.JSTorrentApplication
 import com.jstorrent.app.power.DozeMonitor
+import com.jstorrent.app.viewmodel.EngineServiceRepository
+import com.jstorrent.app.viewmodel.SubscriptionHandle
 import com.jstorrent.app.notification.ForegroundNotificationManager
 import com.jstorrent.app.notification.TorrentNotificationManager
 import com.jstorrent.app.settings.MetricsStore
@@ -100,6 +102,12 @@ class ForegroundNotificationService : Service() {
     // Doze mode monitoring for debugging power state transitions
     private var dozeMonitor: DozeMonitor? = null
 
+    // Repository for subscription management
+    private lateinit var repository: EngineServiceRepository
+
+    // Subscription handle for torrent list updates
+    private var torrentsSubscription: SubscriptionHandle? = null
+
     // Battery monitoring for low battery shutdown
     private var batteryMonitorJob: Job? = null
     private var hasTriggeredLowBatteryShutdown = false  // Prevent repeated triggers
@@ -153,6 +161,7 @@ class ForegroundNotificationService : Service() {
         metricsStore = MetricsStore(this)
         torrentNotificationManager = TorrentNotificationManager(this)
         dozeMonitor = DozeMonitor(this)
+        repository = EngineServiceRepository(application)
 
         // Set singleton
         instance = this
@@ -206,12 +215,11 @@ class ForegroundNotificationService : Service() {
         notificationUpdateJob?.cancel()
         notificationUpdateJob = null
 
-        // Unregister as update consumer (decrements visibility count).
-        // NOTE: We deliberately do NOT unsubscribe from "torrents" here.
-        // The screen's TorrentListViewModel manages the subscription lifecycle.
-        // If we unsubscribe, we race with the screen's subscribe and can remove
-        // the screen's subscription, causing "no torrents yet" to appear.
-        controller?.unregisterUpdateConsumer()
+        // Close our subscription handle.
+        // With ID-based subscriptions, this only removes OUR subscription.
+        // Other consumers (TorrentListViewModel) keep their own handles active.
+        torrentsSubscription?.close()
+        torrentsSubscription = null
 
         // NOTE: Engine is NOT destroyed here - it lives in Application
         // and survives service restarts
@@ -450,11 +458,11 @@ class ForegroundNotificationService : Service() {
     private fun startNotificationUpdates() {
         notificationUpdateJob?.cancel()
 
-        // Subscribe to torrent list updates. The service runs when the app is backgrounded,
-        // so we can't rely on the Activity's subscriptions - we manage our own.
-        // Also register as a subscription consumer so pushes stay active.
-        controller?.subscribe("torrents", "", 1000)
-        controller?.registerUpdateConsumer()
+        // Subscribe to torrent list updates using ID-based subscription.
+        // With SubscriptionTracker, this handle is independent of other consumers.
+        // Closing it in onDestroy() won't affect TorrentListViewModel's subscription.
+        torrentsSubscription?.close()
+        torrentsSubscription = repository.subscribe("torrents", "", 1000)
 
         notificationUpdateJob = ioScope.launch {
             // Seed previousStates with current state before starting the loop.

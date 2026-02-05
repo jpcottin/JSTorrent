@@ -140,37 +140,21 @@ interface TorrentRepository {
     /**
      * Subscribe to data updates for a torrent (or torrent list).
      *
-     * @param type Subscription type: "torrents", "peers", "files", "trackers", "pieces", "details"
+     * Returns a [SubscriptionHandle] that must be closed when updates are no longer needed.
+     * Multiple handles can exist for the same topic; the underlying subscription is only
+     * removed when all handles for that topic are closed.
+     *
+     * Subscriptions can be created before the engine is loaded - they will be replayed
+     * when the engine becomes available.
+     *
+     * Visibility (pause/resume) is handled automatically:
+     * - First subscription resumes the push loop
+     * - Last subscription closing pauses the push loop
+     *
+     * @param type Subscription type: "torrents", "torrent", "peers", "files", "trackers", "pieces", "details"
      * @param hash Torrent info hash, or "" for torrent list
      * @param intervalMs Push interval in milliseconds
+     * @return Handle to release the subscription when done
      */
-    fun subscribe(type: String, hash: String, intervalMs: Int)
-
-    /**
-     * Unsubscribe from a specific data type for a torrent.
-     *
-     * @param type Subscription type
-     * @param hash Torrent info hash, or "" for torrent list
-     */
-    fun unsubscribe(type: String, hash: String)
-
-    /**
-     * Unsubscribe from all data types for a torrent.
-     * Use when navigating away from torrent detail view.
-     *
-     * @param hash Torrent info hash
-     */
-    fun unsubscribeAll(hash: String)
-
-    /**
-     * Unregister as an update consumer.
-     * Call when screen is not visible to save resources.
-     */
-    fun unregisterUpdateConsumer()
-
-    /**
-     * Register as an update consumer.
-     * Call when screen becomes visible again.
-     */
-    fun registerUpdateConsumer()
+    fun subscribe(type: String, hash: String, intervalMs: Int): SubscriptionHandle
 }

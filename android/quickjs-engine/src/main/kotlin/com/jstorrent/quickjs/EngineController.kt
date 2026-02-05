@@ -76,12 +76,9 @@ class EngineController(
     private var bindings: NativeBindings? = null
     private var configBridge: ConfigBridge? = null
 
-    // Reference count for subscription visibility.
-    // Multiple screens can request subscriptions active; only pause when count reaches 0.
-    // This handles race conditions when navigating between screens (e.g., list's ON_RESUME
-    // fires before detail's ON_PAUSE).
-    private var subscriptionVisibilityCount = 0
-    private val subscriptionLock = Any()
+    // Note: Subscription visibility reference counting is now handled by SubscriptionTracker
+    // in EngineServiceRepository. EngineController just provides simple pauseSubscriptions()
+    // and resumeSubscriptions() pass-throughs to JS.
 
     // State exposed to UI
     private val _state = MutableStateFlow<EngineState?>(null)
@@ -914,46 +911,30 @@ class EngineController(
     }
 
     /**
-     * Unregister as an update consumer.
-     * Call when screen is not visible or service stops.
+     * Pause subscription pushes.
      *
-     * Uses reference counting: only actually pauses pushes when no consumer remains.
-     * This handles race conditions when navigating between screens.
+     * Called by SubscriptionTracker when the last subscription is closed.
+     * Reference counting is handled in SubscriptionTracker, not here.
      */
-    fun unregisterUpdateConsumer() {
+    fun pauseSubscriptions() {
         val eng = engine ?: return
-        val shouldPause = synchronized(subscriptionLock) {
-            subscriptionVisibilityCount = maxOf(0, subscriptionVisibilityCount - 1)
-            Log.d(TAG, "unregisterUpdateConsumer: count=$subscriptionVisibilityCount")
-            subscriptionVisibilityCount == 0
-        }
-        if (shouldPause) {
-            eng.jsThread.post {
-                eng.context.callGlobalFunction("__jstorrent_pause_subscriptions")
-            }
-            Log.d(TAG, "unregisterUpdateConsumer: actually pausing")
+        Log.d(TAG, "pauseSubscriptions")
+        eng.jsThread.post {
+            eng.context.callGlobalFunction("__jstorrent_pause_subscriptions")
         }
     }
 
     /**
-     * Register as an update consumer.
-     * Call when screen becomes visible or service needs updates.
+     * Resume subscription pushes.
      *
-     * Uses reference counting: resumes pushes when first consumer registers.
+     * Called by SubscriptionTracker when the first subscription is created.
+     * Reference counting is handled in SubscriptionTracker, not here.
      */
-    fun registerUpdateConsumer() {
+    fun resumeSubscriptions() {
         val eng = engine ?: return
-        val shouldResume = synchronized(subscriptionLock) {
-            val wasZero = subscriptionVisibilityCount == 0
-            subscriptionVisibilityCount++
-            Log.d(TAG, "registerUpdateConsumer: count=$subscriptionVisibilityCount")
-            wasZero
-        }
-        if (shouldResume) {
-            eng.jsThread.post {
-                eng.context.callGlobalFunction("__jstorrent_resume_subscriptions")
-            }
-            Log.d(TAG, "registerUpdateConsumer: actually resuming")
+        Log.d(TAG, "resumeSubscriptions")
+        eng.jsThread.post {
+            eng.context.callGlobalFunction("__jstorrent_resume_subscriptions")
         }
     }
 
@@ -1291,10 +1272,8 @@ class EngineController(
         _isLoaded.value = false
         _state.value = null
 
-        // Reset subscription visibility count for next engine load
-        synchronized(subscriptionLock) {
-            subscriptionVisibilityCount = 0
-        }
+        // Note: Subscription state is managed by SubscriptionTracker in EngineServiceRepository,
+        // which handles replay to the new controller when the engine restarts.
 
         Log.i(TAG, "Engine shut down")
     }
