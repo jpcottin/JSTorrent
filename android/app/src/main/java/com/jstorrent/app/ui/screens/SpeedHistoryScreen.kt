@@ -162,8 +162,8 @@ private fun SpeedHistoryContent(
         JsThreadHealthCard(
             currentLatencyMs = state.jsCurrentLatencyMs,
             maxLatencyMs = state.jsMaxLatencyMs,
-            handlerQueueDepth = state.jsHandlerQueueDepth,
-            handlerMaxQueueDepth = state.jsHandlerMaxQueueDepth,
+            tcpQueueDepth = state.jsTcpQueueDepth,
+            tcpMaxQueueDepth = state.jsTcpMaxQueueDepth,
             diskQueueDepth = state.jsDiskQueueDepth,
             diskMaxQueueDepth = state.jsDiskMaxQueueDepth,
             tickAvgMs = state.tickAvgMs,
@@ -294,8 +294,8 @@ private fun RateDisplay(
 private fun JsThreadHealthCard(
     currentLatencyMs: Long,
     maxLatencyMs: Long,
-    handlerQueueDepth: Int,
-    handlerMaxQueueDepth: Int,
+    tcpQueueDepth: Int,
+    tcpMaxQueueDepth: Int,
     diskQueueDepth: Int,
     diskMaxQueueDepth: Int,
     tickAvgMs: Float,
@@ -354,17 +354,17 @@ private fun JsThreadHealthCard(
                 )
             }
 
-            // Second row: Handler Queue and Disk Queue
+            // Second row: TCP Queue and Disk Queue
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                // Handler queue depth (runnables waiting to execute)
+                // TCP queue depth (network callbacks)
                 StatDisplay(
-                    label = "Handler Q",
-                    value = handlerQueueDepth.toString(),
-                    subValue = "max: $handlerMaxQueueDepth",
-                    isWarning = handlerQueueDepth > 50
+                    label = "TCP Q",
+                    value = tcpQueueDepth.toString(),
+                    subValue = "max: $tcpMaxQueueDepth",
+                    isWarning = tcpQueueDepth > 50
                 )
 
                 // Disk queue depth (file I/O callbacks)

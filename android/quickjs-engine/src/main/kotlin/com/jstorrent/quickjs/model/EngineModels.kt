@@ -333,10 +333,8 @@ data class SpeedSamplesResult(
 data class JsThreadStats(
     val currentLatencyMs: Long,     // Most recent health check latency
     val maxLatencyMs: Long,         // Max latency since engine start
-    val handlerQueueDepth: Int,     // Current handler queue depth (runnables waiting)
-    val handlerMaxQueueDepth: Int,  // Max handler queue depth observed
-    val tcpQueueDepth: Int,         // Current TCP callback queue depth (deprecated, always 0)
-    val tcpMaxQueueDepth: Int,      // Max TCP queue depth (deprecated)
+    val tcpQueueDepth: Int,         // Current TCP callback queue depth
+    val tcpMaxQueueDepth: Int,      // Max TCP queue depth since last log interval
     val diskQueueDepth: Int,        // Current disk callback queue depth
     val diskMaxQueueDepth: Int,     // Max disk queue depth since last log interval
     // Tick stats from engine (game loop performance)

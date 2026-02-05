@@ -189,9 +189,7 @@ export class TorrentPieceRequester extends EngineComponent {
 
     const peerId = this.deps.getPeerId(peer)
     const peerBitfield = peer.bitfield
-    const endgameManager = this.deps.getEndgameManager()
-    const isEndgame = endgameManager.isEndgame
-    const maxDuplicateRequests = endgameManager.getConfig().maxDuplicateRequests
+    const isEndgame = this.deps.getEndgameManager().isEndgame
     const peerIsFast = peer.isFast
     const availability = this.deps.getAvailability()
 
@@ -239,11 +237,7 @@ export class TorrentPieceRequester extends EngineComponent {
 
         // Get blocks we can request from this piece
         const neededBlocks = isEndgame
-          ? piece.getNeededBlocksEndgame(
-              peerId,
-              pipelineLimit - peer.requestsPending,
-              maxDuplicateRequests,
-            )
+          ? piece.getNeededBlocksEndgame(peerId, pipelineLimit - peer.requestsPending)
           : piece.getNeededBlocks(pipelineLimit - peer.requestsPending)
 
         for (const block of neededBlocks) {
@@ -285,11 +279,7 @@ export class TorrentPieceRequester extends EngineComponent {
         if (!isEndgame && !piece.hasUnrequestedBlocks) continue
 
         const neededBlocks = isEndgame
-          ? piece.getNeededBlocksEndgame(
-              peerId,
-              pipelineLimit - peer.requestsPending,
-              maxDuplicateRequests,
-            )
+          ? piece.getNeededBlocksEndgame(peerId, pipelineLimit - peer.requestsPending)
           : piece.getNeededBlocks(pipelineLimit - peer.requestsPending)
 
         for (const block of neededBlocks) {
@@ -313,60 +303,6 @@ export class TorrentPieceRequester extends EngineComponent {
           if (!piece.hasUnrequestedBlocks) {
             activePieces.promoteToFullyRequested(piece.index)
           }
-        }
-      }
-    }
-
-    // PHASE 1b: In endgame mode, also request from fullyRequested pieces (duplicate requests)
-    // These pieces have all blocks requested but not all received - we want to request
-    // the same blocks from additional peers to finish faster.
-    if (isEndgame && rawAvailability && piecePriority) {
-      const sortedFullyRequested = activePieces.getFullyRequestedRarestFirst(
-        rawAvailability,
-        availability.seedCount,
-        piecePriority,
-      )
-
-      for (const piece of sortedFullyRequested) {
-        if (peer.requestsPending >= pipelineLimit) {
-          flushPending()
-          return
-        }
-
-        // Skip if peer doesn't have this piece
-        if (!peer.isSeed && !peerBitfield?.get(piece.index)) continue
-
-        // In endgame, we relax speed affinity - any peer can help finish
-        // (speed affinity is mainly to prevent piece fragmentation during bulk download)
-
-        // Get blocks this peer hasn't requested yet (for duplicate requests)
-        const neededBlocks = piece.getNeededBlocksEndgame(
-          peerId,
-          pipelineLimit - peer.requestsPending,
-          maxDuplicateRequests,
-        )
-
-        for (const block of neededBlocks) {
-          if (peer.requestsPending >= pipelineLimit) {
-            flushPending()
-            return
-          }
-
-          // Rate limit check
-          if (
-            this.deps.isDownloadRateLimited() &&
-            !this.deps.tryConsumeDownloadBandwidth(block.length)
-          ) {
-            flushPending()
-            this.deps.scheduleRateLimitRetry(block.length, () => {})
-            return
-          }
-
-          pendingRequests.push({ index: piece.index, begin: block.begin, length: block.length })
-          peer.requestsPending++
-
-          const blockIndex = Math.floor(block.begin / BLOCK_SIZE)
-          piece.addRequest(blockIndex, peerId, now)
         }
       }
     }
@@ -406,12 +342,8 @@ export class TorrentPieceRequester extends EngineComponent {
         piece.claimExclusive(peerId)
       }
 
-      const neededBlocks = isEndgame
-        ? piece.getNeededBlocksEndgame(
-            peerId,
-            pipelineLimit - peer.requestsPending,
-            maxDuplicateRequests,
-          )
+      const neededBlocks = this.deps.getEndgameManager().isEndgame
+        ? piece.getNeededBlocksEndgame(peerId, pipelineLimit - peer.requestsPending)
         : piece.getNeededBlocks(pipelineLimit - peer.requestsPending)
 
       for (const block of neededBlocks) {

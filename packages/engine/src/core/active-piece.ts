@@ -502,29 +502,17 @@ export class ActivePiece {
   /**
    * Get blocks needed from a specific peer in endgame mode.
    * Returns blocks this peer hasn't requested yet, even if other peers have.
-   *
-   * @param peerId - The peer requesting blocks
-   * @param maxBlocks - Maximum blocks to return
-   * @param maxDuplicateRequests - Skip blocks with this many requests already (0 = unlimited)
    */
-  getNeededBlocksEndgame(
-    peerId: string,
-    maxBlocks: number = Infinity,
-    maxDuplicateRequests: number = 0,
-  ): BlockInfo[] {
+  getNeededBlocksEndgame(peerId: string, maxBlocks: number = Infinity): BlockInfo[] {
     const needed: BlockInfo[] = []
 
     for (let i = 0; i < this.blocksNeeded && needed.length < maxBlocks; i++) {
       // Skip if we have the data
       if (this.blockReceived[i]) continue
 
-      const requests = this.blockRequests.get(i)
-
       // In endgame: skip only if THIS PEER already requested it
+      const requests = this.blockRequests.get(i)
       if (requests?.some((r) => r.peerId === peerId)) continue
-
-      // Respect maxDuplicateRequests limit (0 = unlimited)
-      if (maxDuplicateRequests > 0 && requests && requests.length >= maxDuplicateRequests) continue
 
       const begin = i * BLOCK_SIZE
       const length = Math.min(BLOCK_SIZE, this.length - begin)

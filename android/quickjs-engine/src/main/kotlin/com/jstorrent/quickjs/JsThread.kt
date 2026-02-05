@@ -71,10 +71,6 @@ class JsThread : Thread("quickjs-engine") {
     @Volatile private var maxLatencyMs = 0L
     private var healthCheckEnabled = false
 
-    // Handler queue depth tracking
-    private val handlerQueueDepth = AtomicInteger(0)
-    @Volatile private var maxHandlerQueueDepth = 0
-
     override fun run() {
         Looper.prepare()
         handler = Handler(Looper.myLooper()!!)
@@ -91,38 +87,16 @@ class JsThread : Thread("quickjs-engine") {
 
     /**
      * Post work to execute on the JS thread.
-     * Tracks queue depth for health monitoring.
      */
     fun post(runnable: Runnable): Boolean {
-        val depth = handlerQueueDepth.incrementAndGet()
-        if (depth > maxHandlerQueueDepth) {
-            maxHandlerQueueDepth = depth
-        }
-        return handler.post {
-            try {
-                runnable.run()
-            } finally {
-                handlerQueueDepth.decrementAndGet()
-            }
-        }
+        return handler.post(runnable)
     }
 
     /**
      * Post work to execute on the JS thread with lambda.
-     * Tracks queue depth for health monitoring.
      */
-    fun post(block: () -> Unit): Boolean {
-        val depth = handlerQueueDepth.incrementAndGet()
-        if (depth > maxHandlerQueueDepth) {
-            maxHandlerQueueDepth = depth
-        }
-        return handler.post {
-            try {
-                block()
-            } finally {
-                handlerQueueDepth.decrementAndGet()
-            }
-        }
+    inline fun post(crossinline block: () -> Unit): Boolean {
+        return handler.post { block() }
     }
 
     /**
@@ -280,16 +254,6 @@ class JsThread : Thread("quickjs-engine") {
     fun getMaxLatencyMs(): Long = maxLatencyMs
 
     /**
-     * Get the current handler queue depth (runnables waiting to execute).
-     */
-    fun getHandlerQueueDepth(): Int = handlerQueueDepth.get()
-
-    /**
-     * Get the maximum handler queue depth observed.
-     */
-    fun getMaxHandlerQueueDepth(): Int = maxHandlerQueueDepth
-
-    /**
      * Track if a job pump is already scheduled to avoid duplicate pumps.
      */
     @Volatile
@@ -315,7 +279,7 @@ class JsThread : Thread("quickjs-engine") {
         if (jobPumpScheduled) return
         jobPumpScheduled = true
 
-        post {
+        handler.post {
             pumpJobsInternal(ctx, batchSize)
         }
     }
@@ -348,7 +312,7 @@ class JsThread : Thread("quickjs-engine") {
         if (hasMore) {
             // More jobs pending - schedule another pump, but let other
             // Handler messages (like callbacks) run first
-            post {
+            handler.post {
                 pumpJobsInternal(ctx, batchSize)
             }
         } else {

@@ -527,57 +527,6 @@ export class ActivePieceManager extends EngineComponent {
   }
 
   /**
-   * Get fully-requested pieces sorted by priority using libtorrent's algorithm.
-   * Used in endgame mode to send duplicate requests to pieces that already
-   * have all blocks requested (but not received).
-   *
-   * Same sorting logic as getPartialsRarestFirst - prioritizes rarer, higher-priority pieces.
-   */
-  getFullyRequestedRarestFirst(
-    pieceAvailability: Uint16Array,
-    seedCount: number,
-    piecePriority: Uint8Array,
-  ): ActivePiece[] {
-    const pieces = [...this._fullyRequestedPieces.values()]
-
-    pieces.sort((a, b) => {
-      const prioA = piecePriority[a.index]
-      const prioB = piecePriority[b.index]
-
-      // Filtered pieces (priority 0) go last
-      if (prioA === ActivePieceManager.PRIORITY_DONT_DOWNLOAD) {
-        if (prioB !== ActivePieceManager.PRIORITY_DONT_DOWNLOAD) return 1
-        return a.index - b.index
-      }
-      if (prioB === ActivePieceManager.PRIORITY_DONT_DOWNLOAD) return -1
-
-      // Calculate combined sort key using libtorrent formula
-      const availA = pieceAvailability[a.index] + seedCount
-      const availB = pieceAvailability[b.index] + seedCount
-
-      const sortKeyA =
-        availA * (ActivePieceManager.PRIORITY_LEVELS - prioA) * ActivePieceManager.PRIO_FACTOR
-      const sortKeyB =
-        availB * (ActivePieceManager.PRIORITY_LEVELS - prioB) * ActivePieceManager.PRIO_FACTOR
-
-      if (sortKeyA !== sortKeyB) {
-        return sortKeyA - sortKeyB
-      }
-
-      // Tiebreaker: most complete first
-      const completionA = a.blocksReceived / a.blocksNeeded
-      const completionB = b.blocksReceived / b.blocksNeeded
-      if (completionA !== completionB) {
-        return completionB - completionA
-      }
-
-      return a.index - b.index
-    })
-
-    return pieces
-  }
-
-  /**
    * Returns an iterator over ONLY fullyResponded pieces (awaiting verification).
    * Useful for verification queue management.
    */

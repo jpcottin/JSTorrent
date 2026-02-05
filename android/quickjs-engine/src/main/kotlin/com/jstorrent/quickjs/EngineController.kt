@@ -494,8 +494,6 @@ class EngineController(
         return JsThreadStats(
             currentLatencyMs = jsThread?.getCurrentLatencyMs() ?: 0L,
             maxLatencyMs = jsThread?.getMaxLatencyMs() ?: 0L,
-            handlerQueueDepth = jsThread?.getHandlerQueueDepth() ?: 0,
-            handlerMaxQueueDepth = jsThread?.getMaxHandlerQueueDepth() ?: 0,
             tcpQueueDepth = TcpBindings.getQueueDepth(),
             tcpMaxQueueDepth = TcpBindings.getMaxQueueDepth(),
             diskQueueDepth = FileBindings.getQueueDepth(),
