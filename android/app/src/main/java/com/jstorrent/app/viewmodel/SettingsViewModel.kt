@@ -416,22 +416,26 @@ class SettingsViewModel(
 
     /**
      * Set WiFi-only mode.
-     * Persists the setting and notifies the NetworkRestrictionEnforcer.
+     * Persists the setting and notifies both Application (for UI) and enforcer (for engine).
      */
     fun setWifiOnly(enabled: Boolean) {
         settingsStore.wifiOnlyEnabled = enabled
-        // Notify enforcer of setting change (enforcer lives in Application, not service)
+        // Update Application's restrictionStatus StateFlow (for UI display)
+        app.onNetworkRestrictionSettingChanged()
+        // Notify enforcer to suspend/resume engine if running
         app.networkRestrictionEnforcer?.onWifiOnlySettingChanged(enabled)
         _uiState.value = _uiState.value.copy(wifiOnlyEnabled = enabled)
     }
 
     /**
      * Set VPN-only mode.
-     * Persists the setting and notifies the NetworkRestrictionEnforcer.
+     * Persists the setting and notifies both Application (for UI) and enforcer (for engine).
      */
     fun setVpnOnly(enabled: Boolean) {
         settingsStore.vpnOnlyEnabled = enabled
-        // Notify enforcer of setting change (enforcer lives in Application, not service)
+        // Update Application's restrictionStatus StateFlow (for UI display)
+        app.onNetworkRestrictionSettingChanged()
+        // Notify enforcer to suspend/resume engine if running
         app.networkRestrictionEnforcer?.onVpnOnlySettingChanged(enabled)
         _uiState.value = _uiState.value.copy(vpnOnlyEnabled = enabled)
     }

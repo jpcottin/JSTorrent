@@ -109,12 +109,11 @@ fun TorrentListScreen(
     val pendingRemovalTorrents by viewModel.pendingRemovalTorrents.collectAsState()
 
     // Get network restriction status to show "Waiting for WiFi/VPN" status
-    // The enforcer lives in Application and is the authoritative source for restriction state
+    // The Application exposes this StateFlow directly, so it's always available
+    // (even before the engine starts)
     val context = LocalContext.current
-    val enforcer = remember {
-        (context.applicationContext as? JSTorrentApplication)?.networkRestrictionEnforcer
-    }
-    val networkWaitingStatus by (enforcer?.restrictionStatus
+    val app = context.applicationContext as? JSTorrentApplication
+    val networkWaitingStatus by (app?.restrictionStatus
         ?: kotlinx.coroutines.flow.MutableStateFlow<String?>(null)).collectAsState()
 
     // Lifecycle-aware subscriptions: pause when screen is not visible (e.g., navigated

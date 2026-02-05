@@ -163,14 +163,14 @@ interface TorrentRepository {
     fun unsubscribeAll(hash: String)
 
     /**
-     * Pause all subscription pushes.
+     * Unregister as an update consumer.
      * Call when screen is not visible to save resources.
      */
-    fun pauseSubscriptions()
+    fun unregisterUpdateConsumer()
 
     /**
-     * Resume subscription pushes.
+     * Register as an update consumer.
      * Call when screen becomes visible again.
      */
-    fun resumeSubscriptions()
+    fun registerUpdateConsumer()
 }

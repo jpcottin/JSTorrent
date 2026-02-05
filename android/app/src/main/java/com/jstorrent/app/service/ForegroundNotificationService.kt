@@ -206,6 +206,10 @@ class ForegroundNotificationService : Service() {
         notificationUpdateJob?.cancel()
         notificationUpdateJob = null
 
+        // Unsubscribe from torrent updates and unregister as update consumer
+        controller?.unsubscribe("torrents", "")
+        controller?.unregisterUpdateConsumer()
+
         // NOTE: Engine is NOT destroyed here - it lives in Application
         // and survives service restarts
 
@@ -442,6 +446,13 @@ class ForegroundNotificationService : Service() {
      */
     private fun startNotificationUpdates() {
         notificationUpdateJob?.cancel()
+
+        // Subscribe to torrent list updates. The service runs when the app is backgrounded,
+        // so we can't rely on the Activity's subscriptions - we manage our own.
+        // Also register as a subscription consumer so pushes stay active.
+        controller?.subscribe("torrents", "", 1000)
+        controller?.registerUpdateConsumer()
+
         notificationUpdateJob = ioScope.launch {
             // Seed previousStates with current state before starting the loop.
             // This prevents showing completion notifications for torrents that were

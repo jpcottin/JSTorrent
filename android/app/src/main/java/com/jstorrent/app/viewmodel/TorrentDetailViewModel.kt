@@ -252,20 +252,20 @@ class TorrentDetailViewModel(
 
     /**
      * Called when the screen is paused (navigated away or backgrounded).
-     * Pauses subscription pushes to save resources.
+     * Unregisters as update consumer to save resources.
      */
     fun onScreenPaused() {
         _isScreenVisible.value = false
-        repository.pauseSubscriptions()
+        repository.unregisterUpdateConsumer()
     }
 
     /**
      * Called when the screen is resumed (navigated back or foregrounded).
-     * Resumes subscription pushes and re-subscribes if needed.
+     * Registers as update consumer and re-subscribes if needed.
      */
     fun onScreenResumed() {
         _isScreenVisible.value = true
-        repository.resumeSubscriptions()
+        repository.registerUpdateConsumer()
         // Re-subscribe in case engine was restarted while paused
         // Reset subscription flag to force fresh subscriptions (JS side resets on engine restart)
         if (repository.isLoaded.value) {

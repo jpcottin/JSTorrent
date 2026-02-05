@@ -114,8 +114,8 @@ class FakeTorrentRepository : TorrentRepository {
         subscriptions.clear()
         unsubscriptions.clear()
         unsubscribeAllCalls.clear()
-        pauseSubscriptionsCalled = false
-        resumeSubscriptionsCalled = false
+        unregisterUpdateConsumerCalled = false
+        registerUpdateConsumerCalled = false
     }
 
     // ==========================================================================
@@ -266,8 +266,8 @@ class FakeTorrentRepository : TorrentRepository {
     val subscriptions = mutableListOf<Triple<String, String, Int>>()  // (type, hash, intervalMs)
     val unsubscriptions = mutableListOf<Pair<String, String>>()  // (type, hash)
     val unsubscribeAllCalls = mutableListOf<String>()  // hash
-    var pauseSubscriptionsCalled = false
-    var resumeSubscriptionsCalled = false
+    var unregisterUpdateConsumerCalled = false
+    var registerUpdateConsumerCalled = false
 
     override fun subscribe(type: String, hash: String, intervalMs: Int) {
         subscriptions.add(Triple(type, hash, intervalMs))
@@ -281,12 +281,12 @@ class FakeTorrentRepository : TorrentRepository {
         unsubscribeAllCalls.add(hash)
     }
 
-    override fun pauseSubscriptions() {
-        pauseSubscriptionsCalled = true
+    override fun unregisterUpdateConsumer() {
+        unregisterUpdateConsumerCalled = true
     }
 
-    override fun resumeSubscriptions() {
-        resumeSubscriptionsCalled = true
+    override fun registerUpdateConsumer() {
+        registerUpdateConsumerCalled = true
     }
 }
 

@@ -914,46 +914,46 @@ class EngineController(
     }
 
     /**
-     * Pause all subscription pushes.
-     * Call when screen is not visible to save resources.
+     * Unregister as an update consumer.
+     * Call when screen is not visible or service stops.
      *
-     * Uses reference counting: only actually pauses when no screen wants subscriptions active.
+     * Uses reference counting: only actually pauses pushes when no consumer remains.
      * This handles race conditions when navigating between screens.
      */
-    fun pauseSubscriptions() {
+    fun unregisterUpdateConsumer() {
         val eng = engine ?: return
         val shouldPause = synchronized(subscriptionLock) {
             subscriptionVisibilityCount = maxOf(0, subscriptionVisibilityCount - 1)
-            Log.d(TAG, "pauseSubscriptions: count=$subscriptionVisibilityCount")
+            Log.d(TAG, "unregisterUpdateConsumer: count=$subscriptionVisibilityCount")
             subscriptionVisibilityCount == 0
         }
         if (shouldPause) {
             eng.jsThread.post {
                 eng.context.callGlobalFunction("__jstorrent_pause_subscriptions")
             }
-            Log.d(TAG, "pauseSubscriptions: actually pausing")
+            Log.d(TAG, "unregisterUpdateConsumer: actually pausing")
         }
     }
 
     /**
-     * Resume subscription pushes.
-     * Call when screen becomes visible again.
+     * Register as an update consumer.
+     * Call when screen becomes visible or service needs updates.
      *
-     * Uses reference counting: always resumes when any screen wants subscriptions active.
+     * Uses reference counting: resumes pushes when first consumer registers.
      */
-    fun resumeSubscriptions() {
+    fun registerUpdateConsumer() {
         val eng = engine ?: return
         val shouldResume = synchronized(subscriptionLock) {
             val wasZero = subscriptionVisibilityCount == 0
             subscriptionVisibilityCount++
-            Log.d(TAG, "resumeSubscriptions: count=$subscriptionVisibilityCount")
+            Log.d(TAG, "registerUpdateConsumer: count=$subscriptionVisibilityCount")
             wasZero
         }
         if (shouldResume) {
             eng.jsThread.post {
                 eng.context.callGlobalFunction("__jstorrent_resume_subscriptions")
             }
-            Log.d(TAG, "resumeSubscriptions: actually resuming")
+            Log.d(TAG, "registerUpdateConsumer: actually resuming")
         }
     }
 

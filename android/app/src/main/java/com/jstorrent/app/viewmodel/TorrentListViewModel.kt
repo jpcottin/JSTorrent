@@ -475,18 +475,18 @@ class TorrentListViewModel(
 
     /**
      * Called when the screen is paused (navigated away or backgrounded).
-     * Pauses subscription pushes to save resources.
+     * Unregisters as update consumer to save resources.
      */
     fun onScreenPaused() {
-        repository.pauseSubscriptions()
+        repository.unregisterUpdateConsumer()
     }
 
     /**
      * Called when the screen is resumed (navigated back or foregrounded).
-     * Resumes subscription pushes and re-subscribes to global state.
+     * Registers as update consumer and re-subscribes to global state.
      */
     fun onScreenResumed() {
-        repository.resumeSubscriptions()
+        repository.registerUpdateConsumer()
         // Re-subscribe to ensure we're getting torrent list updates.
         // The detail view may have changed subscriptions while we were paused.
         if (repository.isLoaded.value) {

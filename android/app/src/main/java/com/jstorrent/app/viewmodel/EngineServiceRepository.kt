@@ -46,7 +46,7 @@ import kotlinx.coroutines.launch
  *   is a no-op (engine not started yet, user action triggers ensureEngineStarted)
  * - Do NOT implement Kotlin-side command queues - they fight with JS-side queuing
  *   and create confusing dual-queue behavior
- * - The only exception is subscription visibility count (pauseSubscriptions/resumeSubscriptions)
+ * - The only exception is subscription visibility count (registerUpdateConsumer/unregisterUpdateConsumer)
  *   which tracks UI lifecycle state, not engine commands
  */
 class EngineServiceRepository(
@@ -75,7 +75,7 @@ class EngineServiceRepository(
     private var collectionJobs: List<Job> = emptyList()
 
     // Track pending subscription visibility count for when controller isn't available yet.
-    // This handles the race condition where screens call resumeSubscriptions() before
+    // This handles the race condition where screens call registerUpdateConsumer() before
     // the engine is loaded. When the controller becomes available, we replay the count.
     // NOTE: This is the ONLY Kotlin-side queue - it tracks UI lifecycle state, not commands.
     // All command queueing happens on the JS side (see controller.ts executeOrQueue).
@@ -110,14 +110,14 @@ class EngineServiceRepository(
                     )
 
                     // Replay pending visibility count that was tracked before controller was available.
-                    // This handles the case where screens called resumeSubscriptions() before engine loaded.
+                    // This handles the case where screens called registerUpdateConsumer() before engine loaded.
                     val countToReplay = synchronized(visibilityLock) {
                         val count = pendingVisibilityCount
                         pendingVisibilityCount = 0
                         count
                     }
                     repeat(countToReplay) {
-                        currentController.resumeSubscriptions()
+                        currentController.registerUpdateConsumer()
                     }
                     // NOTE: Command queueing (add, remove, pause, resume) happens on JS side,
                     // not here. See controller.ts executeOrQueue() and the class doc above.
@@ -256,10 +256,10 @@ class EngineServiceRepository(
         controller?.unsubscribeAll(hash)
     }
 
-    override fun pauseSubscriptions() {
+    override fun unregisterUpdateConsumer() {
         val ctrl = controller
         if (ctrl != null) {
-            ctrl.pauseSubscriptions()
+            ctrl.unregisterUpdateConsumer()
         } else {
             // Controller not available yet - track pending state for later replay
             synchronized(visibilityLock) {
@@ -268,10 +268,10 @@ class EngineServiceRepository(
         }
     }
 
-    override fun resumeSubscriptions() {
+    override fun registerUpdateConsumer() {
         val ctrl = controller
         if (ctrl != null) {
-            ctrl.resumeSubscriptions()
+            ctrl.registerUpdateConsumer()
         } else {
             // Controller not available yet - track pending state for later replay
             synchronized(visibilityLock) {

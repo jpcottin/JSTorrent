@@ -20,6 +20,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 private const val TAG = "JSTorrentApplication"
@@ -60,6 +64,14 @@ class JSTorrentApplication : Application() {
         SettingsStore(this)
     }
 
+    // Network restriction status - always available, even before engine starts
+    // Values: "waiting_wifi", "waiting_vpn", or null (no restriction)
+    private val _restrictionStatus = MutableStateFlow<String?>(null)
+    val restrictionStatus: StateFlow<String?> = _restrictionStatus.asStateFlow()
+
+    // Job for network state observation - lives for app lifetime
+    private var networkStateObservationJob: Job? = null
+
     // Shared SQLite KV store for config and session storage
     private val sqliteKVStore: SqliteKVStore by lazy {
         SqliteKVStore(this)
@@ -80,6 +92,58 @@ class JSTorrentApplication : Application() {
      */
     fun getConfigHub(): AndroidConfigHub = _configHub
 
+    /**
+     * Compute the current restriction status based on network state and settings.
+     * Returns "waiting_wifi", "waiting_vpn", or null.
+     */
+    private fun computeRestrictionStatus(isWifi: Boolean, isVpn: Boolean): String? {
+        if (settingsStore.wifiOnlyEnabled && !isWifi) {
+            return "waiting_wifi"
+        }
+        if (settingsStore.vpnOnlyEnabled && !isVpn) {
+            return "waiting_vpn"
+        }
+        return null
+    }
+
+    /**
+     * Start observing network state changes to update restriction status.
+     * Called from onCreate() so status is always available.
+     */
+    private fun startNetworkStateObservation() {
+        val networkProvider = NetworkStateProvider.getInstance()
+
+        // Set initial status immediately
+        _restrictionStatus.value = computeRestrictionStatus(
+            isWifi = networkProvider.isWifiConnected.value,
+            isVpn = networkProvider.isVpnConnected.value
+        )
+
+        // Observe ongoing changes
+        networkStateObservationJob = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
+            combine(
+                networkProvider.isWifiConnected,
+                networkProvider.isVpnConnected
+            ) { isWifi, isVpn ->
+                computeRestrictionStatus(isWifi, isVpn)
+            }.collect { status ->
+                _restrictionStatus.value = status
+            }
+        }
+    }
+
+    /**
+     * Called when WiFi-only or VPN-only settings change.
+     * Re-computes restriction status with current network state.
+     */
+    fun onNetworkRestrictionSettingChanged() {
+        val networkProvider = NetworkStateProvider.getInstanceOrNull() ?: return
+        _restrictionStatus.value = computeRestrictionStatus(
+            isWifi = networkProvider.isWifiConnected.value,
+            isVpn = networkProvider.isVpnConnected.value
+        )
+    }
+
     // Service lifecycle management
     lateinit var serviceLifecycleManager: ServiceLifecycleManager
         private set
@@ -91,6 +155,9 @@ class JSTorrentApplication : Application() {
 
         // Initialize network state provider for WiFi-only/VPN-only mode checking
         NetworkStateProvider.initialize(this)
+
+        // Start observing network state for restriction status (always available, even before engine)
+        startNetworkStateObservation()
 
         // Initialize service lifecycle manager with shutdown/restore callbacks
         // When background downloads are disabled, we completely shut down the engine

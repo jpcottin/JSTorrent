@@ -133,13 +133,21 @@ class ForegroundNotificationManager(private val context: Context) {
         val singleTorrent = state.singleTorrent
         if (singleTorrent != null) {
             val title = truncateName(singleTorrent.name)
-            val contentText = buildSingleTorrentLine(singleTorrent)
+            // Show restriction status instead of speeds when network is restricted
+            val contentText = state.restrictionStatus?.let { status ->
+                when (status) {
+                    "waiting_wifi" -> "Paused \u2013 waiting for WiFi"
+                    "waiting_vpn" -> "Paused \u2013 waiting for VPN"
+                    else -> "Paused \u2013 network restricted"
+                }
+            } ?: buildSingleTorrentLine(singleTorrent)
             builder.setContentTitle(title)
             builder.setContentText(contentText)
         } else {
             // Multiple torrents or no active torrents
             val title = buildStatusLine(state)
-            val speedLine = buildSpeedLine(state)
+            // Don't show speeds when network is restricted (they're stale)
+            val speedLine = if (state.restrictionStatus != null) "" else buildSpeedLine(state)
             builder.setContentTitle(title)
             if (speedLine.isNotEmpty()) {
                 builder.setContentText(speedLine)
