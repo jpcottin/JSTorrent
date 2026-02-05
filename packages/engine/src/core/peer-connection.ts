@@ -55,7 +55,6 @@ export class PeerConnection extends EngineComponent {
   private buffer = new ChunkedBuffer()
   public handshakeReceived = false
 
-
   // Send queue for batching - flushed at end of tick
   private sendQueue: Uint8Array[] = []
   private sendQueueBytes = 0
