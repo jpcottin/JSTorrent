@@ -56,6 +56,9 @@ import com.jstorrent.quickjs.model.TorrentSummary
  * @param isPending True when action is pending (shows loading spinner on play/pause button).
  *                  Provides immediate feedback when user taps while engine is starting.
  * @param isPendingRemoval True when torrent is being removed (shows "Removing" status with faded appearance).
+ * @param networkWaitingStatus The network waiting status to show when torrent is paused due to
+ *                             WiFi-only or VPN-only mode. Null means not waiting for network.
+ *                             Values: "waiting_wifi" or "waiting_vpn".
  * @param modifier Optional modifier
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -71,11 +74,16 @@ fun TorrentCard(
     isLive: Boolean = true,
     isPending: Boolean = false,
     isPendingRemoval: Boolean = false,
+    networkWaitingStatus: String? = null,
     modifier: Modifier = Modifier
 ) {
     val isPaused = torrent.status == "stopped"
-    // Override status to "removing" when pending removal
-    val displayStatus = if (isPendingRemoval) "removing" else torrent.status
+    // Override status based on priority: removing > waiting_wifi/vpn > actual status
+    val displayStatus = when {
+        isPendingRemoval -> "removing"
+        networkWaitingStatus != null && isPaused -> networkWaitingStatus
+        else -> torrent.status
+    }
 
     // Animate card background color for selection
     val cardBackgroundColor by animateColorAsState(

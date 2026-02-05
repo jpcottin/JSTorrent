@@ -75,8 +75,11 @@ import com.jstorrent.app.ui.components.TorrentCard
 import com.jstorrent.app.ui.dialogs.AddTorrentDialog
 import com.jstorrent.app.ui.dialogs.BulkRemoveTorrentDialog
 import com.jstorrent.app.ui.theme.JSTorrentTheme
+import com.jstorrent.app.service.ForegroundNotificationService
+import com.jstorrent.app.service.ServiceState
 import com.jstorrent.app.viewmodel.TorrentListViewModel
 import com.jstorrent.quickjs.model.TorrentSummary
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * Main torrent list screen.
@@ -106,6 +109,15 @@ fun TorrentListScreen(
     val engineError by viewModel.engineError.collectAsState()
     val pendingTorrents by viewModel.pendingTorrents.collectAsState()
     val pendingRemovalTorrents by viewModel.pendingRemovalTorrents.collectAsState()
+
+    // Get service state to show "Waiting for WiFi/VPN" status
+    val serviceState by (ForegroundNotificationService.instance?.serviceState
+        ?: MutableStateFlow(ServiceState.STOPPED)).collectAsState()
+    val networkWaitingStatus: String? = when (serviceState) {
+        ServiceState.PAUSED_WIFI -> "waiting_wifi"
+        ServiceState.PAUSED_VPN -> "waiting_vpn"
+        else -> null
+    }
 
     // Lifecycle-aware subscriptions: pause when screen is not visible (e.g., navigated
     // to detail view or app backgrounded), resume when screen becomes visible again.
@@ -408,6 +420,7 @@ fun TorrentListScreen(
                         pendingTorrents = pendingTorrents,
                         pendingRemovalTorrents = pendingRemovalTorrents,
                         isLive = state.isLive,
+                        networkWaitingStatus = networkWaitingStatus,
                         modifier = Modifier.fillMaxSize()
                     )
 
@@ -524,6 +537,7 @@ private fun TorrentListContent(
     pendingTorrents: Set<String>,
     pendingRemovalTorrents: Set<String>,
     isLive: Boolean,
+    networkWaitingStatus: String? = null,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxSize()) {
@@ -560,7 +574,8 @@ private fun TorrentListContent(
                         isSelected = torrent.infoHash in selectedTorrents,
                         isLive = isLive,
                         isPending = torrent.infoHash in pendingTorrents,
-                        isPendingRemoval = torrent.infoHash in pendingRemovalTorrents
+                        isPendingRemoval = torrent.infoHash in pendingRemovalTorrents,
+                        networkWaitingStatus = networkWaitingStatus
                     )
                 }
             }

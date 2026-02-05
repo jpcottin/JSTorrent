@@ -470,8 +470,22 @@ class ForegroundNotificationService : Service() {
      * Check for torrent state transitions and show notifications.
      */
     private suspend fun checkStateTransitions(torrents: List<TorrentSummary>) {
+        val currentServiceState = _serviceState.value
+
         for (torrent in torrents) {
             val prev = previousStates[torrent.infoHash]
+
+            // Detect newly added torrent: not tracked before
+            if (prev == null) {
+                // If WiFi-only or VPN-only mode is blocking downloads, pause the new torrent
+                if (currentServiceState == ServiceState.PAUSED_WIFI ||
+                    currentServiceState == ServiceState.PAUSED_VPN) {
+                    if (torrent.status != "stopped") {
+                        Log.i(TAG, "Pausing newly added torrent due to network restriction: ${torrent.name}")
+                        pauseTorrentAsync(torrent.infoHash)
+                    }
+                }
+            }
 
             // Detect completion: wasn't complete before, now is
             if (torrent.progress >= 1.0 && (prev == null || prev.progress < 1.0)) {
