@@ -60,7 +60,10 @@ class StreamingWriteServer(
         }
 
         try {
-            serverSocket = ServerSocket(port)
+            serverSocket = ServerSocket().also {
+                it.reuseAddress = true
+                it.bind(java.net.InetSocketAddress(port))
+            }
             Log.i(TAG, "Listening on port $port")
 
             workerPool.start()

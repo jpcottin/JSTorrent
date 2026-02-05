@@ -88,7 +88,7 @@ private fun ProgressSection(
     modifier: Modifier = Modifier
 ) {
     val skippedFiles = torrent.files.count { !it.isSelected || it.priority == FilePriority.SKIP }
-    val isPartial = torrent.progress >= 0.999 && skippedFiles > 0
+    val isPartial = torrent.progress >= 1.0 && skippedFiles > 0
 
     Column(modifier = modifier.fillMaxWidth()) {
         // Status row
@@ -174,7 +174,7 @@ private fun SpeedSection(
         val etaComplete = stringResource(R.string.tab_status_eta_complete)
         StatRow(
             label = stringResource(R.string.tab_status_eta_label),
-            value = if (torrent.progress >= 0.999) {
+            value = if (torrent.progress >= 1.0) {
                 etaComplete
             } else {
                 torrent.eta?.let { Formatters.formatEta(it) } ?: "\u221e"

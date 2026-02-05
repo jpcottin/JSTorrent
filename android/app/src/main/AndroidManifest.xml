@@ -61,7 +61,7 @@
 
         </activity>
 
-        <!-- Link handler trampoline - processes magnet/torrent intents silently -->
+        <!-- Unified link handler - routes magnet/torrent intents to appropriate mode -->
         <activity
             android:name=".LinkHandlerActivity"
             android:exported="true"
@@ -69,8 +69,8 @@
             android:excludeFromRecents="true"
             android:noHistory="true">
 
-            <!-- Magnet links (Chromebook extension mode) -->
-            <intent-filter android:label="@string/file_handler_extension">
+            <!-- Magnet links -->
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -78,7 +78,7 @@
             </intent-filter>
 
             <!-- Torrent files via MIME type -->
-            <intent-filter android:label="@string/file_handler_extension">
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -86,7 +86,7 @@
             </intent-filter>
 
             <!-- Torrent files via file extension (content:// URIs) -->
-            <intent-filter android:label="@string/file_handler_extension">
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" />
@@ -95,7 +95,7 @@
             </intent-filter>
 
             <!-- Torrent files via file extension (file:// URIs) -->
-            <intent-filter android:label="@string/file_handler_extension">
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="file" android:host="*" />
@@ -169,51 +169,8 @@
             </intent-filter>
         </activity>
 
-        <!-- Standalone link handler trampoline - processes magnet/torrent for standalone mode -->
-        <activity
-            android:name=".StandaloneLinkHandlerActivity"
-            android:exported="true"
-            android:theme="@style/Theme.JSTorrent.Transparent"
-            android:excludeFromRecents="true"
-            android:noHistory="true">
-
-            <!-- Magnet links (standalone mode) -->
-            <intent-filter android:label="@string/file_handler_standalone">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="magnet" />
-            </intent-filter>
-
-            <!-- Torrent files via MIME type (standalone mode) -->
-            <intent-filter android:label="@string/file_handler_standalone">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:mimeType="application/x-bittorrent" />
-            </intent-filter>
-
-            <!-- Torrent files via file extension (content:// URIs) -->
-            <intent-filter android:label="@string/file_handler_standalone">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="content" />
-                <data android:host="*" />
-                <data android:pathPattern=".*\\.torrent" />
-            </intent-filter>
-
-            <!-- Torrent files via file extension (file:// URIs) -->
-            <intent-filter android:label="@string/file_handler_standalone">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="file" android:host="*" />
-                <data android:pathPattern=".*\\.torrent" />
-            </intent-filter>
-
-        </activity>
-
         <!-- Native standalone activity (Compose UI with QuickJS engine) -->
-        <!-- Launched via StandaloneLinkHandlerActivity or MainActivity -->
+        <!-- Launched via LinkHandlerActivity or MainActivity -->
         <activity
             android:name=".NativeStandaloneActivity"
             android:exported="true"

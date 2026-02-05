@@ -57,7 +57,7 @@ abstract class CompanionTestBase {
             }
             // Log warning if ioPort still not ready
             val service = IoDaemonService.instance
-            if (service?.ioPort == 0) {
+            if (service?.ioPort == -1) {
                 android.util.Log.w("CompanionTestBase", "ioPort not available after 10s, port=${service?.port}")
             }
         }

@@ -94,6 +94,7 @@ class JavaWebSocketServer(
                     onControlSessionRegistered,
                     onControlSessionUnregistered
                 )
+                s.isReuseAddr = true
                 s.connectionLostTimeout = 60
                 s.isTcpNoDelay = true
                 s.start()

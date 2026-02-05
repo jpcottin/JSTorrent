@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import com.jstorrent.app.auth.TokenStore
 import com.jstorrent.app.link.PendingLinkManager
 import com.jstorrent.app.mode.ModeDetector
 import com.jstorrent.app.service.IoDaemonService
@@ -13,15 +14,17 @@ private const val TAG = "LinkHandlerActivity"
 private const val EXTENSION_URL = "https://new.jstorrent.com/launch"
 
 /**
- * Transparent trampoline activity for handling magnet links and torrent files.
+ * Unified link handler for magnet links and torrent files.
  *
  * This activity has no UI and finishes immediately after processing the intent.
- * This prevents the companion app from coming to the foreground when the user
- * clicks a magnet link - only the extension UI should appear.
+ * It routes to the appropriate mode based on platform and current app state:
  *
  * Routing logic:
- * - Chromebook: Process via IoDaemonService (bridge to extension)
- * - Non-Chromebook: Forward to NativeStandaloneActivity
+ * - Non-Chromebook: Always route to standalone (NativeStandaloneActivity)
+ * - Chromebook:
+ *   - If standalone is active (NativeStandaloneActivity in foreground): route to standalone
+ *   - If companion has active connection: route to companion (extension bridge)
+ *   - Otherwise: use user preference (TokenStore.preferStandaloneOnChromebook)
  */
 class LinkHandlerActivity : Activity() {
 
@@ -39,10 +42,36 @@ class LinkHandlerActivity : Activity() {
 
         val isChromebook = ModeDetector.isChromebook(this)
 
-        if (isChromebook) {
-            handleChromebookIntent(uri)
-        } else {
+        if (!isChromebook) {
+            // Non-Chromebook: always standalone
+            Log.i(TAG, "Non-Chromebook device, routing to standalone")
             handleStandaloneIntent(uri)
+        } else {
+            // Chromebook: smart routing based on current state
+            val routeToStandalone = when {
+                // Standalone is currently in foreground
+                NativeStandaloneActivity.isActive -> {
+                    Log.i(TAG, "Chromebook: Standalone is active, routing to standalone")
+                    true
+                }
+                // Companion has active connection to extension
+                IoDaemonService.instance?.hasActiveControlConnection() == true -> {
+                    Log.i(TAG, "Chromebook: Companion connection active, routing to companion")
+                    false
+                }
+                // Neither running: use user preference
+                else -> {
+                    val preferStandalone = TokenStore(this).preferStandaloneOnChromebook
+                    Log.i(TAG, "Chromebook: Neither mode active, using preference (standalone=$preferStandalone)")
+                    preferStandalone
+                }
+            }
+
+            if (routeToStandalone) {
+                handleStandaloneIntent(uri)
+            } else {
+                handleCompanionIntent(uri)
+            }
         }
 
         // Always finish immediately - this activity has no UI
@@ -50,23 +79,23 @@ class LinkHandlerActivity : Activity() {
     }
 
     /**
-     * Chromebook mode: Process link via IoDaemonService to bridge to extension.
+     * Companion mode: Process link via IoDaemonService to bridge to extension.
      */
-    private fun handleChromebookIntent(uri: Uri) {
+    private fun handleCompanionIntent(uri: Uri) {
         // Ensure service is running
         IoDaemonService.start(this)
 
         when {
             uri.scheme == "magnet" -> {
-                Log.i(TAG, "Chromebook: Magnet link")
+                Log.i(TAG, "Companion: Magnet link")
                 handleMagnetLink(uri.toString())
             }
             uri.scheme == "file" || uri.scheme == "content" -> {
-                Log.i(TAG, "Chromebook: Torrent file")
+                Log.i(TAG, "Companion: Torrent file")
                 handleTorrentFile(uri)
             }
             else -> {
-                Log.w(TAG, "Chromebook: Unknown URI scheme: ${uri.scheme}")
+                Log.w(TAG, "Companion: Unknown URI scheme: ${uri.scheme}")
             }
         }
     }

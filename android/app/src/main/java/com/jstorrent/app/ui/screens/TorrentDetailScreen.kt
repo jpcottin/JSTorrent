@@ -433,7 +433,7 @@ private fun openFile(
     val file = files.find { it.index == fileIndex } ?: return
 
     // Check if file is complete enough to open
-    if (file.progress < 0.999) {
+    if (file.progress < 1.0) {
         Toast.makeText(
             context,
             context.getString(R.string.torrent_detail_file_not_downloaded),

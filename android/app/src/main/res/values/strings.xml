@@ -1,7 +1,5 @@
 <resources>
     <string name="app_name">JSTorrent</string>
-    <string name="file_handler_standalone">JSTorrent (Standalone)</string>
-    <string name="file_handler_extension">JSTorrent (Extension)</string>
 
     <!-- TorrentListScreen -->
     <string name="torrent_list_engine_error">Engine error: check logs for details</string>

@@ -800,20 +800,22 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       this.emit('error', err)
     })
 
-    // Start if engine not suspended AND user wants it active
-    if (!this._suspended && torrent.userState === 'active') {
-      await torrent.start()
-      // Note: peer hints are now added inside torrent.start()
-    }
-
     // Save torrent file for file-source torrents (write once)
     if (options.source !== 'restore' && options.source !== 'reset' && input.torrentFileBuffer) {
       await this.sessionPersistence.saveTorrentFile(input.infoHashStr, input.torrentFileBuffer)
     }
 
-    // Persist torrent list (unless restoring from session or resetting)
+    // Persist torrent list BEFORE starting - must happen before any async work
+    // that could yield control (e.g., torrent.start()), otherwise a quick pause
+    // could interrupt before the list is saved
     if (options.source !== 'restore' && options.source !== 'reset') {
       await this.sessionPersistence.saveTorrentList()
+    }
+
+    // Start if engine not suspended AND user wants it active
+    if (!this._suspended && torrent.userState === 'active') {
+      await torrent.start()
+      // Note: peer hints are now added inside torrent.start()
     }
 
     return { torrent, isDuplicate: false }

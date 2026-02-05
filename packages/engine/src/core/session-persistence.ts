@@ -117,7 +117,11 @@ export class SessionPersistence {
       }),
     }
 
+    this.logger.info(
+      `saveTorrentList: saving ${data.torrents.length} torrents: ${data.torrents.map((t) => `${t.infoHash.slice(0, 8)}(${t.source})`).join(', ')}`,
+    )
     await this._store.setJson(TORRENTS_KEY, data)
+    this.logger.info('saveTorrentList: save completed')
   }
 
   /**
@@ -212,8 +216,15 @@ export class SessionPersistence {
    */
   async loadTorrentList(): Promise<TorrentListEntry[]> {
     const data = await this._store.getJson<TorrentListData>(TORRENTS_KEY)
-    if (!data) return []
-    return data.torrents || []
+    if (!data) {
+      this.logger.info('loadTorrentList: no data found in storage')
+      return []
+    }
+    const entries = data.torrents || []
+    this.logger.info(
+      `loadTorrentList: loaded ${entries.length} entries: ${entries.map((t) => `${t.infoHash.slice(0, 8)}(${t.source})`).join(', ')}`,
+    )
+    return entries
   }
 
   /**

@@ -150,6 +150,7 @@ class NettyHttpServer(
                     .channel(NioServerSocketChannel::class.java)
                     .childHandler(NettyHttpChannelInitializer(deps, fileManager, pairingDialogShowing, ioPortProvider = { ioPort }, streamingPortProvider = { streamingPort }))
                     .option(ChannelOption.SO_BACKLOG, 128)
+                    .option(ChannelOption.SO_REUSEADDR, true)
                     .childOption(ChannelOption.SO_KEEPALIVE, true)
                     .childOption(ChannelOption.TCP_NODELAY, true)
                     .childOption(ChannelOption.SO_RCVBUF, 256 * 1024)

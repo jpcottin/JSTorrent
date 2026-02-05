@@ -164,7 +164,7 @@ private fun DatesSection(
             label = "Date Finished",
             value = when {
                 completedAt != null -> Formatters.formatDateTime(completedAt)
-                progress >= 0.999 -> "Complete"
+                progress >= 1.0 -> "Complete"
                 else -> "In Progress"
             }
         )

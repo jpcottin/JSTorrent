@@ -11,9 +11,12 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import org.junit.Assert.*
+import org.junit.After
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.net.ServerSocket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -23,6 +26,42 @@ private const val TAG = "TcpSocketTest"
 @RunWith(AndroidJUnit4::class)
 class TcpSocketTest : CompanionTestBase() {
 
+    // Local TCP server for testing - avoids relying on external hosts like google.com
+    private var testServer: ServerSocket? = null
+    private var testServerPort: Int = 0
+
+    @Before
+    override fun setUp() {
+        super.setUp()
+        // Start a local TCP server that accepts connections
+        testServer = ServerSocket(0).also { server ->
+            testServerPort = server.localPort
+            // Accept connections in background thread
+            Thread {
+                try {
+                    while (!server.isClosed) {
+                        val socket = server.accept()
+                        Log.i(TAG, "Test server accepted connection from ${socket.remoteSocketAddress}")
+                        // Just close the connection - we only need to test that connect works
+                        socket.close()
+                    }
+                } catch (e: Exception) {
+                    if (!server.isClosed) {
+                        Log.e(TAG, "Test server error", e)
+                    }
+                }
+            }.start()
+        }
+        Log.i(TAG, "Test server started on port $testServerPort")
+    }
+
+    @After
+    override fun tearDown() {
+        testServer?.close()
+        testServer = null
+        super.tearDown()
+    }
+
     /**
      * Helper to get an authenticated WebSocket.
      */
@@ -31,8 +70,8 @@ class TcpSocketTest : CompanionTestBase() {
         val latch = CountDownLatch(1)
 
         // /io endpoint is on the java-websocket server (ioPort), not Ktor (port)
-        val ioPort = IoDaemonService.instance?.ioPort
-            ?: throw AssertionError("ioPort not available")
+        val ioPort = IoDaemonService.instance?.ioPort?.takeIf { it > 0 }
+            ?: throw AssertionError("ioPort not available (WebSocket server failed to start)")
         val request = Request.Builder()
             .url("ws://127.0.0.1:$ioPort/io")
             .build()
@@ -89,10 +128,10 @@ class TcpSocketTest : CompanionTestBase() {
 
         connectAndAuth(
             onAuthenticated = { ws ->
-                // TCP_CONNECT to google.com:80
+                // TCP_CONNECT to our local test server
                 val socketId = 1
-                val port: Short = 80
-                val host = "google.com"
+                val port: Short = testServerPort.toShort()
+                val host = "127.0.0.1"
 
                 val payload = socketId.toLEBytes() +
                     port.toLEBytes() +
@@ -126,15 +165,16 @@ class TcpSocketTest : CompanionTestBase() {
     }
 
     @Test
-    fun tcpConnectToInvalidHostFails() {
+    fun tcpConnectToClosedPortFails() {
         val connectLatch = CountDownLatch(1)
         var connectFailed = false
 
         connectAndAuth(
             onAuthenticated = { ws ->
                 val socketId = 1
-                val port: Short = 12345
-                val host = "invalid.nonexistent.host.test"
+                // Use a port that's definitely not listening - connection refused is faster than DNS failure
+                val port: Short = 31999
+                val host = "127.0.0.1"
 
                 val payload = socketId.toLEBytes() +
                     port.toLEBytes() +
@@ -156,6 +196,6 @@ class TcpSocketTest : CompanionTestBase() {
         )
 
         assertTrue("Should receive response", connectLatch.await(15, TimeUnit.SECONDS))
-        assertTrue("Connect should fail for invalid host", connectFailed)
+        assertTrue("Connect should fail for closed port", connectFailed)
     }
 }

@@ -169,16 +169,17 @@ class TorrentListViewModel(
                 )
             }
 
-            // Engine is loaded but torrents empty AND cache has data - prefer cache during subscription transitions
+            // Engine is loaded but no state received yet AND cache has data - prefer cache during subscription transitions
             // This prevents flicker when navigating back from detail view (subscription gap)
-            dataSource.isLoaded && dataSource.cachedSummaries.isNotEmpty() -> {
+            // Note: only applies when state is null (no state sent yet), not when state is empty (deliberately empty)
+            dataSource.isLoaded && dataSource.state == null && dataSource.cachedSummaries.isNotEmpty() -> {
                 val torrents = dataSource.cachedSummaries.map { cached ->
                     with(cache!!) { cached.toTorrentSummary() }
                 }
                 val filteredTorrents = torrents
                     .filterByStatus(filter)
                     .sortWithLastActive()
-                android.util.Log.d("TorrentListVM", "-> Engine loaded, showing cache during transition, ${filteredTorrents.size} torrents")
+                android.util.Log.d("TorrentListVM", "-> Engine loaded but no state yet, showing cache, ${filteredTorrents.size} torrents")
                 TorrentListUiState.Loaded(
                     torrents = filteredTorrents,
                     filter = filter,

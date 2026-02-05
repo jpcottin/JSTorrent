@@ -62,7 +62,6 @@ class BackgroundServiceLazyEngineTest {
     }
 
     @Test
-    @Ignore("Flaky on CI - foreground service timing issue on slow emulators. Passes locally.")
     fun testEngineNotStartedWhenNoActiveTorrents() {
         runBlocking {
             Log.i(TAG, "Testing engine not started when no active torrents in cache")

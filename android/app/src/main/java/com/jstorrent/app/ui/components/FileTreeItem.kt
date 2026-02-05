@@ -184,7 +184,7 @@ private fun getFileIcon(fileName: String): ImageVector {
 @Composable
 private fun getIconTint(file: TorrentFileUi) = when {
     !file.isSelected -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-    file.progress >= 0.999 -> MaterialTheme.colorScheme.primary
+    file.progress >= 1.0 -> MaterialTheme.colorScheme.primary
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
@@ -200,7 +200,7 @@ private fun formatFileStatus(file: TorrentFileUi): String {
 
     val statusText = when {
         !file.isSelected || file.priority == FilePriority.SKIP -> "Skipped"
-        file.progress >= 0.999 -> "Complete"
+        file.progress >= 1.0 -> "Complete"
         file.progress > 0 -> "Downloading"
         else -> "Pending"
     }

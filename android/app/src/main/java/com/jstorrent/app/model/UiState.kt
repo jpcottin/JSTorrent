@@ -242,7 +242,7 @@ fun List<TorrentSummary>.filterByStatus(filter: TorrentFilter): List<TorrentSumm
         }
         TorrentFilter.FINISHED -> this.filter { torrent ->
             torrent.status == "seeding" ||
-            (torrent.status == "stopped" && torrent.progress >= 0.999)
+            (torrent.status == "stopped" && torrent.progress >= 1.0)
         }
     }
 }
@@ -281,7 +281,7 @@ fun TorrentSummary.isPaused(): Boolean {
  * Check if a torrent is completed.
  */
 fun TorrentSummary.isCompleted(): Boolean {
-    return progress >= 0.999
+    return progress >= 1.0
 }
 
 /**

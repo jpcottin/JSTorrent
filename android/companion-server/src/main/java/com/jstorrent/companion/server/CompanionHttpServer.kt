@@ -47,7 +47,7 @@ class CompanionHttpServer(
     private val controlSessions = CopyOnWriteArrayList<ControlWebSocketHandler>()
 
     val port: Int get() = httpServer?.boundPort ?: 0
-    val ioPort: Int get() = wsServer?.port ?: 0
+    val ioPort: Int get() = wsServer?.port ?: -1
     val streamingPort: Int get() = streamingServer?.let { if (it.isRunning()) httpServer?.boundPort?.plus(2) ?: 0 else 0 } ?: 0
     val isRunning: Boolean get() = httpServer?.isRunning == true
 

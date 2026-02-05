@@ -135,7 +135,7 @@ class IoDaemonService : Service() {
      * Returns 0 if not available.
      */
     val ioPort: Int
-        get() = httpServer?.ioPort ?: 0
+        get() = httpServer?.ioPort ?: -1
 
     /**
      * Check if the HTTP server is running and ready.

@@ -190,7 +190,7 @@ fun TorrentCard(
                                     buildString {
                                         append(Formatters.formatPercent(torrent.progress))
                                         // Show "(partial)" when seeding with skipped files
-                                        if (torrent.progress >= 0.999 && torrent.skippedFilesCount > 0) {
+                                        if (torrent.progress >= 1.0 && torrent.skippedFilesCount > 0) {
                                             append(" $partialSuffix")
                                         }
                                     }
@@ -203,7 +203,7 @@ fun TorrentCard(
                     // ETA right-aligned (only show when downloading with speed > 0, not for error/removing state)
                     if (displayStatus != "error" && displayStatus != "removing") {
                         torrent.eta?.let { eta ->
-                            if (eta > 0 && torrent.progress < 0.999) {
+                            if (eta > 0 && torrent.progress < 1.0) {
                                 Text(
                                     text = stringResource(
                                         R.string.component_torrent_card_eta_prefix,

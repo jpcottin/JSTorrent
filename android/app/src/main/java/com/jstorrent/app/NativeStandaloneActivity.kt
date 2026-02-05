@@ -57,6 +57,16 @@ private const val TAG = "NativeStandaloneActivity"
  */
 class NativeStandaloneActivity : ComponentActivity() {
 
+    companion object {
+        /**
+         * True when this activity is in the foreground (resumed).
+         * Used by LinkHandlerActivity to detect if standalone mode is currently active.
+         */
+        @Volatile
+        var isActive: Boolean = false
+            private set
+    }
+
     private lateinit var rootStore: RootStore
     private lateinit var settingsStore: SettingsStore
     private lateinit var metricsStore: MetricsStore
@@ -220,6 +230,7 @@ class NativeStandaloneActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        isActive = true
 
         // Refresh roots (may have been added via AddRootActivity)
         rootStore.reload()
@@ -238,6 +249,11 @@ class NativeStandaloneActivity : ComponentActivity() {
         if (!showNotificationDialog.value && metricsStore.shouldShowReviewPrompt()) {
             showReviewDialog.value = true
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        isActive = false
     }
 
     /**
