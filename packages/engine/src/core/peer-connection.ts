@@ -54,7 +54,7 @@ export class PeerConnection extends EngineComponent {
   private socket: ITcpSocket
   private buffer = new ChunkedBuffer()
   public handshakeReceived = false
-  private corruptionLogged = false // Only log corruption details once per connection
+
 
   // Send queue for batching - flushed at end of tick
   private sendQueue: Uint8Array[] = []
@@ -477,20 +477,18 @@ export class PeerConnection extends EngineComponent {
       const length = this.buffer.peekUint32(0)
       if (length === null) break
 
-      // Detect corrupted stream: no valid BitTorrent message exceeds 16MB
-      if (length > 16 * 1024 * 1024) {
-        if (!this.corruptionLogged) {
-          this.corruptionLogged = true
-          const firstBytes = this.buffer.peekBytes(0, Math.min(40, this.buffer.length))
-          const hex = firstBytes ? toHex(firstBytes) : 'null'
-          const info = this.buffer.debugInfo()
-          console.warn(
-            `[peer] CORRUPTED STREAM: msgLen=${length} (${(length / 1024 / 1024).toFixed(1)}MB), ` +
-              `first40=${hex}, bufLen=${this.buffer.length}, ` +
-              `bufInfo=${JSON.stringify(info)}, peer=${this.remoteAddress}:${this.remotePort}`,
-          )
-        }
-        break
+      // No valid BitTorrent message exceeds 1MB; disconnect peers sending invalid lengths
+      if (length > 1024 * 1024) {
+        const firstBytes = this.buffer.peekBytes(0, Math.min(40, this.buffer.length))
+        const hex = firstBytes ? toHex(firstBytes) : 'null'
+        const info = this.buffer.debugInfo()
+        console.warn(
+          `[peer] CORRUPTED STREAM: msgLen=${length} (${(length / 1024 / 1024).toFixed(1)}MB), ` +
+            `first40=${hex}, bufLen=${this.buffer.length}, ` +
+            `bufInfo=${JSON.stringify(info)}, peer=${this.remoteAddress}:${this.remotePort}`,
+        )
+        this.close()
+        return
       }
 
       const totalLength = 4 + length
