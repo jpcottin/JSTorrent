@@ -74,12 +74,13 @@ class EngineServiceRepository(
     private var connectedController: EngineController? = null
     private var collectionJobs: List<Job> = emptyList()
 
-    // Track pending subscription visibility count for when controller isn't available yet.
-    // This handles the race condition where screens call registerUpdateConsumer() before
-    // the engine is loaded. When the controller becomes available, we replay the count.
+    // Track subscription visibility count across engine restarts.
+    // This handles two scenarios:
+    // 1. Screens call registerUpdateConsumer() before the engine is loaded
+    // 2. Engine restarts (new EngineController) - we need to replay the current count
     // NOTE: This is the ONLY Kotlin-side queue - it tracks UI lifecycle state, not commands.
     // All command queueing happens on the JS side (see controller.ts executeOrQueue).
-    private var pendingVisibilityCount = 0
+    private var visibilityCount = 0
     private val visibilityLock = Any()
 
     init {
@@ -109,13 +110,13 @@ class EngineServiceRepository(
                         launch { currentController.lastError.collect { _lastError.value = it } }
                     )
 
-                    // Replay pending visibility count that was tracked before controller was available.
-                    // This handles the case where screens called registerUpdateConsumer() before engine loaded.
-                    val countToReplay = synchronized(visibilityLock) {
-                        val count = pendingVisibilityCount
-                        pendingVisibilityCount = 0
-                        count
-                    }
+                    // Replay visibility count to the new controller.
+                    // This handles both:
+                    // 1. Screens called registerUpdateConsumer() before engine loaded
+                    // 2. Engine restarted (new controller) - need to restore subscription state
+                    // We do NOT reset the count - it persists across engine restarts.
+                    val countToReplay = synchronized(visibilityLock) { visibilityCount }
+                    Log.d("EngineServiceRepo", "Replaying visibility count: $countToReplay to new controller")
                     repeat(countToReplay) {
                         currentController.registerUpdateConsumer()
                     }
@@ -257,26 +258,24 @@ class EngineServiceRepository(
     }
 
     override fun unregisterUpdateConsumer() {
-        val ctrl = controller
-        if (ctrl != null) {
-            ctrl.unregisterUpdateConsumer()
-        } else {
-            // Controller not available yet - track pending state for later replay
-            synchronized(visibilityLock) {
-                pendingVisibilityCount = maxOf(0, pendingVisibilityCount - 1)
-            }
+        // Always track the count so we can replay it if the engine restarts.
+        // The count persists across engine restarts - this is the source of truth
+        // for how many screens/services are currently expecting updates.
+        synchronized(visibilityLock) {
+            visibilityCount = maxOf(0, visibilityCount - 1)
         }
+        // Forward to controller if available
+        controller?.unregisterUpdateConsumer()
     }
 
     override fun registerUpdateConsumer() {
-        val ctrl = controller
-        if (ctrl != null) {
-            ctrl.registerUpdateConsumer()
-        } else {
-            // Controller not available yet - track pending state for later replay
-            synchronized(visibilityLock) {
-                pendingVisibilityCount++
-            }
+        // Always track the count so we can replay it if the engine restarts.
+        // The count persists across engine restarts - this is the source of truth
+        // for how many screens/services are currently expecting updates.
+        synchronized(visibilityLock) {
+            visibilityCount++
         }
+        // Forward to controller if available
+        controller?.registerUpdateConsumer()
     }
 }

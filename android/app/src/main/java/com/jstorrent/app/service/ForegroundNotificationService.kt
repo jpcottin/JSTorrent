@@ -115,15 +115,15 @@ class ForegroundNotificationService : Service() {
     val controller: EngineController?
         get() = app.engineController
 
-    // Exposed state for UI
-    val state: StateFlow<EngineState?>?
-        get() = controller?.state
+    // Exposed state for UI - provide defaults when controller is null to avoid double-nullability
+    val state: StateFlow<EngineState?>
+        get() = controller?.state ?: MutableStateFlow(null)
 
-    val isLoaded: StateFlow<Boolean>?
-        get() = controller?.isLoaded
+    val isLoaded: StateFlow<Boolean>
+        get() = controller?.isLoaded ?: MutableStateFlow(false)
 
-    val lastError: StateFlow<String?>?
-        get() = controller?.lastError
+    val lastError: StateFlow<String?>
+        get() = controller?.lastError ?: MutableStateFlow(null)
 
     override fun onCreate() {
         super.onCreate()
@@ -169,7 +169,7 @@ class ForegroundNotificationService : Service() {
         // Acquire wake locks if enabled AND there are active downloads
         // (Wake locks are only for downloading, not seeding)
         if (settingsStore.cpuWakeLockEnabled) {
-            val initialTorrents = state?.value?.torrents ?: emptyList()
+            val initialTorrents = state.value?.torrents ?: emptyList()
             hasActiveDownloads = initialTorrents.any { torrent ->
                 torrent.status in listOf("downloading", "downloading_metadata", "checking")
             }
@@ -206,8 +206,11 @@ class ForegroundNotificationService : Service() {
         notificationUpdateJob?.cancel()
         notificationUpdateJob = null
 
-        // Unsubscribe from torrent updates and unregister as update consumer
-        controller?.unsubscribe("torrents", "")
+        // Unregister as update consumer (decrements visibility count).
+        // NOTE: We deliberately do NOT unsubscribe from "torrents" here.
+        // The screen's TorrentListViewModel manages the subscription lifecycle.
+        // If we unsubscribe, we race with the screen's subscribe and can remove
+        // the screen's subscription, causing "no torrents yet" to appear.
         controller?.unregisterUpdateConsumer()
 
         // NOTE: Engine is NOT destroyed here - it lives in Application
@@ -457,7 +460,7 @@ class ForegroundNotificationService : Service() {
             // Seed previousStates with current state before starting the loop.
             // This prevents showing completion notifications for torrents that were
             // already complete before the service started (e.g., after service restart).
-            val initialTorrents = state?.value?.torrents ?: emptyList()
+            val initialTorrents = state.value?.torrents ?: emptyList()
             for (torrent in initialTorrents) {
                 previousStates[torrent.infoHash] = TorrentStateSnapshot(
                     progress = torrent.progress,
@@ -466,7 +469,7 @@ class ForegroundNotificationService : Service() {
             }
 
             while (isActive) {
-                val torrents = state?.value?.torrents ?: emptyList()
+                val torrents = state.value?.torrents ?: emptyList()
 
                 // Check for state transitions
                 checkStateTransitions(torrents)
@@ -574,7 +577,7 @@ class ForegroundNotificationService : Service() {
      */
     fun pauseAllTorrents() {
         ioScope.launch {
-            val torrents = state?.value?.torrents ?: return@launch
+            val torrents = state.value?.torrents ?: return@launch
             for (torrent in torrents) {
                 if (torrent.status != "stopped") {
                     pauseTorrentAsync(torrent.infoHash)
@@ -588,7 +591,7 @@ class ForegroundNotificationService : Service() {
      */
     fun resumeAllTorrents() {
         ioScope.launch {
-            val torrents = state?.value?.torrents ?: return@launch
+            val torrents = state.value?.torrents ?: return@launch
             for (torrent in torrents) {
                 if (torrent.status == "stopped") {
                     resumeTorrentAsync(torrent.infoHash)
