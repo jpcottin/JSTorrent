@@ -2,6 +2,16 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.14] - 2026-02-05
+
+### Fixed
+- TCP data reordering race condition that caused download stalls
+- Disconnect peers sending invalid message lengths (>1MB)
+
+### Changed
+- Restored endgame piece requesting for faster download completion
+- Handler queue tracking for active pieces
+
 ## [1.0.13] - 2026-02-05
 
 ### Fixed
