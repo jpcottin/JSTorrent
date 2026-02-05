@@ -116,6 +116,9 @@ class ForegroundNotificationService : Service() {
     private val _serviceState = MutableStateFlow(ServiceState.RUNNING)
     val serviceState: StateFlow<ServiceState> = _serviceState.asStateFlow()
 
+    // Track if startForeground has been called for this service instance
+    private var hasCalledStartForeground = false
+
     // Main thread handler for toasts
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -143,17 +146,8 @@ class ForegroundNotificationService : Service() {
         // CRITICAL: Call startForeground immediately in onCreate to avoid ANR on slow devices.
         // Android requires startForeground within ~5 seconds of startForegroundService().
         // On slow CI emulators, waiting until onStartCommand can exceed this timeout.
-        val initialNotification = notificationManager.buildNotification(emptyList())
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                ForegroundNotificationManager.NOTIFICATION_ID,
-                initialNotification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            startForeground(ForegroundNotificationManager.NOTIFICATION_ID, initialNotification)
-        }
-        Log.i(TAG, "startForeground called")
+        callStartForeground()
+        Log.i(TAG, "startForeground called in onCreate")
 
         // Initialize remaining dependencies
         rootStore = RootStore(this)
@@ -168,7 +162,16 @@ class ForegroundNotificationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "Service starting")
+        Log.i(TAG, "Service starting (onStartCommand)")
+
+        // Ensure startForeground is called for this startForegroundService() request.
+        // This handles the case where the service is reused after a rapid stop/start cycle
+        // (stopService followed quickly by startForegroundService). In that case, onCreate
+        // may not be called again, but Android still expects startForeground() to be called.
+        if (!hasCalledStartForeground) {
+            Log.i(TAG, "startForeground not yet called, calling now")
+            callStartForeground()
+        }
 
         // Start notification updates
         // Engine is already initialized by Activity before service starts
@@ -201,6 +204,7 @@ class ForegroundNotificationService : Service() {
     override fun onDestroy() {
         Log.i(TAG, "Service destroying")
         instance = null
+        hasCalledStartForeground = false
 
         // Stop Doze monitoring
         dozeMonitor?.stop()
@@ -230,6 +234,24 @@ class ForegroundNotificationService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /**
+     * Call startForeground with the appropriate notification and service type.
+     * Tracks that it's been called to avoid redundant calls within the same lifecycle.
+     */
+    private fun callStartForeground() {
+        val notification = notificationManager.buildNotification(emptyList())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                ForegroundNotificationManager.NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            startForeground(ForegroundNotificationManager.NOTIFICATION_ID, notification)
+        }
+        hasCalledStartForeground = true
+    }
 
     // =========================================================================
     // Bandwidth Control API

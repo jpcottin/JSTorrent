@@ -1,6 +1,8 @@
 package com.jstorrent.app.service
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.jstorrent.app.cache.TorrentSummaryCache
 import com.jstorrent.app.settings.SettingsStore
@@ -40,7 +42,8 @@ class ServiceLifecycleManager(
     val isActivityForeground: StateFlow<Boolean> = _isActivityForeground
 
     private var hasActiveWork = false
-    private var serviceRunning = false
+    // Sync with actual service state on init to handle crashes/restarts
+    private var serviceRunning = ForegroundNotificationService.instance != null
     private var engineShutdownForBackground = false
     private var hasEverBeenForeground = false  // Track if activity has ever been visible
     private var userRequestedQuit = false  // Prevents auto-restart after explicit quit
@@ -54,6 +57,15 @@ class ServiceLifecycleManager(
         _isActivityForeground.value = true
         hasEverBeenForeground = true
         userRequestedQuit = false  // Reset quit flag when user returns to app
+
+        // Clean up any orphaned service (e.g., after a crash where serviceRunning flag was lost).
+        // The service should not run when activity is in foreground.
+        if (ForegroundNotificationService.instance != null) {
+            Log.i(TAG, "Cleaning up orphaned foreground service")
+            ForegroundNotificationService.stop(context)
+            serviceRunning = false
+        }
+
         updateServiceState()
     }
 
