@@ -39,6 +39,16 @@ class TorrentListViewModel(
     // The tracker handles ref-counting and pending state, so we can subscribe immediately.
     private var torrentsSubscription: SubscriptionHandle? = null
 
+    // Pending action state - torrents that have been tapped but engine hasn't responded yet
+    // This provides immediate visual feedback when user taps play/pause while engine is starting
+    // NOTE: Must be declared BEFORE init block since the coroutine accesses these
+    private val _pendingTorrents = MutableStateFlow<Set<String>>(emptySet())
+    val pendingTorrents: StateFlow<Set<String>> = _pendingTorrents.asStateFlow()
+
+    // Pending removal state - torrents being removed, shows "Removing" status with faded appearance
+    private val _pendingRemovalTorrents = MutableStateFlow<Set<String>>(emptySet())
+    val pendingRemovalTorrents: StateFlow<Set<String>> = _pendingRemovalTorrents.asStateFlow()
+
     init {
         // Load cache asynchronously on initialization
         cache?.let { summaryCache ->
@@ -81,15 +91,6 @@ class TorrentListViewModel(
     // Selection state for multi-select mode
     private val _selectedTorrents = MutableStateFlow<Set<String>>(emptySet())
     val selectedTorrents: StateFlow<Set<String>> = _selectedTorrents.asStateFlow()
-
-    // Pending action state - torrents that have been tapped but engine hasn't responded yet
-    // This provides immediate visual feedback when user taps play/pause while engine is starting
-    private val _pendingTorrents = MutableStateFlow<Set<String>>(emptySet())
-    val pendingTorrents: StateFlow<Set<String>> = _pendingTorrents.asStateFlow()
-
-    // Pending removal state - torrents being removed, shows "Removing" status with faded appearance
-    private val _pendingRemovalTorrents = MutableStateFlow<Set<String>>(emptySet())
-    val pendingRemovalTorrents: StateFlow<Set<String>> = _pendingRemovalTorrents.asStateFlow()
 
     // Track when each torrent was last actively downloading (for stable speed sorting)
     // When a torrent stops, it keeps its position based on when it was last active
