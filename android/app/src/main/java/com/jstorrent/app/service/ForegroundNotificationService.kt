@@ -149,6 +149,20 @@ class ForegroundNotificationService : Service() {
         callStartForeground()
         Log.i(TAG, "startForeground called in onCreate")
 
+        // Set singleton BEFORE notifying lifecycle manager, so shouldServiceStopImmediately
+        // can safely call stop() on us.
+        instance = this
+
+        // Notify lifecycle manager that we've started (clears serviceStartPending flag)
+        app.serviceLifecycleManager.onServiceCreated()
+
+        // Check if we should stop immediately (activity returned to foreground during our startup)
+        if (app.serviceLifecycleManager.shouldServiceStopImmediately()) {
+            Log.i(TAG, "Activity is foreground - stopping immediately after onCreate")
+            stopSelf()
+            return
+        }
+
         // Initialize remaining dependencies
         rootStore = RootStore(this)
         configHub = app.getConfigHub()
@@ -156,9 +170,6 @@ class ForegroundNotificationService : Service() {
         torrentNotificationManager = TorrentNotificationManager(this)
         dozeMonitor = DozeMonitor(this)
         repository = app.engineServiceRepository
-
-        // Set singleton
-        instance = this
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -171,6 +182,13 @@ class ForegroundNotificationService : Service() {
         if (!hasCalledStartForeground) {
             Log.i(TAG, "startForeground not yet called, calling now")
             callStartForeground()
+        }
+
+        // If we're stopping immediately (activity returned to foreground during startup),
+        // don't initialize anything - just return. onCreate() already called stopSelf().
+        if (app.serviceLifecycleManager.shouldServiceStopImmediately()) {
+            Log.i(TAG, "Stopping immediately - skipping onStartCommand initialization")
+            return START_NOT_STICKY
         }
 
         // Start notification updates
@@ -205,6 +223,13 @@ class ForegroundNotificationService : Service() {
         Log.i(TAG, "Service destroying")
         instance = null
         hasCalledStartForeground = false
+
+        // Explicitly cancel the foreground notification.
+        // Android should do this automatically, but there's a race condition
+        // with rapid start/stop cycles where the notification can get orphaned.
+        val systemNotificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        systemNotificationManager.cancel(ForegroundNotificationManager.NOTIFICATION_ID)
+        Log.d(TAG, "Cancelled foreground notification")
 
         // Stop Doze monitoring
         dozeMonitor?.stop()

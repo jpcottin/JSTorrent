@@ -1,8 +1,6 @@
 package com.jstorrent.app.service
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import com.jstorrent.app.cache.TorrentSummaryCache
 import com.jstorrent.app.settings.SettingsStore
@@ -49,6 +47,11 @@ class ServiceLifecycleManager(
     private var userRequestedQuit = false  // Prevents auto-restart after explicit quit
     private var engineHasReportedState = false  // True once engine has reported torrent state
 
+    // Track if we've called startForegroundService() but the service hasn't started yet.
+    // We must NOT call stopService() in this state or Android crashes with
+    // ForegroundServiceDidNotStartInTimeException.
+    private var serviceStartPending = false
+
     /**
      * Called from Activity.onStart()
      */
@@ -58,8 +61,15 @@ class ServiceLifecycleManager(
         hasEverBeenForeground = true
         userRequestedQuit = false  // Reset quit flag when user returns to app
 
-        // Clean up any orphaned service (e.g., after a crash where serviceRunning flag was lost).
-        // The service should not run when activity is in foreground.
+        // If service start is pending (startForegroundService called but onCreate not yet run),
+        // we CANNOT call stopService() or Android crashes. The service will check
+        // shouldStopImmediately() in onStartCommand and stop itself.
+        if (serviceStartPending) {
+            Log.d(TAG, "Service start pending - will stop itself after onCreate")
+        }
+
+        // Clean up any fully-started orphaned service.
+        // Only safe to stop if the service has actually started (instance != null).
         if (ForegroundNotificationService.instance != null) {
             Log.i(TAG, "Cleaning up orphaned foreground service")
             ForegroundNotificationService.stop(context)
@@ -181,6 +191,7 @@ class ServiceLifecycleManager(
 
         if (shouldRun && !serviceRunning) {
             Log.i(TAG, "Starting service: active work in background")
+            serviceStartPending = true
             ForegroundNotificationService.start(context)
             serviceRunning = true
         } else if (!shouldRun && serviceRunning) {
@@ -190,11 +201,39 @@ class ServiceLifecycleManager(
                 _isActivityForeground.value -> "user in app"
                 else -> "unknown"
             }
-            Log.i(TAG, "Stopping service: $reason")
-            ForegroundNotificationService.stop(context)
+            // CRITICAL: Only call stopService() if the service has actually started.
+            // If serviceStartPending is true, the service is between startForegroundService()
+            // and onCreate() - calling stopService() here causes Android to crash with
+            // ForegroundServiceDidNotStartInTimeException. The service will check
+            // shouldStopImmediately() and stop itself after satisfying the startForeground requirement.
+            if (serviceStartPending) {
+                Log.i(TAG, "Service start pending, will stop after onCreate (reason: $reason)")
+                // Service will stop itself - see shouldStopImmediately()
+            } else if (ForegroundNotificationService.instance != null) {
+                Log.i(TAG, "Stopping service: $reason")
+                ForegroundNotificationService.stop(context)
+            }
             serviceRunning = false
             // Note: Engine shutdown is handled above by shouldShutdownEngine
         }
+    }
+
+    /**
+     * Called by ForegroundNotificationService.onCreate() to signal it has started.
+     * Clears the serviceStartPending flag.
+     */
+    fun onServiceCreated() {
+        serviceStartPending = false
+    }
+
+    /**
+     * Check if the service should stop immediately after starting.
+     * This handles the race condition where the activity returned to foreground
+     * while the service was starting (between startForegroundService and onCreate).
+     */
+    fun shouldServiceStopImmediately(): Boolean {
+        // If activity is in foreground, service should not be running
+        return _isActivityForeground.value
     }
 
     /**
@@ -203,6 +242,7 @@ class ServiceLifecycleManager(
      */
     fun onServiceStopped() {
         serviceRunning = false
+        serviceStartPending = false
     }
 
     /**
