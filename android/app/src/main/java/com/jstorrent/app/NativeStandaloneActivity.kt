@@ -68,8 +68,11 @@ class NativeStandaloneActivity : ComponentActivity() {
     }
 
     private lateinit var rootStore: RootStore
-    private lateinit var settingsStore: SettingsStore
     private lateinit var metricsStore: MetricsStore
+
+    // Use shared instance from Application to avoid multiple SettingsStore instances
+    private val settingsStore: SettingsStore
+        get() = app.settingsStore
 
     // Access Application for engine initialization
     private val app: JSTorrentApplication
@@ -116,7 +119,6 @@ class NativeStandaloneActivity : ComponentActivity() {
         IoDaemonService.stop(this)
 
         rootStore = RootStore(this)
-        settingsStore = SettingsStore(this)
         metricsStore = MetricsStore(this)
         hasRoots.value = rootStore.listRoots().isNotEmpty()
 

@@ -68,9 +68,12 @@ class ForegroundNotificationService : Service() {
     // Use IO dispatcher for network/file operations in the engine
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var rootStore: RootStore
-    private lateinit var settingsStore: SettingsStore
     private lateinit var configHub: AndroidConfigHub
     private lateinit var metricsStore: MetricsStore
+
+    // Use shared instance from Application to avoid multiple SettingsStore instances
+    private val settingsStore: SettingsStore
+        get() = app.settingsStore
 
     // Access engine from Application (engine lives for process lifetime)
     private val app: JSTorrentApplication
@@ -146,7 +149,6 @@ class ForegroundNotificationService : Service() {
 
         // Initialize remaining dependencies
         rootStore = RootStore(this)
-        settingsStore = SettingsStore(this)
         configHub = app.getConfigHub()
         metricsStore = MetricsStore(this)
         torrentNotificationManager = TorrentNotificationManager(this)
