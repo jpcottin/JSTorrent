@@ -35,16 +35,17 @@ class BandwidthLimitE2ETest : E2EBaseTest() {
      */
     @Test
     fun downloadLimit_speedStaysUnderLimit() {
-        val engine = requireEngine()
+        val service = requireService()
+        val controller = requireController()
         val magnet = TestMagnets.getMagnetForTest(arguments, "100mb")
         val expectedHash = TestMagnets.InfoHashes.TEST_100MB
 
         // Set download limit to 100 KB/s
-        engine.setDownloadSpeedLimit(LIMIT_100KB)
+        service.setDownloadSpeedLimit(LIMIT_100KB)
         Log.i(TAG, "Set download limit to $LIMIT_100KB B/s (100 KB/s)")
 
         // Add torrent and wait for download activity
-        engine.addTorrent(magnet)
+        controller.addTorrent(magnet)
         waitForTorrent(expectedHash)
         waitForPeers(expectedHash)
 
@@ -85,15 +86,16 @@ class BandwidthLimitE2ETest : E2EBaseTest() {
      */
     @Test
     fun runtimeLimitChange_takesEffect() {
-        val engine = requireEngine()
+        val service = requireService()
+        val controller = requireController()
         val magnet = TestMagnets.getMagnetForTest(arguments, "100mb")
         val expectedHash = TestMagnets.InfoHashes.TEST_100MB
 
         // Start with no limit (0 = unlimited)
-        engine.setDownloadSpeedLimit(0)
+        service.setDownloadSpeedLimit(0)
         Log.i(TAG, "Starting with unlimited speed")
 
-        engine.addTorrent(magnet)
+        controller.addTorrent(magnet)
         waitForTorrent(expectedHash)
         waitForPeers(expectedHash)
         waitForProgress(expectedHash, minProgress = 0.01)
@@ -105,7 +107,7 @@ class BandwidthLimitE2ETest : E2EBaseTest() {
         Log.i(TAG, "Unlimited speed: $unlimitedSpeed B/s")
 
         // Now apply limit
-        engine.setDownloadSpeedLimit(LIMIT_100KB)
+        service.setDownloadSpeedLimit(LIMIT_100KB)
         Log.i(TAG, "Applied limit: $LIMIT_100KB B/s (100 KB/s)")
 
         // Wait for limit to take effect.
@@ -143,15 +145,16 @@ class BandwidthLimitE2ETest : E2EBaseTest() {
      */
     @Test
     fun removingLimit_restoresSpeed() {
-        val engine = requireEngine()
+        val service = requireService()
+        val controller = requireController()
         val magnet = TestMagnets.getMagnetForTest(arguments, "100mb")
         val expectedHash = TestMagnets.InfoHashes.TEST_100MB
 
         // Start with a strict limit
-        engine.setDownloadSpeedLimit(LIMIT_100KB)
+        service.setDownloadSpeedLimit(LIMIT_100KB)
         Log.i(TAG, "Starting with 100 KB/s limit")
 
-        engine.addTorrent(magnet)
+        controller.addTorrent(magnet)
         waitForTorrent(expectedHash)
         waitForPeers(expectedHash)
         Thread.sleep(3000)
@@ -162,7 +165,7 @@ class BandwidthLimitE2ETest : E2EBaseTest() {
         Log.i(TAG, "Limited speed: $limitedSpeed B/s")
 
         // Remove limit (0 = unlimited)
-        engine.setDownloadSpeedLimit(0)
+        service.setDownloadSpeedLimit(0)
         Log.i(TAG, "Removed limit (set to unlimited)")
 
         // Wait for speed to ramp up
@@ -187,18 +190,18 @@ class BandwidthLimitE2ETest : E2EBaseTest() {
      */
     @Test
     fun uploadLimit_canBeSet() {
-        val engine = requireEngine()
+        val service = requireService()
 
         // Just verify the API works without crashing
-        engine.setUploadSpeedLimit(LIMIT_100KB)
+        service.setUploadSpeedLimit(LIMIT_100KB)
         Log.i(TAG, "Set upload limit to $LIMIT_100KB B/s")
 
-        val limit = engine.getUploadSpeedLimit()
+        val limit = service.getUploadSpeedLimit()
         assertTrue("Upload limit should be set", limit == LIMIT_100KB)
 
         // Reset
-        engine.setUploadSpeedLimit(0)
-        val newLimit = engine.getUploadSpeedLimit()
+        service.setUploadSpeedLimit(0)
+        val newLimit = service.getUploadSpeedLimit()
         assertTrue("Upload limit should be reset to 0 (unlimited)", newLimit == 0)
     }
 
@@ -207,15 +210,15 @@ class BandwidthLimitE2ETest : E2EBaseTest() {
      */
     @Test
     fun bandwidthLimits_gettersWork() {
-        val engine = requireEngine()
+        val service = requireService()
 
         // Set limits
-        engine.setDownloadSpeedLimit(512 * 1024) // 512 KB/s
-        engine.setUploadSpeedLimit(256 * 1024) // 256 KB/s
+        service.setDownloadSpeedLimit(512 * 1024) // 512 KB/s
+        service.setUploadSpeedLimit(256 * 1024) // 256 KB/s
 
         // Verify getters
-        val downloadLimit = engine.getDownloadSpeedLimit()
-        val uploadLimit = engine.getUploadSpeedLimit()
+        val downloadLimit = service.getDownloadSpeedLimit()
+        val uploadLimit = service.getUploadSpeedLimit()
 
         assertTrue("Download limit getter should work", downloadLimit == 512 * 1024)
         assertTrue("Upload limit getter should work", uploadLimit == 256 * 1024)

@@ -192,7 +192,8 @@ class SpeedHistoryViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(SpeedHistoryViewModel::class.java)) {
-                return SpeedHistoryViewModel(EngineServiceRepository(application)) as T
+                val app = application as com.jstorrent.app.JSTorrentApplication
+                return SpeedHistoryViewModel(app.engineServiceRepository) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }

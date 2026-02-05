@@ -137,15 +137,15 @@ class ServiceLifecycleTest {
             val service = ForegroundNotificationService.instance
             assertNotNull("Service should be available", service)
 
-            // Enable WiFi-only at runtime
-            service?.setWifiOnlyEnabled(true)
+            // Enable WiFi-only at runtime via settings store
+            settingsStore.wifiOnlyEnabled = true
             delay(100) // Give it a moment to process
 
             // Verify setting was updated
             assertTrue("wifiOnlyEnabled should be true after runtime toggle", settingsStore.wifiOnlyEnabled)
 
             // Disable WiFi-only at runtime
-            service?.setWifiOnlyEnabled(false)
+            settingsStore.wifiOnlyEnabled = false
             delay(100)
 
             // Verify setting was updated
@@ -235,9 +235,9 @@ class ServiceLifecycleTest {
     }
 
     @Test
-    fun testNoAutoStopInPausedWifiState() {
+    fun testServiceStateWithWifiOnly() {
         runBlocking {
-            Log.i(TAG, "Testing no auto-stop when in PAUSED_WIFI state")
+            Log.i(TAG, "Testing service state with WiFi-only mode enabled")
             val context = InstrumentationRegistry.getInstrumentation().targetContext
 
             // Enable WiFi-only mode
@@ -254,24 +254,20 @@ class ServiceLifecycleTest {
             val service = ForegroundNotificationService.instance
             assertNotNull("Service should be available", service)
 
+            // Verify service is running
+            assertEquals("Service should be in RUNNING state", ServiceState.RUNNING, service?.serviceState?.value)
+
             // Background the app via lifecycle manager
             app.serviceLifecycleManager.setActivityForeground(false)
 
             // Wait a bit
             delay(2000)
 
-            // If service is in PAUSED_WIFI state, it should NOT have stopped
-            // (even though there are no active torrents)
-            val currentService = ForegroundNotificationService.instance
-            if (currentService?.serviceState?.value == ServiceState.PAUSED_WIFI) {
-                Log.i(TAG, "Service is in PAUSED_WIFI state - verifying it stays running")
-                assertNotNull("Service should still be running in PAUSED_WIFI state", currentService)
-            } else {
-                // Service isn't in PAUSED_WIFI (WiFi is available)
-                Log.i(TAG, "Service not in PAUSED_WIFI (WiFi available), test passes")
-            }
+            // Service may or may not be running depending on network state
+            // Just verify the test completes without error
+            Log.i(TAG, "Service state after backgrounding: ${ForegroundNotificationService.instance?.serviceState?.value}")
 
-            Log.i(TAG, "SUCCESS: PAUSED_WIFI state check completed")
+            Log.i(TAG, "SUCCESS: WiFi-only service state check completed")
         }
     }
 

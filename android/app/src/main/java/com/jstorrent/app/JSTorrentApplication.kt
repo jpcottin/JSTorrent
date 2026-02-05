@@ -7,6 +7,7 @@ import android.net.Uri
 import android.util.Log
 import com.jstorrent.app.cache.TorrentSummaryCache
 import com.jstorrent.app.network.NetworkRestrictionEnforcer
+import com.jstorrent.app.viewmodel.EngineServiceRepository
 import com.jstorrent.app.network.NetworkStateProvider
 import com.jstorrent.app.service.ServiceLifecycleManager
 import com.jstorrent.app.settings.SettingsStore
@@ -62,6 +63,15 @@ class JSTorrentApplication : Application() {
     // This ensures all components see the same settings values
     val settingsStore: SettingsStore by lazy {
         SettingsStore(this)
+    }
+
+    // Shared EngineServiceRepository instance - use this instead of creating new instances
+    // Critical: All ViewModels must share the same repository so the SubscriptionTracker
+    // correctly tracks all subscriptions. Otherwise, when one ViewModel is cleared,
+    // its tracker calls pauseSubscriptions() even though other ViewModels still have
+    // active subscriptions.
+    val engineServiceRepository: EngineServiceRepository by lazy {
+        EngineServiceRepository(this)
     }
 
     // Network restriction status - always available, even before engine starts

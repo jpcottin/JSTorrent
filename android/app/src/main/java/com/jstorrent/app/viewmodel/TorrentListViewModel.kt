@@ -598,7 +598,7 @@ class TorrentListViewModel(
                 val app = application as com.jstorrent.app.JSTorrentApplication
                 val metricsStore = com.jstorrent.app.settings.MetricsStore(application)
                 return TorrentListViewModel(
-                    repository = EngineServiceRepository(application),
+                    repository = app.engineServiceRepository,
                     cache = app.torrentSummaryCache,
                     onEnsureEngineStarted = { app.ensureEngineStarted() },
                     onTorrentAdded = { metricsStore.incrementTorrentsAdded() }

@@ -233,6 +233,16 @@ open class TorrentSummaryCache(context: Context?) {
             0.0
         }
 
+        // Map stored userState to UI-expected values
+        // Storage uses: "active", "inactive", "paused"
+        // UI expects: "active", "stopped", "queued"
+        // Default to "stopped" - don't start engine just because state is missing
+        val userState = when (state?.userState) {
+            "active" -> "active"
+            "inactive", "paused" -> "stopped"
+            else -> "stopped"
+        }
+
         // Map userState to status - show expected state before engine starts
         val status = when (state?.userState) {
             "active" -> if (progress >= 1.0) "seeding" else "downloading"
@@ -251,7 +261,7 @@ open class TorrentSummaryCache(context: Context?) {
             fileCount = fileCount,
             addedAt = entry.addedAt,
             hasMetadata = metadata != null,
-            userState = state?.userState ?: "active"
+            userState = userState
         )
     }
 
@@ -366,6 +376,7 @@ open class TorrentSummaryCache(context: Context?) {
             downloadSpeed = 0L,
             uploadSpeed = 0L,
             status = status,
+            userState = userState,
             numPeers = 0,
             swarmPeers = 0,
             skippedFilesCount = 0,

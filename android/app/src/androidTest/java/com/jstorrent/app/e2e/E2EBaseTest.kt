@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import com.jstorrent.app.JSTorrentApplication
 import com.jstorrent.app.service.ForegroundNotificationService
+import com.jstorrent.quickjs.EngineController
 import com.jstorrent.quickjs.model.TorrentInfo
 import org.junit.After
 import org.junit.Before
@@ -43,6 +44,10 @@ abstract class E2EBaseTest {
 
     protected lateinit var arguments: Bundle
     protected var engineService: ForegroundNotificationService? = null
+
+    /** Direct access to engine controller - preferred over service passthrough methods */
+    protected val controller: EngineController?
+        get() = engineService?.controller
 
     @Before
     open fun setUp() {
@@ -88,9 +93,9 @@ abstract class E2EBaseTest {
 
         // Remove all torrents added during the test
         try {
-            engineService?.getTorrentList()?.forEach { torrent ->
+            controller?.getTorrentList()?.forEach { torrent ->
                 Log.i(TAG, "Removing torrent: ${torrent.infoHash}")
-                engineService?.removeTorrent(torrent.infoHash, deleteFiles = true)
+                controller?.removeTorrent(torrent.infoHash, deleteFiles = true)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error removing torrents during teardown", e)
@@ -153,7 +158,7 @@ abstract class E2EBaseTest {
     ): TorrentInfo? {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
-            val torrents = engineService?.getTorrentList() ?: emptyList()
+            val torrents = controller?.getTorrentList() ?: emptyList()
             val torrent = torrents.find { it.infoHash.equals(infoHash, ignoreCase = true) }
             if (torrent != null) {
                 return torrent
@@ -239,14 +244,23 @@ abstract class E2EBaseTest {
      * Get a torrent by info hash.
      */
     protected fun getTorrentByHash(infoHash: String): TorrentInfo? {
-        return engineService?.getTorrentList()
+        return controller?.getTorrentList()
             ?.find { it.infoHash.equals(infoHash, ignoreCase = true) }
     }
 
     /**
-     * Assert that engine is loaded and return the service.
+     * Assert that controller is available and return it.
+     * Use this for torrent operations (add, pause, resume, remove, etc.)
      */
-    protected fun requireEngine(): ForegroundNotificationService {
+    protected fun requireController(): EngineController {
+        return controller ?: throw AssertionError("EngineController not available")
+    }
+
+    /**
+     * Assert that service is available and return it.
+     * Use this for service-specific operations (bandwidth limits, wake locks, etc.)
+     */
+    protected fun requireService(): ForegroundNotificationService {
         return engineService ?: throw AssertionError("ForegroundNotificationService not available")
     }
 
@@ -254,7 +268,7 @@ abstract class E2EBaseTest {
      * Log the current state of all torrents for debugging.
      */
     protected fun logTorrentState() {
-        val torrents = engineService?.getTorrentList() ?: emptyList()
+        val torrents = controller?.getTorrentList() ?: emptyList()
         Log.i(TAG, "Current torrents: ${torrents.size}")
         torrents.forEach { t ->
             Log.i(TAG, "  ${t.name}: progress=${t.progress}, " +

@@ -50,7 +50,8 @@ class DhtViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(DhtViewModel::class.java)) {
-                return DhtViewModel(EngineServiceRepository(application)) as T
+                val app = application as com.jstorrent.app.JSTorrentApplication
+                return DhtViewModel(app.engineServiceRepository) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }

@@ -30,6 +30,15 @@ import kotlinx.coroutines.launch
  * Uses bridged StateFlows to handle the race condition where the ViewModel
  * may be created before the engine is initialized.
  *
+ * ## Command Architecture
+ *
+ * Commands use [withEngine] to ensure the engine is started before executing.
+ * This guarantees a non-null controller and eliminates silent no-ops.
+ *
+ * There's still a window after QuickJS context creation but before engine.init()
+ * completes where the JS engine isn't ready. JS-side queueing (via executeOrQueue
+ * in controller.ts) handles this - commands wait for the actual engine instance.
+ *
  * ## Subscription Architecture
  *
  * Subscriptions use reference counting via [SubscriptionTracker]:
@@ -39,27 +48,8 @@ import kotlinx.coroutines.launch
  * - The actual JS subscription is removed when last handle is closed
  * - Handles persist across engine restarts - subscriptions are replayed to new controllers
  *
- * This eliminates the old problem where one consumer calling unsubscribe() would
- * break other consumers' subscriptions.
- *
- * ## Command Queueing Architecture
- *
- * IMPORTANT: All command queueing happens on the JS side, NOT here in Kotlin.
- *
- * Why JS-side queueing:
- * - The Kotlin controller may exist (ensureEngineStarted() returned) before
- *   the JS engine is actually ready to process commands
- * - There's a window after QuickJS context creation but before engine.init() completes
- * - JS-side queueing (via executeOrQueue in controller.ts) ensures commands wait
- *   for the actual engine instance to exist
- *
- * What this means for Kotlin code:
- * - Use simple `controller?.fooAsync()` calls - if controller is null, the call
- *   is a no-op (engine not started yet, user action triggers ensureEngineStarted)
- * - Do NOT implement Kotlin-side command queues - they fight with JS-side queuing
- *   and create confusing dual-queue behavior
- * - Subscriptions are the exception - they ARE tracked Kotlin-side via SubscriptionTracker
- *   so they can be replayed when the engine restarts
+ * Subscriptions use `controller?.` because they can be created before the engine
+ * exists. The SubscriptionTracker handles replaying them when a controller appears.
  */
 class EngineServiceRepository(
     private val application: Application
@@ -161,97 +151,93 @@ class EngineServiceRepository(
     }
 
     // =========================================================================
-    // Commands - All use JS-side queueing via controller.ts executeOrQueue()
-    // DO NOT add Kotlin-side queues here - see class doc for why
+    // Commands
+    //
+    // All commands use withEngine() to ensure the engine is started before
+    // executing. JS-side queueing (controller.ts executeOrQueue) handles the
+    // window between engine creation and engine.init() completion.
     // =========================================================================
 
+    /**
+     * Execute a command with guaranteed non-null engine controller.
+     * Starts the engine if not already running, then executes the block.
+     */
+    private inline fun withEngine(crossinline block: suspend (EngineController) -> Unit) {
+        scope.launch { block(app.ensureEngine()) }
+    }
+
     override fun addTorrent(magnetOrBase64: String) {
-        // No special handling needed for WiFi-only / VPN-only mode.
-        // When engine is suspended, new torrents won't start networking automatically.
-        // The torrent.start() method checks engine.isSuspended and returns early if true.
-        scope.launch {
-            controller?.addTorrentAsync(magnetOrBase64)
-        }
+        // When engine is suspended (WiFi-only/VPN-only), new torrents won't start
+        // networking automatically - torrent.start() checks engine.isSuspended.
+        withEngine { it.addTorrentAsync(magnetOrBase64) }
     }
 
     override fun pauseTorrent(infoHash: String) {
-        scope.launch { controller?.pauseTorrentAsync(infoHash) }
+        withEngine { it.pauseTorrentAsync(infoHash) }
     }
 
     override fun resumeTorrent(infoHash: String) {
-        scope.launch { controller?.resumeTorrentAsync(infoHash) }
+        withEngine { it.resumeTorrentAsync(infoHash) }
     }
 
     override fun removeTorrent(infoHash: String, deleteFiles: Boolean) {
-        // NOTE: If controller is null, this is a no-op. The ViewModel layer calls
-        // onEnsureEngineStarted() before this, which starts the engine synchronously.
-        // If the JS engine isn't quite ready yet, JS-side queueing handles it.
-        // See controller.ts __jstorrent_cmd_remove for the JS-side queue.
-        scope.launch { controller?.removeTorrentAsync(infoHash, deleteFiles) }
+        withEngine { it.removeTorrentAsync(infoHash, deleteFiles) }
     }
 
     override fun recheckTorrent(infoHash: String) {
-        scope.launch { controller?.recheckTorrentAsync(infoHash) }
+        withEngine { it.recheckTorrentAsync(infoHash) }
     }
 
     override suspend fun replaceAndAddTorrent(magnetOrBase64: String, infoHash: String?) {
-        // Remove existing torrent first (if infoHash provided) and wait for completion
+        val engine = app.ensureEngine()
         if (infoHash != null) {
-            controller?.removeTorrentAsync(infoHash, deleteFiles = true)
+            engine.removeTorrentAsync(infoHash, deleteFiles = true)
         }
-        // Then add the new torrent
-        // No special handling needed for WiFi-only / VPN-only mode - see addTorrent() comment.
-        controller?.addTorrentAsync(magnetOrBase64)
+        engine.addTorrentAsync(magnetOrBase64)
     }
 
     override fun pauseAll() {
-        // Get current torrent list and pause each one (fire-and-forget)
         val torrents = state.value?.torrents ?: return
-        scope.launch {
+        withEngine { engine ->
             torrents.forEach { torrent ->
                 if (torrent.status != "stopped") {
-                    controller?.pauseTorrentAsync(torrent.infoHash)
+                    engine.pauseTorrentAsync(torrent.infoHash)
                 }
             }
         }
     }
 
     override fun resumeAll() {
-        // Get current torrent list and resume each one (fire-and-forget)
         val torrents = state.value?.torrents ?: return
-        scope.launch {
+        withEngine { engine ->
             torrents.forEach { torrent ->
                 if (torrent.status == "stopped") {
-                    controller?.resumeTorrentAsync(torrent.infoHash)
+                    engine.resumeTorrentAsync(torrent.infoHash)
                 }
             }
         }
     }
 
     override fun suspendEngine() {
-        // Suspend engine-level network activity (preserves userState)
-        // New torrents added while suspended won't start networking.
-        scope.launch {
-            controller?.suspendEngineAsync()
+        withEngine { engine ->
+            engine.suspendEngineAsync()
             Log.i(TAG, "Engine suspended")
         }
     }
 
     override fun resumeEngine() {
-        // Resume engine-level network activity
-        // Only torrents with userState='active' will start networking.
-        scope.launch {
-            controller?.resumeEngineAsync()
+        withEngine { engine ->
+            engine.resumeEngineAsync()
             Log.i(TAG, "Engine resumed")
         }
     }
 
     override fun setFilePriorities(infoHash: String, priorities: Map<Int, Int>) {
-        scope.launch { controller?.setFilePrioritiesAsync(infoHash, priorities) }
+        withEngine { it.setFilePrioritiesAsync(infoHash, priorities) }
     }
 
     override suspend fun getDhtStats(): DhtStats? {
-        return controller?.getDhtStatsAsync()
+        return app.ensureEngine().getDhtStatsAsync()
     }
 
     override suspend fun getSpeedSamples(
@@ -261,15 +247,15 @@ class EngineServiceRepository(
         toTime: Long,
         maxPoints: Int
     ): SpeedSamplesResult? {
-        return controller?.getSpeedSamplesAsync(direction, categories, fromTime, toTime, maxPoints)
+        return app.ensureEngine().getSpeedSamplesAsync(direction, categories, fromTime, toTime, maxPoints)
     }
 
     override fun getJsThreadStats(): JsThreadStats? {
-        return controller?.getJsThreadStats()
+        return app.ensureEngine().getJsThreadStats()
     }
 
     override suspend fun getEngineStats(): EngineStats? {
-        return controller?.getEngineStatsAsync()
+        return app.ensureEngine().getEngineStatsAsync()
     }
 
     // =========================================================================

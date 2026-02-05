@@ -739,7 +739,7 @@ class TorrentDetailViewModel(
                 val app = application as com.jstorrent.app.JSTorrentApplication
                 val configHub = app.getConfigHub()
                 return TorrentDetailViewModel(
-                    repository = EngineServiceRepository(application),
+                    repository = app.engineServiceRepository,
                     infoHash = infoHash,
                     rootStore = RootStore(application),
                     onEnsureEngineStarted = { app.ensureEngineStarted() },

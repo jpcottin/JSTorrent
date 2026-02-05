@@ -79,14 +79,16 @@ class ForegroundNotificationServiceTest {
                 infoHash = TestMagnets.InfoHashes.TEST_100MB,
                 displayName = TestMagnets.DisplayNames.TEST_100MB
             )
-            instance.addTorrent(magnetLink)
+            val controller = instance.controller
+            requireNotNull(controller) { "Controller should be available when engine is loaded" }
+            controller.addTorrent(magnetLink)
             Log.i(TAG, "addTorrent called with test magnet: $magnetLink")
 
             // Wait a bit for the torrent to be processed
             Thread.sleep(2000)
 
             // Query torrent list
-            val torrents = instance.getTorrentList()
+            val torrents = controller.getTorrentList()
             Log.i(TAG, "getTorrentList returned ${torrents.size} torrents")
             torrents.forEach { t ->
                 Log.i(TAG, "Torrent: name=${t.name}, infoHash=${t.infoHash}, status=${t.status}")
@@ -103,14 +105,14 @@ class ForegroundNotificationServiceTest {
             Log.i(TAG, "Verified torrent added: ${addedTorrent?.name}")
 
             // Check state flow
-            val state = instance.state?.value
+            val state = instance.state.value
             Log.i(TAG, "State flow value: ${state?.torrents?.size ?: 0} torrents")
             state?.torrents?.forEach { t ->
                 Log.i(TAG, "State torrent: name=${t.name}, progress=${t.progress}")
             }
 
             // Clean up - remove the test torrent
-            instance.removeTorrent(expectedHash, deleteFiles = true)
+            controller.removeTorrent(expectedHash, deleteFiles = true)
             Log.i(TAG, "Removed test torrent")
         }
 
@@ -148,20 +150,23 @@ class ForegroundNotificationServiceTest {
             delay(500)
         }
         requireNotNull(instance) { "Engine failed to load" }
-        assert(instance!!.isLoaded?.value == true) { "Engine not loaded" }
+        assert(instance!!.isLoaded.value == true) { "Engine not loaded" }
         Log.i(TAG, "Engine loaded, testing async methods")
+
+        val controller = instance!!.controller
+        requireNotNull(controller) { "Controller should be available when engine is loaded" }
 
         // Test async add
         val magnetLink = TestMagnets.buildMagnetLink(
             infoHash = TestMagnets.InfoHashes.TEST_100MB,
             displayName = TestMagnets.DisplayNames.TEST_100MB
         )
-        instance!!.addTorrentAsync(magnetLink)
+        controller.addTorrentAsync(magnetLink)
         Log.i(TAG, "addTorrentAsync called with test magnet")
         delay(2000)
 
         // Test async query
-        val torrents = instance!!.getTorrentListAsync()
+        val torrents = controller.getTorrentListAsync()
         val infoHash = TestMagnets.InfoHashes.TEST_100MB
         Log.i(TAG, "getTorrentListAsync returned ${torrents.size} torrents")
         assert(torrents.any { it.infoHash.equals(infoHash, ignoreCase = true) }) {
@@ -169,25 +174,25 @@ class ForegroundNotificationServiceTest {
         }
 
         // Test async file query
-        val files = instance!!.getFilesAsync(infoHash)
+        val files = controller.getFilesAsync(infoHash)
         Log.i(TAG, "getFilesAsync returned ${files.size} files")
 
         // Test async pause/resume
-        instance!!.pauseTorrentAsync(infoHash)
+        controller.pauseTorrentAsync(infoHash)
         Log.i(TAG, "pauseTorrentAsync called")
         delay(500)
 
-        instance!!.resumeTorrentAsync(infoHash)
+        controller.resumeTorrentAsync(infoHash)
         Log.i(TAG, "resumeTorrentAsync called")
         delay(500)
 
         // Test async remove
-        instance!!.removeTorrentAsync(infoHash, deleteFiles = true)
+        controller.removeTorrentAsync(infoHash, deleteFiles = true)
         Log.i(TAG, "removeTorrentAsync called")
         delay(500)
 
         // Verify removal
-        val torrentsAfterRemove = instance!!.getTorrentListAsync()
+        val torrentsAfterRemove = controller.getTorrentListAsync()
         assert(torrentsAfterRemove.none { it.infoHash.equals(infoHash, ignoreCase = true) }) {
             "Torrent should have been removed"
         }

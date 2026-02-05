@@ -41,12 +41,12 @@ class DownloadE2ETest : E2EBaseTest() {
      */
     @Test
     fun addMagnet_torrentAppearsInList() {
-        val engine = requireEngine()
+        val controller = requireController()
         val magnet = TestMagnets.getMagnetForTest(arguments, "100mb")
         val expectedHash = TestMagnets.InfoHashes.TEST_100MB
 
         Log.i(TAG, "Adding magnet: $magnet")
-        engine.addTorrent(magnet)
+        controller.addTorrent(magnet)
 
         // Wait for torrent to appear
         val torrent = waitForTorrent(expectedHash)
@@ -65,12 +65,12 @@ class DownloadE2ETest : E2EBaseTest() {
      */
     @Test
     fun downloadFromSeeder_makesProgress() {
-        val engine = requireEngine()
+        val controller = requireController()
         val magnet = TestMagnets.getMagnetForTest(arguments, "100mb")
         val expectedHash = TestMagnets.InfoHashes.TEST_100MB
 
         Log.i(TAG, "Adding magnet with seeder hint: $magnet")
-        engine.addTorrent(magnet)
+        controller.addTorrent(magnet)
 
         // Wait for torrent to appear
         val torrent = waitForTorrent(expectedHash)
@@ -98,12 +98,12 @@ class DownloadE2ETest : E2EBaseTest() {
      */
     @Test
     fun pauseTorrent_stopsDownload() {
-        val engine = requireEngine()
+        val controller = requireController()
         val magnet = TestMagnets.getMagnetForTest(arguments, "100mb")
         val expectedHash = TestMagnets.InfoHashes.TEST_100MB
 
         // Add and wait for initial progress
-        engine.addTorrent(magnet)
+        controller.addTorrent(magnet)
         waitForTorrent(expectedHash)
         waitForPeers(expectedHash)
         waitForProgress(expectedHash, minProgress = 0.01)
@@ -114,7 +114,7 @@ class DownloadE2ETest : E2EBaseTest() {
         Log.i(TAG, "Progress before pause: ${beforePause?.progress}, downloaded=$progressBeforePause")
 
         // Pause the torrent
-        engine.pauseTorrent(expectedHash)
+        controller.pauseTorrent(expectedHash)
         Log.i(TAG, "Torrent paused")
 
         // Wait a bit
@@ -138,14 +138,14 @@ class DownloadE2ETest : E2EBaseTest() {
      */
     @Test
     fun resumeTorrent_continuesDownload() {
-        val engine = requireEngine()
+        val controller = requireController()
         val magnet = TestMagnets.getMagnetForTest(arguments, "100mb")
         val expectedHash = TestMagnets.InfoHashes.TEST_100MB
 
         // Add and pause immediately
-        engine.addTorrent(magnet)
+        controller.addTorrent(magnet)
         waitForTorrent(expectedHash)
-        engine.pauseTorrent(expectedHash)
+        controller.pauseTorrent(expectedHash)
         Thread.sleep(1000)
 
         // Record state while paused
@@ -153,7 +153,7 @@ class DownloadE2ETest : E2EBaseTest() {
         Log.i(TAG, "While paused: progress=${whilePaused?.progress}")
 
         // Resume
-        engine.resumeTorrent(expectedHash)
+        controller.resumeTorrent(expectedHash)
         Log.i(TAG, "Torrent resumed")
 
         // Wait for progress after resume
@@ -170,12 +170,12 @@ class DownloadE2ETest : E2EBaseTest() {
      */
     @Test
     fun fullDownload_completes() {
-        val engine = requireEngine()
+        val controller = requireController()
         val magnet = TestMagnets.getMagnetForTest(arguments, "100mb")
         val expectedHash = TestMagnets.InfoHashes.TEST_100MB
 
         Log.i(TAG, "Starting full download test")
-        engine.addTorrent(magnet)
+        controller.addTorrent(magnet)
 
         // Wait for torrent to appear and connect
         waitForTorrent(expectedHash)

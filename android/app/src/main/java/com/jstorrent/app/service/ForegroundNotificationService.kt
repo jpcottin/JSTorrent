@@ -161,7 +161,7 @@ class ForegroundNotificationService : Service() {
         metricsStore = MetricsStore(this)
         torrentNotificationManager = TorrentNotificationManager(this)
         dozeMonitor = DozeMonitor(this)
-        repository = EngineServiceRepository(application)
+        repository = app.engineServiceRepository
 
         // Set singleton
         instance = this
@@ -230,130 +230,6 @@ class ForegroundNotificationService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-
-    // =========================================================================
-    // Engine Control API
-    // =========================================================================
-
-    /**
-     * Add a torrent from magnet link or base64-encoded .torrent file.
-     */
-    fun addTorrent(magnetOrBase64: String) {
-        controller?.addTorrent(magnetOrBase64)
-    }
-
-    /**
-     * Add test torrent with hardcoded peer hint for debugging.
-     */
-    fun addTestTorrent() {
-        controller?.addTestTorrent()
-    }
-
-    /**
-     * Pause a torrent.
-     */
-    fun pauseTorrent(infoHash: String) {
-        controller?.pauseTorrent(infoHash)
-    }
-
-    /**
-     * Resume a paused torrent.
-     */
-    fun resumeTorrent(infoHash: String) {
-        controller?.resumeTorrent(infoHash)
-    }
-
-    /**
-     * Remove a torrent.
-     */
-    fun removeTorrent(infoHash: String, deleteFiles: Boolean = false) {
-        controller?.removeTorrent(infoHash, deleteFiles)
-    }
-
-    /**
-     * Get full torrent list.
-     */
-    fun getTorrentList(): List<TorrentInfo> {
-        return controller?.getTorrentList() ?: emptyList()
-    }
-
-    /**
-     * Get files for a torrent.
-     */
-    fun getFiles(infoHash: String): List<FileInfo> {
-        return controller?.getFiles(infoHash) ?: emptyList()
-    }
-
-    // =========================================================================
-    // Async Engine Control API
-    // =========================================================================
-
-    /**
-     * Add a torrent from magnet link or base64-encoded .torrent file (async).
-     */
-    suspend fun addTorrentAsync(magnetOrBase64: String) {
-        controller?.addTorrentAsync(magnetOrBase64)
-    }
-
-    /**
-     * Add test torrent with hardcoded peer hint for debugging (async).
-     */
-    suspend fun addTestTorrentAsync() {
-        controller?.addTestTorrentAsync()
-    }
-
-    /**
-     * Pause a torrent (async).
-     */
-    suspend fun pauseTorrentAsync(infoHash: String) {
-        controller?.pauseTorrentAsync(infoHash)
-    }
-
-    /**
-     * Resume a paused torrent (async).
-     */
-    suspend fun resumeTorrentAsync(infoHash: String) {
-        controller?.resumeTorrentAsync(infoHash)
-    }
-
-    /**
-     * Suspend the engine - stop all network activity globally.
-     * Preserves userState for each torrent.
-     * Use for WiFi-only / VPN-only mode when network conditions aren't met.
-     */
-    suspend fun suspendEngineAsync() {
-        controller?.suspendEngineAsync()
-    }
-
-    /**
-     * Resume the engine - restart network activity.
-     * Only torrents with userState='active' will start networking.
-     * Use when network conditions are restored (WiFi/VPN connected).
-     */
-    suspend fun resumeEngineAsync() {
-        controller?.resumeEngineAsync()
-    }
-
-    /**
-     * Remove a torrent (async).
-     */
-    suspend fun removeTorrentAsync(infoHash: String, deleteFiles: Boolean = false) {
-        controller?.removeTorrentAsync(infoHash, deleteFiles)
-    }
-
-    /**
-     * Get full torrent list (async).
-     */
-    suspend fun getTorrentListAsync(): List<TorrentInfo> {
-        return controller?.getTorrentListAsync() ?: emptyList()
-    }
-
-    /**
-     * Get files for a torrent (async).
-     */
-    suspend fun getFilesAsync(infoHash: String): List<FileInfo> {
-        return controller?.getFilesAsync(infoHash) ?: emptyList()
-    }
 
     // =========================================================================
     // Bandwidth Control API
@@ -588,7 +464,7 @@ class ForegroundNotificationService : Service() {
             val torrents = state.value?.torrents ?: return@launch
             for (torrent in torrents) {
                 if (torrent.status != "stopped") {
-                    pauseTorrentAsync(torrent.infoHash)
+                    controller?.pauseTorrentAsync(torrent.infoHash)
                 }
             }
         }
@@ -602,7 +478,7 @@ class ForegroundNotificationService : Service() {
             val torrents = state.value?.torrents ?: return@launch
             for (torrent in torrents) {
                 if (torrent.status == "stopped") {
-                    resumeTorrentAsync(torrent.infoHash)
+                    controller?.resumeTorrentAsync(torrent.infoHash)
                 }
             }
         }
