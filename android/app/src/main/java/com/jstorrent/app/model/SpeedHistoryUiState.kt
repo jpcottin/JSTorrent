@@ -26,8 +26,8 @@ sealed class SpeedHistoryUiState {
         // JS thread health stats
         val jsCurrentLatencyMs: Long = 0L,
         val jsMaxLatencyMs: Long = 0L,
-        val jsTcpQueueDepth: Int = 0,
-        val jsTcpMaxQueueDepth: Int = 0,
+        val jsHandlerQueueDepth: Int = 0,
+        val jsHandlerMaxQueueDepth: Int = 0,
         val jsDiskQueueDepth: Int = 0,
         val jsDiskMaxQueueDepth: Int = 0,
         // Tick stats from engine (game loop performance)
