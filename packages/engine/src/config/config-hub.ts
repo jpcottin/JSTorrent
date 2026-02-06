@@ -80,6 +80,16 @@ export interface ConfigHub extends ConfigValueMap {
   readonly maxPipelineDepth: ConfigValue<number>
 
   // ===========================================================================
+  // Settings: Queue
+  // ===========================================================================
+
+  /** Maximum simultaneous active (downloading) torrents. */
+  readonly activeDownloads: ConfigValue<number>
+
+  /** Maximum simultaneous active (seeding) torrents. */
+  readonly activeSeeds: ConfigValue<number>
+
+  // ===========================================================================
   // Settings: Protocol
   // ===========================================================================
 

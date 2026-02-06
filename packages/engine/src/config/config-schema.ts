@@ -189,6 +189,30 @@ export const configSchema = {
   },
 
   // ===========================================================================
+  // Settings: Queue
+  // ===========================================================================
+
+  /** Maximum simultaneous active (downloading) torrents. Excess torrents are queued. */
+  activeDownloads: {
+    type: 'number',
+    category: 'setting',
+    storage: 'sync',
+    default: 5,
+    min: 1,
+    max: 50,
+  },
+
+  /** Maximum simultaneous active (seeding) torrents. Excess torrents are queued. */
+  activeSeeds: {
+    type: 'number',
+    category: 'setting',
+    storage: 'sync',
+    default: 5,
+    min: 1,
+    max: 50,
+  },
+
+  // ===========================================================================
   // Settings: Protocol
   // ===========================================================================
 

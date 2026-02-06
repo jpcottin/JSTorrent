@@ -67,6 +67,7 @@ export interface TorrentStateData {
   userState: TorrentUserState
   storageKey?: string
   queuePosition?: number
+  forceActive?: boolean
 
   // Progress (absent until metadata received)
   bitfield?: string // Hex-encoded bitfield
@@ -152,6 +153,7 @@ export class SessionPersistence {
       userState: torrent.userState,
       storageKey: root?.key,
       queuePosition: torrent.queuePosition,
+      forceActive: torrent.forceActive || undefined,
       bitfield: torrent.bitfield?.toHex(),
       pieceCount: torrent.bitfield?.size,
       uploaded: torrent.totalUploaded,
@@ -377,6 +379,7 @@ export class SessionPersistence {
             torrent.totalUploaded = state.uploaded
             torrent.totalDownloaded = state.downloaded
             torrent.queuePosition = state.queuePosition
+            if (state.forceActive) torrent.forceActive = true
 
             // Restore file priorities (must be after metadata is initialized)
             if (state.filePriorities && torrent.hasMetadata) {

@@ -65,6 +65,8 @@ export interface TorrentSummary {
   eta: number | null
   errorMessage: string | undefined
   checkingProgress: number // 0-1, only meaningful when status='checking'
+  queuePosition: number | undefined
+  forceActive: boolean
 }
 
 export interface PeerInfo {
@@ -473,6 +475,8 @@ export class SubscriptionManager {
       eta: t.eta,
       errorMessage: t.errorMessage,
       checkingProgress: t.checkingProgress,
+      queuePosition: t.queuePosition,
+      forceActive: t.forceActive,
     }
   }
 

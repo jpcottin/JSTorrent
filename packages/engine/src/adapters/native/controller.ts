@@ -249,6 +249,46 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
   }
 
   /**
+   * Move a torrent to the top of the queue (position 0).
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_cmd_queue_top = (infoHash: string): void => {
+    executeOrQueue('queue_top', () => {
+      const engine = getEngine()
+      if (!engine) return
+      const torrent = engine.getTorrent(infoHash)
+      if (torrent) engine.queueMoveToTop(torrent)
+    })
+  }
+
+  /**
+   * Move a torrent to the bottom of the queue.
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_cmd_queue_bottom = (
+    infoHash: string,
+  ): void => {
+    executeOrQueue('queue_bottom', () => {
+      const engine = getEngine()
+      if (!engine) return
+      const torrent = engine.getTorrent(infoHash)
+      if (torrent) engine.queueMoveToBottom(torrent)
+    })
+  }
+
+  /**
+   * Force-start a torrent, bypassing queue limits.
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_cmd_force_start = (
+    infoHash: string,
+  ): void => {
+    executeOrQueue('force_start', () => {
+      const engine = getEngine()
+      if (!engine) return
+      const torrent = engine.getTorrent(infoHash)
+      if (torrent) engine.queueForceStart(torrent)
+    })
+  }
+
+  /**
    * Suspend the engine - stop all network activity globally.
    * Torrents preserve their userState but stop networking.
    * New torrents added while suspended won't start networking.

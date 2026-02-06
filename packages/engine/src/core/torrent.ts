@@ -89,6 +89,7 @@ export interface TorrentPersistedState {
   // === User Intent ===
   userState: TorrentUserState
   queuePosition?: number
+  forceActive?: boolean // Bypasses queue limits when true
 
   // === Stats ===
   totalDownloaded: number
@@ -305,6 +306,13 @@ export class Torrent extends EngineComponent {
   }
   set queuePosition(value: number | undefined) {
     this._persisted.queuePosition = value
+  }
+
+  get forceActive(): boolean {
+    return this._persisted.forceActive ?? false
+  }
+  set forceActive(value: boolean) {
+    this._persisted.forceActive = value
   }
 
   get addedAt(): number {
@@ -1559,13 +1567,20 @@ export class Torrent extends EngineComponent {
     }
 
     this.userState = 'active'
+    this.forceActive = false // User start enters queue-managed mode
     this.errorMessage = undefined
 
-    // start() checks isSuspended internally
-    await this.start()
+    const btEngine = this.engine as BtEngine
+    if (btEngine.queueManager) {
+      // Queue manager decides whether to start or queue
+      btEngine.queueManager.recalculate()
+    } else {
+      // start() checks isSuspended internally
+      await this.start()
+    }
 
     // Persist state change (userState + bitfield)
-    ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+    btEngine.sessionPersistence?.saveTorrentState(this)
   }
 
   /**
@@ -1575,10 +1590,15 @@ export class Torrent extends EngineComponent {
   userStop(): void {
     this.logger.info('User stopping torrent')
     this.userState = 'stopped'
+    this.forceActive = false
     this.stopNetwork()
 
     // Persist state change (userState + bitfield)
-    ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+    const btEngine = this.engine as BtEngine
+    btEngine.sessionPersistence?.saveTorrentState(this)
+
+    // Notify queue manager to promote next queued torrent
+    btEngine.queueManager?.recalculate()
   }
 
   /**

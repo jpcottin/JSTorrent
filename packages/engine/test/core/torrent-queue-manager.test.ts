@@ -1,0 +1,440 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { BtEngine } from '../../src/core/bt-engine'
+import { InMemoryFileSystem } from '../../src/adapters/memory'
+import { ISocketFactory } from '../../src/interfaces/socket'
+import { MemoryConfigHub } from '../../src/config/memory-config-hub'
+import type { Torrent } from '../../src/core/torrent'
+
+const mockSocketFactory: ISocketFactory = {
+  createTcpSocket: vi.fn(),
+  createUdpSocket: vi.fn().mockResolvedValue({
+    send: vi.fn(),
+    onMessage: vi.fn(),
+    close: vi.fn(),
+  }),
+  createTcpServer: vi.fn().mockReturnValue({
+    on: vi.fn(),
+    listen: vi.fn(),
+    address: vi.fn().mockReturnValue({ port: 0 }),
+  }),
+  wrapTcpSocket: vi.fn(),
+}
+
+function makeMagnet(hash: string, name: string): string {
+  return `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(name)}`
+}
+
+// Unique hash per test torrent (40 hex chars each)
+const HASHES = [
+  'a'.repeat(40),
+  'b'.repeat(40),
+  'c'.repeat(40),
+  'd'.repeat(40),
+  'e'.repeat(40),
+  'f'.repeat(40),
+  '1'.repeat(40),
+  '2'.repeat(40),
+]
+
+describe('TorrentQueueManager', () => {
+  let engine: BtEngine
+  let config: MemoryConfigHub
+
+  beforeEach(() => {
+    config = new MemoryConfigHub({
+      activeDownloads: 2,
+      activeSeeds: 2,
+    })
+    engine = new BtEngine({
+      downloadPath: '/downloads',
+      socketFactory: mockSocketFactory,
+      fileSystem: new InMemoryFileSystem(),
+      config,
+      _skipDHTBootstrap: true,
+    })
+  })
+
+  async function addTorrent(hashIndex: number, name?: string): Promise<Torrent> {
+    const n = name ?? `torrent-${hashIndex}`
+    const { torrent } = await engine.addTorrent(makeMagnet(HASHES[hashIndex], n))
+    if (!torrent) throw new Error('Failed to add torrent')
+    return torrent
+  }
+
+  function recalc(): void {
+    engine.queueManager!.recalculateImmediate()
+  }
+
+  describe('basic queue enforcement', () => {
+    it('should keep torrents within activeDownloads limit active', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      recalc()
+
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+    })
+
+    it('should queue torrents beyond activeDownloads limit', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('queued')
+    })
+
+    it('should promote next queued torrent when active one is removed', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t3.userState).toBe('queued')
+
+      await engine.removeTorrent(t1)
+      recalc()
+
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('active')
+    })
+
+    it('should promote next queued torrent when active one is stopped', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t3.userState).toBe('queued')
+
+      t1.userStop()
+      recalc()
+
+      expect(t1.userState).toBe('stopped')
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('active')
+    })
+  })
+
+  describe('queue positions', () => {
+    it('should assign sequential queue positions', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+
+      expect(t1.queuePosition).toBe(0)
+      expect(t2.queuePosition).toBe(1)
+      expect(t3.queuePosition).toBe(2)
+    })
+
+    it('should close position gap on removal', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+
+      await engine.removeTorrent(t2)
+
+      expect(t1.queuePosition).toBe(0)
+      expect(t3.queuePosition).toBe(1)
+    })
+
+    it('should stay contiguous after multiple removals', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      const t4 = await addTorrent(3)
+
+      await engine.removeTorrent(t1)
+      await engine.removeTorrent(t3)
+
+      expect(t2.queuePosition).toBe(0)
+      expect(t4.queuePosition).toBe(1)
+    })
+  })
+
+  describe('moveToTop / moveToBottom', () => {
+    it('should move torrent to top of queue', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+
+      engine.queueMoveToTop(t3)
+
+      expect(t3.queuePosition).toBe(0)
+      expect(t1.queuePosition).toBe(1)
+      expect(t2.queuePosition).toBe(2)
+    })
+
+    it('should move torrent to top and promote it if under limit', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t3.userState).toBe('queued')
+
+      engine.queueMoveToTop(t3)
+      recalc()
+
+      // t3 now at position 0, should be active
+      expect(t3.userState).toBe('active')
+      expect(t1.userState).toBe('active')
+      // t2 now at position 2, should be queued
+      expect(t2.userState).toBe('queued')
+    })
+
+    it('should move torrent to bottom of queue', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+
+      engine.queueMoveToBottom(t1)
+
+      expect(t2.queuePosition).toBe(0)
+      expect(t3.queuePosition).toBe(1)
+      expect(t1.queuePosition).toBe(2)
+    })
+  })
+
+  describe('user-stopped torrents', () => {
+    it('should skip stopped torrents in queue evaluation', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      // Stop t1 — frees a slot
+      t1.userStop()
+      recalc()
+
+      expect(t1.userState).toBe('stopped')
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('active')
+    })
+
+    it('should not count stopped torrents against limits', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      const t4 = await addTorrent(3)
+      recalc()
+
+      // t1, t2 active; t3, t4 queued
+      t1.userStop()
+      recalc()
+
+      // Now t2, t3 should be active (t1 stopped, t4 queued)
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('active')
+      expect(t4.userState).toBe('queued')
+    })
+  })
+
+  describe('forceStart', () => {
+    it('should bypass queue limits', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t3.userState).toBe('queued')
+
+      engine.queueForceStart(t3)
+      recalc()
+
+      // t3 is force-started — always active, doesn't count against limits
+      expect(t3.forceActive).toBe(true)
+      expect(t3.userState).toBe('active')
+
+      // t1 and t2 should still be active (force doesn't displace others)
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+    })
+
+    it('should not count force-active torrents against limits', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      const t4 = await addTorrent(3)
+      recalc()
+
+      // t1, t2 active; t3, t4 queued
+      engine.queueForceStart(t1)
+      recalc()
+
+      // t1 is force-active (not counted), so t2 and t3 fill the 2 slots
+      expect(t1.forceActive).toBe(true)
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('active')
+      expect(t4.userState).toBe('queued')
+    })
+  })
+
+  describe('config changes', () => {
+    it('should recalculate when activeDownloads changes', async () => {
+      await addTorrent(0)
+      await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t3.userState).toBe('queued')
+
+      // Increase limit to 3
+      config.set('activeDownloads', 3)
+      recalc()
+
+      expect(t3.userState).toBe('active')
+    })
+
+    it('should queue torrents when activeDownloads decreases', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      recalc()
+
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+
+      // Decrease limit to 1
+      config.set('activeDownloads', 1)
+      recalc()
+
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('queued')
+    })
+  })
+
+  describe('upgrade path', () => {
+    it('should assign positions to torrents without queuePosition', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+
+      // Simulate upgrade: clear positions
+      t1.queuePosition = undefined
+      t2.queuePosition = undefined
+
+      // Set different addedAt for ordering
+      t2.addedAt = Date.now() - 10000
+      t1.addedAt = Date.now()
+
+      recalc()
+
+      // t2 is older, should get lower position
+      expect(t2.queuePosition).toBe(0)
+      expect(t1.queuePosition).toBe(1)
+    })
+  })
+
+  describe('starting a stopped torrent', () => {
+    it('should respect queue limits when starting a stopped torrent', async () => {
+      await addTorrent(0)
+      await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t3.userState).toBe('queued')
+
+      // Stop t3 (was queued, now stopped)
+      t3.userStop()
+      recalc()
+
+      // Start t3 again — limit is 2, t1 and t2 are active
+      await t3.userStart()
+      recalc()
+
+      // t3 should be queued since slots are full
+      expect(t3.userState).toBe('queued')
+    })
+
+    it('should start torrent if under limit', async () => {
+      const t1 = await addTorrent(0)
+      recalc()
+
+      t1.userStop()
+      recalc()
+
+      await t1.userStart()
+      recalc()
+
+      expect(t1.userState).toBe('active')
+    })
+  })
+
+  describe('periodic tick check', () => {
+    it('should run recalculation at periodic interval', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+
+      // Don't call recalc — let tick check handle it
+      // Manually tick enough times for the auto-manage interval
+      for (let i = 0; i < 50; i++) {
+        engine.queueManager!.tickCheck()
+      }
+
+      // After 50 ticks, periodic recalculation should have run
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('queued')
+    })
+
+    it('should run recalculation when dirty flag is set', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+
+      // Mark dirty (happens on onTorrentAdded)
+      engine.queueManager!.recalculate()
+
+      // Single tick should process if dirty
+      engine.queueManager!.tickCheck()
+
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('queued')
+    })
+  })
+
+  describe('torrent completion', () => {
+    it('should free download slot when torrent completes', async () => {
+      const t1 = await addTorrent(0)
+      await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t3.userState).toBe('queued')
+
+      // Simulate t1 completing (becomes a seeder)
+      // We need to set progress to 1 to classify as seeding
+      Object.defineProperty(t1, 'progress', { get: () => 1, configurable: true })
+      engine.queueManager!.onTorrentCompleted(t1)
+      recalc()
+
+      // t1 moves to seed queue, freeing a download slot
+      // t3 should now be promoted to active
+      expect(t3.userState).toBe('active')
+    })
+  })
+
+  describe('suspended engine', () => {
+    it('should not recalculate when engine is suspended', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      engine.suspend()
+
+      // All should retain their states (no recalculation during suspend)
+      const statesBefore = [t1.userState, t2.userState, t3.userState]
+
+      engine.queueManager!.recalculateImmediate()
+
+      expect(t1.userState).toBe(statesBefore[0])
+      expect(t2.userState).toBe(statesBefore[1])
+      expect(t3.userState).toBe(statesBefore[2])
+    })
+  })
+})

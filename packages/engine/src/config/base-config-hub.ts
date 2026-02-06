@@ -80,6 +80,10 @@ export abstract class BaseConfigHub implements ConfigHub {
   readonly maxUploadSlots = createConfigValue(this, 'maxUploadSlots')
   readonly maxPipelineDepth = createConfigValue(this, 'maxPipelineDepth')
 
+  // Settings: Queue
+  readonly activeDownloads = createConfigValue(this, 'activeDownloads')
+  readonly activeSeeds = createConfigValue(this, 'activeSeeds')
+
   // Settings: Protocol
   readonly encryptionPolicy = createConfigValue(this, 'encryptionPolicy')
   readonly listeningPortAuto = createConfigValue(this, 'listeningPortAuto')

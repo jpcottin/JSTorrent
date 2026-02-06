@@ -36,6 +36,7 @@ import { Torrent } from './torrent'
 import { PeerConnection } from './peer-connection'
 import { TorrentUserState } from './torrent-state'
 import { BandwidthTracker } from './bandwidth-tracker'
+import { TorrentQueueManager } from './torrent-queue-manager'
 
 // New imports for refactored code
 import { parseTorrentInput } from './torrent-factory'
@@ -236,6 +237,9 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   /** Optional ConfigHub for reactive configuration (created internally if not provided) */
   public config?: ConfigHub
 
+  /** Queue manager for torrent active limits */
+  public queueManager?: TorrentQueueManager
+
   /** Cleanup functions for config subscriptions */
   private configUnsubscribers: Array<() => void> = []
 
@@ -428,6 +432,11 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     // Wire up config subscriptions
     this.wireConfigSubscriptions()
 
+    // Create queue manager for torrent active limits
+    if (this.config) {
+      this.queueManager = new TorrentQueueManager(this, this.config)
+    }
+
     this._skipDHTBootstrap = options._skipDHTBootstrap ?? false
     this.autoDrainBuffers = options.autoDrainBuffers ?? false
 
@@ -503,10 +512,14 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     this.logger.info('Resuming engine - starting active torrents')
     this._suspended = false
 
-    for (const torrent of this.torrents) {
-      if (torrent.userState === 'active') {
-        // start() is idempotent and handles all checks internally
-        torrent.start()
+    if (this.queueManager) {
+      this.queueManager.recalculateImmediate()
+    } else {
+      for (const torrent of this.torrents) {
+        if (torrent.userState === 'active') {
+          // start() is idempotent and handles all checks internally
+          torrent.start()
+        }
       }
     }
 
@@ -794,6 +807,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     // Set up event forwarding
     torrent.on('complete', () => {
       this.emit('torrent-complete', torrent)
+      this.queueManager?.onTorrentCompleted(torrent)
     })
 
     torrent.on('error', (err) => {
@@ -814,14 +828,21 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
 
     // Start if engine not suspended AND user wants it active
     if (!this._suspended && torrent.userState === 'active') {
-      await torrent.start()
-      // Note: peer hints are now added inside torrent.start()
+      if (this.queueManager && options.source !== 'restore') {
+        this.queueManager.onTorrentAdded(torrent)
+      } else if (!this.queueManager) {
+        await torrent.start()
+      }
+      // For restore: queue manager handles batch recalculation after all torrents are restored
     }
 
     return { torrent, isDuplicate: false }
   }
 
   async removeTorrent(torrent: Torrent) {
+    // Notify queue manager before removal (while torrent is still in the list)
+    this.queueManager?.onTorrentRemoved(torrent)
+
     const index = this.torrents.indexOf(torrent)
     if (index !== -1) {
       this.torrents.splice(index, 1)
@@ -996,6 +1017,22 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
 
   getTorrent(infoHash: string): Torrent | undefined {
     return this.torrents.find((t) => toHex(t.infoHash) === infoHash)
+  }
+
+  // ===========================================================================
+  // Queue Management
+  // ===========================================================================
+
+  queueMoveToTop(torrent: Torrent): void {
+    this.queueManager?.moveToTop(torrent)
+  }
+
+  queueMoveToBottom(torrent: Torrent): void {
+    this.queueManager?.moveToBottom(torrent)
+  }
+
+  queueForceStart(torrent: Torrent): void {
+    this.queueManager?.forceStart(torrent)
   }
 
   async destroy() {
@@ -1542,7 +1579,10 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       }
     }
 
-    // 3. End of tick - flush batched operations (e.g., verified writes on native)
+    // 3. Queue management - check if recalculation needed
+    this.queueManager?.tickCheck()
+
+    // 4. End of tick - flush batched operations (e.g., verified writes on native)
     this.onEndOfTickCallback?.()
 
     const elapsedMs = Date.now() - startTime
