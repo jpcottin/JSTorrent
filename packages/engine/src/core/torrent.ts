@@ -354,6 +354,12 @@ export class Torrent extends EngineComponent {
   private _checkingProgress: number = 0
 
   /**
+   * Whether this torrent needs a full data check before starting networking.
+   * Set by verifyResumeData() when files don't match the persisted bitfield.
+   */
+  private _needsDataCheck: boolean = false
+
+  /**
    * Current error message if any.
    */
   public errorMessage?: string
@@ -684,6 +690,14 @@ export class Torrent extends EngineComponent {
     if (this.isKillSwitchEnabled) {
       this.logger.debug('Kill switch enabled, not starting')
       return
+    }
+
+    // Run initial data check if needed (e.g., files exist but no resume data,
+    // or resume data doesn't match files on disk)
+    if (this._needsDataCheck) {
+      this._needsDataCheck = false
+      this.logger.info('Running initial data check before starting')
+      await this._doCheckPieces()
     }
 
     this.logger.debug('Starting network')
@@ -3187,24 +3201,100 @@ export class Torrent extends EngineComponent {
     this.logger.info('Torrent state reset complete')
   }
 
-  async recheckData() {
-    // Prevent re-entry if already checking
-    if (this._isChecking) {
-      this.logger.warn('Recheck already in progress, ignoring')
-      return
+  /**
+   * Whether this torrent needs a full data check before starting.
+   */
+  get needsDataCheck(): boolean {
+    return this._needsDataCheck
+  }
+
+  clearNeedsDataCheck(): void {
+    this._needsDataCheck = false
+  }
+
+  /**
+   * Fast resume verification: check file existence/sizes without hashing.
+   * Sets _needsDataCheck = true if a full hash recheck is needed.
+   *
+   * Mirrors libtorrent's verify_resume_data():
+   * - If bitfield is non-empty (session restored): verify files haven't been deleted
+   * - If bitfield is empty (no resume data): check if files exist from a previous download
+   */
+  async verifyResumeData(): Promise<void> {
+    if (!this.contentStorage || !this.hasMetadata) return
+
+    const fs = this.contentStorage.storage.getFileSystem()
+    const files = this.contentStorage.filesList
+    if (files.length === 0) return
+
+    const hasPieces = this._bitfield != null && this._bitfield.count() > 0
+
+    if (hasPieces) {
+      // Session restored with bitfield — verify files haven't been deleted/corrupted
+      if (this.progress >= 1) {
+        // Seed: all wanted files must exist with correct sizes
+        for (let i = 0; i < files.length; i++) {
+          if (this._filePriorityManager.filePriorities[i] === 1) continue // skipped
+          try {
+            const stat = await fs.stat(files[i].path)
+            if (stat.size < files[i].length) {
+              this.logger.info(
+                `Resume data check: file "${files[i].path}" size mismatch (${stat.size} < ${files[i].length}), need recheck`,
+              )
+              this._needsDataCheck = true
+              return
+            }
+          } catch {
+            this.logger.info(
+              `Resume data check: file "${files[i].path}" not accessible, need recheck`,
+            )
+            this._needsDataCheck = true
+            return
+          }
+        }
+        this.logger.debug('Resume data check: all files verified, trusting bitfield')
+      } else {
+        // Partial download: at least one wanted file should exist
+        let anyExist = false
+        for (let i = 0; i < files.length; i++) {
+          if (this._filePriorityManager.filePriorities[i] === 1) continue
+          try {
+            if (await fs.exists(files[i].path)) {
+              anyExist = true
+              break
+            }
+          } catch {
+            // stat/exists errors are fine, just means file isn't accessible
+          }
+        }
+        if (!anyExist) {
+          this.logger.info('Resume data check: no wanted files found on disk, need recheck')
+          this._needsDataCheck = true
+        } else {
+          this.logger.debug('Resume data check: files present, trusting bitfield')
+        }
+      }
+    } else {
+      // No resume data — check if files exist from a previous download
+      for (const file of files) {
+        try {
+          if (await fs.exists(file.path)) {
+            this.logger.info(`No resume data but file "${file.path}" exists on disk, need recheck`)
+            this._needsDataCheck = true
+            return
+          }
+        } catch {
+          // Ignore errors
+        }
+      }
     }
+  }
 
-    this.logger.info(`Rechecking data for ${this.infoHashStr}`)
-
-    if (!this.hasMetadata) return
-
-    // Suspend networking during check (non-destructive, unlike stop())
-    const wasNetworkActive = this._networkActive
-    if (wasNetworkActive) {
-      this.stopNetwork()
-    }
-
-    // Set checking state
+  /**
+   * Core piece-by-piece hash verification. Resets bitfield and verifies every piece
+   * from disk. Used by both recheckData() (manual) and start() (auto on resume).
+   */
+  private async _doCheckPieces(): Promise<void> {
     this._isChecking = true
     this._checkingProgress = 0
 
@@ -3266,8 +3356,32 @@ export class Torrent extends EngineComponent {
     }
 
     this.logger.info(
-      `Recheck complete for ${this.infoHashStr} (${this._partsFilePieces.size} pieces in .parts)`,
+      `Data check complete for ${this.infoHashStr}: ${this._bitfield?.count ?? 0}/${this.piecesCount} pieces valid (${this._partsFilePieces.size} in .parts)`,
     )
+
+    // Persist the verified bitfield
+    this.btEngine.sessionPersistence.schedulePiecePersistence(this)
+  }
+
+  async recheckData() {
+    // Prevent re-entry if already checking
+    if (this._isChecking) {
+      this.logger.warn('Recheck already in progress, ignoring')
+      return
+    }
+
+    this.logger.info(`Rechecking data for ${this.infoHashStr}`)
+
+    if (!this.hasMetadata) return
+
+    // Suspend networking during check (non-destructive, unlike stop())
+    const wasNetworkActive = this._networkActive
+    if (wasNetworkActive) {
+      this.stopNetwork()
+    }
+
+    await this._doCheckPieces()
+
     // Note: Don't call checkCompletion() here - recheck shouldn't trigger
     // "download complete" notifications, it's just verifying existing data
 

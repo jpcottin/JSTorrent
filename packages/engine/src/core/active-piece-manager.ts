@@ -25,7 +25,8 @@ const DEFAULT_CONFIG: ActivePieceConfig = {
   // Memory is the real constraint, handled by maxBufferedBytes.
 
   // Experimenting with lower setting for now (multi-peer-tick-overload.md)
-  maxActivePieces: isNativeRuntime ? 64 : 10000,
+  // android standalone goes OOM near the end of a download (e.g. when in endgame) if maxActivePieces is too high.
+  maxActivePieces: isNativeRuntime ? 128 : 10000,
 
   maxBufferedBytes: isNativeRuntime ? 128 * 1024 * 1024 : 256 * 1024 * 1024,
 }

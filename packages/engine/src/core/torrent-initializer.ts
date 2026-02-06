@@ -111,6 +111,11 @@ export async function initializeTorrentMetadata(
 
   // Initialize .parts file for boundary pieces
   await torrent.initPartsFile()
+
+  // Verify resume data integrity (fast stat-based check).
+  // Sets torrent.needsDataCheck if files don't match the persisted bitfield,
+  // which triggers a full hash recheck in start().
+  await torrent.verifyResumeData()
 }
 
 /**

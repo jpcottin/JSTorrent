@@ -793,6 +793,13 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
         // Save infodict for future restores
         await this.sessionPersistence.saveInfoDict(input.infoHashStr, infoBuffer)
 
+        // If data check is needed (files exist from a previous download) and
+        // torrent is already active, run the check now before proceeding
+        if (torrent.needsDataCheck && torrent.isActive) {
+          await torrent.recheckData()
+          torrent.clearNeedsDataCheck()
+        }
+
         torrent.recheckPeers()
         torrent.emit('test:ready')
       } catch (err) {
