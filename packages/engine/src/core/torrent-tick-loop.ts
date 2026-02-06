@@ -465,37 +465,36 @@ export class TorrentTickLoop extends EngineComponent {
 
     const piecesToDemote: number[] = []
     let staleRequestsCleared = 0
+    let staleRequestsSkipped = 0
 
-    // Helper to process stale requests for a set of pieces
-    const processStaleRequests = (pieces: Iterable<import('./active-piece').ActivePiece>) => {
-      for (const piece of pieces) {
-        const staleRequests = piece.getStaleRequestsPerPeer(getTimeout, now)
-        for (const { blockIndex, peerId } of staleRequests) {
-          // Find the peer to send CANCEL
-          const peer = this.findPeerById(peerId)
-          if (peer) {
-            const begin = blockIndex * BLOCK_SIZE
-            const length = Math.min(BLOCK_SIZE, piece.length - begin)
-            peer.sendCancel(piece.index, begin, length)
+    // --- Phase 2 (free_blocks check): Only cancel stale requests that are blocking
+    // piece completion. If a piece has free blocks (unrequested blocks), other peers
+    // can pick those up instead — no need to cancel the stale request.
+    //
+    // Partial pieces always have freeBlocks > 0 (by definition), so stale requests
+    // in partial pieces are never cancelled. The peer is already snubbed from the
+    // Phase 1 check above, and other peers will grab the free blocks.
+    //
+    // FullyRequested pieces have freeBlocks === 0, so stale requests ARE cancelled
+    // (one at a time: after cancelling one, freeBlocks becomes 1 and we stop).
+    //
+    // libtorrent reference: peer_connection.cpp — only steals blocks when no
+    // free blocks remain on the piece.
 
-            // Decrement peer's pending request count
-            peer.requestsPending = Math.max(0, peer.requestsPending - 1)
-          }
+    // Skip partial pieces — they always have free blocks, so no cancellation needed.
+    // Peer snubbing (Phase 1 above) is sufficient for partial pieces.
 
-          // Clean up the request from the piece (also adds peer to failedPeers)
-          piece.cancelRequest(blockIndex, peerId)
-          staleRequestsCleared++
-        }
-      }
-    }
-
-    // Check partial pieces for stale requests
-    processStaleRequests(activePieces.partialValues())
-
-    // Also check fullyRequested pieces for stale requests
+    // Check fullyRequested pieces for stale requests with free_blocks gating
     for (const piece of activePieces.fullyRequestedValues()) {
       const staleRequests = piece.getStaleRequestsPerPeer(getTimeout, now)
       for (const { blockIndex, peerId } of staleRequests) {
+        // free_blocks check: only cancel if this block is blocking piece completion
+        if (piece.freeBlocks > 0) {
+          staleRequestsSkipped++
+          continue
+        }
+
+        // freeBlocks === 0: this stale request is blocking completion. Cancel it.
         const peer = this.findPeerById(peerId)
         if (peer) {
           const begin = blockIndex * BLOCK_SIZE
@@ -505,9 +504,11 @@ export class TorrentTickLoop extends EngineComponent {
         }
         piece.cancelRequest(blockIndex, peerId)
         staleRequestsCleared++
+        // After cancellation, freeBlocks is now > 0, so subsequent stale requests
+        // for this piece will be skipped (other peers can grab the freed block).
       }
 
-      // If full piece now has unrequested blocks, mark for demotion
+      // If piece now has unrequested blocks, demote back to partial
       if (piece.hasUnrequestedBlocks) {
         piecesToDemote.push(piece.index)
       }
@@ -519,9 +520,15 @@ export class TorrentTickLoop extends EngineComponent {
     }
 
     // Log if we did any cleanup
-    if (staleRequestsCleared > 0 || piecesToDemote.length > 0 || peersSnubbed > 0) {
+    if (
+      staleRequestsCleared > 0 ||
+      staleRequestsSkipped > 0 ||
+      piecesToDemote.length > 0 ||
+      peersSnubbed > 0
+    ) {
       this.logger.debug(
-        `Piece health cleanup: ${staleRequestsCleared} stale requests cancelled, ` +
+        `Piece health cleanup: ${staleRequestsCleared} stale cancelled, ` +
+          `${staleRequestsSkipped} skipped (free blocks), ` +
           `${piecesToDemote.length} demoted to partial, ${peersSnubbed} peers snubbed`,
       )
     }

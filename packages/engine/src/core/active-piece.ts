@@ -259,6 +259,16 @@ export class ActivePiece {
   }
 
   /**
+   * Count of blocks that are neither received nor requested (libtorrent's free_blocks).
+   * Used by cleanup logic: only cancel stale requests when freeBlocks === 0,
+   * meaning the stale block is the last thing blocking piece completion.
+   * When freeBlocks > 0, other peers can grab free blocks instead.
+   */
+  get freeBlocks(): number {
+    return this._unrequestedCount
+  }
+
+  /**
    * Check if a block has an active (non-timed-out) request.
    */
   isBlockRequested(blockIndex: number, timeoutMs?: number): boolean {

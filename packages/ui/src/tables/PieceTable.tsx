@@ -186,16 +186,37 @@ export function PieceTable(props: PieceTableProps) {
   }, [])
 
   // State for header info (updated periodically, not on every RAF)
-  const [headerInfo, setHeaderInfo] = useState<{ completed: number; total: number } | null>(null)
+  const [headerInfo, setHeaderInfo] = useState<{
+    completed: number
+    total: number
+    active: number
+    partial: number
+    fullyRequested: number
+    fullyResponded: number
+  } | null>(null)
 
   // Update header info periodically (not on every frame)
   useEffect(() => {
     const update = () => {
       const torrent = sourceRef.current.getTorrent(hashRef.current)
       if (torrent && torrent.hasMetadata) {
+        const activePieces = torrent.getActivePieces()
+        let partial = 0
+        let fullyRequested = 0
+        let fullyResponded = 0
+        for (const piece of activePieces) {
+          const state = getPieceState(piece)
+          if (state === PieceState.Partial) partial++
+          else if (state === PieceState.FullyRequested) fullyRequested++
+          else if (state === PieceState.FullyResponded) fullyResponded++
+        }
         setHeaderInfo({
           completed: torrent.completedPiecesCount,
           total: torrent.piecesCount,
+          active: activePieces.length,
+          partial,
+          fullyRequested,
+          fullyResponded,
         })
       } else {
         setHeaderInfo(null)
@@ -224,6 +245,12 @@ export function PieceTable(props: PieceTableProps) {
           >
             <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
               {headerInfo.completed} / {headerInfo.total} pieces
+              <span style={{ marginLeft: '12px' }}>
+                active: {headerInfo.active} (
+                <span style={{ color: '#ff9f0a' }}>{headerInfo.partial} partial</span>,{' '}
+                <span style={{ color: '#64d2ff' }}>{headerInfo.fullyRequested} requested</span>,{' '}
+                <span style={{ color: '#30d158' }}>{headerInfo.fullyResponded} verifying</span>)
+              </span>
             </span>
             <div style={{ display: 'flex', gap: '4px' }}>
               <button

@@ -968,4 +968,90 @@ describe('ActivePiece', () => {
       expect(piece.unrequestedCount).toBe(3) // No change, was already decremented
     })
   })
+
+  // === Phase 2: free_blocks check tests ===
+
+  describe('Phase 2: freeBlocks (smart cancellation)', () => {
+    it('freeBlocks should be an alias for unrequestedCount', () => {
+      expect(piece.freeBlocks).toBe(piece.unrequestedCount)
+      expect(piece.freeBlocks).toBe(4)
+
+      piece.addRequest(0, 'peer1')
+      expect(piece.freeBlocks).toBe(piece.unrequestedCount)
+      expect(piece.freeBlocks).toBe(3)
+    })
+
+    it('partial piece (has free blocks) should have freeBlocks > 0', () => {
+      // Partial piece: some blocks requested, but not all
+      piece.addRequest(0, 'peer1')
+      piece.addRequest(1, 'peer2')
+
+      // freeBlocks > 0 means cleanup should NOT cancel stale requests
+      expect(piece.freeBlocks).toBe(2)
+      expect(piece.freeBlocks).toBeGreaterThan(0)
+    })
+
+    it('fullyRequested piece (no free blocks) should have freeBlocks === 0', () => {
+      // All 4 blocks requested
+      for (let i = 0; i < 4; i++) {
+        piece.addRequest(i, 'peer1')
+      }
+
+      // freeBlocks === 0 means cleanup SHOULD cancel stale requests
+      expect(piece.freeBlocks).toBe(0)
+    })
+
+    it('cancelling one request on fully-requested piece should make freeBlocks > 0', () => {
+      // Fully requested: all blocks have requests
+      for (let i = 0; i < 4; i++) {
+        piece.addRequest(i, 'peer1')
+      }
+      expect(piece.freeBlocks).toBe(0)
+
+      // Cancel one stale request → freeBlocks becomes 1
+      piece.cancelRequest(0, 'peer1')
+
+      expect(piece.freeBlocks).toBe(1)
+      // After this, further stale requests should NOT be cancelled
+      // (other peers can grab the freed block instead)
+    })
+
+    it('should only need one cancellation to unblock a fully-requested piece', () => {
+      // Simulate: all 4 blocks requested by peer1, all go stale
+      for (let i = 0; i < 4; i++) {
+        piece.addRequest(i, 'peer1')
+      }
+      expect(piece.freeBlocks).toBe(0)
+
+      // Simulate the cleanup loop: cancel requests one at a time,
+      // stopping when freeBlocks > 0 (libtorrent behavior)
+      let cancelled = 0
+      const staleBlocks = [0, 1, 2, 3]
+      for (const blockIndex of staleBlocks) {
+        if (piece.freeBlocks > 0) break
+        piece.cancelRequest(blockIndex, 'peer1')
+        cancelled++
+      }
+
+      // Only 1 cancellation needed — after that, freeBlocks > 0
+      expect(cancelled).toBe(1)
+      expect(piece.freeBlocks).toBe(1)
+      // Remaining 3 stale requests stay in place as "lottery tickets"
+      expect(piece.outstandingRequests).toBe(3)
+    })
+
+    it('piece with mix of received and stale blocks: freeBlocks reflects only unreceived+unrequested', () => {
+      // Block 0: received
+      piece.addBlock(0, new Uint8Array(BLOCK_SIZE), 'peer1')
+      // Block 1: requested (stale)
+      piece.addRequest(1, 'peer1')
+      // Block 2: requested (stale)
+      piece.addRequest(2, 'peer1')
+      // Block 3: unrequested (free)
+
+      // freeBlocks = 1 (only block 3)
+      expect(piece.freeBlocks).toBe(1)
+      // With freeBlocks > 0, cleanup should NOT cancel the stale requests
+    })
+  })
 })
