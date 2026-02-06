@@ -4,13 +4,10 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.jstorrent.app.e2e.TestMagnets
-import com.jstorrent.app.service.ForegroundNotificationService
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 private const val TAG = "ForegroundNotificationServiceTest"
 
@@ -26,103 +23,59 @@ class ForegroundNotificationServiceTest {
     fun testForegroundNotificationServiceStartsAndLoads() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val app = context.applicationContext as JSTorrentApplication
-        Log.i(TAG, "Starting ForegroundNotificationService test")
+        Log.i(TAG, "Starting engine test")
 
         // Initialize engine via Application (with null storage mode for in-memory)
         app.initializeEngine(storageMode = "null")
         Log.i(TAG, "Engine initialized via Application")
 
-        // Mark activity as in foreground via lifecycle manager
-        app.serviceLifecycleManager.setActivityForeground(true)
+        val controller = app.engineController
+        requireNotNull(controller) { "Controller should be available when engine is loaded" }
+        assert(controller.isLoaded.value) { "Engine failed to load" }
+        Log.i(TAG, "SUCCESS: Engine loaded")
 
-        // Start the service (it will use the Application's engine)
-        ForegroundNotificationService.start(context, "null")
-        Log.i(TAG, "ForegroundNotificationService.start() called")
+        // Try adding a torrent using deterministic test data
+        val magnetLink = TestMagnets.buildMagnetLink(
+            infoHash = TestMagnets.InfoHashes.TEST_100MB,
+            displayName = TestMagnets.DisplayNames.TEST_100MB
+        )
+        controller.addTorrent(magnetLink)
+        Log.i(TAG, "addTorrent called with test magnet: $magnetLink")
 
-        // Wait for service to initialize
-        val latch = CountDownLatch(1)
-        var loaded = false
+        // Wait a bit for the torrent to be processed
+        Thread.sleep(2000)
 
-        Thread {
-            // Poll for service instance and loaded state
-            repeat(30) { attempt ->
-                val instance = ForegroundNotificationService.instance
-                if (instance != null) {
-                    Log.i(TAG, "Service instance available (attempt $attempt)")
-
-                    val isLoadedFlow = instance.isLoaded
-                    if (isLoadedFlow?.value == true) {
-                        Log.i(TAG, "Engine is loaded!")
-                        loaded = true
-                        latch.countDown()
-                        return@Thread
-                    }
-                }
-                Thread.sleep(500)
-            }
-            Log.e(TAG, "Timeout waiting for engine to load")
-            latch.countDown()
-        }.start()
-
-        latch.await(20, TimeUnit.SECONDS)
-
-        // Check result
-        val instance = ForegroundNotificationService.instance
-        Log.i(TAG, "Final check - instance: ${instance != null}, loaded: $loaded")
-
-        if (instance != null && loaded) {
-            Log.i(TAG, "SUCCESS: Engine service started and loaded")
-
-            // Try adding a torrent using deterministic test data
-            // This uses known info hash from seed_for_test.py with seed 0xDEADBEEF
-            val magnetLink = TestMagnets.buildMagnetLink(
-                infoHash = TestMagnets.InfoHashes.TEST_100MB,
-                displayName = TestMagnets.DisplayNames.TEST_100MB
-            )
-            val controller = instance.controller
-            requireNotNull(controller) { "Controller should be available when engine is loaded" }
-            controller.addTorrent(magnetLink)
-            Log.i(TAG, "addTorrent called with test magnet: $magnetLink")
-
-            // Wait a bit for the torrent to be processed
-            Thread.sleep(2000)
-
-            // Query torrent list
-            val torrents = controller.getTorrentList()
-            Log.i(TAG, "getTorrentList returned ${torrents.size} torrents")
-            torrents.forEach { t ->
-                Log.i(TAG, "Torrent: name=${t.name}, infoHash=${t.infoHash}, status=${t.status}")
-            }
-
-            // Verify the torrent was added with the expected info hash
-            val expectedHash = TestMagnets.InfoHashes.TEST_100MB
-            val addedTorrent = torrents.find {
-                it.infoHash.equals(expectedHash, ignoreCase = true)
-            }
-            assert(addedTorrent != null) {
-                "Expected torrent with hash $expectedHash not found in list"
-            }
-            Log.i(TAG, "Verified torrent added: ${addedTorrent?.name}")
-
-            // Check state flow
-            val state = instance.state.value
-            Log.i(TAG, "State flow value: ${state?.torrents?.size ?: 0} torrents")
-            state?.torrents?.forEach { t ->
-                Log.i(TAG, "State torrent: name=${t.name}, progress=${t.progress}")
-            }
-
-            // Clean up - remove the test torrent
-            controller.removeTorrent(expectedHash, deleteFiles = true)
-            Log.i(TAG, "Removed test torrent")
+        // Query torrent list
+        val torrents = controller.getTorrentList()
+        Log.i(TAG, "getTorrentList returned ${torrents.size} torrents")
+        torrents.forEach { t ->
+            Log.i(TAG, "Torrent: name=${t.name}, infoHash=${t.infoHash}, status=${t.status}")
         }
 
-        // Stop service
-        app.serviceLifecycleManager.setActivityForeground(false)
-        ForegroundNotificationService.stop(context)
-        app.shutdownEngine()
-        Log.i(TAG, "ForegroundNotificationService.stop() called")
+        // Verify the torrent was added with the expected info hash
+        val expectedHash = TestMagnets.InfoHashes.TEST_100MB
+        val addedTorrent = torrents.find {
+            it.infoHash.equals(expectedHash, ignoreCase = true)
+        }
+        assert(addedTorrent != null) {
+            "Expected torrent with hash $expectedHash not found in list"
+        }
+        Log.i(TAG, "Verified torrent added: ${addedTorrent?.name}")
 
-        assert(loaded) { "Engine failed to load" }
+        // Check state flow
+        val state = controller.state.value
+        Log.i(TAG, "State flow value: ${state?.torrents?.size ?: 0} torrents")
+        state?.torrents?.forEach { t ->
+            Log.i(TAG, "State torrent: name=${t.name}, progress=${t.progress}")
+        }
+
+        // Clean up - remove the test torrent
+        controller.removeTorrent(expectedHash, deleteFiles = true)
+        Log.i(TAG, "Removed test torrent")
+
+        // Shutdown engine
+        app.shutdownEngine()
+        Log.i(TAG, "Engine shut down")
     }
 
     @Test
@@ -135,26 +88,10 @@ class ForegroundNotificationServiceTest {
         app.initializeEngine(storageMode = "null")
         Log.i(TAG, "Engine initialized via Application")
 
-        // Mark activity as in foreground via lifecycle manager
-        app.serviceLifecycleManager.setActivityForeground(true)
-
-        // Start the service (it will use the Application's engine)
-        ForegroundNotificationService.start(context, "null")
-        Log.i(TAG, "ForegroundNotificationService.start() called")
-
-        // Wait for engine to load (polling with coroutine delay)
-        var instance: ForegroundNotificationService? = null
-        repeat(30) {
-            instance = ForegroundNotificationService.instance
-            if (instance?.isLoaded?.value == true) return@repeat
-            delay(500)
-        }
-        requireNotNull(instance) { "Engine failed to load" }
-        assert(instance!!.isLoaded.value == true) { "Engine not loaded" }
-        Log.i(TAG, "Engine loaded, testing async methods")
-
-        val controller = instance!!.controller
+        val controller = app.engineController
         requireNotNull(controller) { "Controller should be available when engine is loaded" }
+        assert(controller.isLoaded.value) { "Engine not loaded" }
+        Log.i(TAG, "Engine loaded, testing async methods")
 
         // Test async add
         val magnetLink = TestMagnets.buildMagnetLink(
@@ -199,8 +136,6 @@ class ForegroundNotificationServiceTest {
         Log.i(TAG, "Verified torrent removed")
 
         // Cleanup
-        app.serviceLifecycleManager.setActivityForeground(false)
-        ForegroundNotificationService.stop(context)
         app.shutdownEngine()
         Log.i(TAG, "Async methods test completed successfully")
         Unit

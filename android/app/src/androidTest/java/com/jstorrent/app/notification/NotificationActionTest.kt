@@ -10,13 +10,10 @@ import com.jstorrent.app.service.ForegroundNotificationService
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * Instrumented tests for notification action buttons.
@@ -93,10 +90,7 @@ class NotificationActionTest {
         // Initialize engine via Application
         app.initializeEngine(storageMode = "null")
 
-        // Mark activity as in foreground via lifecycle manager
-        app.serviceLifecycleManager.setActivityForeground(true)
-
-        // Start the service
+        // Start the service (without foreground flag so it doesn't stop immediately)
         ForegroundNotificationService.start(context, "null")
 
         // Wait for engine to load
@@ -148,10 +142,7 @@ class NotificationActionTest {
         // Initialize engine via Application
         app.initializeEngine(storageMode = "null")
 
-        // Mark activity as in foreground via lifecycle manager
-        app.serviceLifecycleManager.setActivityForeground(true)
-
-        // Start the service
+        // Start the service (without foreground flag so it doesn't stop immediately)
         ForegroundNotificationService.start(context, "null")
 
         // Wait for engine to load
@@ -193,10 +184,7 @@ class NotificationActionTest {
         // Initialize engine via Application
         app.initializeEngine(storageMode = "null")
 
-        // Mark activity as in foreground via lifecycle manager
-        app.serviceLifecycleManager.setActivityForeground(true)
-
-        // Start the service
+        // Start the service (without foreground flag so it doesn't stop immediately)
         ForegroundNotificationService.start(context, "null")
 
         // Wait for engine to load
@@ -223,10 +211,7 @@ class NotificationActionTest {
         // Initialize engine via Application
         app.initializeEngine(storageMode = "null")
 
-        // Mark activity as in foreground via lifecycle manager
-        app.serviceLifecycleManager.setActivityForeground(true)
-
-        // Start the service
+        // Start the service (without foreground flag so it doesn't stop immediately)
         ForegroundNotificationService.start(context, "null")
 
         // Wait for engine to load
@@ -288,25 +273,22 @@ class NotificationActionTest {
     // =========================================================================
 
     private fun waitForEngineLoad(timeoutMs: Long = ENGINE_LOAD_TIMEOUT_MS): Boolean {
-        val latch = CountDownLatch(1)
-        var loaded = false
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val app = context.applicationContext as JSTorrentApplication
 
-        Thread {
-            val deadline = System.currentTimeMillis() + timeoutMs
-            while (System.currentTimeMillis() < deadline) {
-                val instance = ForegroundNotificationService.instance
-                if (instance?.isLoaded?.value == true) {
-                    loaded = true
-                    latch.countDown()
-                    return@Thread
-                }
-                Thread.sleep(POLL_INTERVAL_MS)
+        // Engine loads synchronously, but wait for service instance to be available
+        if (app.engineController?.isLoaded?.value != true) {
+            return false
+        }
+
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (ForegroundNotificationService.instance != null) {
+                return true
             }
-            Log.e(TAG, "Timeout waiting for engine to load")
-            latch.countDown()
-        }.start()
-
-        latch.await(timeoutMs + 1000, TimeUnit.MILLISECONDS)
-        return loaded
+            Thread.sleep(POLL_INTERVAL_MS)
+        }
+        Log.e(TAG, "Timeout waiting for service instance")
+        return false
     }
 }

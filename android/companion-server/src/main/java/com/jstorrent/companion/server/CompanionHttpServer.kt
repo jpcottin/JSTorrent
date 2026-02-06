@@ -71,6 +71,9 @@ class CompanionHttpServer(
             throw e
         }
 
+        val http = httpServer ?: return
+        val httpPort = http.boundPort
+
         // Start JavaWebSocketServer for /io and /control on port+1
         try {
             val ws = JavaWebSocketServer(deps, fileManager)
@@ -79,10 +82,10 @@ class CompanionHttpServer(
                 onRegistered = { session -> registerControlSession(session) },
                 onUnregistered = { session -> unregisterControlSession(session) }
             )
-            ws.start(preferredPort = httpServer!!.boundPort + 1)
+            ws.start(preferredPort = httpPort + 1)
             wsServer = ws
             // Set ioPort on HTTP server so /status response includes it
-            httpServer!!.ioPort = ws.port
+            http.ioPort = ws.port
             Log.i(TAG, "WebSocket server started on port ${ws.port}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start WebSocket server: ${e.message}")
@@ -92,7 +95,7 @@ class CompanionHttpServer(
         // Start StreamingWriteServer for high-throughput batch writes on port+2
         try {
             val streaming = StreamingWriteServer(
-                port = httpServer!!.boundPort + 2,
+                port = httpPort + 2,
                 fileManager = fileManager,
                 rootResolver = { key -> deps.rootStore.resolveKey(key) },
                 tokenValidator = { token -> deps.tokenStore.isTokenValid(token) },
@@ -100,8 +103,8 @@ class CompanionHttpServer(
             streaming.start()
             streamingServer = streaming
             // Set streamingPort on HTTP server so /status response includes it
-            httpServer!!.streamingPort = streaming.let { httpServer!!.boundPort + 2 }
-            Log.i(TAG, "Streaming write server started on port ${httpServer!!.boundPort + 2}")
+            http.streamingPort = httpPort + 2
+            Log.i(TAG, "Streaming write server started on port ${httpPort + 2}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start streaming write server: ${e.message}")
             // Continue without streaming server - falls back to regular batch writes

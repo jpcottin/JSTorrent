@@ -138,13 +138,14 @@ class EngineController(
         Log.i(TAG, "Loading engine...")
 
         // Create QuickJS engine
-        engine = QuickJsEngine()
+        val eng = QuickJsEngine()
+        engine = eng
 
         // Start JS thread health monitoring
-        engine!!.jsThread.startHealthCheck()
+        eng.jsThread.startHealthCheck()
 
         // Register native bindings
-        bindings = NativeBindings(context, engine!!.jsThread, scope, fileManager, rootResolver).apply {
+        val b = NativeBindings(context, eng.jsThread, scope, fileManager, rootResolver).apply {
             stateListener = object : EngineStateListener {
                 override fun onStateUpdate(stateJson: String) {
                     handleStateUpdate(stateJson)
@@ -156,10 +157,11 @@ class EngineController(
                 }
             }
         }
+        bindings = b
 
         // Register bindings on JS thread
-        engine!!.postAndWait {
-            bindings!!.registerAll(engine!!.context)
+        eng.postAndWait {
+            b.registerAll(eng.context)
         }
 
         // Load bundle from assets
@@ -167,20 +169,20 @@ class EngineController(
         Log.i(TAG, "Bundle loaded: ${bundleJs.length / 1024} KB")
 
         // Evaluate bundle
-        engine!!.evaluate(bundleJs, "engine.bundle.js")
+        eng.evaluate(bundleJs, "engine.bundle.js")
         Log.i(TAG, "Bundle evaluated")
 
         // Initialize engine with config
         val configJson = json.encodeToString(config)
-        engine!!.evaluate("globalThis.jstorrent.init($configJson)", "init.js")
+        eng.evaluate("globalThis.jstorrent.init($configJson)", "init.js")
 
         // Execute pending jobs to complete async initialization
         // The init() call starts async work that needs microtasks to be pumped
-        engine!!.executeAllPendingJobs()
+        eng.executeAllPendingJobs()
         Log.i(TAG, "Engine initialized with ${config.contentRoots.size} content roots")
 
         // Create ConfigBridge for config management
-        configBridge = ConfigBridge(engine!!)
+        configBridge = ConfigBridge(eng)
 
         // Sync initial roots via ConfigBridge
         config.contentRoots.let { roots ->
@@ -204,9 +206,9 @@ class EngineController(
      * Result is async - observe state flow for updates.
      */
     fun addTorrent(magnetOrBase64: String) {
-        checkLoaded()
+        val eng = requireEngine()
         val escaped = magnetOrBase64.replace("\\", "\\\\").replace("'", "\\'")
-        engine!!.callGlobalFunction("__jstorrent_cmd_add_torrent", escaped)
+        eng.callGlobalFunction("__jstorrent_cmd_add_torrent", escaped)
         Log.i(TAG, "addTorrent called")
     }
 
@@ -214,8 +216,8 @@ class EngineController(
      * Pause a torrent by info hash.
      */
     fun pauseTorrent(infoHash: String) {
-        checkLoaded()
-        engine!!.callGlobalFunction("__jstorrent_cmd_pause", infoHash)
+        val eng = requireEngine()
+        eng.callGlobalFunction("__jstorrent_cmd_pause", infoHash)
         Log.i(TAG, "pauseTorrent: $infoHash")
     }
 
@@ -223,8 +225,8 @@ class EngineController(
      * Resume a paused torrent.
      */
     fun resumeTorrent(infoHash: String) {
-        checkLoaded()
-        engine!!.callGlobalFunction("__jstorrent_cmd_resume", infoHash)
+        val eng = requireEngine()
+        eng.callGlobalFunction("__jstorrent_cmd_resume", infoHash)
         Log.i(TAG, "resumeTorrent: $infoHash")
     }
 
@@ -235,8 +237,8 @@ class EngineController(
      * @param deleteFiles If true, also delete downloaded files
      */
     fun removeTorrent(infoHash: String, deleteFiles: Boolean = false) {
-        checkLoaded()
-        engine!!.callGlobalFunction(
+        val eng = requireEngine()
+        eng.callGlobalFunction(
             "__jstorrent_cmd_remove",
             infoHash,
             deleteFiles.toString()
@@ -251,9 +253,9 @@ class EngineController(
      * @param priorities Map of file index to priority (0=Normal, 1=Skip, 2=High)
      */
     fun setFilePriorities(infoHash: String, priorities: Map<Int, Int>) {
-        checkLoaded()
+        val eng = requireEngine()
         val prioritiesJson = json.encodeToString(priorities.mapKeys { it.key.toString() })
-        engine!!.callGlobalFunction(
+        eng.callGlobalFunction(
             "__jstorrent_cmd_set_file_priorities",
             infoHash,
             prioritiesJson
@@ -266,8 +268,8 @@ class EngineController(
      * Uses a local qBittorrent seeder at 192.168.1.112:6082.
      */
     fun addTestTorrent() {
-        checkLoaded()
-        engine!!.callGlobalFunction("__jstorrent_cmd_add_test_torrent")
+        val eng = requireEngine()
+        eng.callGlobalFunction("__jstorrent_cmd_add_test_torrent")
         Log.i(TAG, "addTestTorrent called")
     }
 
@@ -290,8 +292,8 @@ class EngineController(
         replaceWith = ReplaceWith("getConfigBridge()?.syncRoots(roots, defaultKey)")
     )
     fun addRoot(key: String, label: String, uri: String) {
-        checkLoaded()
-        engine!!.callGlobalFunction(
+        val eng = requireEngine()
+        eng.callGlobalFunction(
             "__jstorrent_cmd_add_root",
             key.escapeJs(),
             label.escapeJs(),
@@ -311,8 +313,8 @@ class EngineController(
         replaceWith = ReplaceWith("getConfigBridge()?.syncRoots(roots, defaultKey)")
     )
     fun setDefaultRoot(key: String) {
-        checkLoaded()
-        engine!!.callGlobalFunction("__jstorrent_cmd_set_default_root", key.escapeJs())
+        val eng = requireEngine()
+        eng.callGlobalFunction("__jstorrent_cmd_set_default_root", key.escapeJs())
         Log.i(TAG, "Set default root: $key")
     }
 
@@ -326,8 +328,8 @@ class EngineController(
         replaceWith = ReplaceWith("getConfigBridge()?.syncRoots(roots, defaultKey)")
     )
     fun removeRoot(key: String) {
-        checkLoaded()
-        engine!!.callGlobalFunction("__jstorrent_cmd_remove_root", key.escapeJs())
+        val eng = requireEngine()
+        eng.callGlobalFunction("__jstorrent_cmd_remove_root", key.escapeJs())
         Log.i(TAG, "Removed root: $key")
     }
 
@@ -341,8 +343,8 @@ class EngineController(
      * For frequent updates, prefer observing [state] instead.
      */
     fun getTorrentList(): List<TorrentInfo> {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunction("__jstorrent_query_torrent_list") as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunction("__jstorrent_query_torrent_list") as? String
             ?: return emptyList()
         return try {
             json.decodeFromString<TorrentListResponse>(resultJson).torrents
@@ -356,8 +358,8 @@ class EngineController(
      * Get file list for a specific torrent.
      */
     fun getFiles(infoHash: String): List<FileInfo> {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunction("__jstorrent_query_files", infoHash) as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunction("__jstorrent_query_files", infoHash) as? String
             ?: return emptyList()
         return try {
             json.decodeFromString<FileListResponse>(resultJson).files
@@ -371,8 +373,8 @@ class EngineController(
      * Get tracker list for a specific torrent.
      */
     fun getTrackers(infoHash: String): List<TrackerInfo> {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunction("__jstorrent_query_trackers", infoHash) as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunction("__jstorrent_query_trackers", infoHash) as? String
             ?: return emptyList()
         return try {
             json.decodeFromString<TrackerListResponse>(resultJson).trackers
@@ -386,8 +388,8 @@ class EngineController(
      * Get peer list for a specific torrent.
      */
     fun getPeers(infoHash: String): List<PeerInfo> {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunction("__jstorrent_query_peers", infoHash) as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunction("__jstorrent_query_peers", infoHash) as? String
             ?: return emptyList()
         return try {
             json.decodeFromString<PeerListResponse>(resultJson).peers
@@ -402,8 +404,8 @@ class EngineController(
      * Returns piece counts and hex-encoded bitfield.
      */
     fun getPieces(infoHash: String): PieceInfo? {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunction("__jstorrent_query_pieces", infoHash) as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunction("__jstorrent_query_pieces", infoHash) as? String
             ?: return null
         return try {
             json.decodeFromString<PieceInfo>(resultJson)
@@ -418,8 +420,8 @@ class EngineController(
      * Returns timestamps, size info, and magnet URL.
      */
     fun getDetails(infoHash: String): TorrentDetails? {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunction("__jstorrent_query_details", infoHash) as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunction("__jstorrent_query_details", infoHash) as? String
             ?: return null
         return try {
             json.decodeFromString<TorrentDetails>(resultJson)
@@ -439,12 +441,12 @@ class EngineController(
      * Optionally filter by components.
      */
     fun setLogLevel(level: String, components: List<String>? = null) {
-        checkLoaded()
+        val eng = requireEngine()
         val componentsJson = components?.let { json.encodeToString(it) }
         if (componentsJson != null) {
-            engine!!.callGlobalFunction("__jstorrent_cmd_set_log_level", level, componentsJson)
+            eng.callGlobalFunction("__jstorrent_cmd_set_log_level", level, componentsJson)
         } else {
-            engine!!.callGlobalFunction("__jstorrent_cmd_set_log_level", level)
+            eng.callGlobalFunction("__jstorrent_cmd_set_log_level", level)
         }
         Log.i(TAG, "setLogLevel: $level${components?.let { ", components: $it" } ?: ""}")
     }
@@ -454,8 +456,8 @@ class EngineController(
      * Returns JSON with all peers and their connection states.
      */
     fun getSwarmDebug(infoHash: String): String {
-        checkLoaded()
-        return engine!!.callGlobalFunction("__jstorrent_query_swarm_debug", infoHash) as? String
+        val eng = requireEngine()
+        return eng.callGlobalFunction("__jstorrent_query_swarm_debug", infoHash) as? String
             ?: """{"error": "No result"}"""
     }
 
@@ -464,8 +466,7 @@ class EngineController(
      * Use with caution - this can execute any code in the engine context.
      */
     fun evaluate(script: String): Any? {
-        checkLoaded()
-        return engine!!.evaluate(script)
+        return requireEngine().evaluate(script)
     }
 
     /**
@@ -473,8 +474,7 @@ class EngineController(
      * Use with caution - this can execute any code in the engine context.
      */
     suspend fun evaluateAsync(script: String): Any? {
-        checkLoaded()
-        return engine!!.evaluateAsync(script)
+        return requireEngine().evaluateAsync(script)
     }
 
     /**
@@ -512,8 +512,8 @@ class EngineController(
      * Awaits until the torrent is fully added to the engine.
      */
     suspend fun addTorrentAsync(magnetOrBase64: String): String? {
-        checkLoaded()
-        val result = engine!!.callGlobalFunctionAwaitPromise("__jstorrent_cmd_add_torrent", magnetOrBase64)
+        val eng = requireEngine()
+        val result = eng.callGlobalFunctionAwaitPromise("__jstorrent_cmd_add_torrent", magnetOrBase64)
         Log.i(TAG, "addTorrentAsync completed: $result")
         return result
     }
@@ -522,8 +522,7 @@ class EngineController(
      * Pause a torrent (suspend version).
      */
     suspend fun pauseTorrentAsync(infoHash: String) {
-        checkLoaded()
-        engine!!.callGlobalFunctionAsync("__jstorrent_cmd_pause", infoHash)
+        requireEngine().callGlobalFunctionAsync("__jstorrent_cmd_pause", infoHash)
         Log.i(TAG, "pauseTorrentAsync: $infoHash")
     }
 
@@ -531,8 +530,7 @@ class EngineController(
      * Resume a torrent (suspend version).
      */
     suspend fun resumeTorrentAsync(infoHash: String) {
-        checkLoaded()
-        engine!!.callGlobalFunctionAsync("__jstorrent_cmd_resume", infoHash)
+        requireEngine().callGlobalFunctionAsync("__jstorrent_cmd_resume", infoHash)
         Log.i(TAG, "resumeTorrentAsync: $infoHash")
     }
 
@@ -541,8 +539,8 @@ class EngineController(
      * Awaits until the torrent is fully removed from the engine.
      */
     suspend fun removeTorrentAsync(infoHash: String, deleteFiles: Boolean = false): String? {
-        checkLoaded()
-        val result = engine!!.callGlobalFunctionAwaitPromise(
+        val eng = requireEngine()
+        val result = eng.callGlobalFunctionAwaitPromise(
             "__jstorrent_cmd_remove",
             infoHash,
             deleteFiles.toString()
@@ -556,8 +554,8 @@ class EngineController(
      * Awaits until the recheck is complete.
      */
     suspend fun recheckTorrentAsync(infoHash: String): String? {
-        checkLoaded()
-        val result = engine!!.callGlobalFunctionAwaitPromise(
+        val eng = requireEngine()
+        val result = eng.callGlobalFunctionAwaitPromise(
             "__jstorrent_cmd_recheck",
             infoHash
         )
@@ -572,9 +570,9 @@ class EngineController(
      * @param priorities Map of file index to priority (0=Normal, 1=Skip, 2=High)
      */
     suspend fun setFilePrioritiesAsync(infoHash: String, priorities: Map<Int, Int>) {
-        checkLoaded()
+        val eng = requireEngine()
         val prioritiesJson = json.encodeToString(priorities.mapKeys { it.key.toString() })
-        engine!!.callGlobalFunctionAsync(
+        eng.callGlobalFunctionAsync(
             "__jstorrent_cmd_set_file_priorities",
             infoHash,
             prioritiesJson
@@ -586,8 +584,7 @@ class EngineController(
      * Add test torrent (suspend version).
      */
     suspend fun addTestTorrentAsync() {
-        checkLoaded()
-        engine!!.callGlobalFunctionAsync("__jstorrent_cmd_add_test_torrent")
+        requireEngine().callGlobalFunctionAsync("__jstorrent_cmd_add_test_torrent")
         Log.i(TAG, "addTestTorrentAsync called")
     }
 
@@ -602,8 +599,7 @@ class EngineController(
      * Use for WiFi-only / VPN-only mode when network conditions aren't met.
      */
     suspend fun suspendEngineAsync() {
-        checkLoaded()
-        engine!!.callGlobalFunctionAsync("__jstorrent_cmd_suspend")
+        requireEngine().callGlobalFunctionAsync("__jstorrent_cmd_suspend")
         Log.i(TAG, "Engine suspended")
     }
 
@@ -613,8 +609,7 @@ class EngineController(
      * Call when network conditions are restored (WiFi/VPN connected).
      */
     suspend fun resumeEngineAsync() {
-        checkLoaded()
-        engine!!.callGlobalFunctionAsync("__jstorrent_cmd_resume_engine")
+        requireEngine().callGlobalFunctionAsync("__jstorrent_cmd_resume_engine")
         Log.i(TAG, "Engine resumed")
     }
 
@@ -642,8 +637,7 @@ class EngineController(
      * Add a storage root (suspend version).
      */
     suspend fun addRootAsync(key: String, label: String, uri: String) {
-        checkLoaded()
-        engine!!.callGlobalFunctionAsync(
+        requireEngine().callGlobalFunctionAsync(
             "__jstorrent_cmd_add_root",
             key.escapeJs(),
             label.escapeJs(),
@@ -656,8 +650,7 @@ class EngineController(
      * Set default storage root (suspend version).
      */
     suspend fun setDefaultRootAsync(key: String) {
-        checkLoaded()
-        engine!!.callGlobalFunctionAsync("__jstorrent_cmd_set_default_root", key.escapeJs())
+        requireEngine().callGlobalFunctionAsync("__jstorrent_cmd_set_default_root", key.escapeJs())
         Log.i(TAG, "Set default root (async): $key")
     }
 
@@ -665,8 +658,7 @@ class EngineController(
      * Remove a storage root (suspend version).
      */
     suspend fun removeRootAsync(key: String) {
-        checkLoaded()
-        engine!!.callGlobalFunctionAsync("__jstorrent_cmd_remove_root", key.escapeJs())
+        requireEngine().callGlobalFunctionAsync("__jstorrent_cmd_remove_root", key.escapeJs())
         Log.i(TAG, "Removed root (async): $key")
     }
 
@@ -678,8 +670,8 @@ class EngineController(
      * Get torrent list (suspend version).
      */
     suspend fun getTorrentListAsync(): List<TorrentInfo> {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunctionAsync("__jstorrent_query_torrent_list") as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunctionAsync("__jstorrent_query_torrent_list") as? String
             ?: return emptyList()
         return try {
             json.decodeFromString<TorrentListResponse>(resultJson).torrents
@@ -693,8 +685,8 @@ class EngineController(
      * Get files for a torrent (suspend version).
      */
     suspend fun getFilesAsync(infoHash: String): List<FileInfo> {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunctionAsync("__jstorrent_query_files", infoHash) as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunctionAsync("__jstorrent_query_files", infoHash) as? String
             ?: return emptyList()
         return try {
             json.decodeFromString<FileListResponse>(resultJson).files
@@ -708,8 +700,8 @@ class EngineController(
      * Get trackers for a torrent (suspend version).
      */
     suspend fun getTrackersAsync(infoHash: String): List<TrackerInfo> {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunctionAsync("__jstorrent_query_trackers", infoHash) as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunctionAsync("__jstorrent_query_trackers", infoHash) as? String
             ?: return emptyList()
         return try {
             json.decodeFromString<TrackerListResponse>(resultJson).trackers
@@ -723,8 +715,8 @@ class EngineController(
      * Get peers for a torrent (suspend version).
      */
     suspend fun getPeersAsync(infoHash: String): List<PeerInfo> {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunctionAsync("__jstorrent_query_peers", infoHash) as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunctionAsync("__jstorrent_query_peers", infoHash) as? String
             ?: return emptyList()
         return try {
             json.decodeFromString<PeerListResponse>(resultJson).peers
@@ -738,8 +730,8 @@ class EngineController(
      * Get piece info for a torrent (suspend version).
      */
     suspend fun getPiecesAsync(infoHash: String): PieceInfo? {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunctionAsync("__jstorrent_query_pieces", infoHash) as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunctionAsync("__jstorrent_query_pieces", infoHash) as? String
             ?: return null
         return try {
             json.decodeFromString<PieceInfo>(resultJson)
@@ -753,8 +745,8 @@ class EngineController(
      * Get detailed torrent metadata (suspend version).
      */
     suspend fun getDetailsAsync(infoHash: String): TorrentDetails? {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunctionAsync("__jstorrent_query_details", infoHash) as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunctionAsync("__jstorrent_query_details", infoHash) as? String
             ?: return null
         return try {
             json.decodeFromString<TorrentDetails>(resultJson)
@@ -769,8 +761,8 @@ class EngineController(
      * Returns null if DHT is not initialized.
      */
     suspend fun getDhtStatsAsync(): DhtStats? {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunctionAsync("__jstorrent_query_dht_stats") as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunctionAsync("__jstorrent_query_dht_stats") as? String
             ?: return null
         // Handle "null" string response
         if (resultJson == "null") return null
@@ -803,8 +795,8 @@ class EngineController(
      * Returns status and external IP if mapped.
      */
     suspend fun getUpnpStatusAsync(): UpnpStatus? {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunctionAsync("__jstorrent_query_upnp_status") as? String
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunctionAsync("__jstorrent_query_upnp_status") as? String
             ?: return null
         return try {
             json.decodeFromString<UpnpStatus>(resultJson)
@@ -831,8 +823,8 @@ class EngineController(
         toTime: Long,
         maxPoints: Int = 300
     ): SpeedSamplesResult? {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunctionAsync(
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunctionAsync(
             "__jstorrent_query_speed_samples",
             direction,
             categories,
@@ -853,8 +845,8 @@ class EngineController(
      * Fetches tick stats, active pieces, and connected peers from JS engine.
      */
     suspend fun getEngineStatsAsync(): EngineStats? {
-        checkLoaded()
-        val resultJson = engine!!.callGlobalFunctionAsync(
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunctionAsync(
             "__jstorrent_query_engine_stats"
         ) as? String ?: return null
         return try {
@@ -1133,7 +1125,7 @@ class EngineController(
         }
 
         // Start the tick loop on JS thread
-        eng.jsThread.handler.post(tickRunnable!!)
+        eng.jsThread.handler.post(tickRunnable ?: return)
     }
 
     /**
@@ -1280,9 +1272,8 @@ class EngineController(
         Log.i(TAG, "Engine shut down")
     }
 
-    private fun checkLoaded() {
-        check(engine != null) { "Engine not loaded. Call loadEngine() first." }
-    }
+    private fun requireEngine(): QuickJsEngine =
+        engine ?: throw IllegalStateException("Engine not loaded. Call loadEngine() first.")
 
     private fun handleStateUpdate(stateJson: String) {
         try {

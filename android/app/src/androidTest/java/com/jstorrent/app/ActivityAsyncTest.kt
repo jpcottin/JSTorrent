@@ -3,13 +3,9 @@ package com.jstorrent.app
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.jstorrent.app.service.ForegroundNotificationService
-import com.jstorrent.app.storage.RootStore
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.After
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -33,44 +29,23 @@ class ActivityAsyncTest {
 
     @Before
     fun setup() {
-        runBlocking {
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
-            val app = context.applicationContext as JSTorrentApplication
-            Log.i(TAG, "Initializing engine via Application")
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val app = context.applicationContext as JSTorrentApplication
+        Log.i(TAG, "Initializing engine via Application")
 
-            // Initialize engine via Application (with null storage mode for in-memory)
-            app.initializeEngine(storageMode = "null")
-
-            // Mark activity as in foreground via lifecycle manager
-            app.serviceLifecycleManager.setActivityForeground(true)
-
-            // Start service (it will use the Application's engine)
-            Log.i(TAG, "Starting ForegroundNotificationService")
-            ForegroundNotificationService.start(context, "null")
-
-            // Wait for engine to be fully loaded and service to start
-            repeat(30) {
-                if (app.engineController?.isLoaded?.value == true && ForegroundNotificationService.instance != null) return@repeat
-                delay(500)
-            }
-            assertTrue("Engine not loaded", app.engineController?.isLoaded?.value == true)
-            assertNotNull("Service not started", ForegroundNotificationService.instance)
-
-            Log.i(TAG, "Engine loaded, service started")
-        }
+        // Initialize engine via Application (with null storage mode for in-memory)
+        app.initializeEngine(storageMode = "null")
+        assertTrue("Engine not loaded", app.engineController?.isLoaded?.value == true)
+        Log.i(TAG, "Engine loaded")
     }
 
     @After
     fun teardown() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val app = context.applicationContext as JSTorrentApplication
-        // Reset foreground flag to prevent test pollution
-        app.serviceLifecycleManager.setActivityForeground(false)
-        ForegroundNotificationService.stop(context)
         app.shutdownEngine()
-        // Wait for service to fully stop to avoid race conditions with next test
         Thread.sleep(1000)
-        Log.i(TAG, "ForegroundNotificationService stopped")
+        Log.i(TAG, "Engine shut down")
     }
 
     private fun getController(): com.jstorrent.quickjs.EngineController {

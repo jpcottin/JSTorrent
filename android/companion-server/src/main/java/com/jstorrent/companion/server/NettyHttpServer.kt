@@ -902,14 +902,14 @@ private class NettyHttpHandler(
      */
     private fun fileManagerExceptionToHttpResponse(e: FileManagerException): Pair<HttpResponseStatus, String> {
         return when (e) {
-            is FileManagerException.FileNotFound -> HttpResponseStatus.NOT_FOUND to e.message!!
-            is FileManagerException.CannotCreateFile -> HttpResponseStatus.INTERNAL_SERVER_ERROR to e.message!!
-            is FileManagerException.CannotOpenFile -> HttpResponseStatus.INTERNAL_SERVER_ERROR to e.message!!
-            is FileManagerException.InsufficientData -> HttpResponseStatus.REQUESTED_RANGE_NOT_SATISFIABLE to e.message!!
+            is FileManagerException.FileNotFound -> HttpResponseStatus.NOT_FOUND to (e.message ?: "File not found")
+            is FileManagerException.CannotCreateFile -> HttpResponseStatus.INTERNAL_SERVER_ERROR to (e.message ?: "Cannot create file")
+            is FileManagerException.CannotOpenFile -> HttpResponseStatus.INTERNAL_SERVER_ERROR to (e.message ?: "Cannot open file")
+            is FileManagerException.InsufficientData -> HttpResponseStatus.REQUESTED_RANGE_NOT_SATISFIABLE to (e.message ?: "Insufficient data")
             is FileManagerException.ReadError -> HttpResponseStatus.INTERNAL_SERVER_ERROR to (e.message ?: "Read error")
             is FileManagerException.WriteError -> HttpResponseStatus.INTERNAL_SERVER_ERROR to (e.message ?: "Write error")
-            is FileManagerException.DiskFull -> HttpResponseStatus.INSUFFICIENT_STORAGE to e.message!!
-            is FileManagerException.PermissionDenied -> HttpResponseStatus.FORBIDDEN to e.message!!
+            is FileManagerException.DiskFull -> HttpResponseStatus.INSUFFICIENT_STORAGE to (e.message ?: "Disk full")
+            is FileManagerException.PermissionDenied -> HttpResponseStatus.FORBIDDEN to (e.message ?: "Permission denied")
         }
     }
 

@@ -42,9 +42,6 @@ class ServiceLifecycleTest {
         // Reset settings to defaults for each test
         settingsStore.whenDownloadsComplete = "stop_and_close"
         settingsStore.wifiOnlyEnabled = false
-
-        // Set activity in foreground via lifecycle manager
-        app.serviceLifecycleManager.setActivityForeground(true)
     }
 
     @After
@@ -219,7 +216,8 @@ class ServiceLifecycleTest {
         runBlocking {
             Log.i(TAG, "Testing lifecycle manager foreground state tracking")
 
-            // Initially should be foreground (set in setUp)
+            // Set foreground for this test
+            app.serviceLifecycleManager.setActivityForeground(true)
             assertTrue("Initial state should be foreground", app.serviceLifecycleManager.isActivityForeground.value)
 
             // Set to background

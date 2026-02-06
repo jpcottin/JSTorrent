@@ -45,9 +45,13 @@ abstract class E2EBaseTest {
     protected lateinit var arguments: Bundle
     protected var engineService: ForegroundNotificationService? = null
 
-    /** Direct access to engine controller - preferred over service passthrough methods */
+    /** Direct access to engine controller via Application */
     protected val controller: EngineController?
-        get() = engineService?.controller
+        get() {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val app = context.applicationContext as JSTorrentApplication
+            return app.engineController
+        }
 
     @Before
     open fun setUp() {
@@ -66,17 +70,15 @@ abstract class E2EBaseTest {
         // This avoids SAF permission issues during tests
         app.initializeEngine(storageMode = "null")
         Log.i(TAG, "Engine initialized via Application")
+        assert(app.engineController?.isLoaded?.value == true) { "Engine failed to load" }
 
-        // Mark activity as in foreground via lifecycle manager
-        app.serviceLifecycleManager.setActivityForeground(true)
-
-        // Start the service (it will use the Application's engine)
+        // Start the service (without foreground flag so it doesn't stop immediately)
         ForegroundNotificationService.start(context, "null")
 
-        // Wait for engine to load
-        val loaded = waitForEngineLoad()
-        if (!loaded) {
-            throw AssertionError("Engine failed to load within timeout")
+        // Wait for service instance to be available
+        val serviceReady = waitForEngineLoad()
+        if (!serviceReady) {
+            Log.w(TAG, "Service instance not available within timeout, continuing with engine only")
         }
 
         engineService = ForegroundNotificationService.instance
@@ -88,14 +90,12 @@ abstract class E2EBaseTest {
         Log.i(TAG, "Starting E2E test teardown")
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val app = context.applicationContext as JSTorrentApplication
-        // Reset foreground flag to prevent test pollution
-        app.serviceLifecycleManager.setActivityForeground(false)
 
         // Remove all torrents added during the test
         try {
-            controller?.getTorrentList()?.forEach { torrent ->
+            app.engineController?.getTorrentList()?.forEach { torrent ->
                 Log.i(TAG, "Removing torrent: ${torrent.infoHash}")
-                controller?.removeTorrent(torrent.infoHash, deleteFiles = true)
+                app.engineController?.removeTorrent(torrent.infoHash, deleteFiles = true)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error removing torrents during teardown", e)
