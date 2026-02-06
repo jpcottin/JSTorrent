@@ -824,6 +824,55 @@ describe('ActivePiece', () => {
     })
   })
 
+  // === Phase 5 (libtorrent plan): getRequestingPeers tests ===
+
+  describe('getRequestingPeers', () => {
+    it('should return empty set when no requests', () => {
+      expect(piece.getRequestingPeers().size).toBe(0)
+    })
+
+    it('should return all peers with outstanding requests', () => {
+      piece.addRequest(0, 'peer1')
+      piece.addRequest(1, 'peer2')
+      piece.addRequest(2, 'peer1')
+
+      const peers = piece.getRequestingPeers()
+      expect(peers.size).toBe(2)
+      expect(peers.has('peer1')).toBe(true)
+      expect(peers.has('peer2')).toBe(true)
+    })
+
+    it('should not include peers whose requests have been fulfilled', () => {
+      piece.addRequest(0, 'peer1')
+      piece.addRequest(1, 'peer2')
+      piece.addBlock(0, new Uint8Array(BLOCK_SIZE), 'peer1')
+
+      const peers = piece.getRequestingPeers()
+      expect(peers.size).toBe(1)
+      expect(peers.has('peer2')).toBe(true)
+      expect(peers.has('peer1')).toBe(false)
+    })
+
+    it('should not include peers whose requests were cancelled', () => {
+      piece.addRequest(0, 'peer1')
+      piece.addRequest(1, 'peer2')
+      piece.cancelRequest(0, 'peer1')
+
+      const peers = piece.getRequestingPeers()
+      expect(peers.size).toBe(1)
+      expect(peers.has('peer2')).toBe(true)
+    })
+
+    it('should handle endgame duplicate requests', () => {
+      piece.addRequest(0, 'peer1')
+      piece.addRequest(0, 'peer2')
+      piece.addRequest(0, 'peer3')
+
+      const peers = piece.getRequestingPeers()
+      expect(peers.size).toBe(3)
+    })
+  })
+
   // === Phase 2: free_blocks check tests ===
 
   describe('Phase 2: freeBlocks (smart cancellation)', () => {

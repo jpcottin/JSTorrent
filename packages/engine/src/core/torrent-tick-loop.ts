@@ -24,6 +24,16 @@ import { getWriteStats, resetWriteStatsMax } from '../adapters/daemon/daemon-fil
 export const BLOCK_REQUEST_TIMEOUT_MS = 10_000 // 10 seconds
 
 /**
+ * Piece-level no-data timeout (libtorrent's piece_timeout).
+ * If no data arrives for a piece for this long, snub all requesting peers.
+ * More aggressive than per-request timeout — catches peers that accept
+ * requests but don't send data.
+ *
+ * libtorrent reference: peer_connection.cpp piece_timeout check
+ */
+export const PIECE_NO_DATA_TIMEOUT_MS = 20_000 // 20 seconds
+
+/**
  * How often to run piece health cleanup (every N ticks).
  * With 100ms tick interval, 5 = every 500ms.
  */
@@ -519,17 +529,41 @@ export class TorrentTickLoop extends EngineComponent {
       activePieces.demoteToPartial(index)
     }
 
+    // --- Phase 3: Piece-level no-data timeout ---
+    // If no data arrives for a piece for PIECE_NO_DATA_TIMEOUT_MS, snub all
+    // requesting peers. This is more aggressive than per-request timeout and
+    // catches peers that accept requests but don't send data.
+    let pieceTimeoutSnubs = 0
+    for (const piece of activePieces.downloadingValues()) {
+      if (piece.outstandingRequests > 0 && now - piece.lastActivity > PIECE_NO_DATA_TIMEOUT_MS) {
+        const requestingPeers = piece.getRequestingPeers()
+        for (const peerId of requestingPeers) {
+          const peer = this.findPeerById(peerId)
+          if (peer && !peer.snubbed) {
+            peer.snub()
+            pieceTimeoutSnubs++
+            this.logger.debug(
+              `Piece timeout snub: peer ${peer.remoteAddress}:${peer.remotePort} ` +
+                `(piece ${piece.index} inactive for ${now - piece.lastActivity}ms)`,
+            )
+          }
+        }
+      }
+    }
+
     // Log if we did any cleanup
     if (
       staleRequestsCleared > 0 ||
       staleRequestsSkipped > 0 ||
       piecesToDemote.length > 0 ||
-      peersSnubbed > 0
+      peersSnubbed > 0 ||
+      pieceTimeoutSnubs > 0
     ) {
       this.logger.debug(
         `Piece health cleanup: ${staleRequestsCleared} stale cancelled, ` +
           `${staleRequestsSkipped} skipped (free blocks), ` +
-          `${piecesToDemote.length} demoted to partial, ${peersSnubbed} peers snubbed`,
+          `${piecesToDemote.length} demoted to partial, ${peersSnubbed} peers snubbed` +
+          (pieceTimeoutSnubs > 0 ? `, ${pieceTimeoutSnubs} piece-timeout snubs` : ''),
       )
     }
   }

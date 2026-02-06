@@ -530,6 +530,21 @@ export class ActivePiece {
   }
 
   /**
+   * Get all peers with outstanding requests on this piece.
+   * Used for piece-level no-data timeout: if no data arrives for a piece
+   * for PIECE_NO_DATA_TIMEOUT_MS, all requesting peers are snubbed.
+   */
+  getRequestingPeers(): Set<string> {
+    const peers = new Set<string>()
+    for (const requests of this.blockRequests.values()) {
+      for (const req of requests) {
+        peers.add(req.peerId)
+      }
+    }
+    return peers
+  }
+
+  /**
    * Get peers that contributed blocks to this piece.
    * Used for suspicious peer tracking on hash verification failure.
    */
