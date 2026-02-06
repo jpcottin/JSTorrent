@@ -24,19 +24,6 @@ import { getWriteStats, resetWriteStatsMax } from '../adapters/daemon/daemon-fil
 export const BLOCK_REQUEST_TIMEOUT_MS = 10_000 // 10 seconds
 
 /**
- * Timeout for piece abandonment.
- * Pieces older than this with less than PIECE_ABANDON_MIN_PROGRESS
- * are abandoned and removed from the active set.
- */
-export const PIECE_ABANDON_TIMEOUT_MS = 30_000 // 30 seconds
-
-/**
- * Minimum progress ratio (0-1) to keep a stuck piece.
- * Pieces with >= 50% completion are worth keeping even if stuck.
- */
-export const PIECE_ABANDON_MIN_PROGRESS = 0.5 // 50%
-
-/**
  * How often to run piece health cleanup (every N ticks).
  * With 100ms tick interval, 5 = every 500ms.
  */
@@ -426,14 +413,18 @@ export class TorrentTickLoop extends EngineComponent {
   // ==========================================================================
 
   /**
-   * Clean up stuck pieces: timeout stale requests and abandon hopeless pieces.
+   * Clean up stuck pieces: timeout stale requests and track failed peers.
    *
    * This method:
    * 1. Finds and cancels stale block requests (>10s old)
    * 2. Sends CANCEL messages to peers for those requests
    * 3. Clears exclusive ownership when the owner times out
-   * 4. Demotes full pieces back to partial if they now have unrequested blocks
-   * 5. Abandons pieces that are stuck (>30s old with <50% progress)
+   * 4. Adds timed-out peers to the piece's failed set (prevents reclaim cycle)
+   * 5. Demotes full pieces back to partial if they now have unrequested blocks
+   *
+   * Note: Pieces are never abandoned — libtorrent never abandons pieces with
+   * received data. Failed peers are simply blocked from this piece, allowing
+   * other peers to complete it.
    *
    * libtorrent reference: peer_connection.cpp:4565-4588
    */
@@ -441,14 +432,11 @@ export class TorrentTickLoop extends EngineComponent {
     const activePieces = this.callbacks.getActivePieces()
     if (!activePieces) return
 
-    const piecesToRemove: number[] = []
     const piecesToDemote: number[] = []
     let staleRequestsCleared = 0
-    let piecesAbandoned = 0
 
-    // Check partial pieces for stale requests and abandonment
+    // Check partial pieces for stale requests
     for (const piece of activePieces.partialValues()) {
-      // Step 1: Check for stale requests
       const staleRequests = piece.getStaleRequests(BLOCK_REQUEST_TIMEOUT_MS)
       for (const { blockIndex, peerId } of staleRequests) {
         // Find the peer to send CANCEL
@@ -462,17 +450,9 @@ export class TorrentTickLoop extends EngineComponent {
           peer.requestsPending = Math.max(0, peer.requestsPending - 1)
         }
 
-        // Clean up the request from the piece
+        // Clean up the request from the piece (also adds peer to failedPeers)
         piece.cancelRequest(blockIndex, peerId)
         staleRequestsCleared++
-      }
-
-      // Step 2: Check if piece should be abandoned
-      if (piece.shouldAbandon(PIECE_ABANDON_TIMEOUT_MS, PIECE_ABANDON_MIN_PROGRESS)) {
-        const progress = Math.round((piece.blocksReceived / piece.blocksNeeded) * 100)
-        this.logger.info(`Abandoning stuck piece ${piece.index} (${progress}% complete)`)
-        piecesToRemove.push(piece.index)
-        piecesAbandoned++
       }
     }
 
@@ -492,7 +472,7 @@ export class TorrentTickLoop extends EngineComponent {
           peer.requestsPending = Math.max(0, peer.requestsPending - 1)
         }
 
-        // Clean up the request from the piece
+        // Clean up the request from the piece (also adds peer to failedPeers)
         piece.cancelRequest(blockIndex, peerId)
         staleRequestsCleared++
       }
@@ -508,16 +488,11 @@ export class TorrentTickLoop extends EngineComponent {
       activePieces.demoteToPartial(index)
     }
 
-    // Remove abandoned pieces
-    for (const index of piecesToRemove) {
-      activePieces.remove(index)
-    }
-
     // Log if we did any cleanup
-    if (staleRequestsCleared > 0 || piecesAbandoned > 0 || piecesToDemote.length > 0) {
+    if (staleRequestsCleared > 0 || piecesToDemote.length > 0) {
       this.logger.debug(
         `Piece health cleanup: ${staleRequestsCleared} stale requests cancelled, ` +
-          `${piecesAbandoned} pieces abandoned, ${piecesToDemote.length} demoted to partial`,
+          `${piecesToDemote.length} demoted to partial`,
       )
     }
   }

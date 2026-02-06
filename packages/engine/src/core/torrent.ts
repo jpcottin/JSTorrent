@@ -46,8 +46,6 @@ import {
   TickResult,
   CLEANUP_TICK_INTERVAL,
   BLOCK_REQUEST_TIMEOUT_MS,
-  PIECE_ABANDON_TIMEOUT_MS,
-  PIECE_ABANDON_MIN_PROGRESS,
 } from './torrent-tick-loop'
 import { MetadataFetcher } from './metadata-fetcher'
 import { TorrentUploader } from './torrent-uploader'
@@ -64,12 +62,7 @@ import { WriteError, classifyError, getRetryDelay } from './write-error'
 export const MAX_INCOMING_RATIO = 0.6
 
 // Re-export tick loop constants for consumers
-export {
-  CLEANUP_TICK_INTERVAL,
-  BLOCK_REQUEST_TIMEOUT_MS,
-  PIECE_ABANDON_TIMEOUT_MS,
-  PIECE_ABANDON_MIN_PROGRESS,
-}
+export { CLEANUP_TICK_INTERVAL, BLOCK_REQUEST_TIMEOUT_MS }
 export type { TickStats }
 
 // PieceClassification is imported from './file-priority-manager'
@@ -2388,6 +2381,10 @@ export class Torrent extends EngineComponent {
     // Get peer ID for tracking
     const peerId = peer.peerId ? toHex(peer.peerId) : 'unknown'
     const blockIndex = Math.floor(blockOffset / BLOCK_SIZE)
+
+    // Recovery: if this peer was marked as failed on this piece, clear it
+    // since they proved they can still deliver data
+    piece.clearFailedPeer(peerId)
 
     // Add block to piece using the provided function
     const isNew = addBlockFn(piece, blockIndex, peerId)

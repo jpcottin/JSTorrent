@@ -61,6 +61,17 @@ export class ActivePiece {
   private _exclusivePeer: string | null = null
 
   /**
+   * Peers that have failed (timed out) on this piece.
+   * These peers are blocked from requesting blocks from this piece,
+   * preventing the stuck-piece cycle where the same slow peer
+   * reclaims exclusive ownership after timeout.
+   *
+   * Recovery: If a failed peer later sends data for this piece,
+   * they are removed from the failed set via clearFailedPeer().
+   */
+  private _failedPeers: Set<string> = new Set()
+
+  /**
    * Timestamp when this piece became active.
    * Used for piece health management (Phase 5) to detect stuck pieces.
    */
@@ -169,6 +180,11 @@ export class ActivePiece {
    * @param peerIsFast - Whether the requesting peer is considered "fast"
    */
   canRequestFrom(peerId: string, peerIsFast: boolean): boolean {
+    // Failed peers are blocked from this piece entirely
+    if (this._failedPeers.has(peerId)) {
+      return false
+    }
+
     // No owner yet - anyone can request
     if (this._exclusivePeer === null) {
       return true
@@ -199,6 +215,29 @@ export class ActivePiece {
    */
   clearExclusivePeer(): void {
     this._exclusivePeer = null
+  }
+
+  /**
+   * Add a peer to the failed set. Failed peers are blocked from requesting
+   * blocks from this piece, breaking the stuck-piece cycle.
+   */
+  addFailedPeer(peerId: string): void {
+    this._failedPeers.add(peerId)
+  }
+
+  /**
+   * Remove a peer from the failed set. Called when a failed peer
+   * later sends data for this piece, proving they can still deliver.
+   */
+  clearFailedPeer(peerId: string): void {
+    this._failedPeers.delete(peerId)
+  }
+
+  /**
+   * Get the number of failed peers (for debugging/testing).
+   */
+  get failedPeerCount(): number {
+    return this._failedPeers.size
   }
 
   /**
@@ -365,27 +404,6 @@ export class ActivePiece {
   }
 
   /**
-   * Check if this piece should be abandoned due to lack of progress.
-   *
-   * A piece is abandoned if:
-   * 1. It has been active longer than the timeout threshold
-   * 2. It has made less than minProgress (e.g., 50%) progress
-   *
-   * This prevents pieces from lingering indefinitely when peers are slow
-   * or have disconnected, allowing the piece to be restarted fresh.
-   *
-   * @param timeoutMs - Time since activation to consider abandonment
-   * @param minProgress - Minimum progress ratio (0-1) to keep the piece
-   */
-  shouldAbandon(timeoutMs: number, minProgress: number): boolean {
-    const age = Date.now() - this._activatedAt
-    if (age < timeoutMs) return false
-
-    const progress = this._blocksReceivedCount / this.blocksNeeded
-    return progress < minProgress
-  }
-
-  /**
    * Cancel a specific request from a peer.
    * Called after sending a CANCEL message to clean up internal state.
    *
@@ -414,6 +432,9 @@ export class ActivePiece {
     if (this._exclusivePeer === peerId) {
       this._exclusivePeer = null
     }
+
+    // Add to failed peers - this peer timed out on this piece
+    this._failedPeers.add(peerId)
   }
 
   // --- Request Management (THE KEY FIX) ---
@@ -585,6 +606,7 @@ export class ActivePiece {
     this.blockSenders.clear()
     // Phase 4: Reset ownership tracking
     this._exclusivePeer = null
+    this._failedPeers.clear()
     this._activatedAt = Date.now()
     // Phase 7: Reset unrequested count - all blocks become unrequested again
     this._unrequestedCount = this.blocksNeeded

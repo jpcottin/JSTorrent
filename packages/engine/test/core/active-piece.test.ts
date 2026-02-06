@@ -675,57 +675,67 @@ describe('ActivePiece', () => {
       })
     })
 
-    describe('shouldAbandon', () => {
-      it('should not abandon piece before timeout', () => {
-        const newPiece = new ActivePiece(1, PIECE_LENGTH)
+    describe('failedPeers', () => {
+      it('should block failed peers from requesting', () => {
+        piece.addFailedPeer('slow-peer')
 
-        vi.advanceTimersByTime(20000) // 20 seconds
-
-        expect(newPiece.shouldAbandon(30000, 0.5)).toBe(false)
+        expect(piece.canRequestFrom('slow-peer', true)).toBe(false)
+        expect(piece.canRequestFrom('slow-peer', false)).toBe(false)
       })
 
-      it('should abandon stuck piece with low progress after timeout', () => {
-        const newPiece = new ActivePiece(1, PIECE_LENGTH)
+      it('should not block non-failed peers', () => {
+        piece.addFailedPeer('slow-peer')
 
-        // Add only 1 block (25% progress)
-        newPiece.addBlock(0, new Uint8Array(BLOCK_SIZE), 'peer1')
-
-        vi.advanceTimersByTime(35000) // 35 seconds
-
-        expect(newPiece.shouldAbandon(30000, 0.5)).toBe(true)
+        expect(piece.canRequestFrom('other-peer', true)).toBe(true)
+        expect(piece.canRequestFrom('other-peer', false)).toBe(true)
       })
 
-      it('should not abandon piece with sufficient progress', () => {
-        const newPiece = new ActivePiece(1, PIECE_LENGTH) // 4 blocks
+      it('should recover failed peer when clearFailedPeer is called', () => {
+        piece.addFailedPeer('slow-peer')
+        expect(piece.canRequestFrom('slow-peer', true)).toBe(false)
 
-        // Add 3 blocks (75% progress)
-        newPiece.addBlock(0, new Uint8Array(BLOCK_SIZE), 'peer1')
-        newPiece.addBlock(1, new Uint8Array(BLOCK_SIZE), 'peer1')
-        newPiece.addBlock(2, new Uint8Array(BLOCK_SIZE), 'peer1')
-
-        vi.advanceTimersByTime(35000)
-
-        expect(newPiece.shouldAbandon(30000, 0.5)).toBe(false)
+        piece.clearFailedPeer('slow-peer')
+        expect(piece.canRequestFrom('slow-peer', true)).toBe(true)
       })
 
-      it('should not abandon piece at exactly 50% progress', () => {
-        const newPiece = new ActivePiece(1, PIECE_LENGTH) // 4 blocks
+      it('should add peer to failed set on cancelRequest', () => {
+        piece.addRequest(0, 'peer1')
 
-        // Add 2 blocks (50% progress)
-        newPiece.addBlock(0, new Uint8Array(BLOCK_SIZE), 'peer1')
-        newPiece.addBlock(1, new Uint8Array(BLOCK_SIZE), 'peer1')
+        piece.cancelRequest(0, 'peer1')
 
-        vi.advanceTimersByTime(35000)
-
-        expect(newPiece.shouldAbandon(30000, 0.5)).toBe(false)
+        expect(piece.failedPeerCount).toBe(1)
+        expect(piece.canRequestFrom('peer1', true)).toBe(false)
       })
 
-      it('should abandon piece with no progress after timeout', () => {
-        const newPiece = new ActivePiece(1, PIECE_LENGTH)
+      it('should track failedPeerCount', () => {
+        expect(piece.failedPeerCount).toBe(0)
 
-        vi.advanceTimersByTime(35000)
+        piece.addFailedPeer('peer1')
+        expect(piece.failedPeerCount).toBe(1)
 
-        expect(newPiece.shouldAbandon(30000, 0.5)).toBe(true)
+        piece.addFailedPeer('peer2')
+        expect(piece.failedPeerCount).toBe(2)
+
+        piece.clearFailedPeer('peer1')
+        expect(piece.failedPeerCount).toBe(1)
+      })
+
+      it('should block failed peer even if they are the exclusive owner', () => {
+        piece.claimExclusive('peer1')
+        piece.addFailedPeer('peer1')
+
+        // Failed check takes priority over exclusive ownership
+        expect(piece.canRequestFrom('peer1', true)).toBe(false)
+      })
+
+      it('should reset failed peers on clear()', () => {
+        piece.addFailedPeer('peer1')
+        piece.addFailedPeer('peer2')
+
+        piece.clear()
+
+        expect(piece.failedPeerCount).toBe(0)
+        expect(piece.canRequestFrom('peer1', true)).toBe(true)
       })
     })
 
