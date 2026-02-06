@@ -137,13 +137,22 @@ export class PeerConnection extends EngineComponent {
   public peerFastExtension = false // BEP 6 Fast Extension support
   public requestsPending = 0 // Number of outstanding requests
 
-  // Adaptive pipeline depth - starts conservative, ramps up for fast peers
-  public pipelineDepth = 50 // Current allowed depth (5-500), starts higher for faster initial fill
+  // Adaptive pipeline depth with slow-start (libtorrent alignment Phase 3)
+  public pipelineDepth = 2 // Current allowed depth, starts at MIN_PIPELINE_DEPTH
   private blockCount = 0 // Blocks received since last rate check
   private lastRateCheckTime = 0 // Timestamp of last rate calculation
   private static readonly RATE_CHECK_INTERVAL = 1000 // Check rate every 1 second
   private static readonly MAX_PIPELINE_DEPTH = DEFAULT_MAX_PIPELINE_DEPTH
-  private static readonly MIN_PIPELINE_DEPTH = 5
+  private static readonly MIN_PIPELINE_DEPTH = 2
+  private static readonly BLOCK_SIZE = 16384 // Standard BitTorrent block size (16KB)
+
+  // Slow-start queue sizing (libtorrent's request_queue_time model)
+  private _slowStart = true
+  private _lastSlowStartRate = 0 // bytes/sec at last rate check (for plateau detection)
+  /** Queue time in seconds — pipeline sized to queueTime * downloadRate / blockSize */
+  private static readonly QUEUE_TIME = 3 // libtorrent's request_queue_time default
+  /** Minimum rate increase (bytes/sec) to stay in slow-start */
+  private static readonly SLOW_START_RATE_THRESHOLD = 5 * 1024 // 5 KB/s
 
   // === RTT tracking & snubbing (libtorrent alignment Phase 1) ===
 
@@ -832,10 +841,12 @@ export class PeerConnection extends EngineComponent {
   }
 
   /**
-   * Record a block received from this peer. Adjusts pipeline depth based on
-   * response rate - fast peers get more requests, slow peers get fewer.
+   * Record a block received from this peer.
+   * Uses libtorrent's slow-start algorithm for pipeline depth sizing:
+   * - Slow-start: +1 per block (ramp from MIN to steady-state)
+   * - Normal: pipeline = queueTime * downloadRate / blockSize (keep pipe full)
+   * - Snubbed: pipeline = 1
    * Also handles snub recovery and updates _lastReceiveTime.
-   * O(1) - only recalculates rate every RATE_CHECK_INTERVAL ms.
    */
   recordBlockReceived(): void {
     const now = Date.now()
@@ -844,28 +855,48 @@ export class PeerConnection extends EngineComponent {
     // Snub recovery: peer proved it can still deliver data
     if (this._snubbed) {
       this.unsnub()
-      return // unsnub() resets counters, skip rate check
+      return // unsnub() re-enters slow-start, skip rate check
     }
 
     this.blockCount++
-    const elapsed = now - this.lastRateCheckTime
 
-    // Only check rate periodically to avoid overhead
-    if (elapsed >= PeerConnection.RATE_CHECK_INTERVAL) {
-      const rate = (this.blockCount * 1000) / elapsed // blocks per second
+    if (this._slowStart) {
+      // Slow-start: increase pipeline depth by 1 per block received
+      this.pipelineDepth = Math.min(PeerConnection.MAX_PIPELINE_DEPTH, this.pipelineDepth + 1)
 
-      // Adjust depth based on rate (aggressive ramp-up for game loop tick model)
-      if (rate > 10) {
-        // Fast peer - increase depth aggressively (+150/sec to reach 1500 in ~10s)
-        this.pipelineDepth = Math.min(PeerConnection.MAX_PIPELINE_DEPTH, this.pipelineDepth + 150)
-      } else if (rate < 2 && this.pipelineDepth > 50) {
-        // Slow peer - decrease depth gradually
-        this.pipelineDepth = Math.max(50, this.pipelineDepth - 10)
+      // Check every second for rate plateau → exit slow-start
+      const elapsed = now - this.lastRateCheckTime
+      if (elapsed >= PeerConnection.RATE_CHECK_INTERVAL) {
+        const currentBytesPerSec = (this.blockCount * PeerConnection.BLOCK_SIZE * 1000) / elapsed
+
+        if (
+          this._lastSlowStartRate > 0 &&
+          currentBytesPerSec - this._lastSlowStartRate < PeerConnection.SLOW_START_RATE_THRESHOLD
+        ) {
+          // Rate increase < 5KB/s → plateau reached, exit slow-start
+          this._slowStart = false
+        }
+
+        this._lastSlowStartRate = currentBytesPerSec
+        this.blockCount = 0
+        this.lastRateCheckTime = now
       }
-
-      // Reset counters
-      this.blockCount = 0
-      this.lastRateCheckTime = now
+    } else {
+      // Normal mode: size queue to keep pipe full for queueTime seconds
+      const elapsed = now - this.lastRateCheckTime
+      if (elapsed >= PeerConnection.RATE_CHECK_INTERVAL) {
+        const bytesPerSec = (this.blockCount * PeerConnection.BLOCK_SIZE * 1000) / elapsed
+        // pipeline = queueTime * downloadRate / blockSize
+        const targetDepth = Math.ceil(
+          (PeerConnection.QUEUE_TIME * bytesPerSec) / PeerConnection.BLOCK_SIZE,
+        )
+        this.pipelineDepth = Math.max(
+          PeerConnection.MIN_PIPELINE_DEPTH,
+          Math.min(PeerConnection.MAX_PIPELINE_DEPTH, targetDepth),
+        )
+        this.blockCount = 0
+        this.lastRateCheckTime = now
+      }
     }
   }
 
@@ -874,6 +905,11 @@ export class PeerConnection extends EngineComponent {
   /** Whether this peer is currently snubbed. */
   get snubbed(): boolean {
     return this._snubbed
+  }
+
+  /** Whether this peer is in slow-start mode (ramping up pipeline). */
+  get inSlowStart(): boolean {
+    return this._slowStart
   }
 
   /**
@@ -919,6 +955,7 @@ export class PeerConnection extends EngineComponent {
   snub(): void {
     if (this._snubbed) return
     this._snubbed = true
+    this._slowStart = false // exit slow-start on snub
     this.pipelineDepth = 1
     this.blockCount = 0
     this.lastRateCheckTime = Date.now()
@@ -927,11 +964,13 @@ export class PeerConnection extends EngineComponent {
   /**
    * Clear snubbed state — peer proved it can still deliver data.
    * Called when a block is received from a snubbed peer.
-   * Resets to a modest pipeline depth rather than the previous value.
+   * Re-enters slow-start to probe for new steady-state rate.
    */
   unsnub(): void {
     if (!this._snubbed) return
     this._snubbed = false
+    this._slowStart = true // re-enter slow-start to probe rate
+    this._lastSlowStartRate = 0
     this.pipelineDepth = PeerConnection.MIN_PIPELINE_DEPTH
     this.blockCount = 0
     this.lastRateCheckTime = Date.now()
