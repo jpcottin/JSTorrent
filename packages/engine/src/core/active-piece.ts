@@ -379,6 +379,43 @@ export class ActivePiece {
   // --- Phase 5: Piece Health Management ---
 
   /**
+   * Get the request timestamp for a specific block from a specific peer.
+   * Used to compute RTT when a block is received.
+   * Returns the timestamp, or undefined if no matching request is found.
+   */
+  getRequestTimestamp(blockIndex: number, peerId: string): number | undefined {
+    const requests = this.blockRequests.get(blockIndex)
+    if (!requests) return undefined
+    const req = requests.find((r) => r.peerId === peerId)
+    return req?.timestamp
+  }
+
+  /**
+   * Get stale requests grouped by peer, using per-peer timeout values.
+   * Returns details needed to send CANCEL messages and identify peers to snub.
+   *
+   * @param getTimeout - Function that returns the timeout for a given peer ID
+   * @param now - Current timestamp
+   * @returns Array of stale requests with blockIndex and peerId
+   */
+  getStaleRequestsPerPeer(
+    getTimeout: (peerId: string) => number,
+    now: number,
+  ): Array<{ blockIndex: number; peerId: string }> {
+    const stale: Array<{ blockIndex: number; peerId: string }> = []
+
+    for (const [blockIndex, requests] of this.blockRequests) {
+      for (const req of requests) {
+        if (now - req.timestamp > getTimeout(req.peerId)) {
+          stale.push({ blockIndex, peerId: req.peerId })
+        }
+      }
+    }
+
+    return stale
+  }
+
+  /**
    * Get stale requests that have exceeded the timeout threshold.
    * Returns details needed to send CANCEL messages and clear ownership.
    *

@@ -11,6 +11,10 @@ const TORRENT_PREFIX = 'torrent:'
 const STATE_SUFFIX = ':state'
 const TORRENTFILE_SUFFIX = ':torrentfile'
 const INFODICT_SUFFIX = ':infodict'
+const PEERS_SUFFIX = ':peers'
+
+/** Maximum number of peers to cache per torrent */
+const MAX_CACHED_PEERS = 100
 
 function stateKey(infoHash: string): string {
   return `${TORRENT_PREFIX}${infoHash}${STATE_SUFFIX}`
@@ -22,6 +26,19 @@ function torrentFileKey(infoHash: string): string {
 
 function infoDictKey(infoHash: string): string {
   return `${TORRENT_PREFIX}${infoHash}${INFODICT_SUFFIX}`
+}
+
+function peersKey(infoHash: string): string {
+  return `${TORRENT_PREFIX}${infoHash}${PEERS_SUFFIX}`
+}
+
+/**
+ * A cached peer address for persistence between sessions.
+ * Minimal data - just enough to reconnect.
+ */
+export interface CachedPeer {
+  ip: string
+  port: number
 }
 
 /**
@@ -194,6 +211,28 @@ export class SessionPersistence {
   }
 
   /**
+   * Save cached peers for a torrent.
+   * Called on torrent stop and engine shutdown to enable fast reconnection next session.
+   */
+  async savePeers(infoHash: string, peers: CachedPeer[]): Promise<void> {
+    if (peers.length === 0) {
+      await this._store.delete(peersKey(infoHash))
+      return
+    }
+    const toSave = peers.slice(0, MAX_CACHED_PEERS)
+    await this._store.setJson(peersKey(infoHash), toSave)
+    this.logger.debug(`Saved ${toSave.length} cached peers for ${infoHash.slice(0, 8)}`)
+  }
+
+  /**
+   * Load cached peers for a torrent.
+   */
+  async loadPeers(infoHash: string): Promise<CachedPeer[]> {
+    const peers = await this._store.getJson<CachedPeer[]>(peersKey(infoHash))
+    return peers ?? []
+  }
+
+  /**
    * Save state for all torrents immediately.
    * Call this on shutdown.
    */
@@ -205,9 +244,12 @@ export class SessionPersistence {
     }
     this._pendingPieceSaves.clear()
 
-    // Save all torrents immediately
+    // Save all torrents immediately (state + cached peers)
     for (const torrent of this.engine.torrents) {
       await this.saveTorrentState(torrent)
+      const infoHash = toHex(torrent.infoHash)
+      const peers = torrent.getGoodPeersForCache()
+      await this.savePeers(infoHash, peers)
     }
   }
 
@@ -256,6 +298,7 @@ export class SessionPersistence {
       this._store.delete(stateKey(infoHash)),
       this._store.delete(torrentFileKey(infoHash)),
       this._store.delete(infoDictKey(infoHash)),
+      this._store.delete(peersKey(infoHash)),
     ])
   }
 

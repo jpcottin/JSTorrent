@@ -685,6 +685,27 @@ export class Torrent extends EngineComponent {
       this.addPeerHints(this.magnetPeerHints)
     }
 
+    // Load cached peers from previous session (fast reconnection)
+    try {
+      const persistence = (this.engine as BtEngine).sessionPersistence
+      if (persistence) {
+        const cached = await persistence.loadPeers(toHex(this.infoHash))
+        if (cached.length > 0) {
+          const addresses: PeerAddress[] = cached.map((p) => ({
+            ip: p.ip,
+            port: p.port,
+            family: detectAddressFamily(p.ip),
+          }))
+          const added = this._swarm.addPeers(addresses, 'cache')
+          if (added > 0) {
+            this.logger.info(`Loaded ${added} cached peers from previous session`)
+          }
+        }
+      }
+    } catch (e) {
+      this.logger.warn(`Failed to load cached peers: ${e instanceof Error ? e.message : e}`)
+    }
+
     // Start tracker announces
     if (this.trackerManager) {
       this.logger.info('Starting tracker announce')
@@ -917,6 +938,14 @@ export class Torrent extends EngineComponent {
    */
   get swarm(): SwarmStats {
     return this._swarm.getStats()
+  }
+
+  /**
+   * Get the best peers for caching to disk (for fast reconnection next session).
+   * Delegates to Swarm's selection logic.
+   */
+  getGoodPeersForCache(): Array<{ ip: string; port: number }> {
+    return this._swarm.getGoodPeersForCache()
   }
 
   /**
@@ -1560,6 +1589,20 @@ export class Torrent extends EngineComponent {
    */
   stopNetwork(): void {
     const wasActive = this._networkActive
+
+    // Save cached peers before we close connections and mutate swarm state.
+    // Fire-and-forget: the critical save path is flushPendingSaves() on shutdown.
+    if (wasActive) {
+      const persistence = (this.engine as BtEngine).sessionPersistence
+      if (persistence) {
+        const peers = this._swarm.getGoodPeersForCache()
+        if (peers.length > 0) {
+          persistence.savePeers(toHex(this.infoHash), peers).catch((e) => {
+            this.logger.warn(`Failed to save cached peers: ${e instanceof Error ? e.message : e}`)
+          })
+        }
+      }
+    }
 
     // Cancel pending connection requests from the global queue
     this.btEngine.cancelConnectionRequests(this.infoHashStr)
@@ -2381,6 +2424,13 @@ export class Torrent extends EngineComponent {
     // Get peer ID for tracking
     const peerId = peer.peerId ? toHex(peer.peerId) : 'unknown'
     const blockIndex = Math.floor(blockOffset / BLOCK_SIZE)
+
+    // Record RTT sample BEFORE addBlockFn (which clears the request entry)
+    const requestTimestamp = piece.getRequestTimestamp(blockIndex, peerId)
+    if (requestTimestamp !== undefined) {
+      const rtt = Date.now() - requestTimestamp
+      peer.recordRttSample(rtt)
+    }
 
     // Recovery: if this peer was marked as failed on this piece, clear it
     // since they proved they can still deliver data

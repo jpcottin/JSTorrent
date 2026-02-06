@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-declaration-merging */
 import { DEFAULT_MAX_PIPELINE_DEPTH } from '../config/config-schema'
+import { SlidingAverage } from '../utils/sliding-average'
 import { ITcpSocket } from '../interfaces/socket'
 import {
   PeerWireProtocol,
@@ -143,6 +144,25 @@ export class PeerConnection extends EngineComponent {
   private static readonly RATE_CHECK_INTERVAL = 1000 // Check rate every 1 second
   private static readonly MAX_PIPELINE_DEPTH = DEFAULT_MAX_PIPELINE_DEPTH
   private static readonly MIN_PIPELINE_DEPTH = 5
+
+  // === RTT tracking & snubbing (libtorrent alignment Phase 1) ===
+
+  /** Sliding window RTT average (20 samples). */
+  private _rtt = new SlidingAverage(20)
+
+  /**
+   * Whether this peer is snubbed (not sending data in a timely fashion).
+   * Snubbed peers have their pipeline capped to 1 request.
+   */
+  private _snubbed = false
+
+  /**
+   * Timestamp when the last block was received from this peer
+   * (or when the first request was sent, if no blocks received yet).
+   * Used for timeout detection: if now - _lastReceiveTime > requestTimeout()
+   * while requestsPending > 0, the peer should be snubbed.
+   */
+  private _lastReceiveTime = 0
   public peerMetadataId: number | null = null
   public peerMetadataSize: number | null = null
   public myMetadataId = 1 // Our ID for ut_metadata
@@ -256,6 +276,11 @@ export class PeerConnection extends EngineComponent {
   }
 
   sendRequest(index: number, begin: number, length: number) {
+    // Initialize _lastReceiveTime on first request so timeout detection works
+    if (this._lastReceiveTime === 0) {
+      this._lastReceiveTime = Date.now()
+    }
+
     // Use pooled buffer to avoid allocation in hot path
     const [buffer, view] = requestMessagePool.acquire(index, begin, length)
     this.send(buffer)
@@ -274,6 +299,11 @@ export class PeerConnection extends EngineComponent {
    */
   sendRequests(requests: Array<{ index: number; begin: number; length: number }>) {
     if (requests.length === 0) return
+
+    // Initialize _lastReceiveTime on first request so timeout detection works
+    if (this._lastReceiveTime === 0) {
+      this._lastReceiveTime = Date.now()
+    }
 
     // Single request: use pooled buffer (no batch overhead)
     if (requests.length === 1) {
@@ -804,12 +834,20 @@ export class PeerConnection extends EngineComponent {
   /**
    * Record a block received from this peer. Adjusts pipeline depth based on
    * response rate - fast peers get more requests, slow peers get fewer.
+   * Also handles snub recovery and updates _lastReceiveTime.
    * O(1) - only recalculates rate every RATE_CHECK_INTERVAL ms.
    */
   recordBlockReceived(): void {
-    this.blockCount++
-
     const now = Date.now()
+    this._lastReceiveTime = now
+
+    // Snub recovery: peer proved it can still deliver data
+    if (this._snubbed) {
+      this.unsnub()
+      return // unsnub() resets counters, skip rate check
+    }
+
+    this.blockCount++
     const elapsed = now - this.lastRateCheckTime
 
     // Only check rate periodically to avoid overhead
@@ -829,6 +867,74 @@ export class PeerConnection extends EngineComponent {
       this.blockCount = 0
       this.lastRateCheckTime = now
     }
+  }
+
+  // === Snubbing & RTT Methods ===
+
+  /** Whether this peer is currently snubbed. */
+  get snubbed(): boolean {
+    return this._snubbed
+  }
+
+  /**
+   * Timestamp of the last block receipt (or first request sent).
+   * Used by tick loop for timeout detection.
+   */
+  get lastReceiveTime(): number {
+    return this._lastReceiveTime
+  }
+
+  /**
+   * Compute the adaptive request timeout for this peer.
+   * Returns avg RTT + 4 * deviation (clamped to [2s, 60s]).
+   * If no RTT samples yet, returns 60s (conservative default).
+   *
+   * libtorrent reference: peer_connection.cpp request_timeout()
+   */
+  requestTimeout(): number {
+    if (this._rtt.numSamples < 2) {
+      return 60_000 // No data yet — conservative 60s
+    }
+    // avg + 4 * deviation, clamped to [2s, 60s]
+    const timeout = this._rtt.mean + 4 * this._rtt.deviation
+    return Math.max(2_000, Math.min(60_000, timeout))
+  }
+
+  /**
+   * Record an RTT sample (time from request sent to block received).
+   * Feeds the sliding average for adaptive timeout calculation.
+   */
+  recordRttSample(ms: number): void {
+    if (ms > 0) {
+      this._rtt.add(ms)
+    }
+  }
+
+  /**
+   * Mark this peer as snubbed — not delivering data in a timely fashion.
+   * Caps pipeline to 1 so we don't waste more requests on this peer.
+   *
+   * libtorrent reference: peer_connection.cpp snub_peer()
+   */
+  snub(): void {
+    if (this._snubbed) return
+    this._snubbed = true
+    this.pipelineDepth = 1
+    this.blockCount = 0
+    this.lastRateCheckTime = Date.now()
+  }
+
+  /**
+   * Clear snubbed state — peer proved it can still deliver data.
+   * Called when a block is received from a snubbed peer.
+   * Resets to a modest pipeline depth rather than the previous value.
+   */
+  unsnub(): void {
+    if (!this._snubbed) return
+    this._snubbed = false
+    this.pipelineDepth = PeerConnection.MIN_PIPELINE_DEPTH
+    this.blockCount = 0
+    this.lastRateCheckTime = Date.now()
   }
 
   /**

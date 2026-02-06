@@ -413,14 +413,13 @@ export class TorrentTickLoop extends EngineComponent {
   // ==========================================================================
 
   /**
-   * Clean up stuck pieces: timeout stale requests and track failed peers.
+   * Clean up stuck pieces: snub slow peers and timeout stale requests.
    *
-   * This method:
-   * 1. Finds and cancels stale block requests (>10s old)
-   * 2. Sends CANCEL messages to peers for those requests
-   * 3. Clears exclusive ownership when the owner times out
-   * 4. Adds timed-out peers to the piece's failed set (prevents reclaim cycle)
-   * 5. Demotes full pieces back to partial if they now have unrequested blocks
+   * Two-level timeout system (libtorrent alignment):
+   * 1. Peer-level snubbing: If a peer hasn't sent data within their adaptive
+   *    timeout (RTT-based), snub them (pipeline → 1).
+   * 2. Per-request timeout: Individual requests exceeding the peer's timeout
+   *    are cancelled and blocks freed for reassignment.
    *
    * Note: Pieces are never abandoned — libtorrent never abandons pieces with
    * received data. Failed peers are simply blocked from this piece, allowing
@@ -432,47 +431,78 @@ export class TorrentTickLoop extends EngineComponent {
     const activePieces = this.callbacks.getActivePieces()
     if (!activePieces) return
 
-    const piecesToDemote: number[] = []
-    let staleRequestsCleared = 0
+    const now = Date.now()
+    const connectedPeers = this.callbacks.getConnectedPeers()
 
-    // Check partial pieces for stale requests
-    for (const piece of activePieces.partialValues()) {
-      const staleRequests = piece.getStaleRequests(BLOCK_REQUEST_TIMEOUT_MS)
-      for (const { blockIndex, peerId } of staleRequests) {
-        // Find the peer to send CANCEL
-        const peer = this.findPeerById(peerId)
-        if (peer) {
-          const begin = blockIndex * BLOCK_SIZE
-          const length = Math.min(BLOCK_SIZE, piece.length - begin)
-          peer.sendCancel(piece.index, begin, length)
-
-          // Decrement peer's pending request count
-          peer.requestsPending = Math.max(0, peer.requestsPending - 1)
-        }
-
-        // Clean up the request from the piece (also adds peer to failedPeers)
-        piece.cancelRequest(blockIndex, peerId)
-        staleRequestsCleared++
+    // --- Phase 1: Peer-level snub detection ---
+    // Check each peer with outstanding requests for timeout
+    let peersSnubbed = 0
+    for (const peer of connectedPeers) {
+      if (
+        peer.requestsPending > 0 &&
+        !peer.snubbed &&
+        peer.lastReceiveTime > 0 &&
+        now - peer.lastReceiveTime > peer.requestTimeout()
+      ) {
+        peer.snub()
+        peersSnubbed++
+        this.logger.debug(
+          `Snubbed peer ${peer.remoteAddress}:${peer.remotePort} ` +
+            `(no data for ${now - peer.lastReceiveTime}ms, timeout=${peer.requestTimeout()}ms)`,
+        )
       }
     }
 
+    // --- Phase 2: Per-request stale request cleanup ---
+    // Build per-peer timeout lookup: peerId → timeout in ms
+    const peerTimeoutMap = new Map<string, number>()
+    for (const peer of connectedPeers) {
+      const peerId = peer.peerId ? toHex(peer.peerId) : `${peer.remoteAddress}:${peer.remotePort}`
+      peerTimeoutMap.set(peerId, peer.requestTimeout())
+    }
+    const getTimeout = (peerId: string): number =>
+      peerTimeoutMap.get(peerId) ?? BLOCK_REQUEST_TIMEOUT_MS
+
+    const piecesToDemote: number[] = []
+    let staleRequestsCleared = 0
+
+    // Helper to process stale requests for a set of pieces
+    const processStaleRequests = (pieces: Iterable<import('./active-piece').ActivePiece>) => {
+      for (const piece of pieces) {
+        const staleRequests = piece.getStaleRequestsPerPeer(getTimeout, now)
+        for (const { blockIndex, peerId } of staleRequests) {
+          // Find the peer to send CANCEL
+          const peer = this.findPeerById(peerId)
+          if (peer) {
+            const begin = blockIndex * BLOCK_SIZE
+            const length = Math.min(BLOCK_SIZE, piece.length - begin)
+            peer.sendCancel(piece.index, begin, length)
+
+            // Decrement peer's pending request count
+            peer.requestsPending = Math.max(0, peer.requestsPending - 1)
+          }
+
+          // Clean up the request from the piece (also adds peer to failedPeers)
+          piece.cancelRequest(blockIndex, peerId)
+          staleRequestsCleared++
+        }
+      }
+    }
+
+    // Check partial pieces for stale requests
+    processStaleRequests(activePieces.partialValues())
+
     // Also check fullyRequested pieces for stale requests
-    // FullyRequested pieces have all blocks requested but not all received
     for (const piece of activePieces.fullyRequestedValues()) {
-      const staleRequests = piece.getStaleRequests(BLOCK_REQUEST_TIMEOUT_MS)
+      const staleRequests = piece.getStaleRequestsPerPeer(getTimeout, now)
       for (const { blockIndex, peerId } of staleRequests) {
-        // Find the peer to send CANCEL
         const peer = this.findPeerById(peerId)
         if (peer) {
           const begin = blockIndex * BLOCK_SIZE
           const length = Math.min(BLOCK_SIZE, piece.length - begin)
           peer.sendCancel(piece.index, begin, length)
-
-          // Decrement peer's pending request count
           peer.requestsPending = Math.max(0, peer.requestsPending - 1)
         }
-
-        // Clean up the request from the piece (also adds peer to failedPeers)
         piece.cancelRequest(blockIndex, peerId)
         staleRequestsCleared++
       }
@@ -489,10 +519,10 @@ export class TorrentTickLoop extends EngineComponent {
     }
 
     // Log if we did any cleanup
-    if (staleRequestsCleared > 0 || piecesToDemote.length > 0) {
+    if (staleRequestsCleared > 0 || piecesToDemote.length > 0 || peersSnubbed > 0) {
       this.logger.debug(
         `Piece health cleanup: ${staleRequestsCleared} stale requests cancelled, ` +
-          `${piecesToDemote.length} demoted to partial`,
+          `${piecesToDemote.length} demoted to partial, ${peersSnubbed} peers snubbed`,
       )
     }
   }

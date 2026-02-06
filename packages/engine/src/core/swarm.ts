@@ -24,6 +24,7 @@ export type DiscoverySource =
   | 'incoming'
   | 'manual'
   | 'magnet_hint'
+  | 'cache'
 
 export type ConnectionState =
   | 'idle' // Known but never tried, or recovered from failed
@@ -101,6 +102,7 @@ export interface SwarmStats {
     incoming: number
     manual: number
     magnet_hint: number
+    cache: number
   }
   // Unique peer identities (by peerId)
   identifiedPeers: number
@@ -914,7 +916,16 @@ export class Swarm extends EventEmitter {
       total: this.peers.size,
       byState: { idle: 0, connecting: 0, connected: 0, failed: 0, banned: 0 },
       byFamily: { ipv4: 0, ipv6: 0 },
-      bySource: { tracker: 0, pex: 0, dht: 0, lpd: 0, incoming: 0, manual: 0, magnet_hint: 0 },
+      bySource: {
+        tracker: 0,
+        pex: 0,
+        dht: 0,
+        lpd: 0,
+        incoming: 0,
+        manual: 0,
+        magnet_hint: 0,
+        cache: 0,
+      },
       identifiedPeers: this.peerIdIndex.size,
       multiAddressPeers: [],
     }
@@ -972,6 +983,50 @@ export class Swarm extends EventEmitter {
       this._cachedPeersVersion = this._allPeersVersion
     }
     return this._cachedPeersArray
+  }
+
+  /**
+   * Get the best peers for caching to disk (for fast reconnection next session).
+   * Prioritizes peers we successfully connected to, with zero recent failures.
+   * Returns minimal {ip, port} pairs — no metadata.
+   */
+  getGoodPeersForCache(maxPeers: number = 100): Array<{ ip: string; port: number }> {
+    // Tier 1: Previously connected, zero failures, not banned
+    const connected: SwarmPeer[] = []
+    // Tier 2: Never connected but discovered (backfill)
+    const neverConnected: SwarmPeer[] = []
+
+    for (const peer of this.peers.values()) {
+      if (peer.state === 'banned') continue
+      if (peer.suspiciousPort) continue
+
+      if (peer.lastConnectSuccess !== null && peer.connectFailures === 0) {
+        connected.push(peer)
+      } else if (peer.lastConnectSuccess === null && peer.state !== 'failed') {
+        neverConnected.push(peer)
+      }
+    }
+
+    // Sort connected peers by most recently connected first
+    connected.sort((a, b) => (b.lastConnectSuccess ?? 0) - (a.lastConnectSuccess ?? 0))
+
+    const result: Array<{ ip: string; port: number }> = []
+    for (const peer of connected) {
+      result.push({ ip: peer.ip, port: peer.port })
+      if (result.length >= maxPeers) return result
+    }
+
+    // Backfill with never-connected peers (shuffled, like libtorrent)
+    for (let i = neverConnected.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[neverConnected[i], neverConnected[j]] = [neverConnected[j], neverConnected[i]]
+    }
+    for (const peer of neverConnected) {
+      result.push({ ip: peer.ip, port: peer.port })
+      if (result.length >= maxPeers) return result
+    }
+
+    return result
   }
 
   /**
