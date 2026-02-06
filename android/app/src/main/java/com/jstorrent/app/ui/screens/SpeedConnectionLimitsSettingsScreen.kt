@@ -76,6 +76,22 @@ private val maxUploadSlotsPresets = listOf(
     ConnectionLimitPreset(16, "16")
 )
 
+private val activeDownloadsPresets = listOf(
+    ConnectionLimitPreset(1, "1"),
+    ConnectionLimitPreset(3, "3"),
+    ConnectionLimitPreset(5, "5"),
+    ConnectionLimitPreset(10, "10"),
+    ConnectionLimitPreset(20, "20")
+)
+
+private val activeSeedsPresets = listOf(
+    ConnectionLimitPreset(1, "1"),
+    ConnectionLimitPreset(3, "3"),
+    ConnectionLimitPreset(5, "5"),
+    ConnectionLimitPreset(10, "10"),
+    ConnectionLimitPreset(20, "20")
+)
+
 private val maxPipelineDepthPresets = listOf(
     ConnectionLimitPreset(10, "10 (low)"),
     ConnectionLimitPreset(25, "25"),
@@ -131,6 +147,20 @@ fun SpeedConnectionLimitsSettingsScreen(
                     onDownloadLimitChange = { viewModel.setDownloadSpeedLimit(it) },
                     onUploadUnlimitedChange = { viewModel.setUploadSpeedUnlimited(it) },
                     onUploadLimitChange = { viewModel.setUploadSpeedLimit(it) }
+                )
+            }
+
+            // Queue Section
+            item {
+                SectionHeader(title = stringResource(R.string.settings_speed_queue_section))
+            }
+
+            item {
+                QueueLimitsSection(
+                    activeDownloads = uiState.activeDownloads,
+                    activeSeeds = uiState.activeSeeds,
+                    onActiveDownloadsChange = { viewModel.setActiveDownloads(it) },
+                    onActiveSeedsChange = { viewModel.setActiveSeeds(it) }
                 )
             }
 
@@ -196,6 +226,37 @@ private fun SpeedLimitsSection(
                     onUploadLimitChange(value)
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun QueueLimitsSection(
+    activeDownloads: Int,
+    activeSeeds: Int,
+    onActiveDownloadsChange: (Int) -> Unit,
+    onActiveSeedsChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+    ) {
+        ConnectionLimitRow(
+            label = stringResource(R.string.settings_speed_active_downloads_label),
+            description = stringResource(R.string.settings_speed_active_downloads_description),
+            currentValue = activeDownloads,
+            presets = activeDownloadsPresets,
+            onValueChange = onActiveDownloadsChange
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        ConnectionLimitRow(
+            label = stringResource(R.string.settings_speed_active_seeds_label),
+            description = stringResource(R.string.settings_speed_active_seeds_description),
+            currentValue = activeSeeds,
+            presets = activeSeedsPresets,
+            onValueChange = onActiveSeedsChange
         )
     }
 }

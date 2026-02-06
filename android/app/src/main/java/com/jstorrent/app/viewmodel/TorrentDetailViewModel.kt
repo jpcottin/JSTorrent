@@ -520,6 +520,27 @@ class TorrentDetailViewModel(
     }
 
     /**
+     * Force start the torrent, bypassing queue limits.
+     */
+    fun forceStart() {
+        repository.forceStart(infoHash)
+    }
+
+    /**
+     * Move the torrent to the top of the queue.
+     */
+    fun queueMoveToTop() {
+        repository.queueMoveToTop(infoHash)
+    }
+
+    /**
+     * Move the torrent to the bottom of the queue.
+     */
+    fun queueMoveToBottom() {
+        repository.queueMoveToBottom(infoHash)
+    }
+
+    /**
      * Check if the torrent is currently paused.
      */
     fun isPaused(): Boolean {

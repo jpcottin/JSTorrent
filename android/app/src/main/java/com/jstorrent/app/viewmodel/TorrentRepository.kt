@@ -98,6 +98,21 @@ interface TorrentRepository {
     fun resumeEngine()
 
     /**
+     * Move a torrent to the top of the queue.
+     */
+    fun queueMoveToTop(infoHash: String)
+
+    /**
+     * Move a torrent to the bottom of the queue.
+     */
+    fun queueMoveToBottom(infoHash: String)
+
+    /**
+     * Force start a torrent, bypassing queue limits.
+     */
+    fun forceStart(infoHash: String)
+
+    /**
      * Set file priorities for a torrent.
      * @param infoHash The torrent's info hash
      * @param priorities Map of file index to priority (0=Normal, 1=Skip, 2=High)

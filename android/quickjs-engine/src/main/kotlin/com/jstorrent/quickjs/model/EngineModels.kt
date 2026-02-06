@@ -263,7 +263,9 @@ data class TorrentSummary(
     val addedAt: Long = 0, // Epoch milliseconds when added
     val eta: Long? = null, // Estimated time to completion in seconds, null if not calculable
     val errorMessage: String? = null, // Error description when status == "error"
-    val checkingProgress: Double = 0.0 // 0-1, only meaningful when status == "checking"
+    val checkingProgress: Double = 0.0, // 0-1, only meaningful when status == "checking"
+    val queuePosition: Int? = null, // Queue position (0-based), null if not assigned
+    val forceActive: Boolean = false // Bypasses queue limits when true
 )
 
 /**

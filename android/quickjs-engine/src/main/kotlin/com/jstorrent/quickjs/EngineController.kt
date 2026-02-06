@@ -611,6 +611,30 @@ class EngineController(
     }
 
     /**
+     * Move a torrent to the top of the queue (suspend version).
+     */
+    suspend fun queueMoveToTopAsync(infoHash: String) {
+        requireEngine().callGlobalFunctionAsync("__jstorrent_cmd_queue_top", infoHash)
+        Log.i(TAG, "queueMoveToTopAsync: $infoHash")
+    }
+
+    /**
+     * Move a torrent to the bottom of the queue (suspend version).
+     */
+    suspend fun queueMoveToBottomAsync(infoHash: String) {
+        requireEngine().callGlobalFunctionAsync("__jstorrent_cmd_queue_bottom", infoHash)
+        Log.i(TAG, "queueMoveToBottomAsync: $infoHash")
+    }
+
+    /**
+     * Force start a torrent, bypassing queue limits (suspend version).
+     */
+    suspend fun forceStartAsync(infoHash: String) {
+        requireEngine().callGlobalFunctionAsync("__jstorrent_cmd_force_start", infoHash)
+        Log.i(TAG, "forceStartAsync: $infoHash")
+    }
+
+    /**
      * Add test torrent (suspend version).
      */
     suspend fun addTestTorrentAsync() {

@@ -47,6 +47,9 @@ data class SettingsUiState(
     val maxGlobalPeers: Int = 200,
     val maxUploadSlots: Int = 4,
     val maxPipelineDepth: Int = AndroidConfigHub.DEFAULT_MAX_PIPELINE_DEPTH,
+    // Queue Limits
+    val activeDownloads: Int = AndroidConfigHub.DEFAULT_ACTIVE_DOWNLOADS,
+    val activeSeeds: Int = AndroidConfigHub.DEFAULT_ACTIVE_SEEDS,
     // Behavior
     val whenDownloadsComplete: String = "stop_and_close",
     // Network
@@ -136,6 +139,8 @@ class SettingsViewModel(
             maxGlobalPeers = configHub.maxGlobalPeers,
             maxUploadSlots = configHub.maxUploadSlots,
             maxPipelineDepth = configHub.maxPipelineDepth,
+            activeDownloads = configHub.activeDownloads,
+            activeSeeds = configHub.activeSeeds,
             dhtEnabled = configHub.dhtEnabled,
             pexEnabled = configHub.pexEnabled,
             upnpEnabled = configHub.upnpEnabled,
@@ -371,6 +376,26 @@ class SettingsViewModel(
     fun setMaxPipelineDepth(depth: Int) {
         configHub.maxPipelineDepth = depth
         _uiState.value = _uiState.value.copy(maxPipelineDepth = depth)
+    }
+
+    // =========================================================================
+    // Queue Settings
+    // =========================================================================
+
+    /**
+     * Set maximum active downloads.
+     */
+    fun setActiveDownloads(max: Int) {
+        configHub.activeDownloads = max
+        _uiState.value = _uiState.value.copy(activeDownloads = max)
+    }
+
+    /**
+     * Set maximum active seeds.
+     */
+    fun setActiveSeeds(max: Int) {
+        configHub.activeSeeds = max
+        _uiState.value = _uiState.value.copy(activeSeeds = max)
     }
 
     // =========================================================================

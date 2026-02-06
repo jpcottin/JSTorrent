@@ -244,6 +244,18 @@ class EngineServiceRepository(
         }
     }
 
+    override fun queueMoveToTop(infoHash: String) {
+        withEngine { it.queueMoveToTopAsync(infoHash) }
+    }
+
+    override fun queueMoveToBottom(infoHash: String) {
+        withEngine { it.queueMoveToBottomAsync(infoHash) }
+    }
+
+    override fun forceStart(infoHash: String) {
+        withEngine { it.forceStartAsync(infoHash) }
+    }
+
     override fun setFilePriorities(infoHash: String, priorities: Map<Int, Int>) {
         withEngine { it.setFilePrioritiesAsync(infoHash, priorities) }
     }

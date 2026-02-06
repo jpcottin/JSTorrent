@@ -14,9 +14,11 @@
     <string name="torrent_list_error">Error</string>
     <string name="torrent_list_empty_all">No torrents yet</string>
     <string name="torrent_list_empty_active">No active torrents</string>
+    <string name="torrent_list_empty_queued">No queued torrents</string>
     <string name="torrent_list_empty_finished">No completed torrents</string>
     <string name="torrent_list_hint_all">Tap + to add a magnet link</string>
     <string name="torrent_list_hint_active">Downloading torrents will appear here</string>
+    <string name="torrent_list_hint_queued">Torrents waiting for an active slot will appear here</string>
     <string name="torrent_list_hint_finished">Completed torrents will appear here</string>
     <string name="torrent_already_in_list">Torrent already in list</string>
 
@@ -28,6 +30,7 @@
     <!-- Filter tabs -->
     <string name="filter_all">All</string>
     <string name="filter_active">Active</string>
+    <string name="filter_queued">Queued</string>
     <string name="filter_finished">Finished</string>
 
     <!-- Debug menu (not translated in production) -->
@@ -83,6 +86,9 @@
     <string name="torrent_detail_open_file_error">Could not open file: %1$s</string>
     <string name="torrent_detail_open_folder">Open folder</string>
     <string name="torrent_detail_open_folder_error">Could not open folder: %1$s</string>
+    <string name="torrent_detail_force_start">Force Start</string>
+    <string name="torrent_detail_move_to_top">Move to Top of Queue</string>
+    <string name="torrent_detail_move_to_bottom">Move to Bottom of Queue</string>
 
     <!-- SettingsScreen -->
     <string name="settings_title">Settings</string>
@@ -157,6 +163,11 @@
     <string name="settings_speed_max_global_peers_description">Maximum total connections</string>
     <string name="settings_speed_max_upload_slots_label">Max upload slots</string>
     <string name="settings_speed_max_upload_slots_description">Simultaneous upload connections</string>
+    <string name="settings_speed_queue_section">Queue</string>
+    <string name="settings_speed_active_downloads_label">Max active downloads</string>
+    <string name="settings_speed_active_downloads_description">Simultaneous downloading torrents</string>
+    <string name="settings_speed_active_seeds_label">Max active seeds</string>
+    <string name="settings_speed_active_seeds_description">Simultaneous seeding torrents</string>
     <string name="settings_speed_advanced_section">Advanced</string>
     <string name="settings_speed_pipeline_depth_label">Pipeline depth</string>
     <string name="settings_speed_pipeline_depth_description">Outstanding block requests per peer. Higher values improve speed on high-latency connections but use more memory.</string>

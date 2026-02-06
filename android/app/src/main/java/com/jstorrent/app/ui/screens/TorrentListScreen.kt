@@ -618,7 +618,7 @@ private fun TorrentListContent(
 }
 
 /**
- * Filter tab row: ALL | ACTIVE | FINISHED
+ * Filter tab row: ALL | ACTIVE | QUEUED | FINISHED
  */
 @Composable
 private fun FilterTabRow(
@@ -627,7 +627,7 @@ private fun FilterTabRow(
     filterCounts: Map<TorrentFilter, Int>,
     modifier: Modifier = Modifier
 ) {
-    val tabs = listOf(TorrentFilter.ALL, TorrentFilter.ACTIVE, TorrentFilter.FINISHED)
+    val tabs = listOf(TorrentFilter.ALL, TorrentFilter.ACTIVE, TorrentFilter.QUEUED, TorrentFilter.FINISHED)
     val selectedIndex = tabs.indexOf(currentFilter)
 
     TabRow(
@@ -674,6 +674,7 @@ private fun EmptyState(
                 text = stringResource(when (currentFilter) {
                     TorrentFilter.ALL -> R.string.torrent_list_empty_all
                     TorrentFilter.ACTIVE -> R.string.torrent_list_empty_active
+                    TorrentFilter.QUEUED -> R.string.torrent_list_empty_queued
                     TorrentFilter.FINISHED -> R.string.torrent_list_empty_finished
                 }),
                 style = MaterialTheme.typography.titleMedium,
@@ -684,6 +685,7 @@ private fun EmptyState(
                 text = stringResource(when (currentFilter) {
                     TorrentFilter.ALL -> R.string.torrent_list_hint_all
                     TorrentFilter.ACTIVE -> R.string.torrent_list_hint_active
+                    TorrentFilter.QUEUED -> R.string.torrent_list_hint_queued
                     TorrentFilter.FINISHED -> R.string.torrent_list_hint_finished
                 }),
                 style = MaterialTheme.typography.bodyMedium,
@@ -746,6 +748,7 @@ private fun getFilterDisplayName(filter: TorrentFilter): String {
     return stringResource(when (filter) {
         TorrentFilter.ALL -> R.string.filter_all
         TorrentFilter.ACTIVE -> R.string.filter_active
+        TorrentFilter.QUEUED -> R.string.filter_queued
         TorrentFilter.FINISHED -> R.string.filter_finished
     })
 }

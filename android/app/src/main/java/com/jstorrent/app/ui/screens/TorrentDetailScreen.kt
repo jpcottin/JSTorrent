@@ -12,6 +12,9 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -182,6 +185,37 @@ fun TorrentDetailScreen(
                                     },
                                     leadingIcon = {
                                         Icon(Icons.Default.Delete, contentDescription = null)
+                                    }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.torrent_detail_force_start)) },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.forceStart()
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.FastForward, contentDescription = null)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.torrent_detail_move_to_top)) },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.queueMoveToTop()
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.KeyboardDoubleArrowUp, contentDescription = null)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.torrent_detail_move_to_bottom)) },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.queueMoveToBottom()
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.KeyboardDoubleArrowDown, contentDescription = null)
                                     }
                                 )
                                 // Shared menu items at bottom (Speed, DHT Info, Settings, Shutdown)

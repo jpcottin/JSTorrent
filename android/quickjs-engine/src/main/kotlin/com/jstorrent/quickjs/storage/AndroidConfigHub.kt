@@ -96,6 +96,18 @@ class AndroidConfigHub(
         set(value) = set("maxPipelineDepth", value)
 
     // =========================================================================
+    // Queue
+    // =========================================================================
+
+    var activeDownloads: Int
+        get() = getInt("activeDownloads", DEFAULT_ACTIVE_DOWNLOADS)
+        set(value) = set("activeDownloads", value)
+
+    var activeSeeds: Int
+        get() = getInt("activeSeeds", DEFAULT_ACTIVE_SEEDS)
+        set(value) = set("activeSeeds", value)
+
+    // =========================================================================
     // Protocol
     // =========================================================================
 
@@ -311,6 +323,7 @@ class AndroidConfigHub(
             "maxGlobalPeers" -> bridge.setMaxGlobalPeers(value as Int)
             "maxUploadSlots" -> bridge.setMaxUploadSlots(value as Int)
             "maxPipelineDepth" -> bridge.setMaxPipelineDepth(value as Int)
+            "activeDownloads", "activeSeeds" -> bridge.batchUpdate(mapOf(key to (value as Any)))
             "encryptionPolicy" -> bridge.setEncryptionPolicy(value as String)
             "dhtEnabled" -> bridge.setDhtEnabled(value as Boolean)
             "pexEnabled" -> bridge.setPexEnabled(value as Boolean)
@@ -367,6 +380,10 @@ class AndroidConfigHub(
     companion object {
         /** Default max pipeline depth - must match DEFAULT_MAX_PIPELINE_DEPTH in config-schema.ts */
         const val DEFAULT_MAX_PIPELINE_DEPTH = 500
+        /** Default max active downloads - must match config-schema.ts */
+        const val DEFAULT_ACTIVE_DOWNLOADS = 5
+        /** Default max active seeds - must match config-schema.ts */
+        const val DEFAULT_ACTIVE_SEEDS = 5
     }
 }
 

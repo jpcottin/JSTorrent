@@ -229,6 +229,18 @@ class FakeTorrentRepository : TorrentRepository {
         resumeEngineCalled = true
     }
 
+    override fun queueMoveToTop(infoHash: String) {
+        // No-op for testing
+    }
+
+    override fun queueMoveToBottom(infoHash: String) {
+        // No-op for testing
+    }
+
+    override fun forceStart(infoHash: String) {
+        // No-op for testing
+    }
+
     override fun setFilePriorities(infoHash: String, priorities: Map<Int, Int>) {
         // No-op for testing - just record if needed
     }

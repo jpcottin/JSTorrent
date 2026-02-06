@@ -52,6 +52,8 @@ enum class TorrentFilter(val displayName: String) {
     ALL("All"),
     /** Show downloading torrents (downloading, downloading_metadata, checking) */
     ACTIVE("Downloading"),
+    /** Show queued torrents (waiting for active slot) */
+    QUEUED("Queued"),
     /** Show completed torrents (seeding, stopped with progress = 1.0) */
     FINISHED("Finished")
 }
@@ -239,6 +241,9 @@ fun List<TorrentSummary>.filterByStatus(filter: TorrentFilter): List<TorrentSumm
         TorrentFilter.ALL -> this
         TorrentFilter.ACTIVE -> this.filter { torrent ->
             torrent.status in listOf("downloading", "downloading_metadata", "checking")
+        }
+        TorrentFilter.QUEUED -> this.filter { torrent ->
+            torrent.status == "queued"
         }
         TorrentFilter.FINISHED -> this.filter { torrent ->
             torrent.status == "seeding" ||
