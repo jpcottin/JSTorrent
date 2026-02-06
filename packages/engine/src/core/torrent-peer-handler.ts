@@ -418,21 +418,21 @@ export class TorrentPeerHandler extends EngineComponent {
 
   /**
    * Handle CHOKE message from peer.
+   *
+   * libtorrent alignment (Phase 6): Don't clear in-flight request tracking.
+   * libtorrent keeps m_download_queue (sent requests) intact on choke —
+   * the peer may still deliver blocks. If not, stale request cleanup
+   * (cleanupStuckPieces, runs every 500ms) handles cancellation via timeout.
+   *
+   * Note: BitTorrent spec says choke discards requests, but many clients
+   * deliver pending blocks after choking. The timeout mechanism handles
+   * the worst case where blocks never arrive.
    */
   private handleChoke(peer: PeerConnection): void {
     this.logger.debug('Choke received')
 
-    // Peer has discarded all our pending requests per BitTorrent spec
-    const peerId = peer.peerId ? toHex(peer.peerId) : `${peer.remoteAddress}:${peer.remotePort}`
-    const activePieces = this.callbacks.getActivePieces()
-    const cleared = activePieces?.clearRequestsForPeer(peerId) || 0
-
-    peer.requestsPending = 0 // Critical: reset so we can request again after unchoke
+    peer.requestsPending = 0 // Reset so we can fill pipeline on unchoke
     // Reduce pipeline depth - choke is a congestion signal
     peer.reduceDepth()
-
-    if (cleared > 0) {
-      this.logger.debug(`Cleared ${cleared} tracked requests after choke`)
-    }
   }
 }
