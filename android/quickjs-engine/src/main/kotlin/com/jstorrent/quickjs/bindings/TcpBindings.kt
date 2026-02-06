@@ -87,6 +87,23 @@ class TcpBindings(
         @Volatile private var callbackLatencyMaxMs = 0L
         @Volatile private var callbackLatencyLogTime = System.currentTimeMillis()
 
+        // Handler queue callback counters (reset on read)
+        private val connectedCallbackCount = java.util.concurrent.atomic.AtomicInteger(0)
+        private val closeCallbackCount = java.util.concurrent.atomic.AtomicInteger(0)
+        private val securedCallbackCount = java.util.concurrent.atomic.AtomicInteger(0)
+
+        /**
+         * Get and reset callback counts for diagnostics.
+         * Returns triple of (connected, close, secured) counts.
+         */
+        fun getAndResetCallbackCounts(): Triple<Int, Int, Int> {
+            return Triple(
+                connectedCallbackCount.getAndSet(0),
+                closeCallbackCount.getAndSet(0),
+                securedCallbackCount.getAndSet(0)
+            )
+        }
+
         /**
          * Get current callback queue depth.
          * This is the number of TCP data callbacks waiting to be processed by JS.
@@ -341,7 +358,7 @@ class TcpBindings(
         tcpManager.setCallback(object : TcpSocketCallback {
             override fun onTcpConnected(socketId: Int, success: Boolean, errorCode: Int, errorMessage: String?) {
                 if (!hasConnectedCallback) return
-
+                connectedCallbackCount.incrementAndGet()
                 jsThread.post {
                     // Use the actual error message if provided, otherwise fall back to generic
                     val msg = if (!success) (errorMessage ?: "Connection failed (code: $errorCode)") else ""
@@ -381,7 +398,7 @@ class TcpBindings(
 
             override fun onTcpClose(socketId: Int, hadError: Boolean, errorCode: Int) {
                 Log.d(TAG, "onTcpClose: socket=$socketId, hadError=$hadError, errorCode=$errorCode")
-
+                closeCallbackCount.incrementAndGet()
                 // Post everything to JS thread to avoid race condition with drainAndPackTcpBatch.
                 // The old approach drained the shared pendingTcpData queue from the I/O thread,
                 // which could interleave with drainAndPackTcpBatch on the JS thread, causing
@@ -425,7 +442,7 @@ class TcpBindings(
             override fun onTcpSecured(socketId: Int, success: Boolean) {
                 Log.d(TAG, "onTcpSecured: socket=$socketId, success=$success")
                 if (!hasSecuredCallback) return
-
+                securedCallbackCount.incrementAndGet()
                 jsThread.post {
                     ctx.callGlobalFunction(
                         "__jstorrent_tcp_dispatch_secured",

@@ -215,7 +215,9 @@ class QuickJsContext private constructor(
             }
         }
         val elapsed = System.currentTimeMillis() - start
-        if (count > 0 || elapsed > 100) {
+        if (elapsed > 50 || count > 100) {
+            android.util.Log.w("QuickJsContext", "executeAllPendingJobs: completed $count jobs in ${elapsed}ms")
+        } else if (count > 0) {
             android.util.Log.d("QuickJsContext", "executeAllPendingJobs: completed $count jobs in ${elapsed}ms")
         }
     }

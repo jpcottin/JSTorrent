@@ -23,7 +23,10 @@ const DEFAULT_CONFIG: ActivePieceConfig = {
   // Allow unlimited active pieces - the haveAllBlocks check is now O(1)
   // and hasUnrequestedBlocks uses allocation-free iteration.
   // Memory is the real constraint, handled by maxBufferedBytes.
-  maxActivePieces: 10000,
+
+  // Experimenting with lower setting for now (multi-peer-tick-overload.md)
+  maxActivePieces: isNativeRuntime ? 64 : 10000,
+
   maxBufferedBytes: isNativeRuntime ? 128 * 1024 * 1024 : 256 * 1024 * 1024,
 }
 

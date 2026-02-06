@@ -7,7 +7,10 @@ import com.jstorrent.io.file.FileManager
 import com.jstorrent.io.file.FileManagerImpl
 import com.jstorrent.quickjs.bindings.EngineErrorListener
 import com.jstorrent.quickjs.bindings.EngineStateListener
+import com.jstorrent.quickjs.bindings.FileBindings
 import com.jstorrent.quickjs.bindings.NativeBindings
+import com.jstorrent.quickjs.bindings.PolyfillBindings
+import com.jstorrent.quickjs.bindings.TcpBindings
 import com.jstorrent.quickjs.model.EngineConfig
 import com.jstorrent.quickjs.model.EngineState
 import com.jstorrent.quickjs.model.FileInfo
@@ -25,8 +28,6 @@ import com.jstorrent.quickjs.model.EngineStats
 import com.jstorrent.quickjs.model.JsThreadStats
 import com.jstorrent.quickjs.model.SpeedSamplesResult
 import com.jstorrent.quickjs.model.UpnpStatus
-import com.jstorrent.quickjs.bindings.FileBindings
-import com.jstorrent.quickjs.bindings.TcpBindings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -124,6 +125,11 @@ class EngineController(
     private var lastPipelineMax = 0
     private var lastPendingHashes = 0
     private var lastBufferedBytes = 0
+
+    // Handler Q high water mark tracking (per log window)
+    private var tickMaxHandlerQ = 0
+    private var tickMaxPumpMs = 0L
+
     private val TICK_LOG_INTERVAL_MS = 5000L
     // Continuous tick mode parameters
     private val MIN_TICK_INTERVAL_MS = 1L   // Minimum time between ticks (prevent CPU spinning)
@@ -1084,6 +1090,23 @@ class EngineController(
 
                 val totalMs = pumpEnd - tickStart
 
+                // Track handler Q depth at tick boundary
+                val handlerQ = eng.jsThread.getHandlerQueueDepth()
+                if (handlerQ > tickMaxHandlerQ) {
+                    tickMaxHandlerQ = handlerQ
+                }
+                if (pumpMs > tickMaxPumpMs) {
+                    tickMaxPumpMs = pumpMs
+                }
+
+                // Warn on high handler Q or long pump (potential cascade)
+                if (handlerQ > 50 || pumpMs > 200) {
+                    Log.w(TAG, "Tick bottleneck: handlerQ=$handlerQ, totalMs=$totalMs (js=$jsMs pump=$pumpMs), " +
+                        "pendingTcp=${TcpBindings.getPendingTcpEventCount()}, " +
+                        "pendingHash=${PolyfillBindings.getPendingHashEventCount()}, " +
+                        "pendingDisk=${FileBindings.getPendingDiskEventCount()}")
+                }
+
                 // Update timing stats
                 tickCount++
                 tickTotalJsMs += jsMs
@@ -1119,9 +1142,14 @@ class EngineController(
                     val avgBlocksSent = totalBlocksSent.toFloat() / tickCount
                     val pipelineUtil = if (lastPipelineMax > 0) (lastPipelineFilled.toFloat() / lastPipelineMax * 100).toInt() else 0
 
-                    Log.i(TAG, "Tick: ${tickCount} ticks, avg %.1fms (js=%.1fms pump=%.1fms), max ${tickMaxMs}ms, work=${workPercent}%% | " .format(avgTotal, avgJs, avgPump) +
+                    val (tcpConn, tcpClose, tcpSecured) = TcpBindings.getAndResetCallbackCounts()
+                    val handlerQNow = eng.jsThread.getHandlerQueueDepth()
+                    val handlerQMax = eng.jsThread.getMaxHandlerQueueDepth()
+
+                    Log.i(TAG, "Tick: ${tickCount} ticks, avg %.1fms (js=%.1fms pump=%.1fms/max${tickMaxPumpMs}ms), max ${tickMaxMs}ms, work=${workPercent}%% | ".format(avgTotal, avgJs, avgPump) +
                         "${lastConnectedPeers} peers, ${lastActivePieces} active | " +
-                        "BLOCKS:recv=%.1f/sent=%.1f, PIPE:${pipelineUtil}%% of ${lastPipelineMax}, hash=${lastPendingHashes}, buf=${lastBufferedBytes / 1024}KB".format(avgBlocksRecv, avgBlocksSent))
+                        "BLOCKS:recv=%.1f/sent=%.1f, PIPE:${pipelineUtil}%% of ${lastPipelineMax}, hash=${lastPendingHashes}, buf=${lastBufferedBytes / 1024}KB | ".format(avgBlocksRecv, avgBlocksSent) +
+                        "HandlerQ:${handlerQNow}/${handlerQMax}(tickMax=${tickMaxHandlerQ}), TCP:conn=${tcpConn}/close=${tcpClose}/sec=${tcpSecured}")
 
                     // Reset aggregated stats
                     tickCount = 0
@@ -1129,6 +1157,8 @@ class EngineController(
                     tickTotalPumpMs = 0
                     tickTotalMs = 0
                     tickMaxMs = 0
+                    tickMaxPumpMs = 0
+                    tickMaxHandlerQ = 0
                     ticksWithWork = 0
                     totalBlocksRecv = 0
                     totalBlocksSent = 0
