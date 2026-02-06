@@ -65,6 +65,15 @@ export interface EngineAdapter {
 
   /** Get all DHT nodes */
   getDHTNodes(): DHTNodeInfo[]
+
+  /** Move torrent to top of queue (position 0) */
+  queueMoveToTop(torrent: Torrent): void
+
+  /** Move torrent to bottom of queue */
+  queueMoveToBottom(torrent: Torrent): void
+
+  /** Force-start torrent, bypassing queue limits */
+  queueForceStart(torrent: Torrent): void
 }
 
 /**
@@ -142,5 +151,17 @@ export class DirectEngineAdapter implements EngineAdapter {
 
   getDHTNodes(): DHTNodeInfo[] {
     return this.engine.dhtNode?.getAllNodes() ?? []
+  }
+
+  queueMoveToTop(torrent: Torrent): void {
+    this.engine.queueMoveToTop(torrent)
+  }
+
+  queueMoveToBottom(torrent: Torrent): void {
+    this.engine.queueMoveToBottom(torrent)
+  }
+
+  queueForceStart(torrent: Torrent): void {
+    this.engine.queueForceStart(torrent)
   }
 }

@@ -42,6 +42,9 @@ function buildConfigSnapshot(config: ConfigHub) {
     maxUploadSlots: config.maxUploadSlots.get(),
     maxPipelineDepth: config.maxPipelineDepth.get(),
     dhtEnabled: config.dhtEnabled.get(),
+    // Queue
+    activeDownloads: config.activeDownloads.get(),
+    activeSeeds: config.activeSeeds.get(),
     // Advanced
     loggingLevel: config.loggingLevel.get(),
     loggingLevelClient: config.loggingLevelClient.get(),
@@ -944,6 +947,23 @@ const NetworkTab: React.FC<NetworkTabProps> = ({ settings, config, engineManager
           onChange={(v) => config.set('maxPipelineDepth', v)}
           min={10}
           max={500}
+        />
+      </Section>
+
+      <Section title="Queue">
+        <NumberRow
+          label="Max active downloads"
+          value={settings.activeDownloads}
+          onChange={(v) => config.set('activeDownloads', v)}
+          min={1}
+          max={50}
+        />
+        <NumberRow
+          label="Max active seeds"
+          value={settings.activeSeeds}
+          onChange={(v) => config.set('activeSeeds', v)}
+          min={1}
+          max={50}
         />
       </Section>
 

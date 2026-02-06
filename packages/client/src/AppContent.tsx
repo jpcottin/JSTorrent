@@ -113,6 +113,7 @@ export function AppContent({
     selectedTorrentObjects.every((t) => t.userState !== 'stopped' && !t.errorMessage)
   const anyChecking =
     hasSelection && selectedTorrentObjects.some((t) => t.activityState === 'checking')
+  const allForceActive = hasSelection && selectedTorrentObjects.every((t) => t.forceActive)
 
   // --- Action handlers ---
 
@@ -186,6 +187,27 @@ export function AppContent({
       await adapter.resetTorrent(t)
     }
     setSelectedTorrents(new Set())
+  }
+
+  const handleForceStart = () => {
+    for (const t of selectedTorrentObjects) {
+      adapter.queueForceStart(t)
+    }
+    refresh()
+  }
+
+  const handleMoveToTop = () => {
+    for (const t of selectedTorrentObjects) {
+      adapter.queueMoveToTop(t)
+    }
+    refresh()
+  }
+
+  const handleMoveToBottom = () => {
+    for (const t of selectedTorrentObjects) {
+      adapter.queueMoveToBottom(t)
+    }
+    refresh()
   }
 
   const handleRemoveWithDataRequest = () => {
@@ -278,6 +300,10 @@ export function AppContent({
   const contextMenuItems: ContextMenuItem[] = [
     { id: 'start', label: 'Start', icon: '▶', disabled: allActive || anyChecking },
     { id: 'stop', label: 'Stop', icon: '■', disabled: allEffectivelyStopped || anyChecking },
+    { id: 'forceStart', label: 'Force Start', icon: '⏩', disabled: allForceActive },
+    { id: 'separatorQueue', label: '', separator: true },
+    { id: 'moveToTop', label: 'Move to Top of Queue', icon: '⤒' },
+    { id: 'moveToBottom', label: 'Move to Bottom of Queue', icon: '⤓' },
     { id: 'separator1', label: '', separator: true },
     ...(onOpenFolder ? [{ id: 'openFolder', label: 'Open Folder', icon: '📁' }] : []),
     { id: 'recheck', label: 'Re-verify Data', icon: '⟳', disabled: anyChecking },
@@ -315,6 +341,15 @@ export function AppContent({
         break
       case 'stop':
         handleStopSelected()
+        break
+      case 'forceStart':
+        handleForceStart()
+        break
+      case 'moveToTop':
+        handleMoveToTop()
+        break
+      case 'moveToBottom':
+        handleMoveToBottom()
         break
       case 'openFolder':
         handleOpenFolderAction()

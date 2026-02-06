@@ -9,6 +9,14 @@ import { ProgressBar } from './ProgressBar.solid'
  */
 export const torrentColumns: ColumnDef<Torrent>[] = [
   {
+    id: 'queue',
+    header: '#',
+    getValue: (t) => t.queuePosition ?? -1,
+    width: 40,
+    align: 'right',
+    renderCell: (t) => (t.queuePosition !== undefined ? t.queuePosition + 1 : '-'),
+  },
+  {
     id: 'name',
     header: 'Name',
     getValue: (t) => t.name || 'Loading...',
@@ -55,14 +63,16 @@ export const torrentColumns: ColumnDef<Torrent>[] = [
     },
     width: 100,
     getCellTitle: (t) => t.errorMessage,
-    getCellStyle: (t) =>
+    getCellStyle: (t): Record<string, string> | undefined =>
       t.errorMessage
         ? {
             color: '#e74c3c',
             'text-decoration': 'underline dotted',
             cursor: 'help',
           }
-        : undefined,
+        : t.activityState === 'queued'
+          ? { color: 'var(--text-secondary)' }
+          : undefined,
   },
   {
     id: 'downloaded',
@@ -155,7 +165,7 @@ export function TorrentTable(props: TorrentTableProps) {
       onRowClick={props.onRowClick}
       onRowDoubleClick={props.onRowDoubleClick}
       onRowContextMenu={props.onRowContextMenu}
-      isRowActive={(t) => t.activityState !== 'stopped'}
+      isRowActive={(t) => t.activityState !== 'stopped' && t.activityState !== 'queued'}
     />
   )
 }
