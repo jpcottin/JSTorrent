@@ -48,29 +48,6 @@ export class ActivePiece {
   // Activity tracking for stale piece cleanup
   private _lastActivity: number = Date.now()
 
-  // === Phase 4: Speed Affinity / Exclusive Piece Ownership ===
-
-  /**
-   * The peer ID that "owns" this piece exclusively.
-   * When set, only this peer (or slow peers sharing with other slow peers)
-   * can request blocks from this piece.
-   *
-   * This prevents piece fragmentation where fast and slow peers
-   * share the same piece, causing the fast peer to wait for slow blocks.
-   */
-  private _exclusivePeer: string | null = null
-
-  /**
-   * Peers that have failed (timed out) on this piece.
-   * These peers are blocked from requesting blocks from this piece,
-   * preventing the stuck-piece cycle where the same slow peer
-   * reclaims exclusive ownership after timeout.
-   *
-   * Recovery: If a failed peer later sends data for this piece,
-   * they are removed from the failed set via clearFailedPeer().
-   */
-  private _failedPeers: Set<string> = new Set()
-
   /**
    * Timestamp when this piece became active.
    * Used for piece health management (Phase 5) to detect stuck pieces.
@@ -143,16 +120,6 @@ export class ActivePiece {
     return this.blockReceived[blockIndex] ?? false
   }
 
-  // --- Phase 4: Speed Affinity / Exclusive Ownership ---
-
-  /**
-   * Get the peer ID that owns this piece exclusively.
-   * Returns null if no exclusive owner.
-   */
-  get exclusivePeer(): string | null {
-    return this._exclusivePeer
-  }
-
   /**
    * Get when this piece became active.
    */
@@ -161,83 +128,17 @@ export class ActivePiece {
   }
 
   /**
-   * Check if a peer can request blocks from this piece.
-   *
-   * Rules (matching libtorrent behavior for speed affinity):
-   * 1. No owner yet - anyone can request
-   * 2. Owner can always request
-   * 3. Fast peers CAN share with other fast peers (no fragmentation concern)
-   * 4. Slow peers CANNOT join fast-owned pieces (prevents fragmentation)
-   *
-   * The fragmentation problem: if a fast peer (1MB/s) and slow peer (10KB/s)
-   * share a piece, the fast peer finishes its blocks quickly but waits for
-   * the slow peer's blocks. By preventing slow peers from joining fast-owned
-   * pieces, we ensure fast peers can complete pieces quickly.
-   *
-   * Fast+fast sharing is fine because both peers complete blocks quickly.
-   *
-   * @param peerId - The requesting peer's ID
-   * @param peerIsFast - Whether the requesting peer is considered "fast"
+   * Check if a specific peer has any in-flight requests on this piece.
+   * Used for soft affinity: prefer requesting from pieces where this peer
+   * already has blocks in-flight (contiguity preference, like libtorrent's requested_from()).
    */
-  canRequestFrom(peerId: string, peerIsFast: boolean): boolean {
-    // Failed peers are blocked from this piece entirely
-    if (this._failedPeers.has(peerId)) {
-      return false
+  hasRequestsFromPeer(peerId: string): boolean {
+    for (const requests of this.blockRequests.values()) {
+      for (const req of requests) {
+        if (req.peerId === peerId) return true
+      }
     }
-
-    // No owner yet - anyone can request
-    if (this._exclusivePeer === null) {
-      return true
-    }
-
-    // Owner can always request
-    if (this._exclusivePeer === peerId) {
-      return true
-    }
-
-    // Piece has a fast owner (only fast peers claim exclusive ownership)
-    // Fast peers CAN join: fast+fast sharing doesn't cause fragmentation
-    // Slow peers CANNOT join: prevents fragmentation (slow peer would delay piece completion)
-    return peerIsFast
-  }
-
-  /**
-   * Claim exclusive ownership of this piece.
-   * Used by fast peers to prevent fragmentation.
-   */
-  claimExclusive(peerId: string): void {
-    this._exclusivePeer = peerId
-  }
-
-  /**
-   * Clear exclusive ownership. Called when the owner disconnects
-   * or times out, allowing other peers to take over.
-   */
-  clearExclusivePeer(): void {
-    this._exclusivePeer = null
-  }
-
-  /**
-   * Add a peer to the failed set. Failed peers are blocked from requesting
-   * blocks from this piece, breaking the stuck-piece cycle.
-   */
-  addFailedPeer(peerId: string): void {
-    this._failedPeers.add(peerId)
-  }
-
-  /**
-   * Remove a peer from the failed set. Called when a failed peer
-   * later sends data for this piece, proving they can still deliver.
-   */
-  clearFailedPeer(peerId: string): void {
-    this._failedPeers.delete(peerId)
-  }
-
-  /**
-   * Get the number of failed peers (for debugging/testing).
-   */
-  get failedPeerCount(): number {
-    return this._failedPeers.size
+    return false
   }
 
   /**
@@ -474,14 +375,6 @@ export class ActivePiece {
         }
       }
     }
-
-    // Clear exclusive owner if they timed out
-    if (this._exclusivePeer === peerId) {
-      this._exclusivePeer = null
-    }
-
-    // Add to failed peers - this peer timed out on this piece
-    this._failedPeers.add(peerId)
   }
 
   // --- Request Management (THE KEY FIX) ---
@@ -651,9 +544,6 @@ export class ActivePiece {
     this._blocksReceivedCount = 0
     this.blockRequests.clear()
     this.blockSenders.clear()
-    // Phase 4: Reset ownership tracking
-    this._exclusivePeer = null
-    this._failedPeers.clear()
     this._activatedAt = Date.now()
     // Phase 7: Reset unrequested count - all blocks become unrequested again
     this._unrequestedCount = this.blocksNeeded

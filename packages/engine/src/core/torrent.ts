@@ -2074,16 +2074,6 @@ export class Torrent extends EngineComponent {
       this.logger.debug(`Peer ${peerId} disconnected, cleared ${cleared} pending requests`)
     }
 
-    // Phase 4: Clear exclusive ownership for pieces owned by this peer
-    // This allows other peers to take over downloading those pieces
-    if (this.activePieces) {
-      for (const piece of this.activePieces.partialValues()) {
-        if (piece.exclusivePeer === peerId) {
-          piece.clearExclusivePeer()
-        }
-      }
-    }
-
     // Request pipeline refilled by requestTick() game loop
     // Vacated peer slot will be filled by next maintenance interval (~5s)
   }
@@ -2431,10 +2421,6 @@ export class Torrent extends EngineComponent {
       const rtt = Date.now() - requestTimestamp
       peer.recordRttSample(rtt)
     }
-
-    // Recovery: if this peer was marked as failed on this piece, clear it
-    // since they proved they can still deliver data
-    piece.clearFailedPeer(peerId)
 
     // Add block to piece using the provided function
     const isNew = addBlockFn(piece, blockIndex, peerId)

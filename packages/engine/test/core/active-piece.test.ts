@@ -515,99 +515,37 @@ describe('ActivePiece', () => {
       const buffer = piece.getBuffer()
       expect(buffer[0]).toBe(42) // Data still there
     })
+  })
 
-    it('should reset exclusive peer on clear', () => {
-      const piece = new ActivePiece(0, PIECE_LENGTH)
+  describe('hasRequestsFromPeer', () => {
+    it('should return false when no requests', () => {
+      expect(piece.hasRequestsFromPeer('peer1')).toBe(false)
+    })
 
-      piece.claimExclusive('fast-peer')
-      expect(piece.exclusivePeer).toBe('fast-peer')
+    it('should return true when peer has in-flight requests', () => {
+      piece.addRequest(0, 'peer1')
+      expect(piece.hasRequestsFromPeer('peer1')).toBe(true)
+    })
 
-      piece.clear()
+    it('should return false for different peer', () => {
+      piece.addRequest(0, 'peer1')
+      expect(piece.hasRequestsFromPeer('peer2')).toBe(false)
+    })
 
-      expect(piece.exclusivePeer).toBeNull()
+    it('should return false after request fulfilled', () => {
+      piece.addRequest(0, 'peer1')
+      piece.addBlock(0, new Uint8Array(BLOCK_SIZE), 'peer1')
+      expect(piece.hasRequestsFromPeer('peer1')).toBe(false)
     })
   })
 
-  describe('Phase 4: Speed Affinity / Exclusive Ownership', () => {
-    it('should start with no exclusive owner', () => {
-      expect(piece.exclusivePeer).toBeNull()
-    })
+  it('should track activation time', () => {
+    const before = Date.now()
+    const newPiece = new ActivePiece(1, PIECE_LENGTH)
+    const after = Date.now()
 
-    it('should allow claiming exclusive ownership', () => {
-      piece.claimExclusive('fast-peer')
-
-      expect(piece.exclusivePeer).toBe('fast-peer')
-    })
-
-    it('should allow clearing exclusive ownership', () => {
-      piece.claimExclusive('fast-peer')
-      piece.clearExclusivePeer()
-
-      expect(piece.exclusivePeer).toBeNull()
-    })
-
-    describe('canRequestFrom', () => {
-      it('should allow any peer when no exclusive owner', () => {
-        expect(piece.canRequestFrom('peer1', true)).toBe(true)
-        expect(piece.canRequestFrom('peer1', false)).toBe(true)
-        expect(piece.canRequestFrom('peer2', true)).toBe(true)
-        expect(piece.canRequestFrom('peer2', false)).toBe(true)
-      })
-
-      it('should always allow the exclusive owner', () => {
-        piece.claimExclusive('fast-peer')
-
-        // Owner can request regardless of speed
-        expect(piece.canRequestFrom('fast-peer', true)).toBe(true)
-        expect(piece.canRequestFrom('fast-peer', false)).toBe(true)
-      })
-
-      it('should allow fast peers to join fast-owned pieces', () => {
-        // Fast peer owns the piece (only fast peers claim exclusive)
-        piece.claimExclusive('fast-peer-1')
-
-        // Another fast peer CAN join (fast+fast sharing is fine, no fragmentation)
-        expect(piece.canRequestFrom('fast-peer-2', true)).toBe(true)
-      })
-
-      it('should block slow peers from fast-owned pieces', () => {
-        // Fast peer owns the piece
-        piece.claimExclusive('fast-peer')
-
-        // Slow peer CANNOT join fast-owned piece (prevents fragmentation)
-        // The fragmentation problem: slow peer delays piece completion for fast owner
-        expect(piece.canRequestFrom('slow-peer', false)).toBe(false)
-      })
-
-      it('should explain the fragmentation prevention', () => {
-        // This test documents the design rationale:
-        //
-        // Fragmentation problem:
-        // - Fast peer A (1MB/s) requests blocks 0-7 of piece X
-        // - Slow peer B (10KB/s) requests blocks 8-15 of piece X
-        // - Fast peer finishes in 2 seconds, but waits 200+ seconds for slow peer
-        // - Piece X is stuck at 50% for 200 seconds due to fragmentation
-        //
-        // Solution: block slow peers from joining fast-owned pieces
-        // Fast peers can share with each other (both fast, no waiting)
-        piece.claimExclusive('fast-owner')
-
-        // Fast peer can join
-        expect(piece.canRequestFrom('another-fast', true)).toBe(true)
-
-        // Slow peer is blocked to prevent fragmentation
-        expect(piece.canRequestFrom('slow-peer', false)).toBe(false)
-      })
-    })
-
-    it('should track activation time', () => {
-      const before = Date.now()
-      const newPiece = new ActivePiece(1, PIECE_LENGTH)
-      const after = Date.now()
-
-      expect(newPiece.activatedAt).toBeGreaterThanOrEqual(before)
-      expect(newPiece.activatedAt).toBeLessThanOrEqual(after)
-    })
+    expect(newPiece.activatedAt).toBeGreaterThanOrEqual(before)
+    expect(newPiece.activatedAt).toBeLessThanOrEqual(after)
   })
 
   // === Phase 5: Piece Health Management Tests ===
@@ -675,70 +613,6 @@ describe('ActivePiece', () => {
       })
     })
 
-    describe('failedPeers', () => {
-      it('should block failed peers from requesting', () => {
-        piece.addFailedPeer('slow-peer')
-
-        expect(piece.canRequestFrom('slow-peer', true)).toBe(false)
-        expect(piece.canRequestFrom('slow-peer', false)).toBe(false)
-      })
-
-      it('should not block non-failed peers', () => {
-        piece.addFailedPeer('slow-peer')
-
-        expect(piece.canRequestFrom('other-peer', true)).toBe(true)
-        expect(piece.canRequestFrom('other-peer', false)).toBe(true)
-      })
-
-      it('should recover failed peer when clearFailedPeer is called', () => {
-        piece.addFailedPeer('slow-peer')
-        expect(piece.canRequestFrom('slow-peer', true)).toBe(false)
-
-        piece.clearFailedPeer('slow-peer')
-        expect(piece.canRequestFrom('slow-peer', true)).toBe(true)
-      })
-
-      it('should add peer to failed set on cancelRequest', () => {
-        piece.addRequest(0, 'peer1')
-
-        piece.cancelRequest(0, 'peer1')
-
-        expect(piece.failedPeerCount).toBe(1)
-        expect(piece.canRequestFrom('peer1', true)).toBe(false)
-      })
-
-      it('should track failedPeerCount', () => {
-        expect(piece.failedPeerCount).toBe(0)
-
-        piece.addFailedPeer('peer1')
-        expect(piece.failedPeerCount).toBe(1)
-
-        piece.addFailedPeer('peer2')
-        expect(piece.failedPeerCount).toBe(2)
-
-        piece.clearFailedPeer('peer1')
-        expect(piece.failedPeerCount).toBe(1)
-      })
-
-      it('should block failed peer even if they are the exclusive owner', () => {
-        piece.claimExclusive('peer1')
-        piece.addFailedPeer('peer1')
-
-        // Failed check takes priority over exclusive ownership
-        expect(piece.canRequestFrom('peer1', true)).toBe(false)
-      })
-
-      it('should reset failed peers on clear()', () => {
-        piece.addFailedPeer('peer1')
-        piece.addFailedPeer('peer2')
-
-        piece.clear()
-
-        expect(piece.failedPeerCount).toBe(0)
-        expect(piece.canRequestFrom('peer1', true)).toBe(true)
-      })
-    })
-
     describe('cancelRequest', () => {
       it('should remove specific request from block', () => {
         piece.addRequest(0, 'peer1')
@@ -757,25 +631,6 @@ describe('ActivePiece', () => {
 
         expect(piece.outstandingRequests).toBe(0)
         expect(piece.isBlockRequested(0)).toBe(false)
-      })
-
-      it('should clear exclusive owner if they timed out', () => {
-        piece.claimExclusive('slow-peer')
-        piece.addRequest(0, 'slow-peer')
-
-        piece.cancelRequest(0, 'slow-peer')
-
-        expect(piece.exclusivePeer).toBeNull()
-      })
-
-      it('should not clear exclusive owner if different peer cancelled', () => {
-        piece.claimExclusive('fast-peer')
-        piece.addRequest(0, 'slow-peer')
-        piece.addRequest(1, 'fast-peer')
-
-        piece.cancelRequest(0, 'slow-peer')
-
-        expect(piece.exclusivePeer).toBe('fast-peer')
       })
 
       it('should handle cancelling non-existent request gracefully', () => {

@@ -24,9 +24,6 @@ export interface RequestablePeer {
   /** Whether peer is a seed (has all pieces) */
   isSeed: boolean
 
-  /** Whether peer supports Fast Extension */
-  isFast: boolean
-
   /** Adaptive pipeline depth for this peer */
   pipelineDepth: number
 
@@ -130,13 +127,13 @@ export interface PieceRequesterDeps {
  * Uses dependency injection to avoid tight coupling with Torrent internals.
  *
  * The request algorithm has two phases:
- * 1. Request blocks from existing partial pieces (rarest-first with speed affinity)
+ * 1. Request blocks from existing partial pieces (rarest-first with soft affinity)
  * 2. Activate new pieces when more work is needed (rarest-first selection)
  *
  * Key features:
  * - Rarest-first piece selection using libtorrent's priority formula
  * - Adaptive pipeline depth per-peer
- * - Speed affinity for fast peers (prevents piece fragmentation)
+ * - Soft affinity for peers with in-flight requests (reduces piece fragmentation)
  * - Endgame mode support (duplicate requests to finish faster)
  * - Download rate limiting integration
  * - Partial piece cap to prevent "active piece death spiral"
@@ -192,7 +189,6 @@ export class TorrentPieceRequester extends EngineComponent {
     const endgameManager = this.deps.getEndgameManager()
     const isEndgame = endgameManager.isEndgame
     const maxDuplicateRequests = endgameManager.getConfig().maxDuplicateRequests
-    const peerIsFast = peer.isFast
     const availability = this.deps.getAvailability()
 
     // Collect requests for batched sending (reduces FFI overhead)
@@ -206,7 +202,10 @@ export class TorrentPieceRequester extends EngineComponent {
       }
     }
 
-    // PHASE 1: Request from existing partial pieces (rarest-first with speed affinity)
+    // PHASE 1: Request from existing partial pieces (rarest-first with soft affinity)
+    // Two-pass soft affinity: prefer pieces where this peer already has in-flight requests.
+    // This reduces piece fragmentation without hard-locking pieces to peers.
+    // Like libtorrent's requested_from() — a sort preference, not a hard lock.
     const rawAvailability = availability.rawAvailability
     const piecePriority = this.deps.getPiecePriority()
 
@@ -217,27 +216,17 @@ export class TorrentPieceRequester extends EngineComponent {
         piecePriority,
       )
 
+      // Pass 1: Pieces where this peer already has in-flight requests (contiguity preference)
       for (const piece of sortedPartials) {
         if (peer.requestsPending >= pipelineLimit) {
           flushPending()
           return
         }
 
-        // Skip if peer doesn't have this piece (seeds have everything)
         if (!peer.isSeed && !peerBitfield?.get(piece.index)) continue
-
-        // Speed affinity - check if this peer can request from this piece
-        if (!piece.canRequestFrom(peerId, peerIsFast)) continue
-
-        // Fast path: In normal mode, skip pieces with no unrequested blocks
+        if (!piece.hasRequestsFromPeer(peerId)) continue
         if (!isEndgame && !piece.hasUnrequestedBlocks) continue
 
-        // Fast peer claims exclusive ownership
-        if (piece.exclusivePeer === null && peerIsFast) {
-          piece.claimExclusive(peerId)
-        }
-
-        // Get blocks we can request from this piece
         const neededBlocks = isEndgame
           ? piece.getNeededBlocksEndgame(
               peerId,
@@ -252,7 +241,6 @@ export class TorrentPieceRequester extends EngineComponent {
             return
           }
 
-          // Rate limit check
           if (
             this.deps.isDownloadRateLimited() &&
             !this.deps.tryConsumeDownloadBandwidth(block.length)
@@ -268,7 +256,52 @@ export class TorrentPieceRequester extends EngineComponent {
           const blockIndex = Math.floor(block.begin / BLOCK_SIZE)
           piece.addRequest(blockIndex, peerId, now)
 
-          // Promote to full if all blocks are now requested
+          if (!piece.hasUnrequestedBlocks) {
+            activePieces.promoteToFullyRequested(piece.index)
+          }
+        }
+      }
+
+      // Pass 2: Remaining pieces (no existing requests from this peer)
+      for (const piece of sortedPartials) {
+        if (peer.requestsPending >= pipelineLimit) {
+          flushPending()
+          return
+        }
+
+        if (!peer.isSeed && !peerBitfield?.get(piece.index)) continue
+        if (piece.hasRequestsFromPeer(peerId)) continue // already handled in pass 1
+        if (!isEndgame && !piece.hasUnrequestedBlocks) continue
+
+        const neededBlocks = isEndgame
+          ? piece.getNeededBlocksEndgame(
+              peerId,
+              pipelineLimit - peer.requestsPending,
+              maxDuplicateRequests,
+            )
+          : piece.getNeededBlocks(pipelineLimit - peer.requestsPending)
+
+        for (const block of neededBlocks) {
+          if (peer.requestsPending >= pipelineLimit) {
+            flushPending()
+            return
+          }
+
+          if (
+            this.deps.isDownloadRateLimited() &&
+            !this.deps.tryConsumeDownloadBandwidth(block.length)
+          ) {
+            flushPending()
+            this.deps.scheduleRateLimitRetry(block.length, () => {})
+            return
+          }
+
+          pendingRequests.push({ index: piece.index, begin: block.begin, length: block.length })
+          peer.requestsPending++
+
+          const blockIndex = Math.floor(block.begin / BLOCK_SIZE)
+          piece.addRequest(blockIndex, peerId, now)
+
           if (!piece.hasUnrequestedBlocks) {
             activePieces.promoteToFullyRequested(piece.index)
           }
@@ -400,11 +433,6 @@ export class TorrentPieceRequester extends EngineComponent {
 
       // Remove from peer indices since it's now active
       this.deps.removePieceFromAllIndices(pieceIndex)
-
-      // Fast peer claims exclusive ownership on new pieces
-      if (peerIsFast) {
-        piece.claimExclusive(peerId)
-      }
 
       const neededBlocks = isEndgame
         ? piece.getNeededBlocksEndgame(
