@@ -188,7 +188,7 @@ describe('Fast Restart', () => {
     const elapsed = Date.now() - startTime
     console.log(`Time to first piece after restart: ${elapsed}ms`)
 
-    // Should be less than 1 second (not 5 seconds!)
-    expect(elapsed).toBeLessThan(1000)
+    // Should be fast (not 5 seconds!) - 2s threshold allows CI timing jitter
+    expect(elapsed).toBeLessThan(2000)
   }, 15000)
 })

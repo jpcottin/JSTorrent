@@ -30,7 +30,9 @@ import type { DaemonInfo, DownloadRoot } from '../types'
 import type { IEngineManager, StorageRoot, FileOperationResult } from './types'
 
 // Toggle: true = WebRTC (no audio icon), false = Audio (shows audio icon)
-const USE_WEBRTC_KEEP_ALIVE = true
+// Recent chrome versions seem to throttle to ~1s with webrtc, but audio seems to
+// be completely unthrottled.
+const USE_WEBRTC_KEEP_ALIVE = false
 
 // Toggle: true = writes are discarded (not sent to companion), for benchmarking I/O bottlenecks
 const NULL_STORAGE = false
@@ -166,8 +168,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
   private initPromise: Promise<BtEngine> | null = null
   private swPort: chrome.runtime.Port | null = null
   private notificationProgressInterval: ReturnType<typeof setInterval> | null = null
-  private previousActiveCount: number = 0
-  private previousCompletedCount: number = 0
   private pendingNativeEvents: Array<{ event: string; payload: unknown }> = []
   private backgroundKeepAlive = USE_WEBRTC_KEEP_ALIVE
     ? new BackgroundWebRTCManager()
@@ -809,9 +809,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     // Calculate combined ETA (max of all active torrent ETAs)
     const eta = this.calculateCombinedEta(activeTorrents)
 
-    // Completed torrents: finished downloading
-    const completedCount = torrents.filter((t) => t.isComplete).length
-
     const stats: ProgressStats = {
       activeCount: activeTorrents.length,
       errorCount: errorTorrents.length,
@@ -819,16 +816,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       eta,
       singleTorrentName: activeTorrents.length === 1 ? activeTorrents[0].name : undefined,
     }
-
-    // Detect transition to all complete
-    // Only fire if: active count dropped to 0 AND completed count increased
-    // This ensures we only notify when downloads actually finished, not when stopped
-    const justCompleted = completedCount > this.previousCompletedCount
-    if (this.previousActiveCount > 0 && stats.activeCount === 0 && justCompleted) {
-      notificationBridge.onAllComplete()
-    }
-    this.previousActiveCount = stats.activeCount
-    this.previousCompletedCount = completedCount
 
     notificationBridge.updateProgress(stats)
 

@@ -38,6 +38,7 @@
     <string name="debug_add_test_1gb">Add Test Torrent (1GB)</string>
     <string name="debug_add_ubuntu">Add Ubuntu Server Torrent</string>
     <string name="debug_add_bunny">Add Big Buck Bunny</string>
+    <string name="debug_add_webtorrent">Add WebTorrent Torrents</string>
     <string name="debug_show_review_dialog">Show Review Dialog</string>
 
     <!-- AddTorrentDialog -->
@@ -294,6 +295,7 @@
     <string name="status_checking_label">Checking</string>
     <string name="status_error">Error</string>
     <string name="status_queued">Queued</string>
+    <string name="status_done">Done</string>
     <string name="status_removing">Removing…</string>
     <string name="status_waiting_wifi">Waiting for WiFi</string>
     <string name="status_waiting_vpn">Waiting for VPN</string>

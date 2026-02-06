@@ -690,4 +690,95 @@ describe('TorrentQueueManager', () => {
       expect(t3.userState).toBe('active')
     })
   })
+
+  describe('done activity state', () => {
+    it('completed queued torrents should have activityState "done"', async () => {
+      config.set('activeSeeds', 1)
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+
+      // Mark both as complete (progress=1) and having metadata
+      for (const t of [t1, t2]) {
+        Object.defineProperty(t, 'progress', { get: () => 1, configurable: true })
+        Object.defineProperty(t, 'hasMetadata', { get: () => true, configurable: true })
+      }
+      recalc()
+
+      // One active (seeding), one queued (done)
+      const activeT = [t1, t2].find((t) => t.userState === 'active')!
+      const queuedT = [t1, t2].find((t) => t.userState === 'queued')!
+
+      expect(activeT.activityState).toBe('seeding')
+      expect(queuedT.activityState).toBe('done')
+    })
+
+    it('incomplete queued torrents should still have activityState "queued"', async () => {
+      await addTorrent(0)
+      await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t3.userState).toBe('queued')
+      expect(t3.activityState).toBe('queued')
+    })
+  })
+
+  describe('seed rotation', () => {
+    it('should activate seeds up to the limit', async () => {
+      config.set('activeSeeds', 2)
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+
+      Object.defineProperty(t1, 'progress', { get: () => 1, configurable: true })
+      Object.defineProperty(t2, 'progress', { get: () => 1, configurable: true })
+      Object.defineProperty(t3, 'progress', { get: () => 1, configurable: true })
+      recalc()
+
+      const activeCount = [t1, t2, t3].filter((t) => t.userState === 'active').length
+      expect(activeCount).toBe(2)
+    })
+
+    it('should not rotate a seed within anti-oscillation window', async () => {
+      config.set('activeSeeds', 1)
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+
+      Object.defineProperty(t1, 'progress', { get: () => 1, configurable: true })
+      Object.defineProperty(t2, 'progress', { get: () => 1, configurable: true })
+      recalc()
+
+      const firstActive = [t1, t2].find((t) => t.userState === 'active')!
+
+      // Immediate recalc should NOT rotate the protected seed
+      recalc()
+      expect(firstActive.userState).toBe('active')
+    })
+
+    it('should rotate seeds after anti-oscillation window expires', async () => {
+      vi.useFakeTimers()
+      try {
+        config.set('activeSeeds', 1)
+        const t1 = await addTorrent(0)
+        const t2 = await addTorrent(1)
+
+        Object.defineProperty(t1, 'progress', { get: () => 1, configurable: true })
+        Object.defineProperty(t2, 'progress', { get: () => 1, configurable: true })
+        recalc()
+
+        const firstActive = [t1, t2].find((t) => t.userState === 'active')!
+        const firstIdle = [t1, t2].find((t) => t.userState === 'queued')!
+
+        // Advance past the 5-minute anti-oscillation window
+        vi.advanceTimersByTime(5 * 60 * 1000 + 1)
+        recalc()
+
+        // The previously idle seed should now be active (it has activatedAt=0, lower than the first)
+        expect(firstIdle.userState).toBe('active')
+        expect(firstActive.userState).toBe('queued')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
 })

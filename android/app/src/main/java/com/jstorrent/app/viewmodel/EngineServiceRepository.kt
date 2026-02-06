@@ -200,6 +200,10 @@ class EngineServiceRepository(
         withEngine { it.recheckTorrentAsync(infoHash) }
     }
 
+    override fun resetTorrent(infoHash: String) {
+        withEngine { it.resetTorrentAsync(infoHash) }
+    }
+
     override suspend fun replaceAndAddTorrent(magnetOrBase64: String, infoHash: String?) {
         val engine = app.ensureEngine()
         if (infoHash != null) {

@@ -46,7 +46,6 @@ const SETTING_KEYS: ConfigKey[] = [
   'uiScale',
   'pieceViewMode',
   'notifyOnTorrentComplete',
-  'notifyOnAllComplete',
   'notifyOnError',
   'notifyProgressWhenBackgrounded',
   'keepAwake',

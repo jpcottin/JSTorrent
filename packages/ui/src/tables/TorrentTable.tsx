@@ -59,7 +59,7 @@ export const torrentColumns: ColumnDef<Torrent>[] = [
       if (t.activityState === 'checking') {
         return `${(t.checkingProgress * 100).toFixed(0)}% checking`
       }
-      return t.activityState
+      return t.activityState === 'done' ? 'seeding' : t.activityState
     },
     width: 100,
     getCellTitle: (t) => t.errorMessage,

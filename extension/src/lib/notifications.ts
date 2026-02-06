@@ -17,7 +17,6 @@ export interface ProgressStats {
 // Must match the keys from @jstorrent/engine config-schema.ts
 const SETTING_KEYS = {
   onTorrentComplete: 'settings:notifyOnTorrentComplete',
-  onAllComplete: 'settings:notifyOnAllComplete',
   onError: 'settings:notifyOnError',
   progressWhenBackgrounded: 'settings:notifyProgressWhenBackgrounded',
 } as const
@@ -25,18 +24,15 @@ const SETTING_KEYS = {
 // Default values (must match schema in @jstorrent/engine)
 const DEFAULTS = {
   onTorrentComplete: true,
-  onAllComplete: true,
   onError: true,
   progressWhenBackgrounded: false,
 } as const
 
 const PROGRESS_NOTIFICATION_ID = 'jstorrent-progress'
-const ALL_COMPLETE_NOTIFICATION_ID = 'jstorrent-all-complete'
 const DOWNLOADS_STOPPED_NOTIFICATION_ID = 'jstorrent-downloads-stopped'
 
 export class NotificationManager {
   private onTorrentCompleteEnabled: boolean = DEFAULTS.onTorrentComplete
-  private onAllCompleteEnabled: boolean = DEFAULTS.onAllComplete
   private onErrorEnabled: boolean = DEFAULTS.onError
   private progressWhenBackgroundedEnabled: boolean = DEFAULTS.progressWhenBackgrounded
   private uiConnected: boolean = false // whether UI tab is open (port connected)
@@ -83,7 +79,6 @@ export class NotificationManager {
         SETTING_KEYS.onTorrentComplete,
         DEFAULTS.onTorrentComplete,
       )
-      this.onAllCompleteEnabled = getValue(SETTING_KEYS.onAllComplete, DEFAULTS.onAllComplete)
       this.onErrorEnabled = getValue(SETTING_KEYS.onError, DEFAULTS.onError)
       this.progressWhenBackgroundedEnabled = getValue(
         SETTING_KEYS.progressWhenBackgrounded,
@@ -119,9 +114,6 @@ export class NotificationManager {
         switch (key) {
           case SETTING_KEYS.onTorrentComplete:
             this.onTorrentCompleteEnabled = parseValue(DEFAULTS.onTorrentComplete)
-            break
-          case SETTING_KEYS.onAllComplete:
-            this.onAllCompleteEnabled = parseValue(DEFAULTS.onAllComplete)
             break
           case SETTING_KEYS.onError:
             this.onErrorEnabled = parseValue(DEFAULTS.onError)
@@ -174,9 +166,9 @@ export class NotificationManager {
   updateProgress(stats: ProgressStats): void {
     this.lastProgressStats = stats
 
-    // Check if all downloads just completed FIRST (before showing "0 downloading")
+    // All downloads finished - clear the progress notification
     if (stats.activeCount === 0 && this.progressNotificationActive) {
-      this.onAllComplete()
+      this.clearProgressNotification()
       return
     }
 
@@ -234,53 +226,6 @@ export class NotificationManager {
     }
 
     this.showEventNotification(`jstorrent-error-${infoHash}`, 'Download Error', `${name}: ${error}`)
-  }
-
-  onAllComplete(): void {
-    console.log('[NotificationManager] onAllComplete called:', {
-      progressNotificationActive: this.progressNotificationActive,
-      settingEnabled: this.onAllCompleteEnabled,
-    })
-
-    if (!this.onAllCompleteEnabled) {
-      console.log('[NotificationManager] Suppressed: setting disabled')
-      this.clearProgressNotification()
-      return
-    }
-
-    // Replace progress notification with completion message
-    // Use same ID so it replaces in place
-    if (this.progressNotificationActive) {
-      console.log('[NotificationManager] Replacing progress notification with completion')
-      chrome.notifications.create(
-        PROGRESS_NOTIFICATION_ID,
-        {
-          type: 'basic',
-          iconUrl: chrome.runtime.getURL('icons/js-128.png'),
-          title: 'JSTorrent',
-          message: 'All downloads complete',
-          requireInteraction: false,
-          silent: false,
-        },
-        (notificationId) => {
-          if (chrome.runtime.lastError) {
-            console.error(
-              '[NotificationManager] All complete notification failed:',
-              chrome.runtime.lastError.message,
-            )
-          } else {
-            console.log('[NotificationManager] All complete notification created:', notificationId)
-          }
-        },
-      )
-      this.progressNotificationActive = false
-    } else {
-      this.showEventNotification(
-        ALL_COMPLETE_NOTIFICATION_ID,
-        'JSTorrent',
-        'All downloads complete',
-      )
-    }
   }
 
   onDuplicateTorrent(name: string): void {

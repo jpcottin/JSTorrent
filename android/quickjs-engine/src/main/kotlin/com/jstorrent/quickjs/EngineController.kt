@@ -594,6 +594,21 @@ class EngineController(
     }
 
     /**
+     * Reset torrent state (suspend version).
+     * Destroys and re-adds the torrent from its original source, clearing progress and stats.
+     * The torrent will be stopped after reset.
+     */
+    suspend fun resetTorrentAsync(infoHash: String): String? {
+        val eng = requireEngine()
+        val result = eng.callGlobalFunctionAwaitPromise(
+            "__jstorrent_cmd_reset",
+            infoHash
+        )
+        Log.i(TAG, "resetTorrentAsync completed: $infoHash")
+        return result
+    }
+
+    /**
      * Set file priorities for a torrent (suspend version).
      *
      * @param infoHash The torrent's info hash

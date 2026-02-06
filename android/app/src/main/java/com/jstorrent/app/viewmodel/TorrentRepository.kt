@@ -63,6 +63,13 @@ interface TorrentRepository {
     fun recheckTorrent(infoHash: String)
 
     /**
+     * Reset torrent state (progress, stats) without removing it.
+     * The torrent will be stopped after reset.
+     * @param infoHash The torrent's info hash
+     */
+    fun resetTorrent(infoHash: String)
+
+    /**
      * Replace an existing torrent (if present) and add fresh.
      * Awaits removal completion before adding to avoid race conditions.
      * @param magnetOrBase64 Magnet link or base64-encoded .torrent

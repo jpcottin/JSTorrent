@@ -84,12 +84,6 @@ class NotificationBridge {
     })
   }
 
-  onAllComplete(): void {
-    getBridge().postMessage({
-      type: 'notification:all-complete',
-    })
-  }
-
   onDuplicateTorrent(name: string): void {
     getBridge().postMessage({
       type: 'notification:duplicate-torrent',

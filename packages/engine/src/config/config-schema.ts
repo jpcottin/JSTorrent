@@ -199,15 +199,15 @@ export const configSchema = {
     storage: 'sync',
     default: 5,
     min: 1,
-    max: 50,
+    max: 20,
   },
 
-  /** Maximum simultaneous active (seeding) torrents. Excess torrents are queued. */
+  /** Maximum simultaneous active (seeding) torrents. Excess seeds rotate via round-robin. */
   activeSeeds: {
     type: 'number',
     category: 'setting',
     storage: 'sync',
-    default: 5,
+    default: 2,
     min: 1,
     max: 50,
   },
@@ -431,15 +431,6 @@ export const configSchema = {
 
   /** Notify when a torrent completes. */
   notifyOnTorrentComplete: {
-    type: 'boolean',
-    category: 'setting',
-    storage: 'sync',
-    default: true,
-    extensionOnly: true,
-  },
-
-  /** Notify when all torrents complete. */
-  notifyOnAllComplete: {
     type: 'boolean',
     category: 'setting',
     storage: 'sync',

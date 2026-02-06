@@ -17,7 +17,6 @@ function buildConfigSnapshot(config: ConfigHub) {
   return {
     // Notifications
     notifyOnTorrentComplete: config.notifyOnTorrentComplete.get(),
-    notifyOnAllComplete: config.notifyOnAllComplete.get(),
     notifyOnError: config.notifyOnError.get(),
     notifyProgressWhenBackgrounded: config.notifyProgressWhenBackgrounded.get(),
     // Behavior
@@ -569,17 +568,6 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
           disabled={isStandalone}
         />
         <ToggleRow
-          label="Notify when all complete"
-          sublabel={
-            isStandalone
-              ? 'Not available in standalone mode'
-              : 'Show notification when all downloads finish'
-          }
-          checked={settings.notifyOnAllComplete}
-          onChange={(v) => config.set('notifyOnAllComplete', v)}
-          disabled={isStandalone}
-        />
-        <ToggleRow
           label="Notify on errors"
           sublabel={
             isStandalone
@@ -956,7 +944,7 @@ const NetworkTab: React.FC<NetworkTabProps> = ({ settings, config, engineManager
           value={settings.activeDownloads}
           onChange={(v) => config.set('activeDownloads', v)}
           min={1}
-          max={50}
+          max={20}
         />
         <NumberRow
           label="Max active seeds"

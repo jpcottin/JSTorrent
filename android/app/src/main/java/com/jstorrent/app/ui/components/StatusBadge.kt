@@ -92,6 +92,7 @@ fun formatStatusComposable(status: String, checkingProgress: Double = 0.0): Stri
     "checking" -> "${(checkingProgress * 100).toInt()}% ${stringResource(R.string.status_checking_label)}"
     "error" -> stringResource(R.string.status_error)
     "queued" -> stringResource(R.string.status_queued)
+    "done" -> stringResource(R.string.status_seeding)
     "removing" -> stringResource(R.string.status_removing)
     "waiting_wifi" -> stringResource(R.string.status_waiting_wifi)
     "waiting_vpn" -> stringResource(R.string.status_waiting_vpn)
@@ -109,6 +110,7 @@ fun statusColor(status: String): Color = when (status) {
     "stopped" -> MaterialTheme.colorScheme.outline
     "checking" -> MaterialTheme.colorScheme.secondary
     "queued" -> MaterialTheme.colorScheme.secondary
+    "done" -> MaterialTheme.colorScheme.tertiary
     "error" -> MaterialTheme.colorScheme.error
     "removing" -> MaterialTheme.colorScheme.outline
     "waiting_wifi" -> MaterialTheme.colorScheme.secondary
@@ -128,7 +130,7 @@ fun isActiveStatus(status: String): Boolean = when (status) {
  * Whether the status represents a completed torrent.
  */
 fun isCompletedStatus(status: String): Boolean = when (status) {
-    "seeding" -> true
+    "seeding", "done" -> true
     else -> false
 }
 

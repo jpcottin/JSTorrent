@@ -603,9 +603,16 @@ class JSTorrentApplication : Application() {
         configBridge.setUpnpEnabled(configHub.upnpEnabled)
         configBridge.setEncryptionPolicy(configHub.encryptionPolicy)
 
+        // Queue limits
+        configBridge.batchUpdate(mapOf(
+            "activeDownloads" to configHub.activeDownloads,
+            "activeSeeds" to configHub.activeSeeds
+        ))
+
         Log.i(TAG, "Applied engine settings: download=${if (effectiveDownloadLimit == 0) "unlimited" else "${effectiveDownloadLimit}B/s"}, " +
             "upload=${if (effectiveUploadLimit == 0) "unlimited" else "${effectiveUploadLimit}B/s"}, " +
             "dht=${configHub.dhtEnabled}, pex=${configHub.pexEnabled}, " +
-            "upnp=${configHub.upnpEnabled}, encryption=${configHub.encryptionPolicy}")
+            "upnp=${configHub.upnpEnabled}, encryption=${configHub.encryptionPolicy}, " +
+            "activeDownloads=${configHub.activeDownloads}, activeSeeds=${configHub.activeSeeds}")
     }
 }

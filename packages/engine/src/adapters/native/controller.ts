@@ -426,6 +426,47 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
   }
 
   /**
+   * Reset torrent state (progress, stats) without removing it.
+   * Destroys and re-adds the torrent from its original source.
+   * The torrent will be stopped after reset.
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_cmd_reset = async (
+    infoHash: string,
+  ): Promise<{ ok: boolean; queued?: boolean; error?: string }> => {
+    if (!isReady()) {
+      console.log(`[controller] reset: Engine not ready, queueing command for ${infoHash}`)
+      commandQueue.push(() => {
+        const fn = (globalThis as Record<string, unknown>).__jstorrent_cmd_reset as (
+          h: string,
+        ) => Promise<unknown>
+        fn(infoHash)
+      })
+      return { ok: true, queued: true }
+    }
+
+    const engine = getEngine()
+    if (!engine) {
+      return { ok: false, error: 'Engine not ready' }
+    }
+
+    const torrent = engine.getTorrent(infoHash)
+    if (!torrent) {
+      console.warn(`[controller] reset: Torrent not found: ${infoHash}`)
+      return { ok: false, error: 'Torrent not found' }
+    }
+
+    try {
+      await engine.resetTorrent(torrent)
+      console.log(`[controller] Torrent reset completed: ${infoHash}`)
+      return { ok: true }
+    } catch (e) {
+      console.error('[controller] reset error:', e)
+      __jstorrent_on_error(JSON.stringify({ error: String(e) }))
+      return { ok: false, error: String(e) }
+    }
+  }
+
+  /**
    * Set file priorities for a torrent.
    * @param infoHash - The torrent's info hash
    * @param prioritiesJson - JSON object mapping file index (string) to priority (0=Normal, 1=Skip, 2=High)

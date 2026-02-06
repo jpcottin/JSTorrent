@@ -16,6 +16,7 @@ export type TorrentActivityState =
   | 'seeding' // Complete, uploading to peers
   | 'error' // Something went wrong
   | 'queued' // Waiting for active slot
+  | 'done' // Complete, not in an active seed slot
 
 /**
  * Compute activity state from torrent properties.
@@ -36,7 +37,7 @@ export function computeActivityState(
 
   // User stopped = stopped, queued = queued
   if (userState === 'stopped') return 'stopped'
-  if (userState === 'queued') return 'queued'
+  if (userState === 'queued') return progress >= 1 ? 'done' : 'queued'
 
   // Error state
   if (hasError) return 'error'

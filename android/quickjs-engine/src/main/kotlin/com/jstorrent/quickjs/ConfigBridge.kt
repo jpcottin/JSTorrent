@@ -5,6 +5,8 @@ import com.jstorrent.quickjs.model.ContentRoot
 import com.jstorrent.quickjs.storage.ConfigBridgeInterface
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 private const val TAG = "ConfigBridge"
 
@@ -251,8 +253,22 @@ class ConfigBridge(
      */
     override fun batchUpdate(updates: Map<String, Any>) {
         try {
-            val updatesJson = json.encodeToString(updates)
-            engine.callGlobalFunction("__jstorrent_config_batch", updatesJson)
+            // Build JSON manually — json.encodeToString(Map<String, Any>) fails
+            // because kotlinx.serialization has no serializer for Any
+            val jsonObj = buildJsonObject {
+                for ((k, v) in updates) {
+                    when (v) {
+                        is String -> put(k, v)
+                        is Boolean -> put(k, v)
+                        is Int -> put(k, v)
+                        is Long -> put(k, v)
+                        is Double -> put(k, v)
+                        is Number -> put(k, v.toDouble())
+                        else -> put(k, v.toString())
+                    }
+                }
+            }
+            engine.callGlobalFunction("__jstorrent_config_batch", jsonObj.toString())
             Log.d(TAG, "Batch update: ${updates.keys.joinToString()}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to batch update config", e)

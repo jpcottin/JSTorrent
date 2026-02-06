@@ -27,6 +27,7 @@ import {
   BIG_BUCK_BUNNY_MAGNET,
   TEST_100MB_MAGNET,
   TEST_1GB_MAGNET,
+  WEBTORRENT_MAGNETS,
 } from './utils/test-magnets'
 
 interface ContextMenuState {
@@ -293,6 +294,7 @@ export function AppContent({
           { id: 'addTest1GB', label: 'Add Test 1GB', icon: '⊕' } as ContextMenuItem,
           { id: 'addUbuntu', label: 'Add Ubuntu ISO', icon: '⊕' } as ContextMenuItem,
           { id: 'addBigBuckBunny', label: 'Add Big Buck Bunny', icon: '⊕' } as ContextMenuItem,
+          { id: 'addWebTorrent', label: 'Add WebTorrent Torrents', icon: '⊕' } as ContextMenuItem,
         ]
       : []),
   ]
@@ -383,6 +385,11 @@ export function AppContent({
         break
       case 'addBigBuckBunny':
         handleAddTestTorrent(BIG_BUCK_BUNNY_MAGNET)
+        break
+      case 'addWebTorrent':
+        for (const magnet of WEBTORRENT_MAGNETS) {
+          handleAddTestTorrent(magnet)
+        }
         break
     }
   }

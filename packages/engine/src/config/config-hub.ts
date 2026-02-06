@@ -179,9 +179,6 @@ export interface ConfigHub extends ConfigValueMap {
   /** Notify when a torrent completes. */
   readonly notifyOnTorrentComplete: ConfigValue<boolean>
 
-  /** Notify when all torrents complete. */
-  readonly notifyOnAllComplete: ConfigValue<boolean>
-
   /** Notify on errors. */
   readonly notifyOnError: ConfigValue<boolean>
 

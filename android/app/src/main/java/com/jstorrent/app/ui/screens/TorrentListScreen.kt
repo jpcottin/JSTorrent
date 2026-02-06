@@ -63,6 +63,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.jstorrent.app.BuildConfig
@@ -361,6 +363,15 @@ fun TorrentListScreen(
                                     viewModel.addTorrent(TestTorrentHelper.buildBigBuckBunnyMagnet())
                                 }
                             )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.debug_add_webtorrent)) },
+                                onClick = {
+                                    showMenu = false
+                                    TestTorrentHelper.WEBTORRENT_MAGNETS.forEach { magnet ->
+                                        viewModel.addTorrent(magnet)
+                                    }
+                                }
+                            )
                             if (onDebugShowReviewDialog != null) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.debug_show_review_dialog)) },
@@ -640,13 +651,17 @@ private fun FilterTabRow(
             Tab(
                 selected = filter == currentFilter,
                 onClick = { onFilterChange(filter) },
+                modifier = Modifier.padding(horizontal = 2.dp),
                 text = {
                     Text(
                         text = if (count > 0) {
                             "$displayName ($count)"
                         } else {
                             displayName
-                        }
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontSize = 13.sp
                     )
                 }
             )

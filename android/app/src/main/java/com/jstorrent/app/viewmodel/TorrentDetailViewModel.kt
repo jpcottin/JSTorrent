@@ -519,6 +519,10 @@ class TorrentDetailViewModel(
         repository.recheckTorrent(infoHash)
     }
 
+    fun resetState() {
+        repository.resetTorrent(infoHash)
+    }
+
     /**
      * Force start the torrent, bypassing queue limits.
      */

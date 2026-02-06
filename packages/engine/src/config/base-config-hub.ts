@@ -117,7 +117,6 @@ export abstract class BaseConfigHub implements ConfigHub {
 
   // Settings: Notifications
   readonly notifyOnTorrentComplete = createConfigValue(this, 'notifyOnTorrentComplete')
-  readonly notifyOnAllComplete = createConfigValue(this, 'notifyOnAllComplete')
   readonly notifyOnError = createConfigValue(this, 'notifyOnError')
   readonly notifyProgressWhenBackgrounded = createConfigValue(
     this,

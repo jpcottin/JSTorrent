@@ -247,6 +247,7 @@ fun List<TorrentSummary>.filterByStatus(filter: TorrentFilter): List<TorrentSumm
         }
         TorrentFilter.FINISHED -> this.filter { torrent ->
             torrent.status == "seeding" ||
+            torrent.status == "done" ||
             (torrent.status == "stopped" && torrent.progress >= 1.0)
         }
     }

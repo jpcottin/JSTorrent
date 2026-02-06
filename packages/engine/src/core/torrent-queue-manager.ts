@@ -8,7 +8,7 @@
  * - Torrents with userState='active' and forceActive=false are queue-managed
  * - forceActive=true bypasses queue limits (always runs)
  * - userState='stopped' is completely ignored by the queue
- * - Single shared queue position space across downloads and seeds
+ * - Download queue uses static queue positions; seed queue uses round-robin rotation
  */
 
 import { EngineComponent } from '../logging/logger'
@@ -23,12 +23,17 @@ const ACTIVE_LIMIT = 500
 /** Periodic re-evaluation interval in ticks (~5s at 100ms tick interval) */
 const AUTO_MANAGE_INTERVAL_TICKS = 50
 
+/** Minimum time a seed stays active before eligible for rotation */
+const MIN_SEED_ACTIVE_MS = 5 * 60 * 1000
+
 export class TorrentQueueManager extends EngineComponent {
   static logName = 'queue'
 
   private _dirty = false
   private _tickCount = 0
   private _configUnsubscribers: Unsubscribe[] = []
+  /** Tracks when each seed was last activated (infoHashStr → epoch ms) */
+  private _seedActivatedAt = new Map<string, number>()
 
   constructor(
     private btEngine: BtEngine,
@@ -105,6 +110,7 @@ export class TorrentQueueManager extends EngineComponent {
         }
       }
     }
+    this._seedActivatedAt.delete(torrent.infoHashStr)
     this.recalculate()
   }
 
@@ -194,6 +200,7 @@ export class TorrentQueueManager extends EngineComponent {
       unsub()
     }
     this._configUnsubscribers = []
+    this._seedActivatedAt.clear()
   }
 
   // ===========================================================================
@@ -241,13 +248,12 @@ export class TorrentQueueManager extends EngineComponent {
       }
     }
 
-    // Sort by queue position
+    // Downloads: position-based ordering
     downloading.sort((a, b) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0))
-    seeding.sort((a, b) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0))
-
-    // Apply limits
     this._applyLimit(downloading, activeDownloads)
-    this._applyLimit(seeding, activeSeeds)
+
+    // Seeds: round-robin rotation with anti-oscillation
+    this._applySeedRotation(seeding, activeSeeds)
   }
 
   private _applyLimit(torrents: Torrent[], limit: number): void {
@@ -280,6 +286,90 @@ export class TorrentQueueManager extends EngineComponent {
           t.gracefulStop()
         }
       }
+    }
+  }
+
+  /**
+   * Round-robin seed rotation with anti-oscillation.
+   * Seeds that have been active < MIN_SEED_ACTIVE_MS are protected from demotion.
+   * Among candidates, least-recently-activated seeds get priority (fair rotation).
+   */
+  private _applySeedRotation(seeds: Torrent[], limit: number): void {
+    const effectiveLimit = Math.min(limit, ACTIVE_LIMIT)
+    const now = Date.now()
+
+    // Partition into currently active vs idle (queued)
+    const active: Torrent[] = []
+    const idle: Torrent[] = []
+    for (const t of seeds) {
+      if (t.userState !== 'queued' && !t.isGracefulStopping) {
+        active.push(t)
+      } else {
+        idle.push(t)
+      }
+    }
+
+    // Protected: active seeds within the anti-oscillation window
+    const protectedSeeds: Torrent[] = []
+    const unprotected: Torrent[] = []
+    for (const t of active) {
+      const activatedAt = this._seedActivatedAt.get(t.infoHashStr) ?? 0
+      if (now - activatedAt < MIN_SEED_ACTIVE_MS) {
+        protectedSeeds.push(t)
+      } else {
+        unprotected.push(t)
+      }
+    }
+
+    // If protected seeds already fill all slots, demote the rest
+    if (protectedSeeds.length >= effectiveLimit) {
+      for (const t of unprotected) this._demoteSeed(t)
+      for (const t of idle) this._demoteSeed(t)
+      return
+    }
+
+    const remainingSlots = effectiveLimit - protectedSeeds.length
+
+    // Candidates: unprotected active + idle, sorted by activatedAt ascending
+    // (least recently activated first = fairest rotation)
+    const candidates = [...unprotected, ...idle]
+    candidates.sort((a, b) => {
+      const aTime = this._seedActivatedAt.get(a.infoHashStr) ?? 0
+      const bTime = this._seedActivatedAt.get(b.infoHashStr) ?? 0
+      return aTime - bTime
+    })
+
+    for (let i = 0; i < candidates.length; i++) {
+      if (i < remainingSlots) {
+        this._activateSeed(candidates[i], now)
+      } else {
+        this._demoteSeed(candidates[i])
+      }
+    }
+  }
+
+  private _activateSeed(t: Torrent, now: number): void {
+    if (t.userState !== 'active') {
+      this.logger.info(`${t.name}: seed promoted (rotation)`)
+      t.userState = 'active'
+      t.start()
+      this._seedActivatedAt.set(t.infoHashStr, now)
+      this.btEngine.sessionPersistence?.saveTorrentState(t)
+    } else if (t.isGracefulStopping) {
+      t.start()
+    } else if (!t.isActive && !this.btEngine.isSuspended) {
+      t.start()
+    }
+    // Ensure activatedAt is set (for seeds active from session restore)
+    if (!this._seedActivatedAt.has(t.infoHashStr)) {
+      this._seedActivatedAt.set(t.infoHashStr, now)
+    }
+  }
+
+  private _demoteSeed(t: Torrent): void {
+    if (t.userState !== 'queued' && !t.isGracefulStopping) {
+      this.logger.info(`${t.name}: seed demoted (rotation)`)
+      t.gracefulStop()
     }
   }
 

@@ -1,6 +1,7 @@
 package com.jstorrent.app.ui.screens
 
 import android.widget.Toast
+import com.jstorrent.app.BuildConfig
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -218,6 +219,19 @@ fun TorrentDetailScreen(
                                         Icon(Icons.Default.KeyboardDoubleArrowDown, contentDescription = null)
                                     }
                                 )
+                                if (BuildConfig.DEBUG) {
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = { Text("Reset State") },
+                                        onClick = {
+                                            showMenu = false
+                                            viewModel.resetState()
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.Refresh, contentDescription = null)
+                                        }
+                                    )
+                                }
                                 // Shared menu items at bottom (Speed, DHT Info, Settings, Shutdown)
                                 HorizontalDivider()
                                 SharedMenuItems.SpeedMenuItem(

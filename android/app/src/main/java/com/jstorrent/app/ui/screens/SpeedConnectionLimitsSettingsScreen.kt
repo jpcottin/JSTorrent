@@ -78,19 +78,13 @@ private val maxUploadSlotsPresets = listOf(
 
 private val activeDownloadsPresets = listOf(
     ConnectionLimitPreset(1, "1"),
+    ConnectionLimitPreset(2, "2"),
     ConnectionLimitPreset(3, "3"),
-    ConnectionLimitPreset(5, "5"),
-    ConnectionLimitPreset(10, "10"),
-    ConnectionLimitPreset(20, "20")
+    ConnectionLimitPreset(4, "4"),
+    ConnectionLimitPreset(5, "5")
 )
 
-private val activeSeedsPresets = listOf(
-    ConnectionLimitPreset(1, "1"),
-    ConnectionLimitPreset(3, "3"),
-    ConnectionLimitPreset(5, "5"),
-    ConnectionLimitPreset(10, "10"),
-    ConnectionLimitPreset(20, "20")
-)
+
 
 private val maxPipelineDepthPresets = listOf(
     ConnectionLimitPreset(10, "10 (low)"),
@@ -158,9 +152,7 @@ fun SpeedConnectionLimitsSettingsScreen(
             item {
                 QueueLimitsSection(
                     activeDownloads = uiState.activeDownloads,
-                    activeSeeds = uiState.activeSeeds,
-                    onActiveDownloadsChange = { viewModel.setActiveDownloads(it) },
-                    onActiveSeedsChange = { viewModel.setActiveSeeds(it) }
+                    onActiveDownloadsChange = { viewModel.setActiveDownloads(it) }
                 )
             }
 
@@ -233,9 +225,7 @@ private fun SpeedLimitsSection(
 @Composable
 private fun QueueLimitsSection(
     activeDownloads: Int,
-    activeSeeds: Int,
     onActiveDownloadsChange: (Int) -> Unit,
-    onActiveSeedsChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -249,14 +239,6 @@ private fun QueueLimitsSection(
             currentValue = activeDownloads,
             presets = activeDownloadsPresets,
             onValueChange = onActiveDownloadsChange
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        ConnectionLimitRow(
-            label = stringResource(R.string.settings_speed_active_seeds_label),
-            description = stringResource(R.string.settings_speed_active_seeds_description),
-            currentValue = activeSeeds,
-            presets = activeSeedsPresets,
-            onValueChange = onActiveSeedsChange
         )
     }
 }

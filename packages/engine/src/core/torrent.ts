@@ -3076,6 +3076,20 @@ export class Torrent extends EngineComponent {
     const t0 = Date.now()
     this.logger.info(`Destroying (skipAnnounce=${options?.skipAnnounce ?? false})`)
 
+    // Save cached peers before any cleanup mutates swarm state.
+    // Must happen while _networkActive is still true and swarm data is intact.
+    if (this._networkActive) {
+      const persistence = (this.engine as BtEngine).sessionPersistence
+      if (persistence) {
+        const peers = this._swarm.getGoodPeersForCache()
+        if (peers.length > 0) {
+          persistence.savePeers(toHex(this.infoHash), peers).catch((e) => {
+            this.logger.warn(`Failed to save cached peers: ${e instanceof Error ? e.message : e}`)
+          })
+        }
+      }
+    }
+
     // Cancel graceful stop if in progress
     if (this._gracefulStopping) {
       this._gracefulStopping = false
