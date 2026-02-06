@@ -385,6 +385,10 @@ export class Torrent extends EngineComponent {
    */
   private _networkActive: boolean = false
 
+  /** Graceful stop: draining in-flight requests before stopping network */
+  private _gracefulStopping = false
+  private _gracefulStopTimer: ReturnType<typeof setTimeout> | null = null
+
   /** DHT lookup timer - periodically queries DHT for peers */
   private _dhtLookupTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -659,6 +663,11 @@ export class Torrent extends EngineComponent {
    * Idempotent - safe to call multiple times.
    */
   async start() {
+    // Cancel graceful stop if being re-promoted to active
+    if (this._gracefulStopping) {
+      this._cancelGracefulStop()
+    }
+
     // Idempotent - already active
     if (this._networkActive) return
 
@@ -1431,6 +1440,14 @@ export class Torrent extends EngineComponent {
   }
 
   /**
+   * Whether this torrent is gracefully stopping (draining in-flight requests).
+   * During graceful stop, network stays active but no new pieces are requested.
+   */
+  get isGracefulStopping(): boolean {
+    return this._gracefulStopping
+  }
+
+  /**
    * Whether this torrent has metadata (piece info, files, etc).
    */
   get hasMetadata(): boolean {
@@ -1487,6 +1504,9 @@ export class Torrent extends EngineComponent {
       this.logger.debug(`connectOnePeer: blocked by !_networkActive`)
       return false
     }
+    if (this._gracefulStopping) {
+      return false
+    }
     if (this.isKillSwitchEnabled) {
       this.logger.debug(`connectOnePeer: blocked by isKillSwitchEnabled`)
       return false
@@ -1524,7 +1544,7 @@ export class Torrent extends EngineComponent {
    * @returns true if a connection was initiated, false if none available
    */
   useConnectionSlot(): boolean {
-    if (!this._networkActive) return false
+    if (!this._networkActive || this._gracefulStopping) return false
     return this.connectOnePeer()
   }
 
@@ -1608,6 +1628,15 @@ export class Torrent extends EngineComponent {
    * Note: This pauses networking; use the async stop() method to fully destroy the torrent.
    */
   stopNetwork(): void {
+    // Cancel graceful stop if in progress (force immediate)
+    if (this._gracefulStopping) {
+      this._gracefulStopping = false
+      if (this._gracefulStopTimer) {
+        clearTimeout(this._gracefulStopTimer)
+        this._gracefulStopTimer = null
+      }
+    }
+
     const wasActive = this._networkActive
 
     // Save cached peers before we close connections and mutate swarm state.
@@ -1676,6 +1705,83 @@ export class Torrent extends EngineComponent {
   }
 
   /**
+   * Gracefully stop this torrent: stop requesting new pieces but allow in-flight
+   * requests to complete before stopping the network. Used by the queue manager
+   * when deactivating torrents to avoid abruptly disconnecting peers mid-transfer.
+   *
+   * During graceful stop:
+   * - No new piece requests are made (Phase 3 of tick is skipped)
+   * - No new peer connections are initiated
+   * - Existing connections continue receiving data
+   * - Upload responses continue being served
+   *
+   * After all in-flight requests drain (or timeout), calls stopNetwork()
+   * and sets userState to 'queued'.
+   */
+  gracefulStop(timeoutMs = 10000): void {
+    if (this._gracefulStopping) return
+
+    if (!this._networkActive) {
+      // Not active — just set queued directly
+      this.userState = 'queued'
+      const btEngine = this.engine as BtEngine
+      btEngine.sessionPersistence?.saveTorrentState(this)
+      return
+    }
+
+    this.logger.info(`Graceful stop initiated (timeout: ${timeoutMs}ms)`)
+    this._gracefulStopping = true
+
+    // Cancel pending connection requests (no new outgoing connections)
+    this.btEngine.cancelConnectionRequests(this.infoHashStr)
+    this._connectionManager.cancelAllPendingConnections()
+
+    // Check if already drained
+    const totalPending = this.connectedPeers.reduce((sum, p) => sum + p.requestsPending, 0)
+    if (totalPending === 0) {
+      this._completeGracefulStop()
+      return
+    }
+
+    // Set timeout to force-complete
+    this._gracefulStopTimer = setTimeout(() => {
+      if (!this._gracefulStopping) return
+      this.logger.info('Graceful stop timeout reached, forcing stop')
+      this._completeGracefulStop()
+    }, timeoutMs)
+  }
+
+  private _cancelGracefulStop(): void {
+    if (!this._gracefulStopping) return
+    this.logger.info('Graceful stop cancelled')
+    this._gracefulStopping = false
+    if (this._gracefulStopTimer) {
+      clearTimeout(this._gracefulStopTimer)
+      this._gracefulStopTimer = null
+    }
+  }
+
+  private _completeGracefulStop(): void {
+    this.logger.info('Graceful stop complete — all in-flight requests drained')
+    if (this._gracefulStopTimer) {
+      clearTimeout(this._gracefulStopTimer)
+      this._gracefulStopTimer = null
+    }
+    this._gracefulStopping = false
+    this.userState = 'queued'
+    this.stopNetwork()
+    const btEngine = this.engine as BtEngine
+    btEngine.sessionPersistence?.saveTorrentState(this)
+  }
+
+  private _checkGracefulStopComplete(): void {
+    const totalPending = this.connectedPeers.reduce((sum, p) => sum + p.requestsPending, 0)
+    if (totalPending === 0) {
+      this._completeGracefulStop()
+    }
+  }
+
+  /**
    * Get current tick statistics for health monitoring.
    * Returns stats from the current logging window (resets every 5 seconds).
    */
@@ -1690,7 +1796,11 @@ export class Torrent extends EngineComponent {
    * Returns snapshot of this tick's work and current state.
    */
   tick(): TickResult | null {
-    return this._tickLoop.tick()
+    const result = this._tickLoop.tick()
+    if (this._gracefulStopping) {
+      this._checkGracefulStopComplete()
+    }
+    return result
   }
 
   // ==========================================================================
@@ -1954,8 +2064,8 @@ export class Torrent extends EngineComponent {
 
   addPeer(peer: PeerConnection) {
     // Reject peers when kill switch is enabled (stopped, queued, error, or engine suspended)
-    if (this.isKillSwitchEnabled) {
-      this.logger.debug('Rejecting peer - kill switch enabled')
+    if (this.isKillSwitchEnabled || this._gracefulStopping) {
+      this.logger.debug('Rejecting peer - kill switch enabled or graceful stopping')
       peer.close()
       return
     }
@@ -2270,6 +2380,9 @@ export class Torrent extends EngineComponent {
    * Request pieces from a peer. Delegates to TorrentPieceRequester.
    */
   private requestPieces(peer: PeerConnection, now: number) {
+    // Don't request new pieces during graceful stop — let in-flight requests drain
+    if (this._gracefulStopping) return
+
     // Lazy init piece requester
     if (!this._pieceRequester) {
       this._pieceRequester = this.createPieceRequester()
@@ -2962,6 +3075,15 @@ export class Torrent extends EngineComponent {
   async destroy(options?: { skipAnnounce?: boolean }) {
     const t0 = Date.now()
     this.logger.info(`Destroying (skipAnnounce=${options?.skipAnnounce ?? false})`)
+
+    // Cancel graceful stop if in progress
+    if (this._gracefulStopping) {
+      this._gracefulStopping = false
+      if (this._gracefulStopTimer) {
+        clearTimeout(this._gracefulStopTimer)
+        this._gracefulStopTimer = null
+      }
+    }
 
     // CRITICAL: Disable network activity FIRST to prevent new connections.
     // When we close peers below, the 'close' event triggers removePeer() which

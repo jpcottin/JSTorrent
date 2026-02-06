@@ -437,4 +437,257 @@ describe('TorrentQueueManager', () => {
       expect(t3.userState).toBe(statesBefore[2])
     })
   })
+
+  describe('graceful stop', () => {
+    it('should initiate graceful stop when deactivating a torrent', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      recalc()
+
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+
+      // Reduce limit to 1 — t2 should be gracefully stopped
+      config.set('activeDownloads', 1)
+      recalc()
+
+      // t2 has no connected peers, so graceful stop completes immediately
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('queued')
+    })
+
+    it('should cancel graceful stop if torrent falls within limit on recalculate', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('queued')
+
+      // Simulate t2 being gracefully stopped (has in-flight requests)
+      // Use gracefulStop with a long timeout, but it completes immediately (no peers)
+      // So we force the flag for testing
+      Object.defineProperty(t2, '_gracefulStopping', { value: true, writable: true })
+
+      // Recalc: t2 is at position 1 (within limit=2), so graceful stop is cancelled
+      recalc()
+
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+      expect(t2.isGracefulStopping).toBe(false)
+      expect(t3.userState).toBe('queued')
+    })
+
+    it('should cancel graceful stop when limit increases', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      // t3 is queued. Simulate t2 being gracefully stopped
+      Object.defineProperty(t2, '_gracefulStopping', { value: true, writable: true })
+
+      // Increase limit to 3 — all torrents should be active, t2's graceful stop cancelled
+      config.set('activeDownloads', 3)
+      recalc()
+
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+      expect(t2.isGracefulStopping).toBe(false)
+      expect(t3.userState).toBe('active')
+    })
+
+    it('should complete graceful stop immediately when torrent has no peers', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      // t1 active, t2 active, t3 queued
+      expect(t3.userState).toBe('queued')
+
+      // Reduce limit to 1 — t2 over limit, graceful stop → immediate (no peers)
+      config.set('activeDownloads', 1)
+      recalc()
+
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('queued')
+      expect(t3.userState).toBe('queued')
+    })
+  })
+
+  describe('errored torrents', () => {
+    it('should skip errored torrents in queue evaluation', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t3.userState).toBe('queued')
+
+      // Simulate error on t1
+      t1.errorMessage = 'Write failed: disk full'
+      recalc()
+
+      // t1 errored — skipped by queue, frees a download slot
+      // t3 should now be promoted
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('active')
+    })
+
+    it('should not count errored torrents against limits', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      const t4 = await addTorrent(3)
+      recalc()
+
+      // t1, t2 active; t3, t4 queued
+      t1.errorMessage = 'Connection failed'
+      t2.errorMessage = 'Hash mismatch'
+      recalc()
+
+      // Both errored torrents skipped — t3 and t4 fill the 2 slots
+      expect(t3.userState).toBe('active')
+      expect(t4.userState).toBe('active')
+    })
+  })
+
+  describe('session restore with queue', () => {
+    it('should respect persisted queue positions after restore', async () => {
+      // Add torrents and set queue positions manually (simulating restore)
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+
+      // Simulate restore order different from queue position order
+      t3.queuePosition = 0
+      t1.queuePosition = 1
+      t2.queuePosition = 2
+
+      recalc()
+
+      // t3 is at position 0, t1 at position 1 — they should be active
+      // t2 at position 2 — should be queued
+      expect(t3.userState).toBe('active')
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('queued')
+    })
+
+    it('should assign positions to unpositioned torrents on first recalculate', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+
+      // Clear positions (simulating upgrade from pre-queue version)
+      t1.queuePosition = undefined
+      t2.queuePosition = undefined
+      t3.queuePosition = undefined
+
+      // Set addedAt to control ordering
+      t1.addedAt = 1000
+      t2.addedAt = 2000
+      t3.addedAt = 3000
+
+      recalc()
+
+      // Should be assigned by addedAt (oldest first)
+      expect(t1.queuePosition).toBe(0)
+      expect(t2.queuePosition).toBe(1)
+      expect(t3.queuePosition).toBe(2)
+
+      // With limit=2, t3 should be queued
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('queued')
+    })
+
+    it('should handle mixed positioned and unpositioned torrents', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+
+      // t1 has position (existing), t2 and t3 don't (upgrading)
+      t1.queuePosition = 0
+      t2.queuePosition = undefined
+      t3.queuePosition = undefined
+
+      t2.addedAt = 1000
+      t3.addedAt = 2000
+
+      recalc()
+
+      // t2 and t3 assigned after t1's position
+      expect(t1.queuePosition).toBe(0)
+      expect(t2.queuePosition).toBe(1)
+      expect(t3.queuePosition).toBe(2)
+    })
+  })
+
+  describe('user override semantics', () => {
+    it('user stop on queued torrent removes from queue', async () => {
+      await addTorrent(0)
+      await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t3.userState).toBe('queued')
+
+      // User stops the queued torrent
+      t3.userStop()
+
+      expect(t3.userState).toBe('stopped')
+    })
+
+    it('user start on stopped torrent re-enters queue', async () => {
+      await addTorrent(0)
+      await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      // Stop and restart t3
+      t3.userStop()
+      await t3.userStart()
+      recalc()
+
+      // Slots still full — t3 should be queued
+      expect(t3.userState).toBe('queued')
+      expect(t3.forceActive).toBe(false)
+    })
+
+    it('force start bypasses limits without displacing others', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t3.userState).toBe('queued')
+
+      engine.queueForceStart(t3)
+      recalc()
+
+      // All three active — force doesn't displace
+      expect(t1.userState).toBe('active')
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('active')
+      expect(t3.forceActive).toBe(true)
+    })
+
+    it('user stop frees slot and promotes next queued', async () => {
+      const t1 = await addTorrent(0)
+      await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      expect(t3.userState).toBe('queued')
+
+      t1.userStop()
+      recalc()
+
+      expect(t1.userState).toBe('stopped')
+      expect(t3.userState).toBe('active')
+    })
+  })
 })

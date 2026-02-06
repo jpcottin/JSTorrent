@@ -230,6 +230,9 @@ export class TorrentQueueManager extends EngineComponent {
         continue
       }
 
+      // Skip errored torrents — network is stopped, don't count against limits
+      if (t.errorMessage) continue
+
       // Classify by progress
       if (t.progress >= 1) {
         seeding.push(t)
@@ -259,21 +262,22 @@ export class TorrentQueueManager extends EngineComponent {
             `${t.name}: queued → active (position ${t.queuePosition}, limit ${effectiveLimit})`,
           )
           t.userState = 'active'
-          t.start()
+          t.start() // start() cancels any graceful stop
           this.btEngine.sessionPersistence?.saveTorrentState(t)
+        } else if (t.isGracefulStopping) {
+          // Was being demoted, but now back within limit — cancel graceful stop
+          t.start()
         } else if (!t.isActive && !this.btEngine.isSuspended) {
           // userState is active but network isn't running
           t.start()
         }
       } else {
-        // Should be queued
-        if (t.userState !== 'queued') {
+        // Should be queued — use graceful stop to allow in-flight requests to drain
+        if (t.userState !== 'queued' && !t.isGracefulStopping) {
           this.logger.info(
             `${t.name}: active → queued (position ${t.queuePosition}, limit ${effectiveLimit})`,
           )
-          t.userState = 'queued'
-          t.stopNetwork()
-          this.btEngine.sessionPersistence?.saveTorrentState(t)
+          t.gracefulStop()
         }
       }
     }
