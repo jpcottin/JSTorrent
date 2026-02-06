@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Monitors network connectivity and type changes.
- * Exposes WiFi connectivity state as a StateFlow for WiFi-only mode.
+ * Exposes unmetered connectivity state as a StateFlow for WiFi-only mode.
  */
 class NetworkMonitor(context: Context) {
 
@@ -23,8 +23,8 @@ class NetworkMonitor(context: Context) {
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE)
         as ConnectivityManager
 
-    private val _isWifiConnected = MutableStateFlow(checkCurrentWifiState())
-    val isWifiConnected: StateFlow<Boolean> = _isWifiConnected.asStateFlow()
+    private val _isUnmetered = MutableStateFlow(checkCurrentUnmeteredState())
+    val isUnmetered: StateFlow<Boolean> = _isUnmetered.asStateFlow()
 
     private val _isVpnConnected = MutableStateFlow(checkCurrentVpnState())
     val isVpnConnected: StateFlow<Boolean> = _isVpnConnected.asStateFlow()
@@ -72,7 +72,7 @@ class NetworkMonitor(context: Context) {
 
         // Update initial state
         updateNetworkState()
-        Log.i(TAG, "NetworkMonitor started, WiFi=${_isWifiConnected.value}")
+        Log.i(TAG, "NetworkMonitor started, unmetered=${_isUnmetered.value}")
     }
 
     /**
@@ -91,16 +91,16 @@ class NetworkMonitor(context: Context) {
     }
 
     private fun updateNetworkState() {
-        _isWifiConnected.value = checkCurrentWifiState()
+        _isUnmetered.value = checkCurrentUnmeteredState()
         _isVpnConnected.value = checkCurrentVpnState()
         _isConnected.value = checkCurrentConnectionState()
-        Log.d(TAG, "Network state updated: wifi=${_isWifiConnected.value}, vpn=${_isVpnConnected.value}, connected=${_isConnected.value}")
+        Log.d(TAG, "Network state updated: unmetered=${_isUnmetered.value}, vpn=${_isVpnConnected.value}, connected=${_isConnected.value}")
     }
 
-    private fun checkCurrentWifiState(): Boolean {
+    private fun checkCurrentUnmeteredState(): Boolean {
         val network = connectivityManager.activeNetwork ?: return false
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
     }
 
     private fun checkCurrentVpnState(): Boolean {

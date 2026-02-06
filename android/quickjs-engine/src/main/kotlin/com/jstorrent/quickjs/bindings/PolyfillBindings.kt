@@ -4,6 +4,7 @@ import android.util.Log
 import com.jstorrent.io.hash.Hasher
 import com.jstorrent.quickjs.JsThread
 import com.jstorrent.quickjs.QuickJsContext
+import com.jstorrent.quickjs.log.EngineLogBuffer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -367,6 +368,8 @@ class PolyfillBindings(
         ctx.setGlobalFunction("__jstorrent_console_log") { args ->
             val level = args.getOrNull(0) ?: "info"
             val message = args.getOrNull(1) ?: ""
+
+            EngineLogBuffer.add(level, message)
 
             when (level) {
                 "error" -> Log.e("JSTorrent-JS", message)

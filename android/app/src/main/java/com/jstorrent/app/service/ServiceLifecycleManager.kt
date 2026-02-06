@@ -2,6 +2,7 @@ package com.jstorrent.app.service
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.jstorrent.app.cache.TorrentSummaryCache
 import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.quickjs.model.TorrentSummary
@@ -242,6 +243,23 @@ class ServiceLifecycleManager(
      */
     fun onServiceStopped() {
         serviceRunning = false
+        serviceStartPending = false
+    }
+
+    /**
+     * Reset all mutable state to construction defaults.
+     * Must be called AFTER physical cleanup (service stopped, engine shut down)
+     * so the flags match reality.
+     */
+    @VisibleForTesting
+    fun resetForTesting() {
+        _isActivityForeground.value = false
+        hasActiveWork = false
+        serviceRunning = ForegroundNotificationService.instance != null
+        engineShutdownForBackground = false
+        hasEverBeenForeground = false
+        userRequestedQuit = false
+        engineHasReportedState = false
         serviceStartPending = false
     }
 

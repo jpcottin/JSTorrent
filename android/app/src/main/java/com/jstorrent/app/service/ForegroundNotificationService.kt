@@ -18,15 +18,10 @@ import com.jstorrent.app.power.DozeMonitor
 import com.jstorrent.app.viewmodel.EngineServiceRepository
 import com.jstorrent.app.viewmodel.SubscriptionHandle
 import com.jstorrent.app.notification.ForegroundNotificationManager
-import com.jstorrent.app.notification.TorrentNotificationManager
-import com.jstorrent.app.settings.MetricsStore
 import com.jstorrent.app.settings.SettingsStore
-import com.jstorrent.app.storage.RootStore
 import com.jstorrent.quickjs.EngineController
 import com.jstorrent.quickjs.storage.AndroidConfigHub
 import com.jstorrent.quickjs.model.EngineState
-import com.jstorrent.quickjs.model.FileInfo
-import com.jstorrent.quickjs.model.TorrentInfo
 import com.jstorrent.quickjs.model.TorrentSummary
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -69,9 +64,7 @@ class ForegroundNotificationService : Service() {
 
     // Use IO dispatcher for network/file operations in the engine
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private lateinit var rootStore: RootStore
     private lateinit var configHub: AndroidConfigHub
-    private lateinit var metricsStore: MetricsStore
 
     // Use shared instance from Application to avoid multiple SettingsStore instances
     private val settingsStore: SettingsStore
@@ -83,15 +76,7 @@ class ForegroundNotificationService : Service() {
 
     // Notification management
     private lateinit var notificationManager: ForegroundNotificationManager
-    private lateinit var torrentNotificationManager: TorrentNotificationManager
     private var notificationUpdateJob: Job? = null
-
-    // State tracking for completion/error notifications
-    private data class TorrentStateSnapshot(
-        val progress: Double,
-        val status: String
-    )
-    private val previousStates = mutableMapOf<String, TorrentStateSnapshot>()
 
     // Wake locks to prevent deep sleep and WiFi throttling during downloads
     // Note: Wake locks are only held while actively downloading, not while seeding
@@ -164,10 +149,7 @@ class ForegroundNotificationService : Service() {
         }
 
         // Initialize remaining dependencies
-        rootStore = RootStore(this)
         configHub = app.getConfigHub()
-        metricsStore = MetricsStore(this)
-        torrentNotificationManager = TorrentNotificationManager(this)
         dozeMonitor = DozeMonitor(this)
         repository = app.engineServiceRepository
     }
@@ -388,22 +370,8 @@ class ForegroundNotificationService : Service() {
         torrentsSubscription = repository.subscribe("torrents", "", 1000)
 
         notificationUpdateJob = ioScope.launch {
-            // Seed previousStates with current state before starting the loop.
-            // This prevents showing completion notifications for torrents that were
-            // already complete before the service started (e.g., after service restart).
-            val initialTorrents = state.value?.torrents ?: emptyList()
-            for (torrent in initialTorrents) {
-                previousStates[torrent.infoHash] = TorrentStateSnapshot(
-                    progress = torrent.progress,
-                    status = torrent.status
-                )
-            }
-
             while (isActive) {
                 val torrents = state.value?.torrents ?: emptyList()
-
-                // Check for state transitions
-                checkStateTransitions(torrents)
 
                 // Update wake lock state based on download activity
                 updateWakeLockState(torrents)
@@ -413,94 +381,6 @@ class ForegroundNotificationService : Service() {
                 delay(1000)  // Update every 1 second
             }
         }
-    }
-
-    /**
-     * Check for torrent state transitions and show notifications.
-     */
-    private suspend fun checkStateTransitions(torrents: List<TorrentSummary>) {
-        for (torrent in torrents) {
-            val prev = previousStates[torrent.infoHash]
-
-            // Note: We don't pause individual torrents when network is restricted.
-            // The engine-level suspend handles this - new torrents added to a suspended
-            // engine won't start networking, but their userState remains "active" so
-            // they'll automatically resume when the engine is resumed.
-
-            // Detect completion: wasn't complete before, now is
-            if (torrent.progress >= 1.0 && (prev == null || prev.progress < 1.0)) {
-                metricsStore.incrementCompletedDownloads()
-                showCompletionNotification(torrent)
-            }
-
-            // Detect error: wasn't error before, now is
-            if (torrent.status == "error" && prev?.status != "error") {
-                showErrorNotification(torrent)
-            }
-
-            // Update previous state
-            previousStates[torrent.infoHash] = TorrentStateSnapshot(
-                progress = torrent.progress,
-                status = torrent.status
-            )
-        }
-
-        // Clean up removed torrents from tracking
-        val currentHashes = torrents.map { it.infoHash }.toSet()
-        previousStates.keys.removeAll { it !in currentHashes }
-    }
-
-    /**
-     * Show a completion notification for a torrent.
-     */
-    private suspend fun showCompletionNotification(torrent: TorrentSummary) {
-        Log.i(TAG, "Torrent completed: ${torrent.name}")
-
-        // Get full TorrentInfo for size
-        val info = controller?.getTorrentListAsync()
-            ?.find { it.infoHash == torrent.infoHash }
-
-        val size = info?.size ?: 0L
-
-        // Get default download folder URI
-        val folderUri = getDefaultFolderUri()
-
-        torrentNotificationManager.showDownloadComplete(
-            torrentName = torrent.name,
-            infoHash = torrent.infoHash,
-            sizeBytes = size,
-            folderUri = folderUri
-        )
-    }
-
-    /**
-     * Show an error notification for a torrent.
-     */
-    private fun showErrorNotification(torrent: TorrentSummary) {
-        Log.w(TAG, "Torrent error: ${torrent.name}")
-
-        // TODO: Get specific error message from engine when available
-        val errorMessage = "Download error"
-
-        torrentNotificationManager.showError(
-            torrentName = torrent.name,
-            infoHash = torrent.infoHash,
-            errorMessage = errorMessage
-        )
-    }
-
-    /**
-     * Get the URI for the default download folder.
-     */
-    private fun getDefaultFolderUri(): Uri? {
-        val defaultKey = configHub.defaultRootKey
-        if (defaultKey != null) {
-            return rootStore.resolveKey(defaultKey)
-        }
-
-        // Fall back to first available root
-        val roots = rootStore.listRoots()
-        return roots.firstOrNull()?.let { Uri.parse(it.uri) }
     }
 
     /**

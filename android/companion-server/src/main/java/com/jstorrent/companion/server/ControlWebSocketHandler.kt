@@ -191,10 +191,56 @@ class ControlWebSocketHandler(
             Protocol.OP_KV_DELETE -> handleKvDelete(envelope, payload)
             Protocol.OP_KV_KEYS -> handleKvKeys(envelope, payload)
             Protocol.OP_KV_CLEAR -> handleKvClear(envelope, payload)
+            Protocol.OP_CTRL_OPEN_FILE -> handleOpenFile(envelope, payload)
+            Protocol.OP_CTRL_OPEN_FOLDER -> handleOpenFolder(envelope, payload)
             else -> {
                 sendError(envelope.requestId, "Unknown opcode: ${envelope.opcode}")
             }
         }
+    }
+
+    // ==========================================================================
+    // File/folder open handlers
+    // ==========================================================================
+
+    private fun handleOpenFile(envelope: Protocol.Envelope, payload: ByteArray) {
+        try {
+            val request = json.parseToJsonElement(String(payload)).jsonObject
+            val rootKey = request["rootKey"]?.jsonPrimitive?.content
+                ?: return sendJsonResponse(envelope.requestId, Protocol.OP_CTRL_OPEN_FILE, false, "Missing rootKey")
+            val path = request["path"]?.jsonPrimitive?.content
+                ?: return sendJsonResponse(envelope.requestId, Protocol.OP_CTRL_OPEN_FILE, false, "Missing path")
+
+            val (ok, error) = deps.openFile(rootKey, path)
+            sendJsonResponse(envelope.requestId, Protocol.OP_CTRL_OPEN_FILE, ok, error)
+        } catch (e: Exception) {
+            Log.e(TAG, "OPEN_FILE error: ${e.message}")
+            sendJsonResponse(envelope.requestId, Protocol.OP_CTRL_OPEN_FILE, false, e.message ?: "Unknown error")
+        }
+    }
+
+    private fun handleOpenFolder(envelope: Protocol.Envelope, payload: ByteArray) {
+        try {
+            val request = json.parseToJsonElement(String(payload)).jsonObject
+            val rootKey = request["rootKey"]?.jsonPrimitive?.content
+                ?: return sendJsonResponse(envelope.requestId, Protocol.OP_CTRL_OPEN_FOLDER, false, "Missing rootKey")
+            val path = request["path"]?.jsonPrimitive?.content ?: ""
+
+            val (ok, error) = deps.openFolder(rootKey, path)
+            sendJsonResponse(envelope.requestId, Protocol.OP_CTRL_OPEN_FOLDER, ok, error)
+        } catch (e: Exception) {
+            Log.e(TAG, "OPEN_FOLDER error: ${e.message}")
+            sendJsonResponse(envelope.requestId, Protocol.OP_CTRL_OPEN_FOLDER, false, e.message ?: "Unknown error")
+        }
+    }
+
+    private fun sendJsonResponse(requestId: Int, opcode: Byte, ok: Boolean, error: String?) {
+        val response = buildJsonObject {
+            put("ok", ok)
+            if (error != null) put("error", error)
+        }
+        val payload = response.toString().toByteArray()
+        send(Protocol.createMessage(opcode, requestId, payload))
     }
 
     // ==========================================================================

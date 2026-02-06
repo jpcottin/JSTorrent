@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.StarOutline
@@ -37,9 +38,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.net.Uri
+import android.widget.Toast
 import com.jstorrent.app.R
+import com.jstorrent.app.util.FileOpener
 import com.jstorrent.app.storage.DownloadRoot
 import com.jstorrent.app.viewmodel.SettingsViewModel
 
@@ -52,6 +57,7 @@ fun StorageSettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -97,6 +103,7 @@ fun StorageSettingsScreen(
                         root = root,
                         isDefault = root.key == uiState.defaultRootKey,
                         onSetDefault = { viewModel.setDefaultRoot(root.key) },
+                        onOpenFolder = { openFolderInFileManager(context, root.uri) },
                         onRemove = { viewModel.removeRoot(root.key) }
                     )
                 }
@@ -157,6 +164,7 @@ private fun DownloadRootItem(
     root: DownloadRoot,
     isDefault: Boolean,
     onSetDefault: () -> Unit,
+    onOpenFolder: () -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -244,6 +252,13 @@ private fun DownloadRootItem(
                     )
                 }
             }
+            IconButton(onClick = onOpenFolder) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                    contentDescription = stringResource(R.string.tab_files_open_folder),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             IconButton(onClick = onRemove) {
                 Icon(
                     imageVector = Icons.Default.Delete,
@@ -252,6 +267,17 @@ private fun DownloadRootItem(
                 )
             }
         }
+    }
+}
+
+private fun openFolderInFileManager(context: android.content.Context, uriString: String) {
+    val result = FileOpener.openFolderByUri(context, Uri.parse(uriString))
+    if (!result.ok) {
+        Toast.makeText(
+            context,
+            context.getString(R.string.torrent_detail_open_folder_error, result.error ?: "Unknown error"),
+            Toast.LENGTH_SHORT
+        ).show()
     }
 }
 

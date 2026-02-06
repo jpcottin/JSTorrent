@@ -46,6 +46,8 @@ class WebSocketRouteTest {
     fun `IO route rejects control opcodes`() {
         assertFalse(isOpcodeAllowedForIO(Protocol.OP_CTRL_ROOTS_CHANGED))
         assertFalse(isOpcodeAllowedForIO(Protocol.OP_CTRL_EVENT))
+        assertFalse(isOpcodeAllowedForIO(Protocol.OP_CTRL_OPEN_FILE))
+        assertFalse(isOpcodeAllowedForIO(Protocol.OP_CTRL_OPEN_FOLDER))
     }
 
     // =========================================================================
@@ -65,6 +67,8 @@ class WebSocketRouteTest {
     fun `Control route accepts control opcodes`() {
         assertTrue(isOpcodeAllowedForControl(Protocol.OP_CTRL_ROOTS_CHANGED))
         assertTrue(isOpcodeAllowedForControl(Protocol.OP_CTRL_EVENT))
+        assertTrue(isOpcodeAllowedForControl(Protocol.OP_CTRL_OPEN_FILE))
+        assertTrue(isOpcodeAllowedForControl(Protocol.OP_CTRL_OPEN_FOLDER))
     }
 
     @Test

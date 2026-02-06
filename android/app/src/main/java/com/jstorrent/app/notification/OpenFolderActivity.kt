@@ -1,14 +1,12 @@
 package com.jstorrent.app.notification
 
 import android.app.Activity
-import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.provider.DocumentsContract
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationManagerCompat
+import com.jstorrent.app.util.FileOpener
 
 private const val TAG = "OpenFolderActivity"
 
@@ -43,71 +41,13 @@ class OpenFolderActivity : Activity() {
 
         // Open the folder
         if (folderUriString != null) {
-            openFolder(Uri.parse(folderUriString))
+            val result = FileOpener.openFolderByUri(this, Uri.parse(folderUriString))
+            if (!result.ok) {
+                Toast.makeText(this, result.error ?: "Could not open folder", Toast.LENGTH_SHORT).show()
+            }
         }
 
         // Finish immediately - this activity has no UI
         finish()
-    }
-
-    private fun openFolder(folderUri: Uri) {
-        // Try approach 1: DocumentsContract (Android 11+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                val documentId = DocumentsContract.getTreeDocumentId(folderUri)
-                val documentUri = DocumentsContract.buildDocumentUriUsingTree(folderUri, documentId)
-
-                val browseIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(documentUri, DocumentsContract.Document.MIME_TYPE_DIR)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-
-                startActivity(browseIntent)
-                Log.i(TAG, "Opened folder with DocumentsContract approach")
-                return
-            } catch (e: Exception) {
-                Log.w(TAG, "DocumentsContract approach failed", e)
-            }
-        }
-
-        // Try approach 2: Google Files app (common on Pixel)
-        try {
-            val filesIntent = Intent(Intent.ACTION_VIEW).apply {
-                setPackage("com.google.android.apps.nbu.files")
-                data = folderUri
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-
-            startActivity(filesIntent)
-            Log.i(TAG, "Opened folder with Google Files app")
-            return
-        } catch (e: Exception) {
-            Log.w(TAG, "Google Files approach failed", e)
-        }
-
-        // Try approach 3: Generic file manager with chooser
-        try {
-            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                data = folderUri
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-
-            val chooser = Intent.createChooser(viewIntent, "Open folder with").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-
-            startActivity(chooser)
-            Log.i(TAG, "Opened folder with chooser")
-            return
-        } catch (e: Exception) {
-            Log.w(TAG, "Chooser approach failed", e)
-        }
-
-        // All approaches failed
-        Toast.makeText(this, "Could not open folder", Toast.LENGTH_SHORT).show()
-        Log.w(TAG, "All approaches to open folder failed for: $folderUri")
     }
 }

@@ -98,6 +98,12 @@ export class DaemonBridge {
     { resolve: (response: unknown) => void; reject: (error: Error) => void }
   >()
 
+  // Pending control requests (for open file/folder response correlation)
+  private pendingControlRequests = new Map<
+    number,
+    { resolve: (response: { ok: boolean; error?: string }) => void }
+  >()
+
   constructor() {
     const platform = detectPlatform()
     this.state = {
@@ -528,24 +534,24 @@ export class DaemonBridge {
 
   /**
    * Open a file with the system's default application.
-   * Desktop only for now.
+   * Desktop: via native messaging. ChromeOS: via Android companion WebSocket.
    */
   async openFile(rootKey: string, path: string): Promise<{ ok: boolean; error?: string }> {
-    if (this.state.platform !== 'desktop') {
-      return { ok: false, error: 'Not supported on this platform' }
+    if (this.state.platform === 'desktop') {
+      return this.sendNativeRequest('openFile', { rootKey, path })
     }
-    return this.sendNativeRequest('openFile', { rootKey, path })
+    return this.sendControlRequest(0xe9, { rootKey, path })
   }
 
   /**
    * Reveal a file in the system file manager.
-   * Desktop only for now.
+   * Desktop: via native messaging. ChromeOS: via Android companion WebSocket.
    */
   async revealInFolder(rootKey: string, path: string): Promise<{ ok: boolean; error?: string }> {
-    if (this.state.platform !== 'desktop') {
-      return { ok: false, error: 'Not supported on this platform' }
+    if (this.state.platform === 'desktop') {
+      return this.sendNativeRequest('revealInFolder', { rootKey, path })
     }
-    return this.sendNativeRequest('revealInFolder', { rootKey, path })
+    return this.sendControlRequest(0xea, { rootKey, path })
   }
 
   /**
@@ -896,6 +902,9 @@ export class DaemonBridge {
         } else if (opcode >= 0xe3 && opcode <= 0xe8) {
           // KV response opcodes (0xE3-0xE8)
           this.handleKvResponse(data)
+        } else if (opcode === 0xe9 || opcode === 0xea) {
+          // OPEN_FILE / OPEN_FOLDER response
+          this.handleControlResponse(data)
         }
       }
 
@@ -1072,6 +1081,61 @@ export class DaemonBridge {
 
       this.ws!.send(this.buildFrame(opcode, requestId, payloadBytes))
     })
+  }
+
+  /**
+   * Send a control request over WebSocket (for ChromeOS open file/folder).
+   */
+  private async sendControlRequest(
+    opcode: number,
+    payload: Record<string, unknown>,
+  ): Promise<{ ok: boolean; error?: string }> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return { ok: false, error: 'WebSocket not connected' }
+    }
+
+    const requestId = Math.floor(Math.random() * 0xffffffff)
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(payload))
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        this.pendingControlRequests.delete(requestId)
+        resolve({ ok: false, error: 'Request timed out' })
+      }, 10000)
+
+      this.pendingControlRequests.set(requestId, {
+        resolve: (response) => {
+          clearTimeout(timeout)
+          this.pendingControlRequests.delete(requestId)
+          resolve(response)
+        },
+      })
+
+      this.ws!.send(this.buildFrame(opcode, requestId, payloadBytes))
+    })
+  }
+
+  /**
+   * Handle control response from WebSocket (open file/folder results).
+   */
+  private handleControlResponse(frame: Uint8Array): void {
+    const view = new DataView(frame.buffer)
+    const requestId = view.getUint32(4, true)
+
+    const pending = this.pendingControlRequests.get(requestId)
+    if (!pending) {
+      console.warn('[DaemonBridge] No pending control request for requestId:', requestId)
+      return
+    }
+
+    try {
+      const payload = frame.slice(8)
+      const json = new TextDecoder().decode(payload)
+      const response = JSON.parse(json) as { ok: boolean; error?: string }
+      pending.resolve(response)
+    } catch (e) {
+      pending.resolve({ ok: false, error: `Failed to parse response: ${e}` })
+    }
   }
 
   /**

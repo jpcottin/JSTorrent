@@ -156,4 +156,20 @@ interface CompanionServerDeps {
      * Used for intent handling (e.g., pending magnet links).
      */
     fun notifyConnectionEstablished()
+
+    /**
+     * Open a file with the system's default application.
+     * @param rootKey Root store key identifying the download folder
+     * @param path File path relative to root (may include subdirectories)
+     * @return Pair of (success, errorMessage?)
+     */
+    fun openFile(rootKey: String, path: String): Pair<Boolean, String?>
+
+    /**
+     * Open/reveal a folder in the system file manager.
+     * @param rootKey Root store key identifying the download folder
+     * @param path Optional file path; opens parent directory of this path, or root if empty
+     * @return Pair of (success, errorMessage?)
+     */
+    fun openFolder(rootKey: String, path: String = ""): Pair<Boolean, String?>
 }

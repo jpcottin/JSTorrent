@@ -1,6 +1,7 @@
 package com.jstorrent.app.ui.components
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Settings
@@ -54,6 +55,29 @@ object SharedMenuItems {
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.Hub,
+                    contentDescription = null
+                )
+            },
+            onClick = {
+                onDismiss()
+                onClick()
+            }
+        )
+    }
+
+    /**
+     * Logs menu item - navigates to log viewer screen.
+     */
+    @Composable
+    fun LogsMenuItem(
+        onClick: () -> Unit,
+        onDismiss: () -> Unit
+    ) {
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.component_shared_menu_logs)) },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Article,
                     contentDescription = null
                 )
             },

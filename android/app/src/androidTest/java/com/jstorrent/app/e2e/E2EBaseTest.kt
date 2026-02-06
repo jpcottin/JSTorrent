@@ -63,6 +63,14 @@ abstract class E2EBaseTest {
         Log.i(TAG, "Seeder host: ${E2ETestConfig.getSeederHost(arguments)}")
         Log.i(TAG, "Seeder port: ${E2ETestConfig.getSeederPort(arguments)}")
 
+        // Physical cleanup from previous test
+        ForegroundNotificationService.stop(context)
+        app.shutdownEngine()
+        Thread.sleep(200)
+
+        // Reset lifecycle manager state to construction defaults
+        app.serviceLifecycleManager.resetForTesting()
+
         // Clear session storage to ensure test isolation
         clearSessionStorage(context)
 

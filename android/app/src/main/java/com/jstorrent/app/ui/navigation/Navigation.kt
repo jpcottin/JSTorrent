@@ -24,10 +24,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+
 import com.jstorrent.app.MainActivity
 import com.jstorrent.app.mode.ModeDetector
 import com.jstorrent.app.ui.screens.AdvancedSettingsScreen
 import com.jstorrent.app.ui.screens.DhtInfoScreen
+import com.jstorrent.app.ui.screens.LogViewerScreen
 import com.jstorrent.app.ui.screens.SpeedConnectionLimitsSettingsScreen
 import com.jstorrent.app.ui.screens.NetworkSettingsScreen
 import com.jstorrent.app.ui.screens.NotificationsSettingsScreen
@@ -38,10 +40,18 @@ import com.jstorrent.app.ui.screens.StorageSettingsScreen
 import com.jstorrent.app.ui.screens.TorrentDetailScreen
 import com.jstorrent.app.ui.screens.TorrentListScreen
 import com.jstorrent.app.viewmodel.DhtViewModel
+import com.jstorrent.app.viewmodel.LogViewerViewModel
 import com.jstorrent.app.viewmodel.SettingsViewModel
 import com.jstorrent.app.viewmodel.SpeedHistoryViewModel
 import com.jstorrent.app.viewmodel.TorrentDetailViewModel
 import com.jstorrent.app.viewmodel.TorrentListViewModel
+
+/** Prevents double-tap from popping past the start destination (blank screen). */
+private fun NavHostController.safePopBackStack() {
+    if (currentBackStackEntry?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true) {
+        popBackStack()
+    }
+}
 
 /**
  * Navigation routes for the app.
@@ -58,6 +68,7 @@ object Routes {
     const val SETTINGS_ADVANCED = "settings/advanced"
     const val DHT_INFO = "dht_info"
     const val SPEED_HISTORY = "speed_history"
+    const val LOGS = "logs"
 
     fun torrentDetail(infoHash: String) = "torrent_detail/$infoHash"
 }
@@ -120,6 +131,9 @@ fun TorrentNavHost(
                 onDhtInfoClick = {
                     navController.navigate(Routes.DHT_INFO)
                 },
+                onLogsClick = {
+                    navController.navigate(Routes.LOGS)
+                },
                 onDebugShowReviewDialog = onDebugShowReviewDialog
             )
         }
@@ -138,10 +152,11 @@ fun TorrentNavHost(
             )
             TorrentDetailScreen(
                 viewModel = detailViewModel,
-                onNavigateBack = { navController.popBackStack() },
+                onNavigateBack = { navController.safePopBackStack() },
                 onSettingsClick = { navController.navigate(Routes.SETTINGS) },
                 onSpeedClick = { navController.navigate(Routes.SPEED_HISTORY) },
                 onDhtInfoClick = { navController.navigate(Routes.DHT_INFO) },
+                onLogsClick = { navController.navigate(Routes.LOGS) },
                 onShutdownClick = onShutdownClick,
                 onRemoveInitiated = { infoHash -> listViewModel.markPendingRemoval(infoHash) }
             )
@@ -150,7 +165,7 @@ fun TorrentNavHost(
         // Settings hub screen
         composable(Routes.SETTINGS) {
             SettingsScreen(
-                onNavigateBack = { navController.popBackStack() },
+                onNavigateBack = { navController.safePopBackStack() },
                 onNavigateToStorage = { navController.navigate(Routes.SETTINGS_STORAGE) },
                 onNavigateToSpeedConnectionLimits = { navController.navigate(Routes.SETTINGS_SPEED_CONNECTION_LIMITS) },
                 onNavigateToNotifications = { navController.navigate(Routes.SETTINGS_NOTIFICATIONS) },
@@ -168,7 +183,7 @@ fun TorrentNavHost(
             )
             StorageSettingsScreen(
                 viewModel = settingsViewModel,
-                onNavigateBack = { navController.popBackStack() },
+                onNavigateBack = { navController.safePopBackStack() },
                 onAddRootClick = onAddRootClick
             )
         }
@@ -181,7 +196,7 @@ fun TorrentNavHost(
             )
             SpeedConnectionLimitsSettingsScreen(
                 viewModel = settingsViewModel,
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.safePopBackStack() }
             )
         }
 
@@ -252,7 +267,7 @@ fun TorrentNavHost(
 
             NotificationsSettingsScreen(
                 viewModel = settingsViewModel,
-                onNavigateBack = { navController.popBackStack() },
+                onNavigateBack = { navController.safePopBackStack() },
                 onRequestNotificationPermission = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -276,7 +291,7 @@ fun TorrentNavHost(
             )
             NetworkSettingsScreen(
                 viewModel = settingsViewModel,
-                onNavigateBack = { navController.popBackStack() },
+                onNavigateBack = { navController.safePopBackStack() },
                 onDhtInfoClick = { navController.navigate(Routes.DHT_INFO) }
             )
         }
@@ -330,7 +345,7 @@ fun TorrentNavHost(
 
             PowerManagementSettingsScreen(
                 viewModel = settingsViewModel,
-                onNavigateBack = { navController.popBackStack() },
+                onNavigateBack = { navController.safePopBackStack() },
                 onOpenNotificationSettings = {
                     val intent = Intent().apply {
                         action = Settings.ACTION_APP_NOTIFICATION_SETTINGS
@@ -350,7 +365,7 @@ fun TorrentNavHost(
             val isChromebook = ModeDetector.isChromebook(context)
             AdvancedSettingsScreen(
                 viewModel = settingsViewModel,
-                onNavigateBack = { navController.popBackStack() },
+                onNavigateBack = { navController.safePopBackStack() },
                 onClearAllDataCompleted = {
                     // Navigate back to the torrent list after clearing all data
                     navController.popBackStack(Routes.TORRENT_LIST, inclusive = false)
@@ -378,7 +393,7 @@ fun TorrentNavHost(
             )
             DhtInfoScreen(
                 viewModel = dhtViewModel,
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.safePopBackStack() }
             )
         }
 
@@ -390,7 +405,16 @@ fun TorrentNavHost(
             )
             SpeedHistoryScreen(
                 viewModel = speedHistoryViewModel,
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.safePopBackStack() }
+            )
+        }
+
+        // Log Viewer screen
+        composable(Routes.LOGS) {
+            val logViewerViewModel: LogViewerViewModel = viewModel()
+            LogViewerScreen(
+                viewModel = logViewerViewModel,
+                onNavigateBack = { navController.safePopBackStack() }
             )
         }
     }

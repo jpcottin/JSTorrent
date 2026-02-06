@@ -21,9 +21,10 @@ class NetworkStateProvider(context: Context) {
     private val networkMonitor = NetworkMonitor(context)
 
     /**
-     * Whether WiFi is currently connected.
+     * Whether the current network is unmetered (WiFi, Ethernet, etc.).
+     * Used by the "WiFi only" setting to block downloads on metered connections.
      */
-    val isWifiConnected: StateFlow<Boolean> = networkMonitor.isWifiConnected
+    val isUnmetered: StateFlow<Boolean> = networkMonitor.isUnmetered
 
     /**
      * Whether VPN is currently connected.
@@ -38,7 +39,7 @@ class NetworkStateProvider(context: Context) {
     init {
         // Start monitoring immediately
         networkMonitor.start()
-        Log.i(TAG, "NetworkStateProvider initialized, WiFi=${isWifiConnected.value}, VPN=${isVpnConnected.value}")
+        Log.i(TAG, "NetworkStateProvider initialized, unmetered=${isUnmetered.value}, VPN=${isVpnConnected.value}")
     }
 
     companion object {

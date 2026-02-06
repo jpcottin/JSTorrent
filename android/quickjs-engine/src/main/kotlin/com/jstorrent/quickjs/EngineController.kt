@@ -35,9 +35,19 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.json.JSONObject
 import java.io.Closeable
 
 private const val TAG = "EngineController"
+
+/**
+ * Result of adding a torrent via the engine.
+ */
+data class AddTorrentResult(
+    val ok: Boolean,
+    val infoHash: String?,
+    val isDuplicate: Boolean
+)
 private const val SHUTDOWN_TIMEOUT_MS = 3000L
 
 /**
@@ -510,12 +520,26 @@ class EngineController(
     /**
      * Add a torrent (suspend version).
      * Awaits until the torrent is fully added to the engine.
+     * Returns parsed result with duplicate detection info.
      */
-    suspend fun addTorrentAsync(magnetOrBase64: String): String? {
+    suspend fun addTorrentAsync(magnetOrBase64: String): AddTorrentResult {
         val eng = requireEngine()
         val result = eng.callGlobalFunctionAwaitPromise("__jstorrent_cmd_add_torrent", magnetOrBase64)
         Log.i(TAG, "addTorrentAsync completed: $result")
-        return result
+        if (result == null) {
+            return AddTorrentResult(ok = false, infoHash = null, isDuplicate = false)
+        }
+        return try {
+            val json = JSONObject(result)
+            AddTorrentResult(
+                ok = json.optBoolean("ok", false),
+                infoHash = json.optString("infoHash", null),
+                isDuplicate = json.optBoolean("isDuplicate", false)
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse addTorrent response: $result", e)
+            AddTorrentResult(ok = false, infoHash = null, isDuplicate = false)
+        }
     }
 
     /**

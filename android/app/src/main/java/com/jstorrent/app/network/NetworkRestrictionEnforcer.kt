@@ -61,19 +61,19 @@ class NetworkRestrictionEnforcer(
 
         // Check initial state immediately
         updateRestrictionState(
-            isWifi = networkStateProvider.isWifiConnected.value,
+            isUnmetered = networkStateProvider.isUnmetered.value,
             isVpn = networkStateProvider.isVpnConnected.value
         )
 
         // Monitor ongoing changes
         monitorJob = scope.launch {
             combine(
-                networkStateProvider.isWifiConnected,
+                networkStateProvider.isUnmetered,
                 networkStateProvider.isVpnConnected
-            ) { isWifi, isVpn ->
-                Pair(isWifi, isVpn)
-            }.collect { (isWifi, isVpn) ->
-                updateRestrictionState(isWifi, isVpn)
+            ) { isUnmetered, isVpn ->
+                Pair(isUnmetered, isVpn)
+            }.collect { (isUnmetered, isVpn) ->
+                updateRestrictionState(isUnmetered, isVpn)
             }
         }
     }
@@ -96,7 +96,7 @@ class NetworkRestrictionEnforcer(
     fun onWifiOnlySettingChanged(enabled: Boolean) {
         Log.i(TAG, "WiFi-only setting changed: $enabled")
         updateRestrictionState(
-            isWifi = networkStateProvider.isWifiConnected.value,
+            isUnmetered = networkStateProvider.isUnmetered.value,
             isVpn = networkStateProvider.isVpnConnected.value
         )
     }
@@ -108,7 +108,7 @@ class NetworkRestrictionEnforcer(
     fun onVpnOnlySettingChanged(enabled: Boolean) {
         Log.i(TAG, "VPN-only setting changed: $enabled")
         updateRestrictionState(
-            isWifi = networkStateProvider.isWifiConnected.value,
+            isUnmetered = networkStateProvider.isUnmetered.value,
             isVpn = networkStateProvider.isVpnConnected.value
         )
     }
@@ -116,13 +116,13 @@ class NetworkRestrictionEnforcer(
     /**
      * Compute what restriction should be active and apply it.
      */
-    private fun updateRestrictionState(isWifi: Boolean, isVpn: Boolean) {
-        val newStatus = computeRestrictionStatus(isWifi, isVpn)
+    private fun updateRestrictionState(isUnmetered: Boolean, isVpn: Boolean) {
+        val newStatus = computeRestrictionStatus(isUnmetered, isVpn)
         val oldStatus = _restrictionStatus.value
 
         if (newStatus == oldStatus) return
 
-        Log.i(TAG, "Restriction status changing: $oldStatus -> $newStatus (wifi=$isWifi, vpn=$isVpn)")
+        Log.i(TAG, "Restriction status changing: $oldStatus -> $newStatus (unmetered=$isUnmetered, vpn=$isVpn)")
         _restrictionStatus.value = newStatus
 
         // Apply the restriction
@@ -147,11 +147,11 @@ class NetworkRestrictionEnforcer(
     /**
      * Compute the restriction status based on current network state and settings.
      *
-     * Priority: WiFi check first, then VPN check.
+     * Priority: WiFi/unmetered check first, then VPN check.
      * If both are enabled and neither condition is met, WiFi status is returned.
      */
-    private fun computeRestrictionStatus(isWifi: Boolean, isVpn: Boolean): String? {
-        if (settingsStore.wifiOnlyEnabled && !isWifi) {
+    private fun computeRestrictionStatus(isUnmetered: Boolean, isVpn: Boolean): String? {
+        if (settingsStore.wifiOnlyEnabled && !isUnmetered) {
             return "waiting_wifi"
         }
         if (settingsStore.vpnOnlyEnabled && !isVpn) {
@@ -166,7 +166,7 @@ class NetworkRestrictionEnforcer(
      */
     fun shouldBlockDownloads(): Boolean {
         return computeRestrictionStatus(
-            isWifi = networkStateProvider.isWifiConnected.value,
+            isUnmetered = networkStateProvider.isUnmetered.value,
             isVpn = networkStateProvider.isVpnConnected.value
         ) != null
     }

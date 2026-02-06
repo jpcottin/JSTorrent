@@ -26,7 +26,9 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -74,6 +76,8 @@ fun TorrentCard(
     isLive: Boolean = true,
     isPending: Boolean = false,
     isPendingRemoval: Boolean = false,
+    isHighlighted: Boolean = false,
+    onHighlightShown: () -> Unit = {},
     networkWaitingStatus: String? = null,
     modifier: Modifier = Modifier
 ) {
@@ -88,14 +92,22 @@ fun TorrentCard(
         else -> torrent.status
     }
 
-    // Animate card background color for selection
+    // Auto-clear highlight after animation duration
+    LaunchedEffect(isHighlighted) {
+        if (isHighlighted) {
+            delay(1500)
+            onHighlightShown()
+        }
+    }
+
+    // Animate card background color for selection and highlight
     val cardBackgroundColor by animateColorAsState(
-        targetValue = if (isSelected) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-        } else {
-            MaterialTheme.colorScheme.surface
+        targetValue = when {
+            isHighlighted -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+            isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            else -> MaterialTheme.colorScheme.surface
         },
-        animationSpec = tween(durationMillis = 150),
+        animationSpec = tween(durationMillis = if (isHighlighted) 300 else 150),
         label = "cardBackground"
     )
 

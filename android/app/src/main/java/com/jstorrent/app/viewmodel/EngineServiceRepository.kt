@@ -14,8 +14,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
@@ -75,6 +78,9 @@ class EngineServiceRepository(
     override val state: StateFlow<EngineState?> = _state.asStateFlow()
     override val isLoaded: StateFlow<Boolean> = _isLoaded.asStateFlow()
     override val lastError: StateFlow<String?> = _lastError.asStateFlow()
+
+    private val _duplicateTorrentEvent = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    override val duplicateTorrentEvent: SharedFlow<String> = _duplicateTorrentEvent.asSharedFlow()
 
     // Track the controller we're connected to and collection jobs
     private var connectedController: EngineController? = null
@@ -169,7 +175,13 @@ class EngineServiceRepository(
     override fun addTorrent(magnetOrBase64: String) {
         // When engine is suspended (WiFi-only/VPN-only), new torrents won't start
         // networking automatically - torrent.start() checks engine.isSuspended.
-        withEngine { it.addTorrentAsync(magnetOrBase64) }
+        withEngine {
+            val result = it.addTorrentAsync(magnetOrBase64)
+            val hash = result.infoHash
+            if (result.isDuplicate && hash != null) {
+                _duplicateTorrentEvent.tryEmit(hash)
+            }
+        }
     }
 
     override fun pauseTorrent(infoHash: String) {

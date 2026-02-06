@@ -10,7 +10,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -39,22 +38,21 @@ class BackgroundServiceLazyEngineTest {
         app = context.applicationContext as JSTorrentApplication
         settingsStore = SettingsStore(context)
 
+        // Physical cleanup first
+        ForegroundNotificationService.stop(context)
+        app.shutdownEngine()
+        Thread.sleep(200)
+
+        // Reset lifecycle manager state to construction defaults
+        app.serviceLifecycleManager.resetForTesting()
+
         // Reset settings to defaults for each test
         settingsStore.whenDownloadsComplete = "stop_and_close"
         settingsStore.backgroundDownloadsEnabled = false
-
-        // Ensure engine is not running at start
-        app.shutdownEngine()
-
-        // Set activity in foreground via lifecycle manager
-        app.serviceLifecycleManager.setActivityForeground(true)
     }
 
     @After
     fun tearDown() {
-        // Reset foreground flag to prevent test pollution
-        app.serviceLifecycleManager.setActivityForeground(false)
-
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         ForegroundNotificationService.stop(context)
         app.shutdownEngine()
@@ -166,36 +164,39 @@ class BackgroundServiceLazyEngineTest {
 
             // Given: Engine running with active work and background downloads enabled
             settingsStore.backgroundDownloadsEnabled = true
-            settingsStore.whenDownloadsComplete = "keep_seeding"
 
             app.initializeEngine(storageMode = "null")
             assertTrue("Engine should be initialized", app.isEngineInitialized)
 
+            // Add a torrent with a bogus hash - it will stay in "downloading_metadata"
+            // which counts as active work, and won't be overwritten by engine state
+            val controller = app.engineController!!
+            controller.addTorrent("magnet:?xt=urn:btih:0000000000000000000000000000000000000000&dn=test")
+
+            // Subscribe to torrent list - state only pushes with active subscriptions
+            controller.subscribe("torrents", "", 500)
+
+            // Wait for engine state flow to report the torrent (same source as onTorrentStateChanged)
+            val deadline = System.currentTimeMillis() + 5000
+            while ((controller.state.value?.torrents?.isEmpty() != false) &&
+                System.currentTimeMillis() < deadline
+            ) {
+                delay(100)
+            }
+            val torrents = controller.state.value?.torrents ?: emptyList()
+            assertTrue("Torrent should appear in engine state flow", torrents.isNotEmpty())
+            Log.i(TAG, "Engine reports ${torrents.size} torrent(s), status: ${torrents.first().status}")
+
             // When: Activity goes to foreground
             app.serviceLifecycleManager.onActivityStart()
-            delay(100)
+            delay(500)
 
-            // Simulate active torrent state (downloading)
-            app.serviceLifecycleManager.onTorrentStateChanged(
-                listOf(
-                    com.jstorrent.quickjs.model.TorrentSummary(
-                        infoHash = "test123",
-                        name = "Test Torrent",
-                        progress = 0.5,
-                        downloadSpeed = 1000,
-                        uploadSpeed = 500,
-                        status = "downloading",
-                        numPeers = 5,
-                        swarmPeers = 10,
-                        skippedFilesCount = 0
-                    )
-                )
-            )
-            delay(100)
+            // Verify engine reports active work (downloading_metadata)
+            assertTrue("Engine should still be initialized", app.isEngineInitialized)
 
             // Go to background
             app.serviceLifecycleManager.onActivityStop()
-            delay(500)
+            delay(1000)
 
             // Then: Engine should still be running (has active work)
             assertTrue("Engine should still be running", app.isEngineInitialized)

@@ -18,6 +18,7 @@
     <string name="torrent_list_hint_all">Tap + to add a magnet link</string>
     <string name="torrent_list_hint_active">Downloading torrents will appear here</string>
     <string name="torrent_list_hint_finished">Completed torrents will appear here</string>
+    <string name="torrent_already_in_list">Torrent already in list</string>
 
     <!-- Sort order -->
     <string name="sort_name">Name</string>
@@ -108,7 +109,7 @@
     <!-- NetworkSettingsScreen -->
     <string name="settings_network_connection_section">Connection</string>
     <string name="settings_network_wifi_only_label">WiFi only</string>
-    <string name="settings_network_wifi_only_description">Only download when connected to WiFi</string>
+    <string name="settings_network_wifi_only_description">Pause downloads on metered or mobile connections</string>
     <string name="settings_network_vpn_only_label">VPN only</string>
     <string name="settings_network_vpn_only_description">Only download when connected to a VPN</string>
     <string name="settings_network_encryption_label">Protocol encryption</string>
@@ -289,6 +290,7 @@
     <!-- SharedMenuItems -->
     <string name="component_shared_menu_speed">Speed</string>
     <string name="component_shared_menu_dht_info">DHT Info</string>
+    <string name="component_shared_menu_logs">Logs</string>
     <string name="component_shared_menu_settings">Settings</string>
     <string name="component_shared_menu_shutdown">Shutdown</string>
 

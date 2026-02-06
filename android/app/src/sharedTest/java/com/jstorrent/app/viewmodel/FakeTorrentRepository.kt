@@ -13,8 +13,11 @@ import com.jstorrent.quickjs.model.DhtStats
 import com.jstorrent.quickjs.model.SpeedSamplesResult
 import com.jstorrent.quickjs.model.JsThreadStats
 import com.jstorrent.quickjs.model.EngineStats
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
@@ -31,6 +34,9 @@ class FakeTorrentRepository : TorrentRepository {
 
     private val _lastError = MutableStateFlow<String?>(null)
     override val lastError: StateFlow<String?> = _lastError.asStateFlow()
+
+    private val _duplicateTorrentEvent = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    override val duplicateTorrentEvent: SharedFlow<String> = _duplicateTorrentEvent.asSharedFlow()
 
     // Track method calls for verification
     val addedTorrents = mutableListOf<String>()

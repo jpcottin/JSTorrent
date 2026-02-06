@@ -21,7 +21,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -40,6 +42,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -93,6 +97,7 @@ fun TorrentListScreen(
     onShutdownClick: () -> Unit = {},
     onSpeedClick: () -> Unit = {},
     onDhtInfoClick: () -> Unit = {},
+    onLogsClick: () -> Unit = {},
     onDebugShowReviewDialog: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -107,6 +112,7 @@ fun TorrentListScreen(
     val engineError by viewModel.engineError.collectAsState()
     val pendingTorrents by viewModel.pendingTorrents.collectAsState()
     val pendingRemovalTorrents by viewModel.pendingRemovalTorrents.collectAsState()
+    val highlightedTorrent by viewModel.highlightedTorrent.collectAsState()
 
     // Get network restriction status to show "Waiting for WiFi/VPN" status
     // The Application exposes this StateFlow directly, so it's always available
@@ -138,6 +144,24 @@ fun TorrentListScreen(
                 Toast.LENGTH_LONG
             ).show()
             Log.e("TorrentListScreen", "Engine error: $error")
+        }
+    }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val lazyListState = rememberLazyListState()
+    val duplicateMessage = stringResource(R.string.torrent_already_in_list)
+
+    // Handle duplicate torrent: show snackbar + scroll to highlighted item
+    LaunchedEffect(highlightedTorrent) {
+        val infoHash = highlightedTorrent ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(duplicateMessage)
+        // Scroll to the torrent in the current filtered list
+        val state = uiState
+        if (state is TorrentListUiState.Loaded) {
+            val index = state.torrents.indexOfFirst { it.infoHash == infoHash }
+            if (index >= 0) {
+                lazyListState.animateScrollToItem(index)
+            }
         }
     }
 
@@ -173,6 +197,7 @@ fun TorrentListScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -356,6 +381,10 @@ fun TorrentListScreen(
                             onClick = onDhtInfoClick,
                             onDismiss = { showMenu = false }
                         )
+                        SharedMenuItems.LogsMenuItem(
+                            onClick = onLogsClick,
+                            onDismiss = { showMenu = false }
+                        )
                         SharedMenuItems.SettingsMenuItem(
                             onClick = onSettingsClick,
                             onDismiss = { showMenu = false }
@@ -417,6 +446,9 @@ fun TorrentListScreen(
                         pendingRemovalTorrents = pendingRemovalTorrents,
                         isLive = state.isLive,
                         networkWaitingStatus = networkWaitingStatus,
+                        highlightedTorrent = highlightedTorrent,
+                        onHighlightShown = { viewModel.clearHighlight() },
+                        lazyListState = lazyListState,
                         modifier = Modifier.fillMaxSize()
                     )
 
@@ -534,6 +566,9 @@ private fun TorrentListContent(
     pendingRemovalTorrents: Set<String>,
     isLive: Boolean,
     networkWaitingStatus: String? = null,
+    highlightedTorrent: String? = null,
+    onHighlightShown: () -> Unit = {},
+    lazyListState: LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxSize()) {
@@ -549,6 +584,7 @@ private fun TorrentListContent(
             EmptyState(currentFilter = currentFilter)
         } else {
             LazyColumn(
+                state = lazyListState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = 12.dp,
@@ -571,6 +607,8 @@ private fun TorrentListContent(
                         isLive = isLive,
                         isPending = torrent.infoHash in pendingTorrents,
                         isPendingRemoval = torrent.infoHash in pendingRemovalTorrents,
+                        isHighlighted = torrent.infoHash == highlightedTorrent,
+                        onHighlightShown = onHighlightShown,
                         networkWaitingStatus = networkWaitingStatus
                     )
                 }

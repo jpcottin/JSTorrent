@@ -5,6 +5,7 @@ import com.jstorrent.quickjs.model.DhtStats
 import com.jstorrent.quickjs.model.EngineStats
 import com.jstorrent.quickjs.model.JsThreadStats
 import com.jstorrent.quickjs.model.SpeedSamplesResult
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -26,6 +27,12 @@ interface TorrentRepository {
      * Flow of last error message.
      */
     val lastError: StateFlow<String?>
+
+    /**
+     * One-shot events emitted when a duplicate torrent is added.
+     * Emits the infoHash of the existing torrent.
+     */
+    val duplicateTorrentEvent: SharedFlow<String>
 
     /**
      * Add a torrent from magnet link or base64-encoded .torrent file.

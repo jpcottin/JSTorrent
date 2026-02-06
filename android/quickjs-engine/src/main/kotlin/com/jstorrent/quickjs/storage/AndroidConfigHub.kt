@@ -334,9 +334,15 @@ class AndroidConfigHub(
      * Clears all config:* keys from storage and notifies the JS engine.
      */
     fun resetToDefaults() {
+        // Preserve storage-related config that isn't a "setting"
+        val savedDefaultRootKey = defaultRootKey
+
         // Clear all config keys from SQLite
         val clearedCount = store.clear(CONFIG_PREFIX)
         Log.i(TAG, "Reset to defaults: cleared $clearedCount config keys")
+
+        // Restore storage config
+        defaultRootKey = savedDefaultRootKey
 
         // Notify JS engine with default values
         val bridge = configBridgeProvider()

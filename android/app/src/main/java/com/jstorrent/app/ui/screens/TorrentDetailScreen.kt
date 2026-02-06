@@ -1,11 +1,6 @@
 package com.jstorrent.app.ui.screens
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.DocumentsContract
 import android.widget.Toast
-import androidx.documentfile.provider.DocumentFile
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,7 +61,7 @@ import com.jstorrent.app.ui.tabs.PiecesTab
 import com.jstorrent.app.ui.tabs.StatusTab
 import com.jstorrent.app.ui.tabs.TrackersTab
 import com.jstorrent.app.ui.theme.JSTorrentTheme
-import com.jstorrent.app.storage.RootStore
+import com.jstorrent.app.util.FileOpener
 import com.jstorrent.app.ui.components.CompactPlayPauseButton
 import com.jstorrent.app.ui.components.SharedMenuItems
 import com.jstorrent.app.viewmodel.TorrentDetailViewModel
@@ -83,6 +78,7 @@ fun TorrentDetailScreen(
     onSettingsClick: () -> Unit,
     onSpeedClick: () -> Unit,
     onDhtInfoClick: () -> Unit,
+    onLogsClick: () -> Unit = {},
     onShutdownClick: () -> Unit,
     onRemoveInitiated: (String) -> Unit = {},
     modifier: Modifier = Modifier
@@ -196,6 +192,10 @@ fun TorrentDetailScreen(
                                 )
                                 SharedMenuItems.DhtInfoMenuItem(
                                     onClick = onDhtInfoClick,
+                                    onDismiss = { showMenu = false }
+                                )
+                                SharedMenuItems.LogsMenuItem(
+                                    onClick = onLogsClick,
                                     onDismiss = { showMenu = false }
                                 )
                                 SharedMenuItems.SettingsMenuItem(
@@ -420,10 +420,6 @@ private fun DetailContent(
 // Helper Functions
 // =============================================================================
 
-/**
- * Open a file using the system's file handler (open with... dialog).
- * Uses SAF (Storage Access Framework) to access files via DocumentFile.
- */
 private fun openFile(
     context: android.content.Context,
     files: List<TorrentFileUi>,
@@ -432,7 +428,6 @@ private fun openFile(
 ) {
     val file = files.find { it.index == fileIndex } ?: return
 
-    // Check if file is complete enough to open
     if (file.progress < 1.0) {
         Toast.makeText(
             context,
@@ -442,7 +437,6 @@ private fun openFile(
         return
     }
 
-    // Need root key to locate the file
     if (rootKey == null) {
         Toast.makeText(
             context,
@@ -452,59 +446,16 @@ private fun openFile(
         return
     }
 
-    // Resolve root key to SAF URI via RootStore
-    val rootStore = RootStore(context)
-    val rootUri = rootStore.resolveKey(rootKey)
-    if (rootUri == null) {
+    val result = FileOpener.openFile(context, rootKey, file.path)
+    if (!result.ok) {
         Toast.makeText(
             context,
-            context.getString(R.string.torrent_detail_storage_root_not_found),
-            Toast.LENGTH_SHORT
-        ).show()
-        return
-    }
-
-    // Navigate to the file using DocumentFile
-    // file.path may contain directories (e.g., "Ubuntu/ubuntu.iso")
-    val pathParts = file.path.split("/")
-    var docFile: DocumentFile? = DocumentFile.fromTreeUri(context, rootUri)
-
-    for (part in pathParts) {
-        docFile = docFile?.findFile(part)
-        if (docFile == null) break
-    }
-
-    if (docFile == null || !docFile.exists()) {
-        Toast.makeText(
-            context,
-            context.getString(R.string.torrent_detail_file_not_found),
-            Toast.LENGTH_SHORT
-        ).show()
-        return
-    }
-
-    try {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(docFile.uri, getMimeType(file.name))
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-
-        // Create chooser for "Open with..." dialog
-        val chooser = Intent.createChooser(intent, context.getString(R.string.torrent_detail_open_with))
-        context.startActivity(chooser)
-    } catch (e: Exception) {
-        Toast.makeText(
-            context,
-            context.getString(R.string.torrent_detail_open_file_error, e.message),
+            context.getString(R.string.torrent_detail_open_file_error, result.error),
             Toast.LENGTH_SHORT
         ).show()
     }
 }
 
-/**
- * Open the save location folder in a file manager.
- * Uses SAF (Storage Access Framework) to access the folder via DocumentFile.
- */
 private fun openFolder(
     context: android.content.Context,
     rootKey: String?
@@ -518,118 +469,13 @@ private fun openFolder(
         return
     }
 
-    val rootStore = RootStore(context)
-    val rootUri = rootStore.resolveKey(rootKey)
-    if (rootUri == null) {
+    val result = FileOpener.openFolder(context, rootKey)
+    if (!result.ok) {
         Toast.makeText(
             context,
-            context.getString(R.string.torrent_detail_storage_root_not_found),
+            context.getString(R.string.torrent_detail_open_folder_error, result.error),
             Toast.LENGTH_SHORT
         ).show()
-        return
-    }
-
-    val docFile = DocumentFile.fromTreeUri(context, rootUri)
-    if (docFile == null || !docFile.exists()) {
-        Toast.makeText(
-            context,
-            context.getString(R.string.torrent_detail_storage_root_not_found),
-            Toast.LENGTH_SHORT
-        ).show()
-        return
-    }
-
-    // Try approach 1: DocumentsContract with proper document URI (Android 11+)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        try {
-            val documentId = DocumentsContract.getTreeDocumentId(rootUri)
-            val documentUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
-            val browseIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(documentUri, DocumentsContract.Document.MIME_TYPE_DIR)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(browseIntent)
-            return
-        } catch (e: Exception) {
-            // Fall through to next approach
-        }
-    }
-
-    // Try approach 2: Google Files app (common on Pixel devices)
-    try {
-        val filesIntent = Intent(Intent.ACTION_VIEW).apply {
-            setPackage("com.google.android.apps.nbu.files")
-            data = docFile.uri
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        context.startActivity(filesIntent)
-        return
-    } catch (e: Exception) {
-        // Fall through to next approach
-    }
-
-    // Try approach 3: Generic file manager with chooser
-    try {
-        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-            data = docFile.uri
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        val chooser = Intent.createChooser(viewIntent, context.getString(R.string.torrent_detail_open_folder))
-        context.startActivity(chooser)
-        return
-    } catch (e: Exception) {
-        Toast.makeText(
-            context,
-            context.getString(R.string.torrent_detail_open_folder_error, e.message),
-            Toast.LENGTH_SHORT
-        ).show()
-    }
-}
-
-/**
- * Get MIME type based on file extension.
- */
-private fun getMimeType(fileName: String): String {
-    val extension = fileName.substringAfterLast('.', "").lowercase()
-    return when (extension) {
-        // Video
-        "mp4" -> "video/mp4"
-        "mkv" -> "video/x-matroska"
-        "avi" -> "video/x-msvideo"
-        "mov" -> "video/quicktime"
-        "wmv" -> "video/x-ms-wmv"
-        "flv" -> "video/x-flv"
-        "webm" -> "video/webm"
-        "m4v" -> "video/x-m4v"
-        // Audio
-        "mp3" -> "audio/mpeg"
-        "flac" -> "audio/flac"
-        "wav" -> "audio/wav"
-        "aac" -> "audio/aac"
-        "ogg" -> "audio/ogg"
-        "m4a" -> "audio/mp4"
-        "wma" -> "audio/x-ms-wma"
-        // Images
-        "jpg", "jpeg" -> "image/jpeg"
-        "png" -> "image/png"
-        "gif" -> "image/gif"
-        "bmp" -> "image/bmp"
-        "webp" -> "image/webp"
-        "svg" -> "image/svg+xml"
-        // Documents
-        "pdf" -> "application/pdf"
-        "doc" -> "application/msword"
-        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        "txt" -> "text/plain"
-        "rtf" -> "application/rtf"
-        // Archives
-        "zip" -> "application/zip"
-        "rar" -> "application/x-rar-compressed"
-        "7z" -> "application/x-7z-compressed"
-        "tar" -> "application/x-tar"
-        "gz" -> "application/gzip"
-        // Default
-        else -> "*/*"
     }
 }
 

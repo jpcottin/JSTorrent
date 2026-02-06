@@ -34,22 +34,25 @@ class NotificationActionTest {
     @Before
     fun setup() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val app = context.applicationContext as JSTorrentApplication
         notificationManager = context.getSystemService(NotificationManager::class.java)
+
+        // Physical cleanup
+        ForegroundNotificationService.stop(context)
+        app.shutdownEngine()
+        Thread.sleep(200)
+
+        // Reset lifecycle manager state to construction defaults
+        app.serviceLifecycleManager.resetForTesting()
     }
 
     @After
     fun tearDown() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        ForegroundNotificationService.stop(context)
         val app = context.applicationContext as JSTorrentApplication
-        // Reset foreground flag to prevent test pollution
-        app.serviceLifecycleManager.setActivityForeground(false)
-
-        // Stop the engine service if running
-        if (ForegroundNotificationService.instance != null) {
-            ForegroundNotificationService.stop(context)
-            app.shutdownEngine()
-            Thread.sleep(500)
-        }
+        app.shutdownEngine()
+        Thread.sleep(500)
     }
 
     // =========================================================================

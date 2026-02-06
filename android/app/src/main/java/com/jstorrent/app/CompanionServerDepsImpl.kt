@@ -16,6 +16,7 @@ import com.jstorrent.companion.server.DownloadRoot
 import com.jstorrent.companion.server.KVStoreProvider
 import com.jstorrent.companion.server.RootStoreProvider
 import com.jstorrent.companion.server.TokenStoreProvider
+import com.jstorrent.app.util.FileOpener
 import com.jstorrent.quickjs.storage.SqliteKVStore
 
 private const val TAG = "CompanionServerDepsImpl"
@@ -194,5 +195,25 @@ class CompanionServerDepsImpl(
      */
     override fun notifyConnectionEstablished() {
         PendingLinkManager.notifyConnectionEstablished()
+    }
+
+    /**
+     * Open a file with the system's default application.
+     */
+    override fun openFile(rootKey: String, path: String): Pair<Boolean, String?> {
+        val result = FileOpener.openFile(appContext, rootKey, path)
+        return Pair(result.ok, result.error)
+    }
+
+    /**
+     * Open/reveal a folder in the system file manager.
+     */
+    override fun openFolder(rootKey: String, path: String): Pair<Boolean, String?> {
+        val result = if (path.isEmpty()) {
+            FileOpener.openFolder(appContext, rootKey)
+        } else {
+            FileOpener.revealInFolder(appContext, rootKey, path)
+        }
+        return Pair(result.ok, result.error)
     }
 }

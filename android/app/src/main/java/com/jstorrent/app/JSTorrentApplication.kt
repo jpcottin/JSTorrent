@@ -7,11 +7,14 @@ import android.net.Uri
 import android.util.Log
 import com.jstorrent.app.cache.TorrentSummaryCache
 import com.jstorrent.app.network.NetworkRestrictionEnforcer
+import com.jstorrent.app.notification.TorrentNotificationManager
 import com.jstorrent.app.viewmodel.EngineServiceRepository
 import com.jstorrent.app.network.NetworkStateProvider
 import com.jstorrent.app.service.ServiceLifecycleManager
+import com.jstorrent.app.settings.MetricsStore
 import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.app.storage.RootStore
+import com.jstorrent.quickjs.model.TorrentSummary
 import com.jstorrent.quickjs.EngineController
 import com.jstorrent.quickjs.storage.AndroidConfigHub
 import com.jstorrent.quickjs.storage.SqliteKVStore
@@ -65,6 +68,16 @@ class JSTorrentApplication : Application() {
         SettingsStore(this)
     }
 
+    // Notification manager for torrent completion/error events
+    private val torrentNotificationManager: TorrentNotificationManager by lazy {
+        TorrentNotificationManager(this)
+    }
+
+    // Metrics tracking
+    private val metricsStore: MetricsStore by lazy {
+        MetricsStore(this)
+    }
+
     // Shared EngineServiceRepository instance - use this instead of creating new instances
     // Critical: All ViewModels must share the same repository so the SubscriptionTracker
     // correctly tracks all subscriptions. Otherwise, when one ViewModel is cleared,
@@ -106,8 +119,8 @@ class JSTorrentApplication : Application() {
      * Compute the current restriction status based on network state and settings.
      * Returns "waiting_wifi", "waiting_vpn", or null.
      */
-    private fun computeRestrictionStatus(isWifi: Boolean, isVpn: Boolean): String? {
-        if (settingsStore.wifiOnlyEnabled && !isWifi) {
+    private fun computeRestrictionStatus(isUnmetered: Boolean, isVpn: Boolean): String? {
+        if (settingsStore.wifiOnlyEnabled && !isUnmetered) {
             return "waiting_wifi"
         }
         if (settingsStore.vpnOnlyEnabled && !isVpn) {
@@ -125,17 +138,17 @@ class JSTorrentApplication : Application() {
 
         // Set initial status immediately
         _restrictionStatus.value = computeRestrictionStatus(
-            isWifi = networkProvider.isWifiConnected.value,
+            isUnmetered = networkProvider.isUnmetered.value,
             isVpn = networkProvider.isVpnConnected.value
         )
 
         // Observe ongoing changes
         networkStateObservationJob = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
             combine(
-                networkProvider.isWifiConnected,
+                networkProvider.isUnmetered,
                 networkProvider.isVpnConnected
-            ) { isWifi, isVpn ->
-                computeRestrictionStatus(isWifi, isVpn)
+            ) { isUnmetered, isVpn ->
+                computeRestrictionStatus(isUnmetered, isVpn)
             }.collect { status ->
                 _restrictionStatus.value = status
             }
@@ -149,7 +162,7 @@ class JSTorrentApplication : Application() {
     fun onNetworkRestrictionSettingChanged() {
         val networkProvider = NetworkStateProvider.getInstanceOrNull() ?: return
         _restrictionStatus.value = computeRestrictionStatus(
-            isWifi = networkProvider.isWifiConnected.value,
+            isUnmetered = networkProvider.isUnmetered.value,
             isVpn = networkProvider.isVpnConnected.value
         )
     }
@@ -300,6 +313,10 @@ class JSTorrentApplication : Application() {
     // Job for torrent state observation - must be canceled on engine shutdown
     private var torrentStateObservationJob: Job? = null
 
+    // State tracking for completion/error notifications
+    private data class TorrentStateSnapshot(val progress: Double, val status: String)
+    private val previousTorrentStates = mutableMapOf<String, TorrentStateSnapshot>()
+
     // Network restriction enforcer - enforces WiFi-only/VPN-only policies
     // Lives here (not in ForegroundNotificationService) so it works when app is in foreground
     @Volatile
@@ -427,6 +444,10 @@ class JSTorrentApplication : Application() {
 
             torrentStateObservationJob?.cancel()
             torrentStateObservationJob = null
+
+            // Reset completion tracking for next engine start
+            previousTorrentStates.clear()
+
             _engineController?.close()
             _engineController = null
         }
@@ -470,15 +491,98 @@ class JSTorrentApplication : Application() {
     /**
      * Observe torrent state changes and notify the service lifecycle manager.
      * Cancels any existing observation to prevent leaking old EngineController instances.
+     *
+     * Also detects completion/error transitions and fires notifications.
+     * This MUST happen here (not in ForegroundNotificationService) because
+     * onTorrentStateChanged may stop the service before its polling loop runs.
      */
     private fun startTorrentStateObservation(controller: EngineController) {
         torrentStateObservationJob?.cancel()
         torrentStateObservationJob = engineScope.launch {
             controller.state.collect { state ->
                 val torrents = state?.torrents ?: emptyList()
+                // Check for completion/error BEFORE notifying lifecycle manager,
+                // which may stop the foreground service
+                checkTorrentStateTransitions(torrents)
                 serviceLifecycleManager.onTorrentStateChanged(torrents)
             }
         }
+    }
+
+    /**
+     * Detect torrent completion and error transitions, firing notifications.
+     */
+    private fun checkTorrentStateTransitions(torrents: List<TorrentSummary>) {
+        for (torrent in torrents) {
+            val prev = previousTorrentStates[torrent.infoHash]
+
+            // Only fire on actual transitions (prev != null), not when a torrent
+            // first appears. This avoids false notifications for torrents that were
+            // already complete when the engine loaded session data.
+            if (prev != null) {
+                // Detect completion: was incomplete, now complete
+                if (torrent.progress >= 1.0 && prev.progress < 1.0) {
+                    metricsStore.incrementCompletedDownloads()
+                    showCompletionNotification(torrent)
+                }
+
+                // Detect error: wasn't error, now is
+                if (torrent.status == "error" && prev.status != "error") {
+                    showErrorNotification(torrent)
+                }
+            }
+
+            previousTorrentStates[torrent.infoHash] = TorrentStateSnapshot(
+                progress = torrent.progress,
+                status = torrent.status
+            )
+        }
+
+        // Clean up removed torrents
+        val currentHashes = torrents.map { it.infoHash }.toSet()
+        previousTorrentStates.keys.removeAll { it !in currentHashes }
+    }
+
+    private fun showCompletionNotification(torrent: TorrentSummary) {
+        Log.i(TAG, "Torrent completed: ${torrent.name}")
+
+        engineScope.launch {
+            val size = try {
+                _engineController?.getTorrentListAsync()
+                    ?.find { it.infoHash == torrent.infoHash }
+                    ?.size ?: 0L
+            } catch (e: Exception) {
+                0L
+            }
+
+            val folderUri = getDefaultFolderUri()
+
+            torrentNotificationManager.showDownloadComplete(
+                torrentName = torrent.name,
+                infoHash = torrent.infoHash,
+                sizeBytes = size,
+                folderUri = folderUri
+            )
+        }
+    }
+
+    private fun showErrorNotification(torrent: TorrentSummary) {
+        Log.w(TAG, "Torrent error: ${torrent.name}")
+        torrentNotificationManager.showError(
+            torrentName = torrent.name,
+            infoHash = torrent.infoHash,
+            errorMessage = torrent.errorMessage ?: "Download error"
+        )
+    }
+
+    private fun getDefaultFolderUri(): Uri? {
+        val rootStore = RootStore(this)
+        val defaultKey = _configHub.defaultRootKey
+        if (defaultKey != null) {
+            return rootStore.resolveKey(defaultKey)
+        }
+        val roots = rootStore.listRoots()
+        return roots.firstOrNull()?.let { Uri.parse(it.uri) }
     }
 
     private fun applyEngineSettings(controller: EngineController) {

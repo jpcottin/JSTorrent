@@ -49,6 +49,10 @@ class TorrentListViewModel(
     private val _pendingRemovalTorrents = MutableStateFlow<Set<String>>(emptySet())
     val pendingRemovalTorrents: StateFlow<Set<String>> = _pendingRemovalTorrents.asStateFlow()
 
+    // Highlighted torrent (for duplicate detection feedback)
+    private val _highlightedTorrent = MutableStateFlow<String?>(null)
+    val highlightedTorrent: StateFlow<String?> = _highlightedTorrent.asStateFlow()
+
     init {
         // Load cache asynchronously on initialization
         cache?.let { summaryCache ->
@@ -61,6 +65,13 @@ class TorrentListViewModel(
         // SubscriptionTracker handles the case where engine isn't loaded yet - it will
         // replay the subscription when the controller becomes available.
         torrentsSubscription = repository.subscribe("torrents", "", 1000)
+
+        // Surface duplicate torrent events as highlight state
+        viewModelScope.launch {
+            repository.duplicateTorrentEvent.collect { infoHash ->
+                _highlightedTorrent.value = infoHash
+            }
+        }
 
         // Clear pending state when engine reports torrent state updates
         // This provides the "response" half of the immediate feedback loop
@@ -327,6 +338,13 @@ class TorrentListViewModel(
         onEnsureEngineStarted()
         repository.addTorrent(magnetOrBase64)
         onTorrentAdded()
+    }
+
+    /**
+     * Clear the highlighted torrent state (called after animation completes).
+     */
+    fun clearHighlight() {
+        _highlightedTorrent.value = null
     }
 
     /**

@@ -39,6 +39,14 @@ class ServiceLifecycleTest {
         app = context.applicationContext as JSTorrentApplication
         settingsStore = SettingsStore(context)
 
+        // Physical cleanup
+        ForegroundNotificationService.stop(context)
+        app.shutdownEngine()
+        Thread.sleep(200)
+
+        // Reset lifecycle manager state to construction defaults
+        app.serviceLifecycleManager.resetForTesting()
+
         // Reset settings to defaults for each test
         settingsStore.whenDownloadsComplete = "stop_and_close"
         settingsStore.wifiOnlyEnabled = false
@@ -46,9 +54,6 @@ class ServiceLifecycleTest {
 
     @After
     fun tearDown() {
-        // Reset foreground flag to prevent test pollution
-        app.serviceLifecycleManager.setActivityForeground(false)
-
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         ForegroundNotificationService.stop(context)
         app.shutdownEngine()
