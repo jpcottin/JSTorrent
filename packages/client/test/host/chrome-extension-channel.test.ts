@@ -224,7 +224,13 @@ describe('ChromeExtensionChannel', () => {
 
       mockPort.onMessage.listeners[0]({
         type: 'BRIDGE_STATE_CHANGED',
-        state: { status: 'connected', platform: 'desktop', daemonInfo: null, roots: [], lastError: null },
+        state: {
+          status: 'connected',
+          platform: 'desktop',
+          daemonInfo: null,
+          roots: [],
+          lastError: null,
+        },
       })
 
       expect(stateChanges).toHaveLength(0)
@@ -854,9 +860,10 @@ describe('ChromeExtensionChannel', () => {
       channel.notify({ type: 'visibility', visible: false })
 
       // Should fall back to sendMessage
-      expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
-        { type: 'notification:visibility', visible: false },
-      )
+      expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith({
+        type: 'notification:visibility',
+        visible: false,
+      })
     })
   })
 })
