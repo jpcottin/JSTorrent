@@ -8,6 +8,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
 };
+use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::oneshot;
 
 const TARGET_TRIPLE: &str = env!("TARGET_TRIPLE");
@@ -51,6 +52,50 @@ impl HostBridge {
 
         rx.await.map_err(|_| "Response channel closed".to_string())
     }
+}
+
+/// Pending deep link events that arrived before the frontend was ready.
+struct DeepLinkState {
+    pending: Mutex<Vec<serde_json::Value>>,
+}
+
+/// Create a host-event JSON value from a deep link URL string.
+/// Returns None if the URL isn't a recognized deep link type.
+fn deep_link_event(url_str: &str) -> Option<serde_json::Value> {
+    if url_str.starts_with("magnet:") {
+        Some(serde_json::json!({
+            "event": "MagnetAdded",
+            "payload": { "link": url_str }
+        }))
+    } else if url_str.starts_with("file://") && url_str.to_lowercase().ends_with(".torrent") {
+        torrent_file_event(url_str)
+    } else {
+        None
+    }
+}
+
+/// Read a .torrent file from a file:// URL and create a TorrentAdded event.
+fn torrent_file_event(file_url: &str) -> Option<serde_json::Value> {
+    use base64::Engine;
+
+    // Parse file:// URL to a path. On Unix, file:///path → /path
+    let path_str = file_url.strip_prefix("file://")?;
+    let path = std::path::Path::new(path_str);
+
+    let contents = std::fs::read(path).ok()?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&contents);
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    Some(serde_json::json!({
+        "event": "TorrentAdded",
+        "payload": {
+            "name": name,
+            "contentsBase64": encoded
+        }
+    }))
 }
 
 /// Resolve sidecar binary path following Tauri's naming convention.
@@ -160,12 +205,24 @@ async fn host_message(
     state.request(message).await
 }
 
+/// Return and clear any deep link events that arrived before the frontend was ready.
+#[tauri::command]
+fn get_pending_deep_links(state: tauri::State<'_, DeepLinkState>) -> Vec<serde_json::Value> {
+    let mut pending = state.pending.lock().unwrap_or_else(|e| e.into_inner());
+    pending.drain(..).collect()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![host_handshake, host_message])
+        .plugin(tauri_plugin_deep_link::init())
+        .invoke_handler(tauri::generate_handler![
+            host_handshake,
+            host_message,
+            get_pending_deep_links,
+        ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let _ = window.hide();
@@ -212,6 +269,49 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Deep links
+            let deep_link_state = DeepLinkState {
+                pending: Mutex::new(Vec::new()),
+            };
+
+            // Collect any URLs that launched the app (startup deep links).
+            // These are stored as pending events for the frontend to retrieve
+            // after it connects (via get_pending_deep_links command).
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                if let Ok(mut pending) = deep_link_state.pending.lock() {
+                    for url in urls {
+                        if let Some(event) = deep_link_event(&url.to_string()) {
+                            pending.push(event);
+                        }
+                    }
+                }
+            }
+
+            app.manage(deep_link_state);
+
+            // Handle deep links received while the app is already running (macOS).
+            // On Windows/Linux, a new process is spawned instead — handled via get_current() above
+            // combined with single-instance plugin (future enhancement).
+            let deep_link_handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    if let Some(evt) = deep_link_event(&url.to_string()) {
+                        let _ = deep_link_handle.emit("host-event", &evt);
+                    }
+                }
+                // Show the main window when a deep link arrives
+                if let Some(window) = deep_link_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            });
+
+            // Register URL scheme handlers at runtime (Windows/Linux only).
+            // macOS uses Info.plist entries generated from tauri.conf.json at build time.
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            app.deep_link().register_all()?;
 
             // Spawn system-bridge sidecar
             let host_path = resolve_sidecar(app.handle(), "binaries/jstorrent-host")?;

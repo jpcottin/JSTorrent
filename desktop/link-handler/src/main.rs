@@ -240,8 +240,7 @@ fn launch_browser() -> Result<()> {
         log!("DEBUG: Attempting xdg-open...");
         if Command::new("xdg-open").arg(&url).spawn().is_err() {
             return Err(anyhow::anyhow!(
-                "Could not launch browser. Please open JSTorrent manually: {}",
-                url
+                "Could not launch browser. Please open JSTorrent manually: {url}"
             ));
         }
     }
@@ -263,8 +262,7 @@ fn launch_browser() -> Result<()> {
             .is_err()
         {
             return Err(anyhow::anyhow!(
-                "Could not launch browser. Please open JSTorrent manually: {}",
-                url
+                "Could not launch browser. Please open JSTorrent manually: {url}"
             ));
         }
     }
@@ -387,7 +385,7 @@ fn show_error(msg: &str, link: Option<&str>) {
     {
         let zenity_ok = Command::new("zenity")
             .arg("--error")
-            .arg(format!("--text={}", full_msg))
+            .arg(format!("--text={full_msg}"))
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);

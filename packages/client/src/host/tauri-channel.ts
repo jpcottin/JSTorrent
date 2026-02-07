@@ -123,6 +123,10 @@ export class TauriChannel implements HostChannel {
           }
         },
       )
+
+      // Retrieve any deep link events that arrived before the frontend was ready
+      // (e.g., app was launched by clicking a magnet link)
+      this.drainPendingDeepLinks()
     } catch (e) {
       this.updateState({
         ...this.currentState,
@@ -330,6 +334,23 @@ export class TauriChannel implements HostChannel {
   }
 
   // --- Private helpers ---
+
+  private drainPendingDeepLinks(): void {
+    tauriInvoke<{ event: string; payload: unknown }[]>('get_pending_deep_links')
+      .then((events) => {
+        for (const evt of events) {
+          if (evt.event) {
+            const nativeEvent: NativeEvent = { event: evt.event, payload: evt.payload }
+            for (const cb of this.eventListeners) {
+              cb(nativeEvent)
+            }
+          }
+        }
+      })
+      .catch((e) => {
+        console.warn('[TauriChannel] Failed to get pending deep links:', e)
+      })
+  }
 
   private updateState(newState: HostState): void {
     this.currentState = newState
