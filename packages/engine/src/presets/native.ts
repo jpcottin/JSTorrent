@@ -19,9 +19,9 @@ import type { NetworkInterface } from '../upnp/upnp-manager'
 import type { LogEntry } from '../logging/logger'
 import type { ConfigHub } from '../config/config-hub'
 
-// XXX HACK: Enable conservative seeding for native (QuickJS) to limit disk read concurrency.
-// See TorrentUploader.MAX_PENDING_READS for details on the lazy unchoke limitation.
-TorrentUploader.MAX_PENDING_READS = 8
+// Conservative send buffer watermark for native (QuickJS) to limit buffered upload data.
+// Lower than daemon/extension default (512KB) to protect against OOM on Android.
+TorrentUploader.SEND_BUFFER_WATERMARK = 64 * 1024
 
 /**
  * Get network interfaces from the native layer.

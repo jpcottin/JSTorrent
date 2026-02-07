@@ -79,6 +79,7 @@ export interface TickLoopCallbacks {
   // Actions
   requestPieces(peer: PeerConnection, now: number): void
   requestConnections(infoHashStr: string, count: number): void
+  fillSendBuffers(peers: PeerConnection[]): void
 
   // Event emission
   emitInvariantViolation(data: {
@@ -326,6 +327,9 @@ export class TorrentTickLoop extends EngineComponent {
     const phase3End = Date.now()
     this._phase3TotalMs += phase3End - phase3Start
     this._totalRequestsSent += requestsSentThisTick
+
+    // === Phase 3.5: UPLOAD - fill peer send buffers from queued upload requests ===
+    this.callbacks.fillSendBuffers(connectedPeers)
 
     // === Phase 4: OUTPUT - flush all queued sends ===
     // First, broadcast any pending HAVE messages (batched from piece completions during GATHER)

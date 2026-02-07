@@ -1,13 +1,17 @@
 import { PeerConnection } from './peer-connection'
 import { EngineComponent, ILoggingEngine } from '../logging/logger'
 
-/** Queued upload request for rate limiting */
+/** Queued upload request */
 interface QueuedUploadRequest {
-  peer: PeerConnection
   index: number
   begin: number
   length: number
-  queuedAt: number
+}
+
+/** Per-peer upload state */
+interface PeerUploadState {
+  requests: QueuedUploadRequest[]
+  readingBytes: number
 }
 
 /** Token bucket interface for rate limiting */
@@ -25,35 +29,24 @@ interface ContentReader {
 /**
  * Handles uploading piece data to peers with rate limiting.
  *
- * Queues incoming requests and drains them respecting the upload rate limit.
- * Validates requests before queueing (peer not choked, piece is serveable).
+ * Pull-based model: requests are queued per-peer and served during the
+ * tick UPLOAD phase via fillSendBuffers(). Disk reads are issued only
+ * while the peer's send buffer has room (watermark check).
  *
- * When conservativeSeeding is enabled (default), chokes peers when disk read
- * backpressure exceeds threshold. Per BEP 3, choked peers' pending requests
- * are discarded and must be re-requested after unchoke.
+ * No backpressure choking — requests stay queued until the peer's
+ * send buffer drains. Per-peer fairness via independent watermarks.
  */
 export class TorrentUploader extends EngineComponent {
   static override logName = 'uploader'
 
-  /**
-   * Max pending disk reads before choking peers due to backpressure.
-   * 0 = disabled (no backpressure choking).
-   *
-   * XXX HACK: This uses lazy unchoke (waits for 10s unchoke algorithm cycle).
-   * TODO: Implement proper backpressure recovery - track which peers were
-   * choked due to backpressure and unchoke them immediately when pendingReads
-   * drops below threshold. Current approach causes unnecessary upload stalls.
-   */
-  static MAX_PENDING_READS = 0
+  /** Max bytes in send buffer + in-flight reads before pausing uploads to a peer */
+  static SEND_BUFFER_WATERMARK = 512 * 1024
 
-  /** Queue of pending upload requests */
-  private queue: QueuedUploadRequest[] = []
+  /** Max queued requests per peer before silently rejecting new ones */
+  static MAX_REQUEST_QUEUE_PER_PEER = 500
 
-  /** Whether a drain loop is scheduled */
-  private drainScheduled = false
-
-  /** Number of disk reads currently in flight */
-  private pendingReads = 0
+  /** Per-peer upload state */
+  private peerState = new Map<PeerConnection, PeerUploadState>()
 
   /** Upload rate limit bucket */
   private readonly uploadBucket: UploadBucket
@@ -70,9 +63,6 @@ export class TorrentUploader extends EngineComponent {
   /** Callback to record uploaded bytes for bandwidth tracking */
   private readonly recordUpload: (bytes: number) => void
 
-  /** Callback to choke a peer (for backpressure) */
-  private readonly chokePeer: ((peer: PeerConnection) => void) | null
-
   constructor(config: {
     engine: ILoggingEngine
     infoHash: Uint8Array
@@ -80,7 +70,6 @@ export class TorrentUploader extends EngineComponent {
     isPeerConnected: (peer: PeerConnection) => boolean
     canServePiece: (index: number) => boolean
     recordUpload: (bytes: number) => void
-    chokePeer?: (peer: PeerConnection) => void
   }) {
     super(config.engine)
     this.infoHash = config.infoHash
@@ -88,7 +77,6 @@ export class TorrentUploader extends EngineComponent {
     this.isPeerConnected = config.isPeerConnected
     this.canServePiece = config.canServePiece
     this.recordUpload = config.recordUpload
-    this.chokePeer = config.chokePeer ?? null
   }
 
   /**
@@ -101,27 +89,12 @@ export class TorrentUploader extends EngineComponent {
 
   /**
    * Queue an upload request from a peer.
-   * Validates the request before queueing.
+   * Validates the request before queueing to the per-peer queue.
+   * Does NOT trigger reads — reads happen in fillSendBuffers().
    *
    * @returns true if request was queued, false if rejected
    */
   queueRequest(peer: PeerConnection, index: number, begin: number, length: number): boolean {
-    // Backpressure check: if too many reads pending, choke the peer
-    if (
-      TorrentUploader.MAX_PENDING_READS > 0 &&
-      this.pendingReads >= TorrentUploader.MAX_PENDING_READS
-    ) {
-      if (!peer.amChoking && this.chokePeer) {
-        this.logger.debug(
-          `Backpressure: choking peer (${this.pendingReads} reads pending, queue=${this.queue.length})`,
-        )
-        this.chokePeer(peer)
-        // Discard all queued requests from this peer per BEP 3
-        this.removeQueuedUploads(peer)
-      }
-      return false
-    }
-
     // Validate: we must not be choking this peer
     if (peer.amChoking) {
       this.logger.debug('Ignoring request from choked peer')
@@ -139,108 +112,109 @@ export class TorrentUploader extends EngineComponent {
       return false
     }
 
-    // Queue the request
-    this.queue.push({
-      peer,
-      index,
-      begin,
-      length,
-      queuedAt: Date.now(),
-    })
+    // Get or create per-peer state
+    let state = this.peerState.get(peer)
+    if (!state) {
+      state = { requests: [], readingBytes: 0 }
+      this.peerState.set(peer, state)
+    }
 
-    // Trigger drain
-    this.drainQueue()
+    // Per-peer queue limit
+    if (state.requests.length >= TorrentUploader.MAX_REQUEST_QUEUE_PER_PEER) {
+      return false
+    }
+
+    state.requests.push({ index, begin, length })
     return true
   }
 
   /**
-   * Remove all queued uploads for a peer (e.g., when they disconnect).
-   * @returns number of requests removed
+   * Fill peer send buffers from queued upload requests.
+   * Called during tick UPLOAD phase. Issues async disk reads
+   * gated by per-peer send buffer watermark and global rate limit.
    */
-  removeQueuedUploads(peer: PeerConnection): number {
-    const before = this.queue.length
-    this.queue = this.queue.filter((req) => req.peer !== peer)
-    return before - this.queue.length
-  }
+  fillSendBuffers(peers: PeerConnection[]): void {
+    if (!this.contentStorage) return
 
-  /**
-   * Get the current queue length (for debugging/stats).
-   */
-  get queueLength(): number {
-    return this.queue.length
-  }
+    const storage = this.contentStorage
 
-  // === Private methods ===
+    for (const peer of peers) {
+      const state = this.peerState.get(peer)
+      if (!state) continue
 
-  private async drainQueue(): Promise<void> {
-    // Prevent concurrent drain loops
-    if (this.drainScheduled) return
-
-    while (this.queue.length > 0) {
-      const req = this.queue[0]
-
-      // Skip if peer disconnected
-      if (!this.isPeerConnected(req.peer)) {
-        this.queue.shift()
+      // Choked peers: discard their queued requests
+      if (peer.amChoking) {
+        this.peerState.delete(peer)
         continue
       }
 
-      // Skip if we've since choked this peer
-      if (req.peer.amChoking) {
-        this.queue.shift()
-        this.logger.debug('Discarding queued request: peer now choked')
-        continue
-      }
+      while (state.requests.length > 0) {
+        // Watermark check: send buffer + in-flight reads
+        if (peer.sendBufferBytes + state.readingBytes >= TorrentUploader.SEND_BUFFER_WATERMARK) {
+          break
+        }
 
-      // Rate limit check
-      if (this.uploadBucket.isLimited && !this.uploadBucket.tryConsume(req.length)) {
-        // Schedule retry when tokens available
-        const delayMs = this.uploadBucket.msUntilAvailable(req.length)
-        this.drainScheduled = true
-        setTimeout(
-          () => {
-            this.drainScheduled = false
-            this.drainQueue()
+        const req = state.requests[0]
+
+        // Global rate limit check
+        if (this.uploadBucket.isLimited && !this.uploadBucket.tryConsume(req.length)) {
+          return // Rate-limited globally — stop all peers
+        }
+
+        state.requests.shift()
+        state.readingBytes += req.length
+
+        // Fire-and-forget async read
+        storage.read(req.index, req.begin, req.length).then(
+          (block) => {
+            state.readingBytes -= req.length
+            // Final check: peer still connected and unchoked
+            if (!this.isPeerConnected(peer)) return
+            if (peer.amChoking) return
+            peer.sendPiece(req.index, req.begin, block)
+            this.recordUpload(block.length)
           },
-          Math.max(delayMs, 10),
-        ) // minimum 10ms to avoid tight loop
-        return
+          (err) => {
+            state.readingBytes -= req.length
+            this.logger.error(
+              `Error reading for upload: ${err instanceof Error ? err.message : String(err)}`,
+              { err },
+            )
+          },
+        )
       }
 
-      // Dequeue and process
-      this.queue.shift()
-
-      try {
-        this.pendingReads++
-        const block = await this.contentStorage!.read(req.index, req.begin, req.length)
-        this.pendingReads--
-
-        // Final check: peer still connected and unchoked
-        if (!this.isPeerConnected(req.peer)) {
-          this.logger.debug('Peer disconnected before upload could complete')
-          continue
-        }
-        if (req.peer.amChoking) {
-          this.logger.debug('Peer choked before upload could complete')
-          continue
-        }
-
-        req.peer.sendPiece(req.index, req.begin, block)
-        this.recordUpload(block.length)
-      } catch (err) {
-        this.pendingReads--
-        this.logger.error(
-          `Error handling queued request: ${err instanceof Error ? err.message : String(err)}`,
-          { err },
-        )
+      // Clean up empty state
+      if (state.requests.length === 0 && state.readingBytes === 0) {
+        this.peerState.delete(peer)
       }
     }
   }
 
   /**
-   * Get the number of disk reads currently in flight (for debugging/stats).
+   * Remove all queued uploads for a peer (e.g., when they disconnect or are choked).
+   * @returns number of requests removed
    */
-  get pendingReadCount(): number {
-    return this.pendingReads
+  removeQueuedUploads(peer: PeerConnection): number {
+    const state = this.peerState.get(peer)
+    if (!state) return 0
+    const removed = state.requests.length
+    state.requests = []
+    // Keep entry if readingBytes > 0 (in-flight reads still need to decrement)
+    if (state.readingBytes === 0) {
+      this.peerState.delete(peer)
+    }
+    return removed
+  }
+
+  /**
+   * Get the total queue length across all peers (for debugging/stats).
+   */
+  get queueLength(): number {
+    let total = 0
+    for (const state of this.peerState.values()) {
+      total += state.requests.length
+    }
+    return total
   }
 }

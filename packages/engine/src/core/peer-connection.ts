@@ -133,6 +133,11 @@ export class PeerConnection extends EngineComponent {
   public peerInterested = false
   public amChoking = true
   public amInterested = false
+
+  /** Bytes currently queued in the send buffer (for upload watermark checks) */
+  get sendBufferBytes(): number {
+    return this.sendQueueBytes
+  }
   public peerExtensions = false
   public peerFastExtension = false // BEP 6 Fast Extension support
   public requestsPending = 0 // Number of outstanding requests

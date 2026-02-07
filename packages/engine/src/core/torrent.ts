@@ -500,11 +500,6 @@ export class Torrent extends EngineComponent {
       isPeerConnected: (peer) => this.connectedPeers.includes(peer),
       canServePiece: (index) => this.canServePiece(index),
       recordUpload: (bytes) => this.btEngine.bandwidthTracker.record('peer:payload', bytes, 'up'),
-      chokePeer: (peer) => {
-        if (peer.amChoking) return
-        peer.amChoking = true
-        peer.sendMessage(MessageType.CHOKE)
-      },
     })
     this._uploader.setContentStorage(this.contentStorage ?? null)
 
@@ -590,6 +585,7 @@ export class Torrent extends EngineComponent {
       requestPieces: (peer, now) => this.requestPieces(peer, now),
       requestConnections: (infoHashStr, count) =>
         this.btEngine.requestConnections(infoHashStr, count),
+      fillSendBuffers: (peers) => this._uploader.fillSendBuffers(peers),
 
       // Event emission
       emitInvariantViolation: (data) => this.emit('test:invariant_violation', data),
