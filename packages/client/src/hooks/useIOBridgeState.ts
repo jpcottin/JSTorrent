@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getBridge } from '../chrome/extension-bridge'
+import { useHostChannel } from '../host/HostChannelContext'
+import { ChromeExtensionChannel } from '../host/chrome-extension-channel'
 import type { BootstrapState } from '../../../../extension/src/lib/chromeos-bootstrap'
 import type { PortStatus, DaemonBridgeState, DaemonStats } from '../host/types'
 
@@ -12,14 +13,6 @@ export type {
   DaemonBridgeState,
   DaemonStats,
 } from '../host/types'
-
-const INITIAL_STATE: DaemonBridgeState = {
-  status: 'connecting',
-  platform: 'desktop',
-  daemonInfo: null,
-  roots: [],
-  lastError: null,
-}
 
 export interface UseIOBridgeStateConfig {
   /** Callback for native events (TorrentAdded, MagnetAdded) */
@@ -43,267 +36,68 @@ export interface UseIOBridgeStateResult {
 }
 
 /**
- * Hook to subscribe to DaemonBridge state from service worker.
+ * Hook to subscribe to DaemonBridge state via HostChannel.
  *
  * Returns current state and action callbacks.
- * Also handles native events (TorrentAdded, MagnetAdded) via the port.
+ * Also handles native events (TorrentAdded, MagnetAdded) via the channel.
  */
 export function useIOBridgeState(config: UseIOBridgeStateConfig = {}): UseIOBridgeStateResult {
   const { onNativeEvent } = config
-  const [state, setState] = useState<DaemonBridgeState>(INITIAL_STATE)
-  const [hasEverConnected, setHasEverConnected] = useState(false)
-  const [chromeosBootstrapState, setChromeosBootstrapState] = useState<BootstrapState | null>(null)
+  const channel = useHostChannel()
+  const [state, setState] = useState<DaemonBridgeState>(() => channel.getState())
+  const [hasEverConnected, setHasEverConnected] = useState(
+    () => channel.getState().status === 'connected',
+  )
+  const [chromeosBootstrapState, setChromeosBootstrapState] = useState<BootstrapState | null>(() =>
+    channel instanceof ChromeExtensionChannel ? channel.getChromeOSBootstrapState() : null,
+  )
   const [chromeosHasEverConnected, setChromeosHasEverConnected] = useState(false)
-  const [portStatus, setPortStatus] = useState<PortStatus>('reconnecting')
   const onNativeEventRef = useRef(onNativeEvent)
-
-  // Refs for port management (to allow reconnection without re-running effect)
-  const swPortRef = useRef<chrome.runtime.Port | null>(null)
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Keep ref updated
   useEffect(() => {
     onNativeEventRef.current = onNativeEvent
   }, [onNativeEvent])
 
-  // Connect to SW and subscribe to state changes
+  // Subscribe to state changes and events via HostChannel
   useEffect(() => {
-    const bridge = getBridge()
+    const unsubState = channel.onStateChanged((newState) => {
+      setState(newState)
+      if (newState.status === 'connected') setHasEverConnected(true)
+    })
 
-    // In Tauri context, skip Chrome port connection entirely
-    if (bridge.isTauri) {
-      setState({ ...INITIAL_STATE, status: 'disconnected' })
-      setPortStatus('disconnected')
-      return
-    }
-
-    // Message handler (reused across reconnections)
-    const handleMessage = (msg: {
-      type?: string
-      event?: string
-      payload?: unknown
-      state?: DaemonBridgeState | BootstrapState
-      hasEverConnected?: boolean
-    }) => {
-      // Handle DaemonBridge state changes
-      if (msg.type === 'BRIDGE_STATE_CHANGED' && msg.state) {
-        setState(msg.state as DaemonBridgeState)
-        if (msg.hasEverConnected !== undefined) {
-          setHasEverConnected(msg.hasEverConnected)
-        }
+    const unsubEvent = channel.onEvent((event) => {
+      if (onNativeEventRef.current) {
+        onNativeEventRef.current(event.event, event.payload)
       }
-      // Handle ChromeOS bootstrap state changes
-      else if (msg.type === 'CHROMEOS_BOOTSTRAP_STATE' && msg.state) {
-        const bootstrapState = msg.state as BootstrapState
-        console.log(
-          `[useIOBridgeState] ChromeOS bootstrap state: ${bootstrapState.phase}, problem: ${bootstrapState.problem}`,
-        )
+    })
+
+    // Subscribe to ChromeOS bootstrap state if available
+    let unsubBootstrap: (() => void) | undefined
+    if (channel instanceof ChromeExtensionChannel) {
+      const chromeChannel = channel
+      unsubBootstrap = chromeChannel.onChromeOSBootstrapStateChanged((bootstrapState) => {
         setChromeosBootstrapState(bootstrapState)
         if (bootstrapState.phase === 'connected') {
           setChromeosHasEverConnected(true)
         }
-      }
-      // Handle CLOSE message (single UI enforcement)
-      else if (msg.type === 'CLOSE') {
-        console.log('[useIOBridgeState] Received CLOSE, closing window')
-        window.close()
-      }
-      // Handle native events (TorrentAdded, MagnetAdded)
-      else if (msg.event && onNativeEventRef.current) {
-        onNativeEventRef.current(msg.event, msg.payload)
-      }
-    }
-
-    // Connect port to service worker
-    const connectPort = (): boolean => {
-      // Clean up any pending reconnect
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current)
-        reconnectTimeoutRef.current = null
-      }
-
-      try {
-        setPortStatus('reconnecting')
-        let port: chrome.runtime.Port
-        if (bridge.isDevMode && bridge.extensionId) {
-          port = chrome.runtime.connect(bridge.extensionId, { name: 'ui' })
-        } else {
-          port = chrome.runtime.connect({ name: 'ui' })
-        }
-
-        port.onMessage.addListener(handleMessage)
-
-        port.onDisconnect.addListener(() => {
-          console.log('[useIOBridgeState] Port disconnected')
-          swPortRef.current = null
-          setPortStatus('disconnected')
-
-          // If tab is visible, reconnect immediately
-          // Otherwise, wait for visibility change
-          if (document.visibilityState === 'visible') {
-            console.log('[useIOBridgeState] Tab visible, scheduling reconnect')
-            reconnectTimeoutRef.current = setTimeout(() => {
-              connectPort()
-            }, 100)
-          } else {
-            console.log('[useIOBridgeState] Tab hidden, will reconnect when visible')
-          }
-        })
-
-        swPortRef.current = port
-        setPortStatus('connected')
-        console.log('[useIOBridgeState] Port connected')
-        return true
-      } catch (e) {
-        console.error('[useIOBridgeState] Failed to connect port:', e)
-        setPortStatus('disconnected')
-        return false
-      }
-    }
-
-    // Handle visibility change - reconnect when tab becomes visible
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && !swPortRef.current) {
-        console.log('[useIOBridgeState] Tab became visible, reconnecting port')
-        connectPort()
-      }
-    }
-
-    // Fetch initial state via sendMessage (works even if port fails)
-    bridge
-      .sendMessage<{ ok: boolean; state?: DaemonBridgeState; hasEverConnected?: boolean }>({
-        type: 'GET_BRIDGE_STATE',
       })
-      .then((response) => {
-        if (response.ok && response.state) {
-          setState(response.state)
-          if (response.hasEverConnected !== undefined) {
-            setHasEverConnected(response.hasEverConnected)
-          }
-        }
-      })
-      .catch((e) => {
-        console.error('[useIOBridgeState] Failed to get initial state:', e)
-      })
-
-    // Connect port for real-time updates
-    connectPort()
-
-    // Listen for visibility changes to reconnect when foregrounded
-    document.addEventListener('visibilitychange', handleVisibilityChange)
+    }
 
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current)
-      }
-      swPortRef.current?.disconnect()
-      swPortRef.current = null
+      unsubState()
+      unsubEvent()
+      unsubBootstrap?.()
     }
-  }, [])
-
-  // Reconnect port (used by retry and exposed for manual reconnection)
-  const reconnectPort = useCallback(() => {
-    const bridge = getBridge()
-
-    // No Chrome port in Tauri context
-    if (bridge.isTauri) return false
-
-    // Message handler (duplicated here to avoid closure issues)
-    const handleMessage = (msg: {
-      type?: string
-      event?: string
-      payload?: unknown
-      state?: DaemonBridgeState | BootstrapState
-      hasEverConnected?: boolean
-    }) => {
-      if (msg.type === 'BRIDGE_STATE_CHANGED' && msg.state) {
-        setState(msg.state as DaemonBridgeState)
-        if (msg.hasEverConnected !== undefined) {
-          setHasEverConnected(msg.hasEverConnected)
-        }
-      } else if (msg.type === 'CHROMEOS_BOOTSTRAP_STATE' && msg.state) {
-        const bootstrapState = msg.state as BootstrapState
-        setChromeosBootstrapState(bootstrapState)
-        if (bootstrapState.phase === 'connected') {
-          setChromeosHasEverConnected(true)
-        }
-      } else if (msg.type === 'CLOSE') {
-        window.close()
-      } else if (msg.event && onNativeEventRef.current) {
-        onNativeEventRef.current(msg.event, msg.payload)
-      }
-    }
-
-    // Clean up existing port
-    if (swPortRef.current) {
-      swPortRef.current.disconnect()
-      swPortRef.current = null
-    }
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current)
-      reconnectTimeoutRef.current = null
-    }
-
-    try {
-      setPortStatus('reconnecting')
-      let port: chrome.runtime.Port
-      if (bridge.isDevMode && bridge.extensionId) {
-        port = chrome.runtime.connect(bridge.extensionId, { name: 'ui' })
-      } else {
-        port = chrome.runtime.connect({ name: 'ui' })
-      }
-
-      port.onMessage.addListener(handleMessage)
-
-      port.onDisconnect.addListener(() => {
-        console.log('[useIOBridgeState] Port disconnected (from retry)')
-        swPortRef.current = null
-        setPortStatus('disconnected')
-      })
-
-      swPortRef.current = port
-      setPortStatus('connected')
-      console.log('[useIOBridgeState] Port reconnected via retry')
-      return true
-    } catch (e) {
-      console.error('[useIOBridgeState] Failed to reconnect port:', e)
-      setPortStatus('disconnected')
-      return false
-    }
-  }, [])
+  }, [channel])
 
   // Action callbacks
-  const retry = useCallback(() => {
-    // Reconnect port first (this wakes SW and gets fresh state)
-    reconnectPort()
-    // Also tell SW to retry daemon connection
-    getBridge().postMessage({ type: 'RETRY_CONNECTION' })
-  }, [reconnectPort])
-
-  const launch = useCallback(() => {
-    getBridge().postMessage({ type: 'TRIGGER_LAUNCH' })
-  }, [])
-
+  const retry = useCallback(() => channel.retryConnection(), [channel])
+  const launch = useCallback(() => channel.triggerLaunch(), [channel])
   const cancel = useCallback(() => {
     // Cancel is no longer used in simplified bridge, but keep for API compatibility
-    console.log('[useIOBridgeState] cancel() called - no-op in simplified bridge')
   }, [])
-
-  const getStats = useCallback(async (): Promise<DaemonStats | null> => {
-    try {
-      const response = await getBridge().sendMessage<{ ok: boolean; stats?: DaemonStats }>({
-        type: 'GET_DAEMON_STATS',
-      })
-      if (response.ok && response.stats) {
-        return response.stats
-      }
-      return null
-    } catch (e) {
-      console.error('[useIOBridgeState] Failed to get stats:', e)
-      return null
-    }
-  }, [])
+  const getStats = useCallback(() => channel.getStats(), [channel])
 
   return {
     state,
@@ -315,6 +109,6 @@ export function useIOBridgeState(config: UseIOBridgeStateConfig = {}): UseIOBrid
     getStats,
     chromeosBootstrapState,
     chromeosHasEverConnected,
-    portStatus,
+    portStatus: state.status === 'connected' ? 'connected' : 'disconnected',
   }
 }

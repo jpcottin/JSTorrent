@@ -5,7 +5,9 @@ import { EngineProvider } from './context/EngineContext'
 import { ConfigProvider } from './context/ConfigContext'
 import { EngineManagerProvider } from './context/EngineManagerContext'
 import { useConfigInit } from './hooks/useConfigInit'
-import { engineManager } from './engine-manager/chrome-extension-engine-manager'
+import { createHostChannel } from './host/create-host-channel'
+import { HostChannelProvider } from './host/HostChannelContext'
+import { ChromeExtensionEngineManager } from './engine-manager/chrome-extension-engine-manager'
 import type { DownloadRoot } from './types'
 import { useIOBridgeState, ConnectionStatus } from './hooks/useIOBridgeState'
 import { useSystemBridge } from './hooks/useSystemBridge'
@@ -14,38 +16,29 @@ import { SystemBridgePanel } from './components/SystemBridgePanel'
 import { SystemBridgePanelChromeos } from './components/SystemBridgePanelChromeos'
 import { SettingsOverlay } from './components/SettingsOverlay'
 import { useChromeOSBootstrap } from './hooks/useChromeOSBootstrap'
-import { notificationBridge } from './chrome/notification-bridge'
 import { AppContent } from './AppContent'
 import { standaloneAlert } from './utils/dialogs'
 
 // Re-export types for backwards compatibility
 export type { AppContentProps, FileInfo } from './AppContent'
 
+// Create the host channel and engine manager at module level
+const channel = createHostChannel()
+channel.connect() // fire-and-forget; state changes arrive via onStateChanged
+const engineManager = new ChromeExtensionEngineManager(channel)
+window.engineManager = engineManager
+
+const isDevMode = channel.isDevMode()
+
 /**
  * ChromeAppContent - Wrapper around AppContent that provides Chrome-specific callbacks.
- * Uses engineManager for file operations and notificationBridge for duplicate notifications.
+ * Uses engineManager for file operations and channel for duplicate notifications.
  */
-// Detect dev mode:
-// - Extension unpacked: no update_url in manifest
-// - Website/standalone: use Vite's DEV flag
-const isDevMode = (() => {
-  try {
-    // Chrome extension context
-    if (typeof chrome !== 'undefined' && chrome.runtime?.getManifest) {
-      return !chrome.runtime.getManifest().update_url
-    }
-  } catch {
-    // Not in extension context
-  }
-  // Fallback for website/standalone
-  return import.meta.env.DEV
-})()
-
 function ChromeAppContent({ onOpenLoggingSettings }: { onOpenLoggingSettings?: () => void }) {
   return (
     <AppContent
       onOpenLoggingSettings={onOpenLoggingSettings}
-      onDuplicateTorrent={(name) => notificationBridge.onDuplicateTorrent(name)}
+      onDuplicateTorrent={(name) => channel.notify({ type: 'duplicate-torrent', name })}
       isDevMode={isDevMode}
       onOpenFolder={async (torrentHash) => {
         const result = await engineManager.openTorrentFolder(torrentHash)
@@ -192,6 +185,7 @@ function App() {
     roots,
     defaultRootKey,
     hasPendingTorrents,
+    extensionVersion: channel.getVersion(),
     onRetry: retry,
     onLaunch: launch,
     onCancel: cancel,
@@ -461,4 +455,12 @@ function App() {
   return content
 }
 
-export { App, AppContent }
+function AppWithChannel() {
+  return (
+    <HostChannelProvider channel={channel}>
+      <App />
+    </HostChannelProvider>
+  )
+}
+
+export { AppWithChannel as App, AppContent }

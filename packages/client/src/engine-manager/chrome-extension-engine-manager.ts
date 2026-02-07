@@ -7,7 +7,6 @@ import {
   WorkerHasher,
   TransferringWorkerHasher,
   StorageRootManager,
-  ExternalChromeStorageSessionStore,
   Socks5SocketFactory,
   globalLogStore,
   LogStore,
@@ -21,9 +20,11 @@ import {
   type ConfigHub,
   type StorageRoot as EngineStorageRoot,
 } from '@jstorrent/engine'
-import { ChromeConfigHub } from '../config'
-import { getBridge } from '../chrome/extension-bridge'
-import { notificationBridge, ProgressStats } from '../chrome/notification-bridge'
+import type { HostChannel } from '../host/host-channel'
+import type { ProgressStats } from '../host/types'
+import { HostChannelSessionStore } from '../host/host-channel-session-store'
+import { HostChannelConfigHub } from '../host/host-channel-config-hub'
+import { createNotificationBridge, type NotificationBridge } from '../chrome/notification-bridge'
 import { BackgroundAudioManager } from '../chrome/background-audio'
 import { BackgroundWebRTCManager } from '../chrome/background-webrtc'
 import type { DaemonInfo, DownloadRoot } from '../types'
@@ -45,75 +46,20 @@ declare global {
   interface Window {
     engine?: unknown
     getBatchWriteHistogram?: typeof getBatchWriteHistogram
+    engineManager?: ChromeExtensionEngineManager
   }
-}
-
-interface KVResponse<T = unknown> {
-  ok: boolean
-  value?: T
-  error?: string
-}
-
-/**
- * Send a KV message to the service worker.
- * Supports both internal (no extensionId) and external (with extensionId) contexts.
- */
-async function sendKVMessage<T>(
-  extensionId: string | undefined,
-  message: unknown,
-): Promise<KVResponse<T>> {
-  return new Promise((resolve, reject) => {
-    if (!chrome?.runtime?.sendMessage) {
-      reject(new Error('chrome.runtime.sendMessage not available'))
-      return
-    }
-
-    const callback = (response: KVResponse<T>) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message))
-      } else if (!response) {
-        reject(new Error('No response from extension - is it installed?'))
-      } else {
-        resolve(response)
-      }
-    }
-
-    if (extensionId) {
-      chrome.runtime.sendMessage(extensionId, message, callback)
-    } else {
-      chrome.runtime.sendMessage(message, callback)
-    }
-  })
 }
 
 /**
  * Create credentials getter for DaemonConnection.
- * Reads fresh values via KV handlers at connection time.
+ * Reads fresh values via HostChannel KV at connection time.
  */
-function createCredentialsGetter(): CredentialsGetter {
-  const bridge = getBridge()
-  // Convert null to undefined for type compatibility
-  const extensionId = bridge.isDevMode ? (bridge.extensionId ?? undefined) : undefined
-
+function createCredentialsGetter(channel: HostChannel): CredentialsGetter {
   return async () => {
-    // Use KV handlers with empty prefix since these keys don't have a prefix
-    const [tokenResponse, installIdResponse] = await Promise.all([
-      sendKVMessage<string>(extensionId, {
-        type: 'KV_GET',
-        key: 'android:authToken',
-        keyPrefix: '',
-        area: 'local',
-      }),
-      sendKVMessage<string>(extensionId, {
-        type: 'KV_GET',
-        key: 'installId',
-        keyPrefix: '',
-        area: 'local',
-      }),
+    const [token, installId] = await Promise.all([
+      channel.kvGet<string>('android:authToken', { keyPrefix: '', area: 'local' }),
+      channel.kvGet<string>('installId', { keyPrefix: '', area: 'local' }),
     ])
-
-    const token = tokenResponse.ok ? tokenResponse.value : undefined
-    const installId = installIdResponse.ok ? installIdResponse.value : undefined
 
     if (!token) {
       throw new Error('No auth token in storage')
@@ -128,24 +74,8 @@ function createCredentialsGetter(): CredentialsGetter {
 }
 
 /**
- * Create the session store.
- * Both contexts use ExternalChromeStorageSessionStore, which relays
- * operations to the service worker via chrome.runtime.sendMessage.
- */
-function createSessionStore(): ISessionStore {
-  const bridge = getBridge()
-  // Extension context: no extensionId (internal messaging)
-  // External context: includes extensionId for external messaging
-  // Convert null to undefined for type compatibility
-  return new ExternalChromeStorageSessionStore(
-    bridge.isDevMode ? (bridge.extensionId ?? undefined) : undefined,
-  )
-}
-
-/**
  * Chrome Extension engine manager.
  * Manages the BtEngine lifecycle in the UI thread for Chrome extension context.
- * Singleton - one engine per tab.
  */
 export class ChromeExtensionEngineManager implements IEngineManager {
   engine: BtEngine | null = null
@@ -155,8 +85,10 @@ export class ChromeExtensionEngineManager implements IEngineManager {
   readonly isStandalone = false
   readonly supportsFileOperations = true
 
+  private channel: HostChannel
   private _daemonInfo: DaemonInfo | null = null
   private sessionStore: ISessionStore | null = null
+  private notificationBridge: NotificationBridge | null = null
 
   /**
    * Whether download roots can be added/removed.
@@ -166,12 +98,15 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     return this._daemonInfo?.capabilities?.roots_manageable !== false
   }
   private initPromise: Promise<BtEngine> | null = null
-  private swPort: chrome.runtime.Port | null = null
   private notificationProgressInterval: ReturnType<typeof setInterval> | null = null
   private pendingNativeEvents: Array<{ event: string; payload: unknown }> = []
   private backgroundKeepAlive = USE_WEBRTC_KEEP_ALIVE
     ? new BackgroundWebRTCManager()
     : new BackgroundAudioManager()
+
+  constructor(channel: HostChannel) {
+    this.channel = channel
+  }
 
   /**
    * Initialize the engine. Safe to call multiple times - returns cached engine.
@@ -193,22 +128,13 @@ export class ChromeExtensionEngineManager implements IEngineManager {
   private async doInit(): Promise<BtEngine> {
     console.log('[ChromeExtensionEngineManager] Initializing...')
 
-    // 1. Get daemon info from service worker
-    const bridge = getBridge()
-    const response = await bridge.sendMessage<{
-      ok: boolean
-      daemonInfo?: DaemonInfo
-      roots?: DownloadRoot[]
-      error?: string
-      status?: string
-    }>({ type: 'GET_DAEMON_INFO' })
-    if (!response.ok) {
-      throw new Error(`Failed to get daemon info: ${response.error || response.status}`)
+    // 1. Get daemon info from host channel
+    const daemonInfo = await this.channel.getDaemonInfo()
+    if (!daemonInfo) {
+      throw new Error('Failed to get daemon info from host')
     }
-    const daemonInfo: DaemonInfo = response.daemonInfo!
     this._daemonInfo = daemonInfo
-    // Roots may come separately or in daemonInfo (for backwards compatibility)
-    const roots: DownloadRoot[] = response.roots ?? daemonInfo.roots ?? []
+    const roots: DownloadRoot[] = daemonInfo.roots ?? []
     console.log(
       '[ChromeExtensionEngineManager] Got daemon info:',
       daemonInfo,
@@ -227,7 +153,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       this.daemonConnection = new DaemonConnection(
         daemonInfo.port,
         daemonInfo.host,
-        createCredentialsGetter(),
+        createCredentialsGetter(this.channel),
         undefined, // legacyToken (not used for ChromeOS)
         daemonInfo.ioPort, // Separate high-throughput port for /io WebSocket
         daemonInfo.streamingPort, // Streaming batch write server (memory-efficient)
@@ -246,10 +172,10 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     try {
       await this.daemonConnection.connectWebSocket()
     } catch (error) {
-      // If auth failed, signal IOBridge to clear token and trigger re-pairing
+      // If auth failed, signal host to retry connection
       if (error instanceof Error && error.message.includes('auth failed')) {
-        console.log('[ChromeExtensionEngineManager] Auth failed, signaling IOBridge')
-        bridge.postMessage({ type: 'IOBRIDGE_AUTH_FAILED' })
+        console.log('[ChromeExtensionEngineManager] Auth failed, signaling host')
+        this.channel.retryConnection()
       }
       throw error
     }
@@ -277,7 +203,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     )
 
     // 4. Create session store (before registering roots so we can load default)
-    this.sessionStore = createSessionStore()
+    this.sessionStore = new HostChannelSessionStore(this.channel)
 
     // Register download roots from daemon
     if (roots.length > 0) {
@@ -305,8 +231,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     }
 
     // 5. Create and init ConfigHub
-    const extensionId = bridge.isDevMode ? (bridge.extensionId ?? undefined) : undefined
-    const configHub = new ChromeConfigHub(extensionId)
+    const configHub = new HostChannelConfigHub(this.channel)
     await configHub.init()
     this.configHub = configHub
     console.log('[ChromeExtensionEngineManager] ConfigHub initialized')
@@ -327,12 +252,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     configHub.setRuntime('storageRoots', storageRootsForConfig)
 
     // 6. Create engine (suspended) with ConfigHub
-    // Engine will auto-apply settings and subscribe to changes via ConfigHub
-    // Use RoutingHasher to route small/latency-sensitive ops to local SubtleCrypto
-    // and large operations to WorkerHasher (offloads hashing to Web Worker)
-    // TransferringWorkerHasher is used for boundary pieces where we need the data
-    // back after hashing (it uses zero-copy transfer to/from the worker)
-    // Note: Single-file pieces use verified write (daemon hashes atomically)
     const delegateHasher = new WorkerHasher()
     const transferringHasher = new TransferringWorkerHasher()
     const hasher = new RoutingHasher(delegateHasher, transferringHasher)
@@ -393,7 +312,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     })
 
     // 11. Set up notification handling
-    // Note: Port connection for native events is now handled by useIOBridgeState in App.tsx
     this.setupNotifications()
 
     // 12. Process any native events that arrived during initialization
@@ -417,7 +335,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
   }
 
   /**
-   * Clean shutdown - notify SW that this UI is closing.
+   * Clean shutdown - notify host that this UI is closing.
    */
   shutdown(): void {
     console.log('[ChromeExtensionEngineManager] Shutting down...')
@@ -428,8 +346,8 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       this.notificationProgressInterval = null
     }
 
-    // Notify service worker
-    getBridge().postMessage({ type: 'UI_CLOSING' })
+    // Notify host
+    this.channel.notifyClosing()
 
     // Clean up engine
     if (this.engine) {
@@ -454,7 +372,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
 
   /**
    * Reset engine state for reconnection.
-   * Unlike shutdown(), this doesn't notify the SW of UI closing.
+   * Unlike shutdown(), this doesn't notify the host of UI closing.
    * Called when the daemon disconnects so we can reinitialize with fresh connection info.
    */
   reset(): void {
@@ -484,22 +402,18 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     // Clear pending events and init state
     this.pendingNativeEvents = []
     this.initPromise = null
-    this.swReconnectAttempts = 0
   }
 
   /**
    * Handle IO websocket disconnect.
-   * Marks active torrents with error and shows notification.
    */
   private handleIoDisconnect(_reason: string): void {
-    // Update runtime state
     if (this.configHub) {
-      ;(this.configHub as ChromeConfigHub).setRuntime('daemonConnected', false)
+      ;(this.configHub as HostChannelConfigHub).setRuntime('daemonConnected', false)
     }
 
     if (!this.engine) return
 
-    // Mark all active torrents with IO error
     for (const torrent of this.engine.torrents) {
       if (torrent.userState === 'active' && !torrent.errorMessage) {
         torrent.errorMessage = 'IO connection lost'
@@ -509,88 +423,65 @@ export class ChromeExtensionEngineManager implements IEngineManager {
 
   /**
    * Handle IO websocket reconnect.
-   * Clears IO errors and resumes torrents.
    */
   private handleIoReconnect(): void {
-    // Update runtime state
     if (this.configHub) {
-      ;(this.configHub as ChromeConfigHub).setRuntime('daemonConnected', true)
+      ;(this.configHub as HostChannelConfigHub).setRuntime('daemonConnected', true)
     }
 
     if (!this.engine) return
 
-    // Clear IO-related errors and let torrents resume naturally
     for (const torrent of this.engine.torrents) {
       if (torrent.errorMessage === 'IO connection lost') {
         torrent.errorMessage = undefined
-        // Torrents will automatically re-establish peers on next tick
       }
     }
   }
 
   /**
    * Pick a download folder via native host.
-   * Returns the new root, or null if cancelled.
    */
   async pickDownloadFolder(): Promise<StorageRoot | null> {
-    const response = await getBridge().sendMessage<{
-      ok: boolean
-      root?: DownloadRoot
-      error?: string
-    }>({ type: 'PICK_DOWNLOAD_FOLDER' })
-    if (!response.ok || !response.root) {
-      return null
-    }
+    const root = await this.channel.pickDownloadFolder()
+    if (!root) return null
 
     const newRoot: EngineStorageRoot = {
-      key: response.root.key,
-      label: response.root.display_name,
-      path: response.root.path,
+      key: root.key,
+      label: root.display_name,
+      path: root.path,
     }
 
-    // Register with StorageRootManager
     if (this.engine) {
       this.engine.storageRootManager.addRoot(newRoot)
     }
 
-    // Update ConfigHub storageRoots
     if (this.configHub) {
       const currentRoots = this.configHub.storageRoots.get()
-      ;(this.configHub as ChromeConfigHub).setRuntime('storageRoots', [...currentRoots, newRoot])
+      ;(this.configHub as HostChannelConfigHub).setRuntime('storageRoots', [
+        ...currentRoots,
+        newRoot,
+      ])
     }
 
-    // Convert to StorageRoot interface
-    return {
-      key: response.root.key,
-      label: response.root.display_name,
-      path: response.root.path,
-    }
+    return { key: root.key, label: root.display_name, path: root.path }
   }
 
   /**
    * Remove a download root.
-   * Does not block removal if torrents are using it - they will error.
-   * Returns true if removed successfully.
    */
   async removeDownloadRoot(key: string): Promise<boolean> {
-    const response = await getBridge().sendMessage<{
-      ok: boolean
-      error?: string
-    }>({ type: 'REMOVE_DOWNLOAD_ROOT', key })
-
-    if (!response.ok) {
-      console.error('[ChromeExtensionEngineManager] Failed to remove root:', response.error)
+    try {
+      await this.channel.removeDownloadRoot(key)
+    } catch (e) {
+      console.error('[ChromeExtensionEngineManager] Failed to remove root:', e)
       return false
     }
 
-    // Remove from StorageRootManager
     if (this.engine) {
       this.engine.storageRootManager.removeRoot(key)
 
-      // If this was the default root, select a new default
       const currentDefault = this.engine.storageRootManager.getDefaultRoot()
       if (!currentDefault) {
-        // Default was cleared - set new default if any roots remain
         const remaining = this.engine.storageRootManager.getRoots()
         if (remaining.length > 0) {
           this.engine.storageRootManager.setDefaultRoot(remaining[0].key)
@@ -601,157 +492,94 @@ export class ChromeExtensionEngineManager implements IEngineManager {
             )
           }
         } else if (this.sessionStore) {
-          // No roots left - clear the persisted default
           await this.sessionStore.delete(DEFAULT_ROOT_KEY_KEY)
         }
       }
     }
 
-    // Update ConfigHub storageRoots
     if (this.configHub) {
       const currentRoots = this.configHub.storageRoots.get()
       const updatedRoots = currentRoots.filter((r) => r.key !== key)
-      ;(this.configHub as ChromeConfigHub).setRuntime('storageRoots', updatedRoots)
+      ;(this.configHub as HostChannelConfigHub).setRuntime('storageRoots', updatedRoots)
     }
 
     return true
   }
 
-  /**
-   * Open a file with the system's default application.
-   * @param torrentHash The torrent's info hash (hex)
-   * @param filePath The file's path (already includes torrent name as root dir per BT spec)
-   */
   async openFile(torrentHash: string, filePath: string): Promise<FileOperationResult> {
-    if (!this.engine) {
-      return { ok: false, error: 'Engine not initialized' }
-    }
+    if (!this.engine) return { ok: false, error: 'Engine not initialized' }
 
-    // Get the root key for this torrent
     const root = this.engine.storageRootManager.getRootForTorrent(torrentHash)
-    if (!root) {
-      return { ok: false, error: 'No storage root for torrent' }
-    }
+    if (!root) return { ok: false, error: 'No storage root for torrent' }
 
-    // filePath already includes torrent name as root directory (per BT spec for multi-file torrents)
-    return getBridge().sendMessage<FileOperationResult>({
-      type: 'OPEN_FILE',
-      rootKey: root.key,
-      path: filePath,
-    })
+    try {
+      await this.channel.openFile(root.key, filePath)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
   }
 
-  /**
-   * Reveal a file in the system file manager.
-   * @param torrentHash The torrent's info hash (hex)
-   * @param filePath The file's path (already includes torrent name as root dir per BT spec)
-   */
   async revealInFolder(torrentHash: string, filePath: string): Promise<FileOperationResult> {
-    if (!this.engine) {
-      return { ok: false, error: 'Engine not initialized' }
-    }
+    if (!this.engine) return { ok: false, error: 'Engine not initialized' }
 
-    // Get the root key for this torrent
     const root = this.engine.storageRootManager.getRootForTorrent(torrentHash)
-    if (!root) {
-      return { ok: false, error: 'No storage root for torrent' }
-    }
+    if (!root) return { ok: false, error: 'No storage root for torrent' }
 
-    // filePath already includes torrent name as root directory (per BT spec for multi-file torrents)
-    return getBridge().sendMessage<FileOperationResult>({
-      type: 'REVEAL_IN_FOLDER',
-      rootKey: root.key,
-      path: filePath,
-    })
+    try {
+      await this.channel.revealInFolder(root.key, filePath)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
   }
 
-  /**
-   * Open the torrent's storage folder in the system file manager.
-   * @param torrentHash The torrent's info hash (hex)
-   */
   async openTorrentFolder(torrentHash: string): Promise<FileOperationResult> {
-    if (!this.engine) {
-      return { ok: false, error: 'Engine not initialized' }
-    }
+    if (!this.engine) return { ok: false, error: 'Engine not initialized' }
 
     const torrent = this.engine.torrents.find((t) => toHex(t.infoHash) === torrentHash)
-    if (!torrent) {
-      return { ok: false, error: 'Torrent not found' }
-    }
+    if (!torrent) return { ok: false, error: 'Torrent not found' }
 
-    // Get the root key for this torrent
     const root = this.engine.storageRootManager.getRootForTorrent(torrentHash)
-    if (!root) {
-      return { ok: false, error: 'No storage root for torrent' }
-    }
+    if (!root) return { ok: false, error: 'No storage root for torrent' }
 
-    // Use torrent name as path (folder for multi-file, file for single-file)
     const path = torrent.name || torrentHash
-    return getBridge().sendMessage<FileOperationResult>({
-      type: 'REVEAL_IN_FOLDER',
-      rootKey: root.key,
-      path,
-    })
+    try {
+      await this.channel.revealInFolder(root.key, path)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
   }
 
-  /**
-   * Get the full filesystem path for a torrent file.
-   * @param torrentHash The torrent's info hash (hex)
-   * @param filePath The file's path (already includes torrent name as root dir per BT spec)
-   * @returns The full path, or null if the root is not found
-   */
   getFilePath(torrentHash: string, filePath: string): string | null {
-    if (!this.engine) {
-      return null
-    }
+    if (!this.engine) return null
 
-    // Get the root for this torrent (contains both key and path)
     const root = this.engine.storageRootManager.getRootForTorrent(torrentHash)
-    if (!root) {
-      return null
-    }
+    if (!root) return null
 
-    // Combine root path with file path
-    // filePath already includes torrent name as root directory (per BT spec for multi-file torrents)
     return `${root.path}/${filePath}`
   }
 
-  /**
-   * Set the default download root.
-   */
   async setDefaultRoot(key: string): Promise<void> {
-    if (!this.engine) {
-      throw new Error('Engine not initialized')
-    }
+    if (!this.engine) throw new Error('Engine not initialized')
     this.engine.storageRootManager.setDefaultRoot(key)
     if (this.sessionStore) {
       await this.sessionStore.set(DEFAULT_ROOT_KEY_KEY, new TextEncoder().encode(key))
     }
   }
 
-  /**
-   * Get current download roots.
-   */
   getRoots(): StorageRoot[] {
     if (!this.engine) return []
     return this.engine.storageRootManager.getRoots()
   }
 
-  /**
-   * Get current default root key.
-   */
   async getDefaultRootKey(): Promise<string | null> {
-    if (!this.sessionStore) {
-      return null
-    }
+    if (!this.sessionStore) return null
     const bytes = await this.sessionStore.get(DEFAULT_ROOT_KEY_KEY)
     return bytes ? new TextDecoder().decode(bytes) : null
   }
 
-  /**
-   * Set logging configuration dynamically.
-   * @param config - Logging configuration with global level and optional per-component levels
-   */
   setLoggingConfig(config: EngineLoggingConfig): void {
     if (!this.engine) {
       console.warn(
@@ -763,50 +591,31 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     console.log(`[ChromeExtensionEngineManager] Logging config updated: level=${config.level}`)
   }
 
-  /**
-   * Set up notification handling for download events.
-   */
   private setupNotifications(): void {
     if (!this.engine) return
 
-    // Subscribe to torrent complete events
+    this.notificationBridge = createNotificationBridge(this.channel)
+
     this.engine.on('torrent-complete', (torrent: Torrent) => {
-      notificationBridge.onTorrentComplete(toHex(torrent.infoHash), torrent.name || 'Unknown')
+      this.notificationBridge!.onTorrentComplete(toHex(torrent.infoHash), torrent.name || 'Unknown')
     })
 
-    // Subscribe to error events
-    // Note: Engine errors may not always have a torrent context
-    // We handle this gracefully by checking if torrent info is available
-
-    // Set up progress polling interval
     this.notificationProgressInterval = setInterval(() => {
       this.sendProgressUpdate()
     }, 1000)
 
-    // Send initial progress update
     this.sendProgressUpdate()
   }
 
-  /**
-   * Calculate and send progress stats to the notification bridge.
-   */
   private sendProgressUpdate(): void {
-    if (!this.engine) return
+    if (!this.engine || !this.notificationBridge) return
 
     const torrents = this.engine.torrents
-
-    // Active torrents: user wants them running and not complete
     const activeTorrents = torrents.filter(
       (t) => t.userState === 'active' && !t.isComplete && t.hasMetadata,
     )
-
-    // Error torrents: have an error message
     const errorTorrents = torrents.filter((t) => t.errorMessage)
-
-    // Calculate combined download speed
     const downloadSpeed = torrents.reduce((sum, t) => sum + (t.downloadSpeed || 0), 0)
-
-    // Calculate combined ETA (max of all active torrent ETAs)
     const eta = this.calculateCombinedEta(activeTorrents)
 
     const stats: ProgressStats = {
@@ -817,21 +626,14 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       singleTorrentName: activeTorrents.length === 1 ? activeTorrents[0].name : undefined,
     }
 
-    notificationBridge.updateProgress(stats)
-
-    // Update background audio manager with active download count
+    this.notificationBridge.updateProgress(stats)
     this.backgroundKeepAlive.updateActiveDownloads(stats.activeCount)
   }
 
-  /**
-   * Calculate the combined ETA for all active torrents.
-   * Returns the maximum ETA (i.e., when will all torrents be done).
-   */
   private calculateCombinedEta(activeTorrents: Torrent[]): number | null {
     let maxEta: number | null = null
 
     for (const torrent of activeTorrents) {
-      // Calculate ETA from progress and download speed
       if (torrent.downloadSpeed > 0 && torrent.progress < 1) {
         const remainingBytes = this.calculateRemainingBytes(torrent)
         if (remainingBytes > 0) {
@@ -846,18 +648,13 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     return maxEta
   }
 
-  /**
-   * Calculate remaining bytes for a torrent.
-   */
   private calculateRemainingBytes(torrent: Torrent): number {
-    // If we have content storage, use actual file sizes
     if (torrent.contentStorage) {
       const files = torrent.files
       const totalSize = files.reduce((sum, f) => sum + f.length, 0)
       return totalSize * (1 - torrent.progress)
     }
 
-    // Fallback: estimate from piece info
     if (torrent.piecesCount > 0) {
       const remainingPieces = torrent.piecesCount - torrent.completedPiecesCount
       return remainingPieces * torrent.pieceLength
@@ -866,96 +663,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     return 0
   }
 
-  private swReconnectAttempts = 0
-  private readonly SW_MAX_RECONNECTS = 3
-  private readonly SW_RECONNECT_DELAY = 1000
-
-  /**
-   * Connect to service worker via persistent port for real-time events.
-   */
-  private connectToServiceWorker(): void {
-    const bridge = getBridge()
-
-    // Check reconnect limit
-    if (this.swReconnectAttempts >= this.SW_MAX_RECONNECTS) {
-      console.error(
-        `[ChromeExtensionEngineManager] SW reconnect limit (${this.SW_MAX_RECONNECTS}) reached, giving up`,
-      )
-      return
-    }
-
-    try {
-      // In dev mode, connect with extension ID; in extension context, connect directly
-      if (bridge.isDevMode && bridge.extensionId) {
-        this.swPort = chrome.runtime.connect(bridge.extensionId, { name: 'ui' })
-      } else {
-        this.swPort = chrome.runtime.connect({ name: 'ui' })
-      }
-
-      // Check for connection error
-      if (chrome.runtime.lastError) {
-        throw new Error(chrome.runtime.lastError.message)
-      }
-
-      this.swPort.onMessage.addListener(
-        (msg: { type?: string; event?: string; payload?: unknown }) => {
-          console.log('[ChromeExtensionEngineManager] Received from SW:', msg)
-
-          // Reset reconnect counter on first message (proves connection is stable)
-          this.swReconnectAttempts = 0
-
-          // Handle CLOSE message (single UI enforcement)
-          if (msg.type === 'CLOSE') {
-            console.log('[ChromeExtensionEngineManager] Received CLOSE, closing window')
-            window.close()
-            return
-          }
-
-          // Handle native events
-          if (msg.event) {
-            this.handleNativeEvent(msg.event, msg.payload)
-          }
-        },
-      )
-
-      this.swPort.onDisconnect.addListener(() => {
-        console.log('[ChromeExtensionEngineManager] SW port disconnected')
-        this.swPort = null
-
-        // Only attempt reconnect if engine is still running
-        if (this.engine) {
-          this.swReconnectAttempts++
-          console.log(
-            `[ChromeExtensionEngineManager] Will retry SW connection (${this.swReconnectAttempts}/${this.SW_MAX_RECONNECTS})...`,
-          )
-          setTimeout(() => this.connectToServiceWorker(), this.SW_RECONNECT_DELAY)
-        }
-      })
-
-      console.log('[ChromeExtensionEngineManager] Connected to SW via port')
-    } catch (e) {
-      console.error('[ChromeExtensionEngineManager] Failed to connect to SW:', e)
-      this.swPort = null
-
-      // Retry connection
-      if (this.engine) {
-        this.swReconnectAttempts++
-        if (this.swReconnectAttempts < this.SW_MAX_RECONNECTS) {
-          console.log(
-            `[ChromeExtensionEngineManager] Retrying SW connection (${this.swReconnectAttempts}/${this.SW_MAX_RECONNECTS})...`,
-          )
-          setTimeout(() => this.connectToServiceWorker(), this.SW_RECONNECT_DELAY)
-        } else {
-          console.error('[ChromeExtensionEngineManager] Max retries reached, SW port not connected')
-        }
-      }
-    }
-  }
-
-  /**
-   * Handle native events forwarded from service worker.
-   * Public so App can forward events from useIOBridgeState.
-   */
   async handleNativeEvent(event: string, payload: unknown): Promise<void> {
     if (!this.engine) {
       console.log('[ChromeExtensionEngineManager] Engine not ready, queueing event:', event)
@@ -976,7 +683,6 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       const p = payload as { link: string }
       console.log('[ChromeExtensionEngineManager] Adding magnet:', p.link)
       try {
-        // addTorrent accepts both magnet links and torrent buffers
         await this.engine.addTorrent(p.link)
       } catch (e) {
         console.error('[ChromeExtensionEngineManager] Failed to add magnet:', e)
@@ -985,24 +691,23 @@ export class ChromeExtensionEngineManager implements IEngineManager {
   }
 }
 
-// Singleton export
-export const engineManager = new ChromeExtensionEngineManager()
-
-// Expose for debugging in console
-// @ts-expect-error -- exposing engineManager for debugging
-window.engineManager = engineManager
-
 /**
  * Debug helper: Add Big Buck Bunny test torrent and start immediately.
  * Call from console: addTestTorrent()
  */
 async function addTestTorrent(url?: string): Promise<Torrent | null> {
+  const em = window.engineManager
+  if (!em) {
+    console.error('[addTestTorrent] engineManager not available on window')
+    return null
+  }
+
   let magnet =
     url ??
     'magnet:?xt=urn:btih:a4e71df0553e6c565df4958a817b1f1a780503da&dn=big_buck_bunny_720p_surround.mp4'
   magnet += '&x.pe=127.0.0.1:8998&x.pe=127.0.0.1:6082'
 
-  const engine = await engineManager.init()
+  const engine = await em.init()
   const result = await engine.addTorrent(magnet)
   if (result.torrent) {
     console.log('[addTestTorrent] Added:', result.torrent.name, toHex(result.torrent.infoHash))
@@ -1023,13 +728,17 @@ async function addTestTorrent2(): Promise<Torrent | null> {
  * Call from console: addTestTorrents(100)
  */
 async function addTestTorrents(n: number): Promise<Torrent[]> {
-  const engine = await engineManager.init()
+  const em = window.engineManager
+  if (!em) {
+    console.error('[addTestTorrents] engineManager not available on window')
+    return []
+  }
+
+  const engine = await em.init()
   const added: Torrent[] = []
 
   for (let i = 1; i <= n; i++) {
-    // Pad to 3 hex digits for display: 001, 002, ..., 00f, 010, ...
     const hexNum = i.toString(16).padStart(3, '0')
-    // Full 40-char info hash (pad with leading zeros)
     const infoHash = i.toString(16).padStart(40, '0')
     const magnet = `magnet:?xt=urn:btih:${infoHash}&dn=test%20torrent%20${hexNum}`
 

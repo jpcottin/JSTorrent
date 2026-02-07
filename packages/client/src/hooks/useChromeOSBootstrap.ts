@@ -1,19 +1,26 @@
 import { useCallback } from 'react'
-import { getBridge } from '../chrome/extension-bridge'
+import { useHostChannel } from '../host/HostChannelContext'
+import { ChromeExtensionChannel } from '../host/chrome-extension-channel'
 
 /**
  * Hook to provide ChromeOS bootstrap action callbacks.
  *
- * State is received via useIOBridgeState to avoid creating multiple 'ui' ports.
+ * Uses HostChannel from context, type-narrows to ChromeExtensionChannel for ChromeOS methods.
  */
 export function useChromeOSBootstrap() {
+  const channel = useHostChannel()
+
   const openIntent = useCallback(() => {
-    getBridge().postMessage({ type: 'CHROMEOS_OPEN_INTENT' })
-  }, [])
+    if (channel instanceof ChromeExtensionChannel) {
+      channel.openChromeOSIntent()
+    }
+  }, [channel])
 
   const resetPairing = useCallback(() => {
-    getBridge().postMessage({ type: 'CHROMEOS_RESET_PAIRING' })
-  }, [])
+    if (channel instanceof ChromeExtensionChannel) {
+      channel.resetChromeOSPairing()
+    }
+  }, [channel])
 
   return {
     openIntent,

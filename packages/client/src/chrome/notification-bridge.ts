@@ -1,23 +1,18 @@
 /**
  * Notification Bridge for UI Thread.
- * Sends notification events to the service worker.
+ * Sends notification events to the host via HostChannel.
  */
 
-import { getBridge } from './extension-bridge'
+import type { HostChannel } from '../host/host-channel'
+import type { ProgressStats } from '../host/types'
 
-export interface ProgressStats {
-  activeCount: number
-  errorCount: number
-  downloadSpeed: number // bytes per second
-  eta: number | null // seconds, null if unknown
-  singleTorrentName?: string // set when activeCount === 1
-}
+export type { ProgressStats } from '../host/types'
 
 class NotificationBridge {
   private throttleTimer: ReturnType<typeof setTimeout> | null = null
   private pendingStats: ProgressStats | null = null
 
-  constructor() {
+  constructor(private channel: HostChannel) {
     this.setupVisibilityTracking()
   }
 
@@ -32,10 +27,7 @@ class NotificationBridge {
   }
 
   private sendVisibility(visible: boolean): void {
-    getBridge().postMessage({
-      type: 'notification:visibility',
-      visible,
-    })
+    this.channel.notify({ type: 'visibility', visible })
   }
 
   /**
@@ -60,37 +52,25 @@ class NotificationBridge {
   private sendProgressUpdate(): void {
     if (!this.pendingStats) return
 
-    getBridge().postMessage({
-      type: 'notification:stats',
-      stats: this.pendingStats,
-      visible: document.visibilityState === 'visible',
-    })
+    this.channel.notify({ type: 'stats', stats: this.pendingStats })
   }
 
   onTorrentComplete(infoHash: string, name: string): void {
-    getBridge().postMessage({
-      type: 'notification:torrent-complete',
-      infoHash,
-      name,
-    })
+    this.channel.notify({ type: 'torrent-complete', infoHash, name })
   }
 
   onTorrentError(infoHash: string, name: string, error: string): void {
-    getBridge().postMessage({
-      type: 'notification:torrent-error',
-      infoHash,
-      name,
-      error,
-    })
+    this.channel.notify({ type: 'torrent-error', infoHash, name, error })
   }
 
   onDuplicateTorrent(name: string): void {
-    getBridge().postMessage({
-      type: 'notification:duplicate-torrent',
-      name,
-    })
+    this.channel.notify({ type: 'duplicate-torrent', name })
   }
 }
 
-// Singleton instance
-export const notificationBridge = new NotificationBridge()
+/** Create a NotificationBridge backed by the given HostChannel. */
+export function createNotificationBridge(channel: HostChannel): NotificationBridge {
+  return new NotificationBridge(channel)
+}
+
+export { NotificationBridge }

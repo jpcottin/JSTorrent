@@ -5,6 +5,7 @@ import type { ConfigHub, UPnPStatus } from '@jstorrent/engine'
 import { clearAllUISettings } from '@jstorrent/ui'
 import type { IEngineManager } from '../engine-manager/types'
 import { standaloneConfirm, standaloneAlert } from '../utils/dialogs'
+import { useHostChannel } from '../host/HostChannelContext'
 
 // Component log level type (matches ConfigHub's ComponentLogLevel)
 type ComponentLogLevel = 'default' | 'debug' | 'info' | 'warn' | 'error'
@@ -105,10 +106,6 @@ function useConfigSnapshot(config: ConfigHub) {
 
 type ConfigSnapshot = ReturnType<typeof useConfigSnapshot>
 
-// Chrome extension API may not be available in non-extension contexts
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-declare const chrome: any
-
 type SettingsTab = 'general' | 'interface' | 'network' | 'advanced'
 type Theme = 'system' | 'dark' | 'light'
 type ProgressBarStyle = 'text' | 'bar'
@@ -166,6 +163,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   const settings = useConfigSnapshot(config)
   const engineManager = useEngineManager()
   const fileOps = useFileOperations()
+  const channel = useHostChannel()
 
   // Download roots state
   const [roots, setRoots] = useState<DownloadRoot[]>([])
@@ -301,13 +299,10 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
       }
 
       // 2. Clear session storage (session:* keys) but preserve installId and metrics
-      // This is done by sending a message to the service worker
-      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-        try {
-          await chrome.runtime.sendMessage({ type: 'CLEAR_SESSION_STORAGE' })
-        } catch (e) {
-          console.error('[Settings] Failed to clear session storage:', e)
-        }
+      try {
+        await channel.clearSessionStorage()
+      } catch (e) {
+        console.error('[Settings] Failed to clear session storage:', e)
       }
 
       // 3. Reset all settings
@@ -447,23 +442,19 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
   rootsManageable,
   isStandalone,
 }) => {
-  // Handle keepAwake toggle with permission request (Chrome only)
+  const channel = useHostChannel()
+
+  // Handle keepAwake toggle with permission request
   const handleKeepAwakeChange = async (enabled: boolean) => {
     if (enabled) {
-      // Request power permission before enabling (Chrome extension only)
-      if (typeof chrome !== 'undefined' && chrome.permissions?.request) {
-        try {
-          const granted = await chrome.permissions.request({ permissions: ['power'] })
-          if (granted) {
-            config.set('keepAwake', true)
-          }
-          // If denied, toggle stays off (no action needed)
-        } catch (e) {
-          console.error('Failed to request power permission:', e)
+      try {
+        const granted = await channel.requestPermission('power')
+        if (granted) {
+          config.set('keepAwake', true)
         }
-      } else {
-        // Non-Chrome platforms: just enable without permission request
-        config.set('keepAwake', true)
+        // If denied, toggle stays off (no action needed)
+      } catch (e) {
+        console.error('Failed to request power permission:', e)
       }
     } else {
       config.set('keepAwake', false)

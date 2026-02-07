@@ -1,5 +1,9 @@
 export type { HostChannel } from './host-channel'
 export { ChromeExtensionChannel } from './chrome-extension-channel'
+export { createHostChannel, saveExtensionId, clearExtensionId } from './create-host-channel'
+export { HostChannelProvider, useHostChannel } from './HostChannelContext'
+export { HostChannelSessionStore } from './host-channel-session-store'
+export { HostChannelConfigHub } from './host-channel-config-hub'
 export type {
   HostState,
   HostCapabilities,

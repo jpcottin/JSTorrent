@@ -8,10 +8,10 @@
 // Re-export everything from core (Chrome-free)
 export * from './core'
 
-// Chrome extension specific
-export { engineManager } from './engine-manager/chrome-extension-engine-manager'
-export { getBridge } from './chrome/extension-bridge'
-export { notificationBridge } from './chrome/notification-bridge'
+// Host channel (replaces getBridge/notificationBridge singletons)
+export { createHostChannel, HostChannelProvider, useHostChannel } from './host'
+export { ChromeExtensionEngineManager } from './engine-manager/chrome-extension-engine-manager'
+export { createNotificationBridge } from './chrome/notification-bridge'
 export type { ProgressStats } from './chrome/notification-bridge'
 
 // App (the Chrome-specific wrapper that uses engineManager)

@@ -127,6 +127,8 @@ export interface UseSystemBridgeConfig {
   defaultRootKey: string | null
   /** Whether there are torrents waiting for connection */
   hasPendingTorrents: boolean
+  /** Extension/app version string for bug reports */
+  extensionVersion?: string | null
   /** Callbacks for bridge actions */
   onRetry: () => void
   onLaunch: () => void
@@ -163,7 +165,7 @@ export interface UseSystemBridgeResult {
  * and manages panel open/closed state.
  */
 export function useSystemBridge(config: UseSystemBridgeConfig): UseSystemBridgeResult {
-  const { state, roots, hasPendingTorrents } = config
+  const { state, roots, hasPendingTorrents, extensionVersion } = config
 
   const [panelOpen, setPanelOpen] = useState(false)
 
@@ -200,15 +202,7 @@ export function useSystemBridge(config: UseSystemBridgeConfig): UseSystemBridgeR
 
   // Generate bug report URL with pre-filled info
   const getBugReportUrl = useCallback(() => {
-    // Get extension version if in Chrome extension context, otherwise 'unknown'
-    let extVersion = 'unknown'
-    try {
-      if (typeof chrome !== 'undefined' && chrome.runtime?.getManifest) {
-        extVersion = chrome.runtime.getManifest().version
-      }
-    } catch {
-      // Not in extension context or manifest not available
-    }
+    const extVersion = extensionVersion ?? 'unknown'
 
     const body = `**Environment:**
 - Extension: v${extVersion}
@@ -235,7 +229,7 @@ ${state.lastError ? `- Last Error: ${state.lastError}` : ''}
     const url = new URL('https://github.com/kzahel/jstorrent/issues/new')
     url.searchParams.set('body', body)
     return url.toString()
-  }, [state, daemonVersion])
+  }, [state, daemonVersion, extensionVersion])
 
   return {
     panelOpen,
