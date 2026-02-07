@@ -4,6 +4,7 @@
  * In production (chrome-extension://), uses chrome.runtime.sendMessage directly.
  * In dev mode (localhost), uses chrome.runtime.sendMessage with extension ID
  * via externally_connectable.
+ * In Tauri desktop app, provides a stub bridge (Chrome APIs not available).
  */
 
 interface ImportMetaEnv {
@@ -34,6 +35,12 @@ export interface ExtensionBridge {
    * The extension ID (only set in dev mode).
    */
   readonly extensionId: string | null
+
+  /**
+   * Whether we're running in a Tauri desktop app context.
+   * When true, Chrome extension APIs are not available.
+   */
+  readonly isTauri: boolean
 }
 
 /**
@@ -43,6 +50,7 @@ export interface ExtensionBridge {
 class InternalBridge implements ExtensionBridge {
   readonly isDevMode = false
   readonly extensionId = null
+  readonly isTauri = false
 
   sendMessage<T = unknown>(message: unknown): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -70,6 +78,7 @@ class InternalBridge implements ExtensionBridge {
 class ExternalBridge implements ExtensionBridge {
   readonly isDevMode = true
   readonly extensionId: string
+  readonly isTauri = false
 
   constructor(extensionId: string) {
     this.extensionId = extensionId
@@ -91,6 +100,25 @@ class ExternalBridge implements ExtensionBridge {
     chrome.runtime.sendMessage(this.extensionId, message).catch(() => {
       // Ignore errors for fire-and-forget messages
     })
+  }
+}
+
+/**
+ * Bridge for Tauri desktop app context.
+ * Chrome extension APIs are not available. Provides stub implementations
+ * that reject/no-op gracefully. Will be wired to Tauri IPC later.
+ */
+class TauriBridge implements ExtensionBridge {
+  readonly isDevMode = false
+  readonly extensionId = null
+  readonly isTauri = true
+
+  sendMessage<T = unknown>(_message: unknown): Promise<T> {
+    return Promise.reject(new Error('Not available in Tauri context'))
+  }
+
+  postMessage(_message: unknown): void {
+    // No-op in Tauri context
   }
 }
 
@@ -178,12 +206,26 @@ function isExtensionContext(): boolean {
 }
 
 /**
+ * Check if we're running inside a Tauri desktop app.
+ */
+function isTauriContext(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+/**
  * Create the appropriate bridge based on context.
  *
+ * - Tauri desktop app: returns TauriBridge (no Chrome APIs)
  * - Inside extension: returns InternalBridge
  * - External website/localhost: returns ExternalBridge with extension ID
  */
 export function createBridge(): ExtensionBridge {
+  // Tauri desktop app - no Chrome APIs available
+  if (isTauriContext()) {
+    console.log('[ExtensionBridge] Running in Tauri context')
+    return new TauriBridge()
+  }
+
   // Inside extension context - use internal bridge
   if (isExtensionContext()) {
     console.log('[ExtensionBridge] Running in extension context')

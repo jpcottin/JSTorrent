@@ -14,7 +14,17 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@jstorrent/engine": ["../../packages/engine/src"],
+      "@jstorrent/engine/*": ["../../packages/engine/src/*"],
+      "@jstorrent/client/core": ["../../packages/client/src/core"],
+      "@jstorrent/client": ["../../packages/client/src"],
+      "@jstorrent/client/*": ["../../packages/client/src/*"],
+      "@jstorrent/ui": ["../../packages/ui/src"],
+      "@jstorrent/ui/*": ["../../packages/ui/src/*"]
+    }
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]

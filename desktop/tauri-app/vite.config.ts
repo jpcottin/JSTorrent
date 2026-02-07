@@ -1,12 +1,43 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import solid from 'vite-plugin-solid'
+import { resolve } from 'path'
+import fs from 'fs'
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST
 
+// Ensure GeoIP data file exists (copy stub if not)
+const geoipDataPath = resolve(__dirname, '../../packages/engine/src/geo/ipv4-country-data.ts')
+const geoipStubPath = resolve(__dirname, '../../packages/engine/src/geo/ipv4-country-data.stub.ts')
+if (!fs.existsSync(geoipDataPath) && fs.existsSync(geoipStubPath)) {
+  fs.copyFileSync(geoipStubPath, geoipDataPath)
+  console.log('Copied GeoIP stub to ipv4-country-data.ts (run pnpm update-geoip for real data)')
+}
+
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [
+    // Solid plugin MUST come first, only for .solid.tsx files
+    solid({
+      include: ['**/*.solid.tsx'],
+      solid: {
+        generate: 'dom',
+      },
+    }),
+    // React plugin for all other .tsx files
+    react({
+      exclude: ['**/*.solid.tsx'],
+    }),
+  ],
+  resolve: {
+    alias: {
+      '@jstorrent/engine': resolve(__dirname, '../../packages/engine/src'),
+      '@jstorrent/client/core': resolve(__dirname, '../../packages/client/src/core'),
+      '@jstorrent/client': resolve(__dirname, '../../packages/client/src'),
+      '@jstorrent/ui': resolve(__dirname, '../../packages/ui/src'),
+    },
+  },
   clearScreen: false,
   server: {
     port: 1420,

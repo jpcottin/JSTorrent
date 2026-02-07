@@ -15,12 +15,20 @@
     "react-dom": "^18.2.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-shell": "^2",
-    "@tauri-apps/plugin-opener": "^2"
+    "@tauri-apps/plugin-opener": "^2",
+    "@jstorrent/engine": "workspace:*",
+    "@jstorrent/client": "workspace:*",
+    "@jstorrent/ui": "workspace:*",
+    "solid-js": "^1.9.0",
+    "@tanstack/solid-virtual": "^3.13.0",
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
+    "@types/chrome": "^0.1.31",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.6.0",
+    "vite-plugin-solid": "^2.11.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
     "@tauri-apps/cli": "^2"

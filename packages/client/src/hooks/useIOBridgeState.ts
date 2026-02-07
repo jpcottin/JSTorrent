@@ -123,6 +123,13 @@ export function useIOBridgeState(config: UseIOBridgeStateConfig = {}): UseIOBrid
   useEffect(() => {
     const bridge = getBridge()
 
+    // In Tauri context, skip Chrome port connection entirely
+    if (bridge.isTauri) {
+      setState({ ...INITIAL_STATE, status: 'disconnected' })
+      setPortStatus('disconnected')
+      return
+    }
+
     // Message handler (reused across reconnections)
     const handleMessage = (msg: {
       type?: string
@@ -251,6 +258,9 @@ export function useIOBridgeState(config: UseIOBridgeStateConfig = {}): UseIOBrid
   // Reconnect port (used by retry and exposed for manual reconnection)
   const reconnectPort = useCallback(() => {
     const bridge = getBridge()
+
+    // No Chrome port in Tauri context
+    if (bridge.isTauri) return false
 
     // Message handler (duplicated here to avoid closure issues)
     const handleMessage = (msg: {
