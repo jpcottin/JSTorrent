@@ -15,15 +15,10 @@ import { flushPendingReads } from '../adapters/native/native-async-read'
 import { NativeFileHandle } from '../adapters/native/native-file-handle'
 import { StorageRootManager, StorageRoot } from '../storage/storage-root-manager'
 import { Socks5SocketFactory } from '../proxy'
-import { TorrentUploader } from '../core/torrent-uploader'
 import type { ISocketFactory } from '../interfaces/socket'
 import type { NetworkInterface } from '../upnp/upnp-manager'
 import type { LogEntry } from '../logging/logger'
 import type { ConfigHub } from '../config/config-hub'
-
-// Conservative send buffer watermark for native (QuickJS) to limit buffered upload data.
-// Lower than daemon/extension default (512KB) to protect against OOM on Android.
-TorrentUploader.SEND_BUFFER_WATERMARK = 64 * 1024
 
 // Enable async reads on Android — disk reads dispatch to Kotlin IO threads
 // instead of blocking the JS thread.

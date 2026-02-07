@@ -1232,6 +1232,16 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       }),
     )
 
+    // Send buffer watermark
+    this.configUnsubscribers.push(
+      this.config.sendBufferWatermark.subscribe((watermark) => {
+        for (const torrent of this.torrents) {
+          torrent.setSendBufferWatermark(watermark)
+        }
+        this.logger.info(`Send buffer watermark updated: ${(watermark / 1024).toFixed(0)}KB`)
+      }),
+    )
+
     // Encryption Policy - inline the logic from the removed setEncryptionPolicy method
     this.configUnsubscribers.push(
       this.config.encryptionPolicy.subscribe((policy) => {

@@ -89,8 +89,6 @@ describe('TorrentUploader', () => {
     })
     uploader.setContentStorage(storage)
 
-    // Restore default watermark for tests
-    TorrentUploader.SEND_BUFFER_WATERMARK = 512 * 1024
     TorrentUploader.MAX_REQUEST_QUEUE_PER_PEER = 500
   })
 
@@ -189,7 +187,7 @@ describe('TorrentUploader', () => {
     })
 
     it('stops at watermark', () => {
-      TorrentUploader.SEND_BUFFER_WATERMARK = 32768
+      uploader.setSendBufferWatermark(32768)
       const peer = addPeer()
       // Queue 3 requests of 16384 bytes each
       uploader.queueRequest(peer, 0, 0, 16384)
@@ -206,7 +204,7 @@ describe('TorrentUploader', () => {
     })
 
     it('preserves requests when watermark full', () => {
-      TorrentUploader.SEND_BUFFER_WATERMARK = 16384
+      uploader.setSendBufferWatermark(16384)
       const peer = addPeer()
       uploader.queueRequest(peer, 0, 0, 16384)
       uploader.queueRequest(peer, 1, 0, 16384)
@@ -220,7 +218,7 @@ describe('TorrentUploader', () => {
     })
 
     it('resumes after reads complete and send buffer is flushed', async () => {
-      TorrentUploader.SEND_BUFFER_WATERMARK = 16384
+      uploader.setSendBufferWatermark(16384)
       const peer = addPeer()
       uploader.queueRequest(peer, 0, 0, 16384)
       uploader.queueRequest(peer, 1, 0, 16384)
@@ -242,7 +240,7 @@ describe('TorrentUploader', () => {
     })
 
     it('accounts for sendBufferBytes in watermark check', () => {
-      TorrentUploader.SEND_BUFFER_WATERMARK = 32768
+      uploader.setSendBufferWatermark(32768)
       const peer = addPeer()
 
       // Simulate existing data in send buffer by sending a message first
@@ -325,7 +323,7 @@ describe('TorrentUploader', () => {
     })
 
     it('handles multiple peers independently', () => {
-      TorrentUploader.SEND_BUFFER_WATERMARK = 16384
+      uploader.setSendBufferWatermark(16384)
       const peer1 = addPeer()
       const peer2 = addPeer()
 

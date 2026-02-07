@@ -39,8 +39,9 @@ interface ContentReader {
 export class TorrentUploader extends EngineComponent {
   static override logName = 'uploader'
 
-  /** Max bytes in send buffer + in-flight reads before pausing uploads to a peer */
-  static SEND_BUFFER_WATERMARK = 512 * 1024
+  /** Max bytes in send buffer + in-flight reads before pausing uploads to a peer.
+   *  Configurable at runtime via setSendBufferWatermark(). */
+  private _sendBufferWatermark = 512 * 1024
 
   /** Max queued requests per peer before silently rejecting new ones */
   static MAX_REQUEST_QUEUE_PER_PEER = 500
@@ -94,6 +95,16 @@ export class TorrentUploader extends EngineComponent {
    */
   setContentStorage(storage: ContentReader | null): void {
     this.contentStorage = storage
+  }
+
+  /** Update the send buffer watermark (bytes). Can be changed at runtime. */
+  setSendBufferWatermark(bytes: number): void {
+    this._sendBufferWatermark = bytes
+  }
+
+  /** Current send buffer watermark value (for stats/logging). */
+  get sendBufferWatermark(): number {
+    return this._sendBufferWatermark
   }
 
   /**
@@ -160,7 +171,7 @@ export class TorrentUploader extends EngineComponent {
       let peerIssued = false
       while (state.requests.length > 0) {
         // Watermark check: send buffer + in-flight reads
-        if (peer.sendBufferBytes + state.readingBytes >= TorrentUploader.SEND_BUFFER_WATERMARK) {
+        if (peer.sendBufferBytes + state.readingBytes >= this._sendBufferWatermark) {
           this._watermarkHits++
           break
         }

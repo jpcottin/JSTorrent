@@ -188,6 +188,16 @@ export const configSchema = {
     max: 2000,
   },
 
+  /** Max bytes in send buffer + in-flight reads per peer before pausing uploads (send buffer watermark). */
+  sendBufferWatermark: {
+    type: 'number',
+    category: 'setting',
+    storage: 'sync',
+    default: 512 * 1024, // 512 KB (matches libtorrent default of 500 KB)
+    min: 16 * 1024, // 16 KB (single block)
+    max: 10 * 1024 * 1024, // 10 MB
+  },
+
   // ===========================================================================
   // Settings: Queue
   // ===========================================================================

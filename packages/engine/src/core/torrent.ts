@@ -501,6 +501,9 @@ export class Torrent extends EngineComponent {
       canServePiece: (index) => this.canServePiece(index),
       recordUpload: (bytes) => this.btEngine.bandwidthTracker.record('peer:payload', bytes, 'up'),
     })
+    if (this.btEngine.config) {
+      this._uploader.setSendBufferWatermark(this.btEngine.config.sendBufferWatermark.get())
+    }
     this._uploader.setContentStorage(this.contentStorage ?? null)
 
     // Initialize file priority manager
@@ -2050,6 +2053,10 @@ export class Torrent extends EngineComponent {
   setMaxUploadSlots(max: number) {
     this.maxUploadSlots = max
     this._peerCoordinator.updateUnchokeConfig({ maxUploadSlots: max })
+  }
+
+  setSendBufferWatermark(bytes: number) {
+    this._uploader.setSendBufferWatermark(bytes)
   }
 
   /**
