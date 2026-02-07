@@ -384,7 +384,7 @@ class JSTorrentApplication : Application() {
 
             val config = EngineConfig(
                 contentRoots = roots.map { root ->
-                    ContentRoot(key = root.key, label = root.displayName, path = root.uri)
+                    ContentRoot(key = root.key, label = root.displayName, path = root.uri, diskId = root.volumeId)
                 },
                 defaultContentRoot = defaultKey,
                 storageMode = if (storageMode == "null") "null" else null,

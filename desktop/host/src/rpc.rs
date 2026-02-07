@@ -306,6 +306,7 @@ mod tests {
             removable: true,
             last_stat_ok: true,
             last_checked: 0,
+            disk_id: String::new(),
         }
     }
 

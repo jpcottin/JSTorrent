@@ -137,7 +137,13 @@ async fn main() -> Result<()> {
     }
 
     match rpc::write_discovery_file(info) {
-        Ok(roots) => {
+        Ok(mut roots) => {
+            // Backfill disk_id for roots migrated from before this field existed
+            for root in &mut roots {
+                if root.disk_id.is_empty() {
+                    root.disk_id = jstorrent_common::get_disk_id(std::path::Path::new(&root.path));
+                }
+            }
             // Update roots in state from persisted file
             if let Ok(mut info_guard) = state.rpc_info.lock() {
                 if let Some(info) = info_guard.as_mut() {

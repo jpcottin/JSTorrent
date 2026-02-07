@@ -11,6 +11,7 @@ import type { ISocketFactory } from '../interfaces/socket'
 import { ISessionStore } from '../interfaces/session-store'
 import { LogEntry } from '../logging/logger'
 import * as path from 'path'
+import * as fs from 'fs'
 
 export interface NodeEngineConfig extends Partial<BtEngineOptions> {
   downloadPath: string
@@ -29,10 +30,17 @@ export function createNodeEngine(config: NodeEngineConfig): BtEngine {
   })
 
   // Register downloadPath as default root
+  let diskId: string | undefined
+  try {
+    diskId = String(fs.statSync(config.downloadPath).dev)
+  } catch {
+    // Path may not exist yet — diskId will be populated later
+  }
   storageRootManager.addRoot({
     key: config.downloadPath,
     label: 'Downloads',
     path: config.downloadPath,
+    diskId,
   })
   storageRootManager.setDefaultRoot(config.downloadPath)
 

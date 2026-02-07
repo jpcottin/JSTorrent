@@ -5,6 +5,7 @@ export interface DownloadRoot {
   removable: boolean
   last_stat_ok: boolean
   last_checked: number
+  disk_id?: string
 }
 
 /** Daemon capabilities - indicates what features are available */

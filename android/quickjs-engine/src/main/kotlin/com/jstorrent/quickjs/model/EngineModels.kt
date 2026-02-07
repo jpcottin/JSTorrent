@@ -293,7 +293,8 @@ data class EngineConfig(
 data class ContentRoot(
     val key: String,
     val label: String,
-    val path: String = ""
+    val path: String = "",
+    val diskId: String = ""
 )
 
 /**

@@ -264,6 +264,7 @@ pub fn create_download_root(path: &std::path::Path) -> jstorrent_common::Downloa
 
     jstorrent_common::DownloadRoot {
         key,
+        disk_id: jstorrent_common::get_disk_id(&path),
         path: path_str,
         display_name,
         removable: false,

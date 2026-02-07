@@ -66,7 +66,8 @@ class RootStore(private val context: Context) {
             displayName = label,
             removable = removable,
             lastStatOk = true,
-            lastChecked = System.currentTimeMillis()
+            lastChecked = System.currentTimeMillis(),
+            volumeId = DownloadRoot.extractVolumeId(treeUri)
         )
 
         config = config.copy(roots = config.roots + root)
@@ -144,14 +145,16 @@ class RootStore(private val context: Context) {
      */
     @androidx.annotation.VisibleForTesting
     internal fun addTestRoot(uri: String, displayName: String): DownloadRoot {
-        val key = generateKey(Uri.parse(uri))
+        val parsedUri = Uri.parse(uri)
+        val key = generateKey(parsedUri)
         val root = DownloadRoot(
             key = key,
             uri = uri,
             displayName = displayName,
             removable = false,
             lastStatOk = true,
-            lastChecked = System.currentTimeMillis()
+            lastChecked = System.currentTimeMillis(),
+            volumeId = DownloadRoot.extractVolumeId(parsedUri)
         )
         config = config.copy(roots = config.roots + root)
         save()
@@ -168,7 +171,22 @@ class RootStore(private val context: Context) {
         }
 
         return try {
-            json.decodeFromString<RootConfig>(configFile.readText())
+            val loaded = json.decodeFromString<RootConfig>(configFile.readText())
+            // Backfill volumeId for roots migrated from before this field existed
+            val backfilled = loaded.roots.map { root ->
+                if (root.volumeId.isEmpty()) {
+                    root.copy(volumeId = DownloadRoot.extractVolumeId(Uri.parse(root.uri)))
+                } else {
+                    root
+                }
+            }
+            if (backfilled != loaded.roots) {
+                val updated = RootConfig(roots = backfilled)
+                configFile.writeText(json.encodeToString(updated))
+                updated
+            } else {
+                loaded
+            }
         } catch (e: Exception) {
             // Corrupted file, start fresh but log warning
             android.util.Log.w(TAG, "Failed to load roots config, starting fresh", e)
@@ -215,13 +233,12 @@ class RootStore(private val context: Context) {
 
     /**
      * Check if URI points to removable storage.
+     * Uses the volume ID from the SAF tree URI — "primary" is internal storage,
+     * anything else (UUID format) is removable.
      */
     private fun isRemovableStorage(uri: Uri): Boolean {
-        val path = uri.toString()
-        // Primary storage is not removable
-        if (path.contains("primary")) return false
-        // SD cards and USB drives have different volume IDs
-        return path.contains("/tree/") && !path.contains("primary")
+        val volumeId = DownloadRoot.extractVolumeId(uri)
+        return volumeId.isNotEmpty() && volumeId != "primary"
     }
 
     /**

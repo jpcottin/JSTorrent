@@ -28,6 +28,28 @@ pub struct DownloadRoot {
     pub removable: bool,
     pub last_stat_ok: bool,
     pub last_checked: u64,
+    #[serde(default)]
+    pub disk_id: String,
+}
+
+/// Get a disk identifier for the given path.
+/// Returns a string that is the same for all paths on the same physical disk/partition.
+#[cfg(unix)]
+pub fn get_disk_id(path: &std::path::Path) -> String {
+    use std::os::unix::fs::MetadataExt;
+    match std::fs::metadata(path) {
+        Ok(meta) => format!("{}", meta.dev()),
+        Err(_) => String::new(),
+    }
+}
+
+#[cfg(windows)]
+pub fn get_disk_id(path: &std::path::Path) -> String {
+    // Use drive letter / mount point as a simple identifier
+    path.components()
+        .next()
+        .map(|c| c.as_os_str().to_string_lossy().to_string())
+        .unwrap_or_default()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

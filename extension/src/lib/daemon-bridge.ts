@@ -460,6 +460,8 @@ export class DaemonBridge {
         last_stat_ok?: boolean
         lastChecked?: number
         last_checked?: number
+        diskId?: string
+        disk_id?: string
       }>
     }
     // Map Android format (uri, displayName) to extension format (path, display_name)
@@ -470,6 +472,7 @@ export class DaemonBridge {
       removable: r.removable,
       last_stat_ok: r.lastStatOk ?? r.last_stat_ok ?? true,
       last_checked: r.lastChecked ?? r.last_checked ?? Date.now(),
+      disk_id: r.diskId ?? r.disk_id ?? '',
     }))
 
     // Connect WebSocket to ioPort (where /control now lives after Ktor->Netty migration)
@@ -936,6 +939,8 @@ export class DaemonBridge {
         last_stat_ok?: boolean
         lastChecked?: number
         last_checked?: number
+        diskId?: string
+        disk_id?: string
       }>
 
       // Map Android format to extension format
@@ -946,6 +951,7 @@ export class DaemonBridge {
         removable: r.removable,
         last_stat_ok: r.lastStatOk ?? r.last_stat_ok ?? true,
         last_checked: r.lastChecked ?? r.last_checked ?? Date.now(),
+        disk_id: r.diskId ?? r.disk_id ?? '',
       }))
 
       this.updateState({ roots: mapped })

@@ -123,6 +123,7 @@ pub async fn pick_download_directory(state: &State) -> Result<ResponsePayload> {
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .as_millis() as u64,
+                disk_id: jstorrent_common::get_disk_id(&canonical),
             };
 
             // Add to rpc_info.download_roots
