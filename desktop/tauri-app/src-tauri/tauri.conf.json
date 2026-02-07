@@ -24,6 +24,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "externalBin": [
       "binaries/jstorrent-host",
@@ -42,13 +43,22 @@
         "mimeType": "application/x-bittorrent",
         "description": "BitTorrent file"
       }
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "Developer ID Application: Kyle Graehl (VD7BYQ6ABM)"
+    }
   },
   "plugins": {
     "deep-link": {
       "desktop": {
         "schemes": ["magnet"]
       }
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/kzahel/JSTorrent/releases/latest/download/latest.json"
+      ],
+      "pubkey": ""
     }
   }
 }

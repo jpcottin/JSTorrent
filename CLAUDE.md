@@ -185,6 +185,18 @@ Requires upload keystore at `android/app/signing/upload.keystore`.
 
 **Do NOT** manually edit build.gradle.kts for version bumps.
 
+### Tauri App Releases
+
+```bash
+./scripts/release-tauri-app.sh <version>
+```
+
+- Updates `desktop/tauri-app/src-tauri/tauri.conf.json`, `desktop/tauri-app/package.json`, and `desktop/tauri-app/src-tauri/Cargo.toml`
+- Creates tag: `tauri-app-v{version}`
+- CI builds signed/notarized installers for macOS (aarch64 + x86_64), Windows, and Linux
+- CI creates GitHub Release with updater JSON for auto-updates
+- Changelog: `desktop/tauri-app/CHANGELOG.md`
+
 ### System Bridge Releases
 
 ```bash

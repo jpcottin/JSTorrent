@@ -74,7 +74,7 @@ fn deep_link_event(url_str: &str) -> Option<serde_json::Value> {
     }
 }
 
-/// Read a .torrent file from a file:// URL and create a TorrentAdded event.
+/// Read a .torrent file from a file:// URL and create a `TorrentAdded` event.
 fn torrent_file_event(file_url: &str) -> Option<serde_json::Value> {
     use base64::Engine;
 
@@ -207,8 +207,12 @@ async fn host_message(
 
 /// Return and clear any deep link events that arrived before the frontend was ready.
 #[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
 fn get_pending_deep_links(state: tauri::State<'_, DeepLinkState>) -> Vec<serde_json::Value> {
-    let mut pending = state.pending.lock().unwrap_or_else(|e| e.into_inner());
+    let mut pending = state
+        .pending
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     pending.drain(..).collect()
 }
 
@@ -230,6 +234,11 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // Auto-updater
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+
             // System tray
             let show_i = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -281,7 +290,7 @@ pub fn run() {
             if let Ok(Some(urls)) = app.deep_link().get_current() {
                 if let Ok(mut pending) = deep_link_state.pending.lock() {
                     for url in urls {
-                        if let Some(event) = deep_link_event(&url.to_string()) {
+                        if let Some(event) = deep_link_event(url.as_ref()) {
                             pending.push(event);
                         }
                     }
@@ -296,7 +305,7 @@ pub fn run() {
             let deep_link_handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 for url in event.urls() {
-                    if let Some(evt) = deep_link_event(&url.to_string()) {
+                    if let Some(evt) = deep_link_event(url.as_ref()) {
                         let _ = deep_link_handle.emit("host-event", &evt);
                     }
                 }
