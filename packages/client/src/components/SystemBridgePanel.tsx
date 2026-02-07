@@ -1,47 +1,11 @@
 import type { RefObject } from 'react'
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { DownloadRoot } from '../types'
+import type { DownloadRoot, DaemonStats, DaemonBridgeState } from '../host/types'
 
-/**
- * Stats from the daemon about socket and connection state
- */
-export interface DaemonStats {
-  tcp_sockets: number
-  pending_connects: number
-  pending_tcp: number
-  udp_sockets: number
-  tcp_servers: number
-  ws_connections: number
-  bytes_sent: number
-  bytes_received: number
-  uptime_secs: number
-}
+export type { DaemonStats, DaemonBridgeState, ConnectionStatus, Platform } from '../host/types'
 
 // Version status from io-bridge
 export type VersionStatus = 'compatible' | 'update_suggested' | 'update_required'
-// Platform type
-export type Platform = 'desktop' | 'chromeos'
-
-// Daemon info structure
-interface DaemonInfo {
-  port: number
-  token: string
-  version?: string
-  roots: DownloadRoot[]
-  host?: string
-}
-
-// Connection status (simplified from 8-state IOBridge)
-export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
-
-// DaemonBridge state (new simplified state)
-export interface DaemonBridgeState {
-  status: ConnectionStatus
-  platform: Platform
-  daemonInfo: DaemonInfo | null
-  roots: DownloadRoot[]
-  lastError: string | null
-}
 
 export interface SystemBridgePanelProps {
   state: DaemonBridgeState

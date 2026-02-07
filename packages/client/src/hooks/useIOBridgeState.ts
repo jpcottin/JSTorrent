@@ -1,55 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getBridge } from '../chrome/extension-bridge'
 import type { BootstrapState } from '../../../../extension/src/lib/chromeos-bootstrap'
+import type { PortStatus, DaemonBridgeState, DaemonStats } from '../host/types'
 
-/**
- * Port connection status (UI to Service Worker)
- */
-export type PortStatus = 'connected' | 'disconnected' | 'reconnecting'
-
-/**
- * Platform type
- */
-export type Platform = 'desktop' | 'chromeos'
-
-/**
- * Connection status (simplified from 8-state IOBridge)
- */
-export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
-
-/**
- * Download root info
- */
-export interface DownloadRoot {
-  key: string
-  path: string
-  display_name: string
-  removable: boolean
-  last_stat_ok: boolean
-  last_checked: number
-}
-
-/**
- * Daemon info from bridge
- */
-export interface DaemonInfo {
-  port: number
-  token: string
-  version?: number
-  roots: DownloadRoot[]
-  host?: string
-}
-
-/**
- * DaemonBridge state (new simplified state)
- */
-export interface DaemonBridgeState {
-  status: ConnectionStatus
-  platform: Platform
-  daemonInfo: DaemonInfo | null
-  roots: DownloadRoot[]
-  lastError: string | null
-}
+export type {
+  PortStatus,
+  Platform,
+  ConnectionStatus,
+  DownloadRoot,
+  DaemonInfo,
+  DaemonBridgeState,
+  DaemonStats,
+} from '../host/types'
 
 const INITIAL_STATE: DaemonBridgeState = {
   status: 'connecting',
@@ -62,21 +24,6 @@ const INITIAL_STATE: DaemonBridgeState = {
 export interface UseIOBridgeStateConfig {
   /** Callback for native events (TorrentAdded, MagnetAdded) */
   onNativeEvent?: (event: string, payload: unknown) => void
-}
-
-/**
- * Stats from the daemon about socket and connection state
- */
-export interface DaemonStats {
-  tcp_sockets: number
-  pending_connects: number
-  pending_tcp: number
-  udp_sockets: number
-  tcp_servers: number
-  ws_connections: number
-  bytes_sent: number
-  bytes_received: number
-  uptime_secs: number
 }
 
 export interface UseIOBridgeStateResult {

@@ -12,7 +12,7 @@ export interface DaemonCapabilities {
 export interface DaemonInfo {
   port: number
   token: string
-  version?: number
+  version?: string
   roots: Array<{
     key: string
     path: string
