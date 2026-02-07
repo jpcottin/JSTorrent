@@ -106,6 +106,7 @@ class FakeTorrentRepository : TorrentRepository {
         resumedTorrents.clear()
         removedTorrents.clear()
         recheckedTorrents.clear()
+        resetTorrents.clear()
         pauseAllCalled = false
         resumeAllCalled = false
         suspendEngineCalled = false
@@ -176,6 +177,23 @@ class FakeTorrentRepository : TorrentRepository {
             val updatedTorrents = currentState.torrents.map { torrent ->
                 if (torrent.infoHash == infoHash) {
                     torrent.copy(status = "checking")
+                } else {
+                    torrent
+                }
+            }
+            _state.value = EngineState(updatedTorrents)
+        }
+    }
+
+    val resetTorrents = mutableListOf<String>()
+
+    override fun resetTorrent(infoHash: String) {
+        resetTorrents.add(infoHash)
+        // Update state to reflect stopped status after reset
+        _state.value?.let { currentState ->
+            val updatedTorrents = currentState.torrents.map { torrent ->
+                if (torrent.infoHash == infoHash) {
+                    torrent.copy(status = "stopped", progress = 0.0, downloadSpeed = 0, uploadSpeed = 0)
                 } else {
                     torrent
                 }

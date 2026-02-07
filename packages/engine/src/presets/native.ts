@@ -9,6 +9,7 @@ import { NativeSocketFactory } from '../adapters/native/native-socket-factory'
 import { NativeFileSystem } from '../adapters/native/native-filesystem'
 import { NullFileSystem } from '../adapters/null/null-filesystem'
 import { NativeSessionStore } from '../adapters/native/native-session-store'
+import { MemorySessionStore } from '../adapters/memory/memory-session-store'
 import { NativeHasher } from '../adapters/native/native-hasher'
 import { flushBatchedWrites } from '../adapters/native/native-batching-disk-queue'
 import { flushPendingReads } from '../adapters/native/native-async-read'
@@ -129,7 +130,8 @@ export function createNativeEngine(config: NativeEngineConfig): BtEngine {
   return new BtEngine({
     socketFactory,
     storageRootManager,
-    sessionStore: new NativeSessionStore(),
+    sessionStore:
+      config.storageMode === 'null' ? new MemorySessionStore() : new NativeSessionStore(),
     hasher: new NativeHasher(),
     port: config.port,
     onLog: config.onLog,
