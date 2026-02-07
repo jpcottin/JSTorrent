@@ -144,28 +144,6 @@ jobs:
             fi
           fi
 
-      - name: Test Windows code signing
-        if: matrix.platform == 'windows-latest' && env.HAS_WINDOWS_SIGNING == 'true'
-        continue-on-error: true
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          RUST_LOG: debug
-        shell: pwsh
-        working-directory: desktop
-        run: |
-          $sidecar = Get-ChildItem "tauri-app/src-tauri/binaries/jstorrent-host-*.exe" | Select-Object -First 1
-          Write-Host "Sidecar: $($sidecar.FullName)"
-          Write-Host "AZURE_CLIENT_ID set: $($env:AZURE_CLIENT_ID.Length -gt 0)"
-          Write-Host "AZURE_TENANT_ID set: $($env:AZURE_TENANT_ID.Length -gt 0)"
-          Write-Host "AZURE_CLIENT_SECRET set: $($env:AZURE_CLIENT_SECRET.Length -gt 0)"
-          Write-Host "trusted-signing-cli: $(Get-Command trusted-signing-cli -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)"
-          Write-Host "signtool: $(Get-Command signtool -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)"
-          Write-Host "--- Running trusted-signing-cli ---"
-          & trusted-signing-cli -e https://eus.codesigning.azure.net -a kylegraehl -c jstorrent-profile $sidecar.FullName 2>&1 | Write-Host
-          Write-Host "--- Exit code: $LASTEXITCODE ---"
-
       # --- Install frontend dependencies ---
       - name: Install frontend dependencies
         run: pnpm install
@@ -202,7 +180,7 @@ jobs:
           updaterJsonKeepUniversal: true
           args: >-
             ${{ matrix.args }}
-            ${{ matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_SECRET != '' && '--config ''{"bundle":{"windows":{"signCommand":"trusted-signing-cli -e https://eus.codesigning.azure.net -a kylegraehl -c jstorrent-profile %1 2>&1"}}}''' || '' }}
+            ${{ matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_SECRET != '' && '--config ''{"bundle":{"windows":{"signCommand":"trusted-signing-cli -e https://eus.codesigning.azure.net -a kylegraehl -c jstorrent-profile %1"}}}''' || '' }}
 
       # --- Cleanup ---
       - name: Clean up macOS keychain
