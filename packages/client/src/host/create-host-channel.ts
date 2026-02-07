@@ -6,6 +6,7 @@
 
 import type { HostChannel } from './host-channel'
 import { ChromeExtensionChannel } from './chrome-extension-channel'
+import { TauriChannel } from './tauri-channel'
 
 interface ImportMetaEnv {
   DEV_EXTENSION_ID?: string
@@ -84,8 +85,7 @@ function isTauriContext(): boolean {
  */
 export function createHostChannel(): HostChannel {
   if (isTauriContext()) {
-    // TauriChannel will be implemented in Phase 5
-    throw new Error('TauriChannel not yet implemented')
+    return new TauriChannel()
   }
 
   if (isExtensionContext()) {

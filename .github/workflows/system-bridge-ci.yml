@@ -43,10 +43,11 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Create sidecar stub for Tauri build script
+      - name: Create sidecar stubs for Tauri build script
         run: |
           TRIPLE="$(rustc --print host-tuple)"
           mkdir -p tauri-app/src-tauri/binaries
+          touch "tauri-app/src-tauri/binaries/jstorrent-host-$TRIPLE"
           touch "tauri-app/src-tauri/binaries/jstorrent-io-daemon-$TRIPLE"
 
       - name: Run clippy
@@ -64,11 +65,12 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Create sidecar stub for Tauri build script
+      - name: Create sidecar stubs for Tauri build script
         shell: bash
         run: |
           TRIPLE="$(rustc --print host-tuple)"
           mkdir -p tauri-app/src-tauri/binaries
+          touch "tauri-app/src-tauri/binaries/jstorrent-host-$TRIPLE"
           touch "tauri-app/src-tauri/binaries/jstorrent-io-daemon-$TRIPLE"
 
       - name: Build Release

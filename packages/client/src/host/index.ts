@@ -1,5 +1,6 @@
 export type { HostChannel } from './host-channel'
 export { ChromeExtensionChannel } from './chrome-extension-channel'
+export { TauriChannel } from './tauri-channel'
 export { createHostChannel, saveExtensionId, clearExtensionId } from './create-host-channel'
 export { HostChannelProvider, useHostChannel } from './HostChannelContext'
 export { HostChannelSessionStore } from './host-channel-session-store'
