@@ -48,10 +48,13 @@ JSTorrent is the torrent client that truly runs everywhere, powered by a single 
 | Desktop (any browser) | Any browser V8* | Rust native host | Web (React/Solid) | jstorrent.com + installers |
 | Desktop (standalone) | Tauri webview | Rust (Tauri commands) | Web (React/Solid) | Direct download (Tauri installer) |
 | ChromeOS | Chrome V8 (extension) | Kotlin companion | Web (React/Solid) | Chrome Web Store + Play Store |
+| ChromeOS Flex** | Chrome V8 (extension) | Rust io-daemon (Crostini) | Web (React/Solid) | Chrome Web Store + install script |
 | Android Standalone | QuickJS | Kotlin io-core | Jetpack Compose | Play Store |
 | iOS | JavaScriptCore | Swift io-core | SwiftUI | App Store / AltStore / Sideload |
 
 \* Works in Firefox, Edge, Brave, etc. via jstorrent.com connecting to localhost. Safari excluded (127.0.0.1 not a secure context). Safari users can use the standalone Tauri app instead.
+
+\*\* ChromeOS Flex has no ARC (Android Runtime), so the companion app isn't available. The io-daemon runs in Crostini via a one-liner install script with systemd lingering. See [ChromeOS Flex roadmap](../roadmap/chromeos-flex.md).
 
 ---
 

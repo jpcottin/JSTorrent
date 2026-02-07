@@ -1,24 +1,20 @@
-# Tauri Desktop App (Standalone)
+# Tauri Desktop App
 
 **Status:** Roadmap / Future
 **Priority:** Nice-to-have
-**Audience:** Desktop users who don't want Chrome or browser extensions
+**Audience:** Desktop users who don't use Chrome or prefer a standalone app
 
 ---
 
 ## Motivation
 
-Current desktop distribution requires:
-1. Chrome browser
-2. Chrome extension installed
-3. Native host + io-daemon installed
+The Chrome extension + native host is the primary desktop experience and works well. But some desktop users are left out:
 
-This is friction. Some users:
-- Prefer Safari, Firefox, or other browsers
-- Dislike browser extensions
-- Want a "real app" experience
+- **Firefox, Safari, Brave users** — no extension path at all today
+- **Users who dislike extensions** — want a native app experience
+- **Minimal install preference** — one app instead of extension + native host
 
-A Tauri-based standalone app would provide a single installer that "just works."
+The Tauri app is a **supplemental** distribution that serves these users. It does not replace the extension — Chrome users should continue using the extension for the tightest integration.
 
 ---
 
@@ -38,7 +34,7 @@ A Tauri-based standalone app would provide a single installer that "just works."
 │  │   └─────────────────┘   └─────────────────────┘  │   │
 │  │                                │                  │   │
 │  └────────────────────────────────┼──────────────────┘   │
-│                                   │ Tauri invoke()       │
+│                                   │ I/O bridge           │
 │  ┌────────────────────────────────▼──────────────────┐   │
 │  │               Rust Backend                         │   │
 │  │                                                    │   │
@@ -60,20 +56,32 @@ A Tauri-based standalone app would provide a single installer that "just works."
 
 The Tauri webview **is** a JavaScript runtime (WebKit on Mac, WebView2 on Windows/Linux). The engine runs directly in the webview, just like it runs in the Chrome extension's service worker today.
 
-This is simpler than:
-- Node.js sidecar (50MB+ overhead)
-- QuickJS (requires separate integration)
-
 The webview gives us V8/JSC for free.
 
-### I/O Binding Strategy
+### I/O Bridge: invoke() vs Sidecar
 
-The engine needs four interfaces: sockets, files, hashing, session storage.
+**Open question — needs investigation.** Two approaches for how the engine talks to Rust I/O:
+
+#### Option A: Sidecar (reuse existing HTTP/WS transport)
+
+Bundle io-daemon as a Tauri sidecar process. The engine in the webview connects via the existing daemon bridge adapter (WebSocket/HTTP to localhost), identical to how the extension works today.
+
+**Pros:**
+- Minimal new code — reuse the existing daemon bridge adapter as-is
+- Proven, tested I/O path shared with the extension
+- io-daemon stays a standalone binary, no refactoring
+
+**Cons:**
+- Two processes (Tauri app + sidecar), two binaries to sign
+- Localhost network hop for all I/O
+- Port allocation, sidecar visible in task manager
+- Sidecar lifecycle management
+
+#### Option B: In-process invoke()
+
+Refactor io-daemon's I/O core into a library crate. Expose it as `#[tauri::command]` handlers. The engine calls Rust directly via Tauri's `invoke()` IPC.
 
 ```typescript
-// packages/engine/src/adapters/tauri/
-
-// Instead of WebSocket to io-daemon, use Tauri invoke()
 import { invoke } from '@tauri-apps/api/core';
 
 class TauriSocketFactory implements ISocketFactory {
@@ -82,16 +90,22 @@ class TauriSocketFactory implements ISocketFactory {
     return new TauriTcpSocket(id);
   }
 }
-
-class TauriFileSystem implements IFileSystem {
-  async open(rootKey: string, path: string): Promise<IFileHandle> {
-    const handle = await invoke('file_open', { rootKey, path });
-    return new TauriFileHandle(handle);
-  }
-}
 ```
 
-The Rust backend implements the I/O commands. Much of this code already exists in `desktop/io-daemon/`.
+**Pros:**
+- Single process, clean UX
+- Lower latency (in-process IPC vs network), matters for high-throughput piece data
+- No port allocation, no sidecar management
+- Analogous to Android's JNI approach — proven pattern
+
+**Cons:**
+- New Tauri adapter needed (`TauriSocketFactory`, `TauriFileSystem`, etc.)
+- Requires extracting io-daemon I/O into a shared library crate
+- More upfront work, additional adapter to maintain
+
+#### Recommendation
+
+Start with Option A (sidecar) for fastest MVP. Investigate Option B as a follow-up optimization — profile whether the localhost hop matters for throughput.
 
 ---
 
@@ -124,49 +138,59 @@ The Rust backend implements the I/O commands. Much of this code already exists i
 | Component | Source | Notes |
 |-----------|--------|-------|
 | React UI | `packages/ui/` | Same UI, different host |
-| Engine | `packages/engine/` | New adapter for Tauri IPC |
-| Rust I/O | `desktop/io-daemon/` | Adapt for Tauri commands |
+| Engine | `packages/engine/` | Same adapter (sidecar) or new adapter (invoke) |
+| Rust I/O | `desktop/io-daemon/` | Sidecar as-is, or extract into shared crate |
 | Signing infra | `desktop/windows_signing/` | Same Azure setup |
 
 ---
 
 ## What's New
 
-1. **Tauri adapter** in `packages/engine/src/adapters/tauri/`
-   - `TauriSocketFactory` - invoke() instead of WebSocket
-   - `TauriFileSystem` - invoke() instead of HTTP
-   - `TauriSessionStore` - use Tauri's store plugin or invoke()
-   - `TauriHasher` - invoke() to Rust SHA1
-
-2. **Tauri app shell** in `packages/desktop-app/` (new)
-   - `src-tauri/` - Rust backend with I/O commands
+1. **Tauri app shell** in `packages/desktop-app/` (new)
+   - `src-tauri/` - Rust backend, sidecar config or I/O commands
    - Tray icon, auto-update config
    - Deep link registration
 
-3. **CI workflow** for Tauri builds
+2. **CI workflow** for Tauri builds
    - Matrix build for macOS (arm64 + x86_64), Windows, Linux
    - Code signing integrated
    - GitHub Releases upload
 
+3. **If Option B:** Tauri adapter in `packages/engine/src/adapters/tauri/`
+   - `TauriSocketFactory`, `TauriFileSystem`, `TauriSessionStore`, `TauriHasher`
+
 ---
 
-## Migration Path from Current Desktop
+## Relationship to Other Desktop Paths
 
-The current extension + native host setup remains supported. The Tauri app is an **alternative** distribution for users who prefer standalone apps.
+The Tauri app is **supplemental**, not a replacement:
 
-Eventually, could consolidate:
-- Tauri app becomes the primary desktop distribution
-- Extension remains for users who prefer it
-- Native host becomes optional (only for extension users)
+- **Chrome extension + native host** — remains the primary desktop experience for Chrome users
+- **jstorrent.com + native host** — serves other Chromium-based browsers (Edge, Brave)
+- **Tauri app** — serves users with no Chrome at all (Firefox, Safari) or who prefer standalone apps
+
+All three coexist. Users choose the path that fits their setup.
+
+---
+
+## Windows Signing
+
+Windows code signing for the current native host + io-daemon has never been fully working. macOS signing/notarization works fine.
+
+Tauri has built-in Windows code signing support — configure certificate env vars and `tauri build` handles signing the binary + installer. This is battle-tested by the Tauri community with well-documented CI recipes, including Azure Trusted Signing.
+
+This is a pragmatic reason to prioritize the Tauri app for Windows specifically. Rather than continuing to fight custom signing integration for the native host binaries, the Tauri app could become the primary Windows distribution path.
 
 ---
 
 ## Open Questions
 
+- **invoke() vs sidecar?** Profile io-daemon sidecar throughput to decide if in-process IPC is worth the refactor. See discussion above.
 - **Universal binary (macOS)?** Ship fat binary or separate arm64/x86_64?
 - **Auto-update UX?** Prompt on tray click, or background download + restart?
-- **Feature parity?** Does webview have all APIs the extension uses? (Likely yes, but verify)
-- **Magnet handling?** Tauri can register URL protocols. When clicked, app launches and receives the magnet.
+- **WebView API parity?** Does the webview have all APIs the engine uses? (Likely yes, but verify)
+- **Magnet handling?** Tauri can register URL protocols. Needs wiring.
+- **webkit2gtk on Linux?** Runtime dependency — not always present on minimal distros.
 
 ---
 
@@ -176,32 +200,30 @@ Eventually, could consolidate:
 - Chromium update burden
 - Tauri uses system webview (WebKit on Mac is always up-to-date)
 
-## Why Not Just the Current Setup?
-
-- Requires Chrome
-- Requires extension installation
-- Requires native host installation
-- Three separate pieces to install and keep updated
-
-Tauri: one installer, one app, auto-updates.
-
 ---
 
 ## References
 
 - [Tauri](https://tauri.app/) - Rust-based app framework
-- [Tauri without bundled webview](https://github.com/nicokosi/tauri/blob/main/tooling/cli/docs/features/webview.md) - for headless mode if needed
-- [yepanywhere desktop roadmap](https://github.com/kgraehl/yepanywhere/blob/main/docs/roadmap/desktop-app.md) - similar architecture (Node sidecar instead of webview engine)
+- [Tauri sidecar](https://v2.tauri.app/develop/sidecar/) - bundling external binaries
+- [yepanywhere desktop roadmap](https://github.com/kgraehl/yepanywhere/blob/main/docs/roadmap/desktop-app.md) - similar architecture
 
 ---
 
 ## Estimated Effort
 
-1. **Tauri adapter** - 1-2 weeks (new adapter, port io-daemon commands)
-2. **Tauri app shell** - 1 week (tray, deep links, auto-update config)
-3. **CI/CD** - 1 week (build matrix, signing, releases)
-4. **Testing** - 1 week (all platforms, auto-update flow)
+**Option A (sidecar):**
+1. Tauri app shell + sidecar config - 1-2 weeks
+2. CI/CD - 1 week
+3. Testing - 1 week
+Total: ~3-4 weeks
 
-Total: ~4-6 weeks for MVP
+**Option B (invoke):**
+1. Extract io-daemon into shared crate - 1 week
+2. Tauri adapter + commands - 1-2 weeks
+3. Tauri app shell - 1 week
+4. CI/CD - 1 week
+5. Testing - 1 week
+Total: ~5-6 weeks
 
-Low priority since current desktop setup works, but a nice "v2" offering for broader appeal.
+Low priority since the extension setup covers most desktop users, but a nice offering for broader reach.

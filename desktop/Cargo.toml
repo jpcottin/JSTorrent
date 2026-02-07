@@ -1,5 +1,5 @@
 [workspace]
-members = ["common", "host", "io-daemon", "link-handler"]
+members = ["common", "host", "io-daemon", "link-handler", "tauri-app/src-tauri"]
 resolver = "2"
 
 [workspace.package]
