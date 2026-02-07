@@ -35,6 +35,13 @@ export class TorrentQueueManager extends EngineComponent {
   /** Tracks when each seed was last activated (infoHashStr → epoch ms) */
   private _seedActivatedAt = new Map<string, number>()
 
+  /** Ordered FIFO queue of torrents waiting to check (by queue position) */
+  private _checkingQueue: Torrent[] = []
+  /** Torrents currently running performDataCheck() */
+  private _activelyChecking = new Set<Torrent>()
+  /** Callbacks for requestCheckImmediate callers waiting for completion */
+  private _checkCompletionCallbacks = new Map<Torrent, () => void>()
+
   constructor(
     private btEngine: BtEngine,
     private config: ConfigHub,
@@ -52,6 +59,12 @@ export class TorrentQueueManager extends EngineComponent {
       config.activeSeeds.subscribe(() => {
         this.logger.info(`activeSeeds changed to ${config.activeSeeds.get()}`)
         this.recalculate()
+      }),
+    )
+    this._configUnsubscribers.push(
+      config.activeChecking.subscribe(() => {
+        this.logger.info(`activeChecking changed to ${config.activeChecking.get()}`)
+        this._drainCheckingQueue()
       }),
     )
   }
@@ -111,6 +124,13 @@ export class TorrentQueueManager extends EngineComponent {
       }
     }
     this._seedActivatedAt.delete(torrent.infoHashStr)
+    this._checkingQueue = this._checkingQueue.filter((t) => t !== torrent)
+    this._activelyChecking.delete(torrent)
+    const cb = this._checkCompletionCallbacks.get(torrent)
+    if (cb) {
+      this._checkCompletionCallbacks.delete(torrent)
+      cb()
+    }
     this.recalculate()
   }
 
@@ -120,6 +140,41 @@ export class TorrentQueueManager extends EngineComponent {
    */
   onTorrentCompleted(_torrent: Torrent): void {
     this.recalculate()
+  }
+
+  /**
+   * Request a data check for a torrent. The check will be serialized
+   * through the checking queue (only activeChecking torrents check concurrently).
+   * The torrent's _isChecking should already be true before calling this.
+   */
+  requestCheck(torrent: Torrent): void {
+    if (this._activelyChecking.has(torrent)) return
+    if (this._checkingQueue.includes(torrent)) return
+
+    // Clear the flag since the check is now being handled by the queue.
+    // Without this, the _runCheck completion handler calling start() would
+    // see _needsDataCheck=true and trigger a redundant second check.
+    torrent.clearNeedsDataCheck()
+
+    this._checkingQueue.push(torrent)
+    this._checkingQueue.sort((a, b) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0))
+    this._drainCheckingQueue()
+  }
+
+  /**
+   * Request a data check and return a Promise that resolves when complete.
+   * Used for manual recheck (recheckData) where the caller awaits completion.
+   */
+  requestCheckImmediate(torrent: Torrent): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this._checkCompletionCallbacks.set(torrent, resolve)
+      this.requestCheck(torrent)
+    })
+  }
+
+  /** Whether a torrent is in the checking queue or actively checking */
+  isCheckingOrQueued(torrent: Torrent): boolean {
+    return this._activelyChecking.has(torrent) || this._checkingQueue.includes(torrent)
   }
 
   /**
@@ -201,6 +256,9 @@ export class TorrentQueueManager extends EngineComponent {
     }
     this._configUnsubscribers = []
     this._seedActivatedAt.clear()
+    this._checkingQueue = []
+    this._activelyChecking.clear()
+    this._checkCompletionCallbacks.clear()
   }
 
   // ===========================================================================
@@ -225,6 +283,10 @@ export class TorrentQueueManager extends EngineComponent {
     for (const t of torrents) {
       // Skip stopped torrents
       if (t.userState === 'stopped') continue
+
+      // Skip torrents that are checking or queued for check — they don't
+      // count against download/seed limits
+      if (this._activelyChecking.has(t) || this._checkingQueue.includes(t)) continue
 
       // Skip force-active torrents — they always stay running
       if (t.forceActive) {
@@ -391,5 +453,59 @@ export class TorrentQueueManager extends EngineComponent {
       }
     }
     return max
+  }
+
+  // ===========================================================================
+  // Checking queue
+  // ===========================================================================
+
+  private _drainCheckingQueue(): void {
+    const limit = this.config.activeChecking.get()
+
+    while (this._activelyChecking.size < limit && this._checkingQueue.length > 0) {
+      const torrent = this._checkingQueue.shift()!
+      this._activelyChecking.add(torrent)
+      this._runCheck(torrent)
+    }
+  }
+
+  private _runCheck(torrent: Torrent): void {
+    torrent
+      .performDataCheck()
+      .then(() => {
+        this._activelyChecking.delete(torrent)
+
+        // Resolve any immediate callback (recheckData callers)
+        const cb = this._checkCompletionCallbacks.get(torrent)
+        if (cb) {
+          this._checkCompletionCallbacks.delete(torrent)
+          cb()
+        }
+
+        // Start networking if the torrent should be active.
+        // _needsDataCheck is already false and _isChecking is cleared by _doCheckPieces(),
+        // so start() will proceed past the check guards to activate networking.
+        if (torrent.userState === 'active' && !this.btEngine.isSuspended) {
+          torrent.start()
+        }
+
+        // Drain next queued check
+        this._drainCheckingQueue()
+
+        // Recalculate — the torrent may now need a download/seed slot
+        this.recalculate()
+      })
+      .catch((err) => {
+        this.logger.error(`Data check failed for ${torrent.name}:`, { err })
+        this._activelyChecking.delete(torrent)
+
+        const cb = this._checkCompletionCallbacks.get(torrent)
+        if (cb) {
+          this._checkCompletionCallbacks.delete(torrent)
+          cb()
+        }
+
+        this._drainCheckingQueue()
+      })
   }
 }

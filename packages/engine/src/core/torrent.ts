@@ -702,6 +702,14 @@ export class Torrent extends EngineComponent {
     // or resume data doesn't match files on disk)
     if (this._needsDataCheck) {
       this._needsDataCheck = false
+      this._isChecking = true // Show 'checking' activity state while queued
+      const qm = (this.engine as BtEngine).queueManager
+      if (qm) {
+        this.logger.info('Queuing data check before starting')
+        qm.requestCheck(this)
+        return // Queue manager calls start() again after check completes
+      }
+      // No queue manager (tests, simple usage) — inline check
       this.logger.info('Running initial data check before starting')
       await this._doCheckPieces()
     }
@@ -3373,6 +3381,14 @@ export class Torrent extends EngineComponent {
     this.btEngine.sessionPersistence.schedulePiecePersistence(this)
   }
 
+  /**
+   * Run piece hash verification. Called by the queue manager's checking scheduler.
+   * Do not call directly — use the queue manager to serialize checks.
+   */
+  async performDataCheck(): Promise<void> {
+    await this._doCheckPieces()
+  }
+
   async recheckData() {
     // Prevent re-entry if already checking
     if (this._isChecking) {
@@ -3390,7 +3406,13 @@ export class Torrent extends EngineComponent {
       this.stopNetwork()
     }
 
-    await this._doCheckPieces()
+    this._isChecking = true // Show 'checking' activity state while queued
+    const qm = (this.engine as BtEngine).queueManager
+    if (qm) {
+      await qm.requestCheckImmediate(this)
+    } else {
+      await this._doCheckPieces()
+    }
 
     // Note: Don't call checkCompletion() here - recheck shouldn't trigger
     // "download complete" notifications, it's just verifying existing data

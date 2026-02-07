@@ -84,6 +84,7 @@ export abstract class BaseConfigHub implements ConfigHub {
   // Settings: Queue
   readonly activeDownloads = createConfigValue(this, 'activeDownloads')
   readonly activeSeeds = createConfigValue(this, 'activeSeeds')
+  readonly activeChecking = createConfigValue(this, 'activeChecking')
 
   // Settings: Protocol
   readonly encryptionPolicy = createConfigValue(this, 'encryptionPolicy')

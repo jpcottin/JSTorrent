@@ -723,6 +723,189 @@ describe('TorrentQueueManager', () => {
     })
   })
 
+  describe('checking queue', () => {
+    /**
+     * Helper: simulate a torrent that needs data check by calling requestCheck
+     * directly. We mock performDataCheck to control when the check "completes".
+     *
+     * Returns a resolve function that completes the check.
+     */
+    function simulateCheckRequest(torrent: Torrent): () => void {
+      let resolve!: () => void
+      const promise = new Promise<void>((r) => {
+        resolve = r
+      })
+      vi.spyOn(torrent, 'performDataCheck').mockReturnValue(promise)
+
+      // Set _isChecking to true (as start() would)
+      Object.defineProperty(torrent, '_isChecking', { value: true, writable: true })
+
+      engine.queueManager!.requestCheck(torrent)
+      return resolve
+    }
+
+    it('should only check one torrent at a time by default', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+
+      const resolve1 = simulateCheckRequest(t1)
+      simulateCheckRequest(t2)
+      simulateCheckRequest(t3)
+
+      // Only t1 should have performDataCheck called (activeChecking=1)
+      expect(t1.performDataCheck).toHaveBeenCalledTimes(1)
+      expect(t2.performDataCheck).toHaveBeenCalledTimes(0)
+      expect(t3.performDataCheck).toHaveBeenCalledTimes(0)
+
+      // Complete t1's check
+      resolve1()
+      await vi.waitFor(() => {
+        expect(t2.performDataCheck).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    it('should process queued checks in queue position order', async () => {
+      const t1 = await addTorrent(0) // position 0
+      const t2 = await addTorrent(1) // position 1
+      const t3 = await addTorrent(2) // position 2
+
+      // Start t1's check first (it blocks the queue)
+      const resolve1 = simulateCheckRequest(t1)
+
+      // While t1 is checking, enqueue t3 and t2 (out of position order)
+      const checkOrder: string[] = []
+      for (const t of [t3, t2]) {
+        vi.spyOn(t, 'performDataCheck').mockImplementation(async () => {
+          checkOrder.push(t.name!)
+        })
+        Object.defineProperty(t, '_isChecking', { value: true, writable: true })
+        engine.queueManager!.requestCheck(t)
+      }
+
+      // Neither t2 nor t3 should have started (t1 is blocking)
+      expect(t2.performDataCheck).toHaveBeenCalledTimes(0)
+      expect(t3.performDataCheck).toHaveBeenCalledTimes(0)
+
+      // Complete t1 — queue should process t2 (position 1) before t3 (position 2)
+      resolve1()
+
+      await vi.waitFor(() => {
+        expect(checkOrder).toEqual(['torrent-1', 'torrent-2'])
+      })
+    })
+
+    it('should not count checking torrents against download limits', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+      recalc()
+
+      // t1, t2 active, t3 queued
+      expect(t3.userState).toBe('queued')
+
+      // Put t1 in checking queue
+      simulateCheckRequest(t1)
+
+      recalc()
+
+      // t1 is checking (skipped in partition), so t2 and t3 fill the 2 download slots
+      expect(t2.userState).toBe('active')
+      expect(t3.userState).toBe('active')
+    })
+
+    it('should start networking after check completes', async () => {
+      const t1 = await addTorrent(0)
+      recalc()
+
+      const resolve1 = simulateCheckRequest(t1)
+
+      // Complete the check
+      resolve1()
+
+      await vi.waitFor(() => {
+        // After check, start() should have been called
+        // t1.userState should still be active
+        expect(t1.userState).toBe('active')
+      })
+    })
+
+    it('should handle requestCheckImmediate (manual recheck)', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+
+      // t1 is already checking
+      const resolve1 = simulateCheckRequest(t1)
+
+      // t2 requests immediate check (simulating recheckData)
+      let immediateResolved = false
+      vi.spyOn(t2, 'performDataCheck').mockResolvedValue()
+      Object.defineProperty(t2, '_isChecking', { value: true, writable: true })
+
+      const immediatePromise = engine.queueManager!.requestCheckImmediate(t2)
+      immediatePromise.then(() => {
+        immediateResolved = true
+      })
+
+      // t2 should not have started yet (t1 is checking)
+      expect(t2.performDataCheck).toHaveBeenCalledTimes(0)
+      expect(immediateResolved).toBe(false)
+
+      // Complete t1
+      resolve1()
+
+      await immediatePromise
+      expect(immediateResolved).toBe(true)
+      expect(t2.performDataCheck).toHaveBeenCalledTimes(1)
+    })
+
+    it('should clean up checking state on torrent removal', async () => {
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+
+      simulateCheckRequest(t1)
+      vi.spyOn(t2, 'performDataCheck').mockResolvedValue()
+      Object.defineProperty(t2, '_isChecking', { value: true, writable: true })
+      engine.queueManager!.requestCheck(t2)
+
+      // t2 is queued for check
+      expect(engine.queueManager!.isCheckingOrQueued(t2)).toBe(true)
+
+      // Remove t2
+      await engine.removeTorrent(t2)
+
+      expect(engine.queueManager!.isCheckingOrQueued(t2)).toBe(false)
+    })
+
+    it('should respect activeChecking config changes', async () => {
+      config.set('activeChecking', 2)
+
+      const t1 = await addTorrent(0)
+      const t2 = await addTorrent(1)
+      const t3 = await addTorrent(2)
+
+      simulateCheckRequest(t1)
+      simulateCheckRequest(t2)
+      simulateCheckRequest(t3)
+
+      // With activeChecking=2, both t1 and t2 should be checking
+      expect(t1.performDataCheck).toHaveBeenCalledTimes(1)
+      expect(t2.performDataCheck).toHaveBeenCalledTimes(1)
+      expect(t3.performDataCheck).toHaveBeenCalledTimes(0)
+    })
+
+    it('should not double-enqueue a torrent', async () => {
+      const t1 = await addTorrent(0)
+
+      simulateCheckRequest(t1)
+
+      // Try to enqueue again
+      engine.queueManager!.requestCheck(t1)
+
+      expect(t1.performDataCheck).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('seed rotation', () => {
     it('should activate seeds up to the limit', async () => {
       config.set('activeSeeds', 2)

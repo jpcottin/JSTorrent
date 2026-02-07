@@ -92,6 +92,9 @@ export interface ConfigHub extends ConfigValueMap {
   /** Maximum simultaneous active (seeding) torrents. */
   readonly activeSeeds: ConfigValue<number>
 
+  /** Maximum simultaneous torrents verifying data (checking). */
+  readonly activeChecking: ConfigValue<number>
+
   // ===========================================================================
   // Settings: Protocol
   // ===========================================================================

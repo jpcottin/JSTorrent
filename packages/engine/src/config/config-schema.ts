@@ -222,6 +222,16 @@ export const configSchema = {
     max: 50,
   },
 
+  /** Maximum simultaneous torrents verifying data (checking). Not exposed in UI. */
+  activeChecking: {
+    type: 'number',
+    category: 'setting',
+    storage: 'sync',
+    default: 1,
+    min: 1,
+    max: 10,
+  },
+
   // ===========================================================================
   // Settings: Protocol
   // ===========================================================================

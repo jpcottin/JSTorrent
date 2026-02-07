@@ -32,7 +32,7 @@ impl DaemonManager {
 
         // TODO: Pass token via stdin or temp file instead of command line arg.
         // Command line args are visible in `ps aux` output which is a security concern.
-        let mut cmd = Command::new(daemon_path);
+        let mut cmd = Command::new(&daemon_path);
         cmd.arg("--port")
             .arg("0") // Let OS pick port
             .arg("--token")
@@ -49,7 +49,12 @@ impl DaemonManager {
             cmd.env("JSTORRENT_DEV_ORIGINS", dev_origins);
         }
 
-        let mut child = cmd.spawn().context("Failed to spawn io-daemon")?;
+        let mut child = cmd.spawn().map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to spawn io-daemon at {}: {e}",
+                daemon_path.display()
+            )
+        })?;
 
         // Read port from stdout
         if let Some(stdout) = child.stdout.take() {

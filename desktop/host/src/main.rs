@@ -332,8 +332,8 @@ async fn handle_request(
                 };
 
                 if let Err(e) = start_result {
-                    log!("Failed to start daemon: {}", e);
-                    Err(anyhow::anyhow!("Failed to start daemon: {e}"))
+                    log!("Failed to start daemon: {:#}", e);
+                    Err(anyhow::anyhow!("Failed to start daemon: {e:#}"))
                 } else {
                     log!(
                         "Handshake success, checking daemon info: {:?} {:?}",

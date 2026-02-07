@@ -8,6 +8,8 @@
 //!   `cargo test -p jstorrent-host --test native_messaging`
 
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -92,11 +94,21 @@ fn test_host_bridge_handshake() {
         let mut stderr_buf = Vec::new();
         let _ = stderr.read_to_end(&mut stderr_buf);
         let stderr_str = String::from_utf8_lossy(&stderr_buf);
+        let daemon_meta = std::fs::metadata(&daemon_bin)
+            .map(|m| {
+                #[cfg(unix)]
+                let perms = format!("{:o}", m.permissions().mode());
+                #[cfg(not(unix))]
+                let perms = format!("{:?}", m.permissions());
+                format!("size={}, permissions={perms}", m.len())
+            })
+            .unwrap_or_else(|e| format!("metadata error: {e}"));
         panic!(
             "handshake must succeed: {response}\n\
              host_bin: {host_bin}\n\
              daemon_bin: {}\n\
              daemon_bin exists: {}\n\
+             daemon_bin metadata: {daemon_meta}\n\
              stderr:\n{stderr_str}",
             daemon_bin.display(),
             daemon_bin.exists(),
