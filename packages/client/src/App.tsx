@@ -268,11 +268,7 @@ function App() {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <img
-              src={jsIcon}
-              alt="JSTorrent"
-              style={{ width: '24px', height: '24px' }}
-            />
+            <img src={jsIcon} alt="JSTorrent" style={{ width: '24px', height: '24px' }} />
             <h1 style={{ margin: 0, fontSize: '18px' }}>JSTorrent</h1>
           </div>
 
