@@ -12,7 +12,7 @@ pub fn open_file(path: &Path) -> Result<(), String> {
         let output = Command::new("xdg-open")
             .arg(path)
             .output()
-            .map_err(|e| format!("Failed to run xdg-open: {}", e))?;
+            .map_err(|e| format!("Failed to run xdg-open: {e}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -45,7 +45,7 @@ pub fn open_file(path: &Path) -> Result<(), String> {
             .args(["/C", "start", ""])
             .arg(path)
             .output()
-            .map_err(|e| format!("Failed to run start: {}", e))?;
+            .map_err(|e| format!("Failed to run start: {e}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -87,7 +87,7 @@ pub fn reveal_in_folder(path: &Path) -> Result<(), String> {
         let output = Command::new("explorer")
             .arg(format!("/select,{}", path.display()))
             .output()
-            .map_err(|e| format!("Failed to run explorer: {}", e))?;
+            .map_err(|e| format!("Failed to run explorer: {e}"))?;
 
         // Explorer returns non-zero even on success sometimes, so just check if it ran
         if output.status.code() == Some(1) {
@@ -106,7 +106,7 @@ pub fn reveal_in_folder(path: &Path) -> Result<(), String> {
         let output = Command::new("xdg-open")
             .arg(parent)
             .output()
-            .map_err(|e| format!("Failed to run xdg-open: {}", e))?;
+            .map_err(|e| format!("Failed to run xdg-open: {e}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

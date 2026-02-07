@@ -14,5 +14,7 @@ on open theFiles
 end open
 
 on run
-    -- Do nothing when double-clicked
+    -- Open the extension UI when double-clicked
+    set binaryPath to (POSIX path of (path to me)) & "Contents/MacOS/jstorrent-link-handler-bin"
+    do shell script quoted form of binaryPath
 end run

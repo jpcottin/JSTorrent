@@ -24,8 +24,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// The magnet link or torrent file path to handle
-    target: String,
+    /// The magnet link or torrent file path to handle (opens UI if omitted)
+    target: Option<String>,
 }
 
 enum Mode {
@@ -56,7 +56,7 @@ fn main() {
     if let Err(e) = run(args) {
         show_error(
             &format!("JSTorrent could not process your link.\n\nReason: {e}"),
-            Some(&target),
+            target.as_deref(),
         );
         std::process::exit(1);
     }
@@ -65,8 +65,15 @@ fn main() {
 }
 
 fn run(args: Args) -> Result<()> {
-    let target = args.target;
     log!("DEBUG: Starting JSTorrent Link Handler");
+
+    let Some(target) = args.target else {
+        // No target: open the extension UI in the browser
+        log!("DEBUG: No target provided, launching browser UI");
+        launch_browser()?;
+        return Ok(());
+    };
+
     log!("DEBUG: Target: {}", target);
 
     // 1. Parse Input
