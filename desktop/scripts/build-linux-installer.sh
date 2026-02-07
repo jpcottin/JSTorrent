@@ -8,7 +8,7 @@ if [ ! -f "Cargo.toml" ]; then
 fi
 
 echo "Building release binaries..."
-cargo build --release --workspace
+cargo build --release --workspace --exclude jstorrent-desktop
 
 echo "Creating Linux installer tarball..."
 STAGING_DIR="build_staging"

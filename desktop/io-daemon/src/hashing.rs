@@ -1,3 +1,5 @@
+use crate::files::MAX_BODY_SIZE;
+use crate::AppState;
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, Path, State},
@@ -6,14 +8,12 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use crate::files::MAX_BODY_SIZE;
 use serde::Deserialize;
 use sha1::{Digest, Sha1};
 use sha2::Sha256;
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
-use crate::AppState;
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -35,7 +35,6 @@ struct HashParams {
     root_token: String,
 }
 
-
 /// Hash arbitrary bytes with SHA1.
 /// POST /hash/sha1
 /// Body: raw bytes
@@ -44,7 +43,10 @@ async fn hash_sha1_bytes(body: Bytes) -> impl IntoResponse {
     let mut hasher = Sha1::new();
     hasher.update(&body);
     let hash = hasher.finalize();
-    ([(header::CONTENT_TYPE, "application/octet-stream")], hash.to_vec())
+    (
+        [(header::CONTENT_TYPE, "application/octet-stream")],
+        hash.to_vec(),
+    )
 }
 
 /// Batch hash multiple byte arrays with SHA1.
@@ -52,12 +54,16 @@ async fn hash_sha1_bytes(body: Bytes) -> impl IntoResponse {
 /// Body: length-prefixed binary format:
 ///   - count (u32 little-endian): number of items
 ///   - For each item:
-///     - len (u32 little-endian): length of data
-///     - data (len bytes)
+///       - len (u32 little-endian): length of data
+///       - data (len bytes)
+///
 /// Response: concatenated 20-byte hashes (application/octet-stream)
 async fn hash_sha1_batch(body: Bytes) -> Result<impl IntoResponse, (StatusCode, String)> {
     let results = hash_sha1_batch_inner(&body)?;
-    Ok(([(header::CONTENT_TYPE, "application/octet-stream")], results))
+    Ok((
+        [(header::CONTENT_TYPE, "application/octet-stream")],
+        results,
+    ))
 }
 
 /// Core batch hashing logic, separated for testability
@@ -71,7 +77,10 @@ fn hash_sha1_batch_inner(body: &[u8]) -> Result<Vec<u8>, (StatusCode, String)> {
     let count = u32::from_le_bytes(body[0..4].try_into().unwrap());
 
     if count > MAX_BATCH_COUNT {
-        return Err((StatusCode::BAD_REQUEST, format!("Too many items: {} (max {})", count, MAX_BATCH_COUNT)));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Too many items: {count} (max {MAX_BATCH_COUNT})"),
+        ));
     }
 
     let mut offset = 4usize;
@@ -79,14 +88,25 @@ fn hash_sha1_batch_inner(body: &[u8]) -> Result<Vec<u8>, (StatusCode, String)> {
 
     for i in 0..count {
         if offset + 4 > body.len() {
-            return Err((StatusCode::BAD_REQUEST, format!("Truncated input at item {} length field", i)));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Truncated input at item {i} length field"),
+            ));
         }
 
         let len = u32::from_le_bytes(body[offset..offset + 4].try_into().unwrap()) as usize;
         offset += 4;
 
         if offset + len > body.len() {
-            return Err((StatusCode::BAD_REQUEST, format!("Truncated input at item {} data (need {} bytes, have {})", i, len, body.len() - offset)));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "Truncated input at item {} data (need {} bytes, have {})",
+                    i,
+                    len,
+                    body.len() - offset
+                ),
+            ));
         }
 
         let data = &body[offset..offset + len];
@@ -108,7 +128,10 @@ async fn hash_sha256_bytes(body: Bytes) -> impl IntoResponse {
     let mut hasher = Sha256::new();
     hasher.update(&body);
     let hash = hasher.finalize();
-    ([(header::CONTENT_TYPE, "application/octet-stream")], hash.to_vec())
+    (
+        [(header::CONTENT_TYPE, "application/octet-stream")],
+        hash.to_vec(),
+    )
 }
 
 /// Hash a file with SHA1. Returns hex string.
@@ -119,12 +142,13 @@ async fn hash_sha1_file(
 ) -> Result<String, (StatusCode, String)> {
     let full_path = crate::files::validate_path(&state, &params.root_token, &path)?;
 
-    
-    let mut file = File::open(&full_path).await
+    let mut file = File::open(&full_path)
+        .await
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
     if let Some(offset) = params.offset {
-        file.seek(SeekFrom::Start(offset)).await
+        file.seek(SeekFrom::Start(offset))
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     }
 
@@ -134,9 +158,11 @@ async fn hash_sha1_file(
 
     while remaining > 0 {
         let to_read = std::cmp::min(buffer.len() as u64, remaining);
-        let n = file.read(&mut buffer[..to_read as usize]).await
+        let n = file
+            .read(&mut buffer[..to_read as usize])
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        
+
         if n == 0 {
             break;
         }
@@ -156,12 +182,13 @@ async fn hash_sha256_file(
 ) -> Result<String, (StatusCode, String)> {
     let full_path = crate::files::validate_path(&state, &params.root_token, &path)?;
 
-
-    let mut file = File::open(&full_path).await
+    let mut file = File::open(&full_path)
+        .await
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
     if let Some(offset) = params.offset {
-        file.seek(SeekFrom::Start(offset)).await
+        file.seek(SeekFrom::Start(offset))
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     }
 
@@ -171,7 +198,9 @@ async fn hash_sha256_file(
 
     while remaining > 0 {
         let to_read = std::cmp::min(buffer.len() as u64, remaining);
-        let n = file.read(&mut buffer[..to_read as usize]).await
+        let n = file
+            .read(&mut buffer[..to_read as usize])
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         if n == 0 {
@@ -270,7 +299,7 @@ mod tests {
         buf.extend_from_slice(&2u32.to_le_bytes()); // 2 items
         buf.extend_from_slice(&5u32.to_le_bytes()); // len=5
         buf.extend_from_slice(b"hello"); // first item ok
-        // Missing second item's length field
+                                         // Missing second item's length field
         let result = hash_sha1_batch_inner(&buf);
 
         assert!(result.is_err());
@@ -300,7 +329,13 @@ mod tests {
         let body = build_batch_request(&[b"hello", b""]);
         let response_bytes = hash_sha1_batch_inner(&body).unwrap();
 
-        assert_eq!(hex::encode(&response_bytes[0..20]), "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d");
-        assert_eq!(hex::encode(&response_bytes[20..40]), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+        assert_eq!(
+            hex::encode(&response_bytes[0..20]),
+            "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
+        );
+        assert_eq!(
+            hex::encode(&response_bytes[20..40]),
+            "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        );
     }
 }

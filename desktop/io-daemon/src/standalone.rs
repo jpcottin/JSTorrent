@@ -192,13 +192,18 @@ async fn pair_handler(
 
     // Store the token, extension_id, and install_id in config
     config.token = Some(request.token.clone());
-    config.extension_id = extension_id.clone();
-    config.install_id = install_id.clone();
+    config.extension_id.clone_from(&extension_id);
+    config.install_id.clone_from(&install_id);
 
     // Also update the AppState token so auth middleware uses the new token
-    *state.app.token.write().unwrap() = request.token.clone();
+    state.app.token.write().unwrap().clone_from(&request.token);
     // Update extension_id in AppState as well
-    *state.app.extension_id.write().unwrap() = extension_id.clone();
+    state
+        .app
+        .extension_id
+        .write()
+        .unwrap()
+        .clone_from(&extension_id);
 
     // Save to disk
     if let Err(e) = config.save() {
@@ -220,12 +225,13 @@ async fn pair_handler(
 
 /// Validate Chrome extension ID format (32 lowercase letters a-p)
 fn is_valid_extension_id(id: &str) -> bool {
-    id.len() == 32 && id.chars().all(|c| c.is_ascii_lowercase() && c >= 'a' && c <= 'p')
+    id.len() == 32
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() && ('a'..='p').contains(&c))
 }
 
-async fn roots_handler(
-    State(state): State<Arc<StandaloneState>>,
-) -> Json<RootsResponse> {
+async fn roots_handler(State(state): State<Arc<StandaloneState>>) -> Json<RootsResponse> {
     let roots = state.app.download_roots.read().unwrap().clone();
     Json(RootsResponse { roots })
 }
@@ -253,18 +259,17 @@ pub fn create_download_root(path: &std::path::Path) -> jstorrent_common::Downloa
     let path_str = path.to_string_lossy().to_string();
     let display_name = path
         .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| path_str.clone());
+        .map_or_else(|| path_str.clone(), |n| n.to_string_lossy().to_string());
 
     // Generate key from path hash
     let mut hasher = Sha256::new();
     hasher.update(path_str.as_bytes());
     let hash = hasher.finalize();
-    let key = format!("{:x}", hash).chars().take(16).collect();
+    let key = format!("{hash:x}").chars().take(16).collect();
 
     jstorrent_common::DownloadRoot {
         key,
-        disk_id: jstorrent_common::get_disk_id(&path),
+        disk_id: jstorrent_common::get_disk_id(path),
         path: path_str,
         display_name,
         removable: false,
@@ -274,9 +279,4 @@ pub fn create_download_root(path: &std::path::Path) -> jstorrent_common::Downloa
             .unwrap_or_default()
             .as_secs(),
     }
-}
-
-/// Generate a random token for standalone mode
-pub fn generate_token() -> String {
-    uuid::Uuid::new_v4().to_string()
 }

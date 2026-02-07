@@ -18,7 +18,7 @@ pub async fn read_message<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Option
 
     // Arbitrary sanity limit (e.g., 10MB) to prevent OOM on malformed input
     if len > 10 * 1024 * 1024 {
-        return Err(anyhow::anyhow!("Message too large: {} bytes", len));
+        return Err(anyhow::anyhow!("Message too large: {len} bytes"));
     }
 
     let mut buf = vec![0u8; len];

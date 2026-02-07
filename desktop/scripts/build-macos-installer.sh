@@ -69,7 +69,7 @@ if $NOTARIZE; then
 fi
 
 echo "Building release binaries..."
-cargo build --release --workspace
+cargo build --release --workspace --exclude jstorrent-desktop
 
 # Generate .icns file from PNG icons (shared by all app bundles)
 echo "Generating app icon..."

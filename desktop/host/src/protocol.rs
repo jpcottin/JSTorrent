@@ -14,7 +14,9 @@ pub enum Operation {
     PickDownloadDirectory,
 
     // Delete Download Root
-    DeleteDownloadRoot { key: String },
+    DeleteDownloadRoot {
+        key: String,
+    },
 
     // Handshake
     Handshake {
@@ -61,9 +63,15 @@ pub enum ResponsePayload {
         version: String,
         roots: Vec<DownloadRoot>,
     },
-    Path { path: String },
-    RootAdded { root: DownloadRoot },
-    RootRemoved { key: String },
+    Path {
+        path: String,
+    },
+    RootAdded {
+        root: DownloadRoot,
+    },
+    RootRemoved {
+        key: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -28,7 +28,7 @@ async fn network_interfaces() -> Json<Vec<NetworkInterface>> {
                                 let mask = u32::from(v4.netmask);
                                 mask.count_ones() as u8
                             }
-                            _ => 24,
+                            if_addrs::IfAddr::V6(_) => 24,
                         };
                         Some(NetworkInterface {
                             name: iface.name,

@@ -1,12 +1,12 @@
+use crate::AppState;
 use axum::{
     extract::State,
     routing::{get, post},
     Json, Router,
 };
 use serde::Serialize;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use crate::AppState;
+use std::sync::Arc;
 
 #[derive(Serialize)]
 pub struct StatsResponse {

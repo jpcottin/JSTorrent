@@ -1,6 +1,6 @@
+use crate::protocol::Event;
 use std::sync::Mutex;
 use tokio::sync::mpsc;
-use crate::protocol::Event;
 
 pub struct State {
     pub event_sender: Option<mpsc::Sender<Event>>,

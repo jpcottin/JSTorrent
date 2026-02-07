@@ -1,3 +1,4 @@
+use crate::AppState;
 use axum::{
     extract::{DefaultBodyLimit, Path, State},
     http::{HeaderMap, StatusCode},
@@ -7,12 +8,11 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
+use std::io::{ErrorKind, SeekFrom};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use std::io::{ErrorKind, SeekFrom};
-use crate::AppState;
 
 // 64MB limit for piece writes (must match MAX_PIECE_SIZE in engine)
 pub const MAX_BODY_SIZE: usize = 64 * 1024 * 1024;
@@ -25,7 +25,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/read/:root_key", get(read_file_v2))
         // DEPRECATED: Legacy path-based endpoints - path in URL breaks on # and ? characters
         // These are no longer used by the TypeScript engine as of 2024-12
-        .route("/files/*path", get(read_file_deprecated).post(write_file_deprecated))
+        .route(
+            "/files/*path",
+            get(read_file_deprecated).post(write_file_deprecated),
+        )
         .route("/files/ensure_dir", post(ensure_dir))
         .route("/ops/stat", get(stat_file))
         .route("/ops/exists", get(exists_file))
@@ -48,7 +51,10 @@ struct ReadParams {
     root_key: String,
 }
 
-#[deprecated(since = "0.1.0", note = "Use read_file_v2 with X-Path-Base64 header instead")]
+#[deprecated(
+    since = "0.1.0",
+    note = "Use read_file_v2 with X-Path-Base64 header instead"
+)]
 async fn read_file_deprecated(
     State(state): State<Arc<AppState>>,
     Path(path): Path<String>,
@@ -58,21 +64,25 @@ async fn read_file_deprecated(
 
     let full_path = validate_path(&state, &params.root_key, &path)?;
 
-    let mut file = File::open(&full_path).await
+    let mut file = File::open(&full_path)
+        .await
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
 
     if let Some(offset) = params.offset {
-        file.seek(SeekFrom::Start(offset)).await
+        file.seek(SeekFrom::Start(offset))
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     }
 
     let mut buffer = Vec::new();
     if let Some(len) = params.length {
         buffer.resize(len as usize, 0);
-        file.read_exact(&mut buffer).await
+        file.read_exact(&mut buffer)
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     } else {
-        file.read_to_end(&mut buffer).await
+        file.read_to_end(&mut buffer)
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     }
 
@@ -85,7 +95,10 @@ struct WriteParams {
     root_key: String,
 }
 
-#[deprecated(since = "0.1.0", note = "Use write_file_v2 with X-Path-Base64 header instead")]
+#[deprecated(
+    since = "0.1.0",
+    note = "Use write_file_v2 with X-Path-Base64 header instead"
+)]
 async fn write_file_deprecated(
     State(state): State<Arc<AppState>>,
     Path(path): Path<String>,
@@ -98,22 +111,27 @@ async fn write_file_deprecated(
 
     // Ensure parent directory exists
     if let Some(parent) = full_path.parent() {
-        fs::create_dir_all(parent).await
+        fs::create_dir_all(parent)
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     }
 
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create(true)
-        .open(&full_path).await
+        .truncate(false)
+        .open(&full_path)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if let Some(offset) = params.offset {
-        file.seek(SeekFrom::Start(offset)).await
+        file.seek(SeekFrom::Start(offset))
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     }
 
-    file.write_all(&body).await
+    file.write_all(&body)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(())
@@ -127,28 +145,42 @@ async fn write_file_deprecated(
 fn extract_path_from_header(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
     let path_b64 = headers
         .get("X-Path-Base64")
-        .ok_or((StatusCode::BAD_REQUEST, "Missing X-Path-Base64 header".into()))?
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            "Missing X-Path-Base64 header".into(),
+        ))?
         .to_str()
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid X-Path-Base64 header".into()))?;
+        .map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                "Invalid X-Path-Base64 header".into(),
+            )
+        })?;
 
-    let path_bytes = BASE64
-        .decode(path_b64)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid base64 in X-Path-Base64".into()))?;
+    let path_bytes = BASE64.decode(path_b64).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            "Invalid base64 in X-Path-Base64".into(),
+        )
+    })?;
 
     String::from_utf8(path_bytes)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid UTF-8 in path".into()))
 }
 
 /// Helper to extract optional u64 from header
-fn extract_u64_header(headers: &HeaderMap, name: &str) -> Result<Option<u64>, (StatusCode, String)> {
+fn extract_u64_header(
+    headers: &HeaderMap,
+    name: &str,
+) -> Result<Option<u64>, (StatusCode, String)> {
     match headers.get(name) {
         Some(value) => {
             let s = value
                 .to_str()
-                .map_err(|_| (StatusCode::BAD_REQUEST, format!("Invalid {} header", name)))?;
+                .map_err(|_| (StatusCode::BAD_REQUEST, format!("Invalid {name} header")))?;
             let n = s
                 .parse()
-                .map_err(|_| (StatusCode::BAD_REQUEST, format!("Invalid {} value", name)))?;
+                .map_err(|_| (StatusCode::BAD_REQUEST, format!("Invalid {name} value")))?;
             Ok(Some(n))
         }
         None => Ok(None),
@@ -156,7 +188,7 @@ fn extract_u64_header(headers: &HeaderMap, name: &str) -> Result<Option<u64>, (S
 }
 
 /// New write endpoint with base64 path in header and optional hash verification.
-/// POST /write/{root_key}
+/// POST /`write/{root_key`}
 /// Headers:
 ///   X-Path-Base64: <base64 encoded path>
 ///   X-Offset: <optional offset>
@@ -176,9 +208,12 @@ async fn write_file_v2(
 
     // Hash verification FIRST (before any file operations)
     if let Some(expected_hex) = headers.get("X-Expected-SHA1") {
-        let expected_hex = expected_hex
-            .to_str()
-            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid X-Expected-SHA1 header".into()))?;
+        let expected_hex = expected_hex.to_str().map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                "Invalid X-Expected-SHA1 header".into(),
+            )
+        })?;
 
         let mut hasher = Sha1::new();
         hasher.update(&body);
@@ -187,7 +222,7 @@ async fn write_file_v2(
         if actual != expected_hex {
             return Err((
                 StatusCode::CONFLICT,
-                format!("Hash mismatch: expected {}, got {}", expected_hex, actual),
+                format!("Hash mismatch: expected {expected_hex}, got {actual}"),
             ));
         }
     }
@@ -206,12 +241,14 @@ async fn write_file_v2(
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create(true)
+        .truncate(false)
         .open(&full_path)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if offset > 0 {
-        file.seek(SeekFrom::Start(offset)).await
+        file.seek(SeekFrom::Start(offset))
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     }
 
@@ -227,7 +264,7 @@ async fn write_file_v2(
 }
 
 /// New read endpoint with base64 path in header.
-/// GET /read/{root_key}
+/// GET /`read/{root_key`}
 /// Headers:
 ///   X-Path-Base64: <base64 encoded path>
 ///   X-Offset: <optional offset>
@@ -257,16 +294,14 @@ async fn read_file_v2(
     let mut buffer = Vec::new();
     if let Some(len) = length {
         buffer.resize(len as usize, 0);
-        file.read_exact(&mut buffer)
-            .await
-            .map_err(|e| {
-                let status = if e.kind() == ErrorKind::UnexpectedEof {
-                    StatusCode::RANGE_NOT_SATISFIABLE
-                } else {
-                    StatusCode::INTERNAL_SERVER_ERROR
-                };
-                (status, e.to_string())
-            })?;
+        file.read_exact(&mut buffer).await.map_err(|e| {
+            let status = if e.kind() == ErrorKind::UnexpectedEof {
+                StatusCode::RANGE_NOT_SATISFIABLE
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, e.to_string())
+        })?;
     } else {
         file.read_to_end(&mut buffer)
             .await
@@ -282,14 +317,14 @@ struct EnsureDirParams {
     root_key: String,
 }
 
-
 async fn ensure_dir(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<EnsureDirParams>,
 ) -> Result<(), (StatusCode, String)> {
     let full_path = validate_path(&state, &payload.root_key, &payload.path)?;
 
-    fs::create_dir_all(full_path).await
+    fs::create_dir_all(full_path)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(())
 }
@@ -314,16 +349,16 @@ async fn stat_file(
 ) -> Result<Json<FileStat>, (StatusCode, String)> {
     let full_path = validate_path(&state, &params.root_key, &params.path)?;
 
-    let metadata = fs::metadata(&full_path).await
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                (StatusCode::NOT_FOUND, e.to_string())
-            } else {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-            }
-        })?;
+    let metadata = fs::metadata(&full_path).await.map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            (StatusCode::NOT_FOUND, e.to_string())
+        } else {
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        }
+    })?;
 
-    let mtime = metadata.modified()
+    let mtime = metadata
+        .modified()
         .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
@@ -371,7 +406,8 @@ async fn list_dir(
 ) -> Result<Json<Vec<String>>, (StatusCode, String)> {
     let full_path = validate_path(&state, &params.root_key, &params.path)?;
 
-    let mut entries = fs::read_dir(&full_path).await
+    let mut entries = fs::read_dir(&full_path)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let mut filenames = Vec::new();
@@ -397,10 +433,12 @@ async fn delete_file(
     let full_path = validate_path(&state, &payload.root_key, &payload.path)?;
 
     if full_path.is_dir() {
-        fs::remove_dir_all(full_path).await
+        fs::remove_dir_all(full_path)
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     } else {
-        fs::remove_file(full_path).await
+        fs::remove_file(full_path)
+            .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     }
 
@@ -422,28 +460,41 @@ async fn truncate_file(
 
     let file = fs::OpenOptions::new()
         .write(true)
-        .open(&full_path).await
+        .open(&full_path)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    file.set_len(payload.length).await
+    file.set_len(payload.length)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(())
 }
 
-pub fn validate_path(state: &AppState, root_key: &str, path: &str) -> Result<PathBuf, (StatusCode, String)> {
+pub fn validate_path(
+    state: &AppState,
+    root_key: &str,
+    path: &str,
+) -> Result<PathBuf, (StatusCode, String)> {
     // Find root by key
-    let roots = state.download_roots.read().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Lock poisoned".to_string()))?;
-    let root = roots.iter().find(|r| r.key == root_key)
+    let roots = state.download_roots.read().map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Lock poisoned".to_string(),
+        )
+    })?;
+    let root = roots
+        .iter()
+        .find(|r| r.key == root_key)
         .ok_or_else(|| (StatusCode::FORBIDDEN, "Invalid root key".to_string()))?;
-    
+
     let root_path = PathBuf::from(&root.path);
 
     // Prevent directory traversal
     if path.contains("..") {
         return Err((StatusCode::BAD_REQUEST, "Invalid path".to_string()));
     }
-    
+
     // Sanitize path separators
     let clean_path = path.replace('\\', "/");
     let clean_path = clean_path.trim_start_matches('/');
@@ -453,7 +504,7 @@ pub fn validate_path(state: &AppState, root_key: &str, path: &str) -> Result<Pat
 
 #[cfg(test)]
 mod tests {
-    use sha1::{Sha1, Digest};
+    use sha1::{Digest, Sha1};
 
     /// Test helper: compute SHA1 hash the same way as write_file_v2
     fn compute_sha1_hex(data: &[u8]) -> String {

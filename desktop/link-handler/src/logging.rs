@@ -1,24 +1,23 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Mutex;
-use lazy_static::lazy_static;
+use std::sync::{LazyLock, Mutex};
 
-lazy_static! {
-    static ref LOG_FILE: Mutex<Option<std::fs::File>> = Mutex::new(None);
-}
+static LOG_FILE: LazyLock<Mutex<Option<std::fs::File>>> = LazyLock::new(|| Mutex::new(None));
 
 pub fn init(filename: &str) {
     // 1. Check ~/.config/jstorrent-native/jstorrent-native.env
     if let Some(config_dir) = dirs::config_dir() {
-        let env_path = config_dir.join("jstorrent-native").join("jstorrent-native.env");
+        let env_path = config_dir
+            .join("jstorrent-native")
+            .join("jstorrent-native.env");
         if check_and_init_log(&env_path, filename) {
             return;
         }
     }
 
     // 2. Fallback to executable directory
-    if let Some(exe_path) = std::env::current_exe().ok() {
+    if let Ok(exe_path) = std::env::current_exe() {
         if let Some(dir) = exe_path.parent() {
             let env_path = dir.join("jstorrent-native.env");
             check_and_init_log(&env_path, filename);
@@ -44,19 +43,17 @@ fn check_and_init_log(env_path: &PathBuf, filename: &str) -> bool {
                     // UNLESS the user explicitly asked to move logs. They only asked to move jstorrent-native.env lookup.
                     // Wait, if I use config dir for env, I might not have write access to exe dir if installed in /usr/lib (though here it is ~/.local/lib).
                     // Let's assume logs should go to the same dir as the executable for now, as originally requested.
-                    
-                    let log_dir = if let Some(exe_path) = std::env::current_exe().ok() {
-                        exe_path.parent().map(|p| p.to_path_buf())
+
+                    let log_dir = if let Ok(exe_path) = std::env::current_exe() {
+                        exe_path.parent().map(std::path::Path::to_path_buf)
                     } else {
                         None
                     };
 
                     if let Some(dir) = log_dir {
                         let log_path = dir.join(filename);
-                        if let Ok(file) = OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open(&log_path) 
+                        if let Ok(file) =
+                            OpenOptions::new().create(true).append(true).open(&log_path)
                         {
                             *LOG_FILE.lock().unwrap() = Some(file);
                             log("Logger initialized");
@@ -72,10 +69,10 @@ fn check_and_init_log(env_path: &PathBuf, filename: &str) -> bool {
 
 pub fn log(msg: &str) {
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-    let formatted_msg = format!("[{}] {}\n", timestamp, msg);
+    let formatted_msg = format!("[{timestamp}] {msg}\n");
 
     // Always print to stderr (for terminal visibility)
-    eprint!("{}", formatted_msg);
+    eprint!("{formatted_msg}");
 
     // Write to log file if enabled
     if let Ok(mut file_guard) = LOG_FILE.lock() {

@@ -73,7 +73,9 @@ pub fn get_config_dir() -> Option<PathBuf> {
 /// Read a value from jstorrent-native.env file.
 /// Looks in ~/.config/jstorrent-native/jstorrent-native.env
 pub fn read_env_value(key: &str) -> Option<String> {
-    let env_path = get_config_dir()?.join("jstorrent-native").join("jstorrent-native.env");
+    let env_path = get_config_dir()?
+        .join("jstorrent-native")
+        .join("jstorrent-native.env");
 
     if let Ok(content) = std::fs::read_to_string(&env_path) {
         for line in content.lines() {

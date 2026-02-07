@@ -30,7 +30,7 @@ pub fn open_file(path: &Path) -> Result<(), String> {
         let output = Command::new("open")
             .arg(path)
             .output()
-            .map_err(|e| format!("Failed to run open: {}", e))?;
+            .map_err(|e| format!("Failed to run open: {e}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -72,7 +72,7 @@ pub fn reveal_in_folder(path: &Path) -> Result<(), String> {
             .arg("-R")
             .arg(path)
             .output()
-            .map_err(|e| format!("Failed to run open -R: {}", e))?;
+            .map_err(|e| format!("Failed to run open -R: {e}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

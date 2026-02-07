@@ -25,7 +25,32 @@ defaults:
     working-directory: desktop
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev librsvg2-dev libjavascriptcoregtk-4.1-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace
+
   build-windows:
+    needs: lint
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +59,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build Release
-        run: cargo build --release --workspace
+        run: cargo build --release --workspace --exclude jstorrent-desktop
 
       - name: Compile Installer
         run: |
@@ -95,6 +120,7 @@ jobs:
           Write-Host "Installer verification passed!"
 
   build-macos:
+    needs: lint
     runs-on: macos-latest
     env:
       HAS_SIGNING_SECRETS: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 != '' }}
@@ -181,6 +207,7 @@ jobs:
           files: desktop/jstorrent-system-bridge-install-macos-x86_64.pkg
 
   build-linux:
+    needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

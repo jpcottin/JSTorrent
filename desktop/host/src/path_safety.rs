@@ -16,7 +16,7 @@ pub fn validate_path<P: AsRef<Path>, R: AsRef<Path>>(path: P, root: R) -> Result
     // Canonicalize root to resolve symlinks and get absolute path
     let canonical_root = root
         .canonicalize()
-        .map_err(|e| anyhow!("Invalid root path: {}", e))?;
+        .map_err(|e| anyhow!("Invalid root path: {e}"))?;
 
     // If path is absolute, check if it's under root.
     // If relative, join with root.
@@ -62,12 +62,12 @@ pub fn validate_path<P: AsRef<Path>, R: AsRef<Path>>(path: P, root: R) -> Result
     if target_path.exists() {
         let canonical_target = target_path
             .canonicalize()
-            .map_err(|e| anyhow!("Failed to resolve path: {}", e))?;
-        
+            .map_err(|e| anyhow!("Failed to resolve path: {e}"))?;
+
         if canonical_target.starts_with(&canonical_root) {
             Ok(canonical_target)
         } else {
-            Err(anyhow!("Path escape detected: {:?}", path))
+            Err(anyhow!("Path escape detected: {}", path.display()))
         }
     } else {
         // For non-existing files (e.g. creating a new file):
@@ -75,40 +75,45 @@ pub fn validate_path<P: AsRef<Path>, R: AsRef<Path>>(path: P, root: R) -> Result
         let parent = target_path
             .parent()
             .ok_or_else(|| anyhow!("Path has no parent"))?;
-        
+
         // If parent doesn't exist, we can't verify safety fully (unless we recursively check).
         // But `ensureDir` might create parents.
         // If we are writing a file, the parent MUST exist (usually).
         // If `ensureDir`, we might be creating deep structure.
-        
+
         // Let's rely on `canonicalize` for the longest existing prefix.
         // Or simpler: require that the parent exists for file operations?
         // The design doesn't specify.
-        
+
         // Let's try to canonicalize the parent.
         if parent.exists() {
-             let canonical_parent = parent
+            let canonical_parent = parent
                 .canonicalize()
-                .map_err(|e| anyhow!("Failed to resolve parent path: {}", e))?;
-            
+                .map_err(|e| anyhow!("Failed to resolve parent path: {e}"))?;
+
             if !canonical_parent.starts_with(&canonical_root) {
-                 return Err(anyhow!("Path escape detected in parent: {:?}", parent));
+                return Err(anyhow!(
+                    "Path escape detected in parent: {}",
+                    parent.display()
+                ));
             }
-            
+
             // Now we have a safe parent. The filename itself shouldn't be `..`.
             // `PathBuf` normalization handles `..` if we use `components()`.
             // But since we are constructing `target_path` from `path` (which is absolute),
             // and we checked the parent...
-            
+
             // One edge case: `path` is `/safe/root/symlink_to_unsafe/file`.
             // If `symlink_to_unsafe` exists and points outside, `canonicalize(parent)` would catch it.
             // So checking the parent is sufficient for the directory part.
-            
+
             // We just need to return the absolute path with the canonical parent.
             // But wait, if we return a path, we want it to be the one we use.
             // `canonical_parent.join(filename)`
-            
-            let file_name = target_path.file_name().ok_or_else(|| anyhow!("Invalid filename"))?;
+
+            let file_name = target_path
+                .file_name()
+                .ok_or_else(|| anyhow!("Invalid filename"))?;
             Ok(canonical_parent.join(file_name))
         } else {
             // Parent doesn't exist.
@@ -117,20 +122,20 @@ pub fn validate_path<P: AsRef<Path>, R: AsRef<Path>>(path: P, root: R) -> Result
             // This is hard without full canonicalization.
             // For now, let's error if parent doesn't exist, unless it's `ensureDir`?
             // But `validate_path` is generic.
-            
+
             // Let's do a lexical check for the non-existing part?
             // Or just fail.
             // Most operations (writeFile) require parent to exist or we fail anyway.
             // `ensureDir` is the exception.
-            
+
             // For `ensureDir`, we might iterate up until we find an existing dir.
             // Then check if that existing dir is safe.
             // And ensure the remaining path doesn't contain `..` or symlinks (which we can't check if they don't exist, but if they don't exist they aren't symlinks yet).
-            
+
             // Let's implement a loop to find the first existing ancestor.
             let mut current = target_path.clone();
             let mut components_to_append = Vec::new();
-            
+
             while !current.exists() {
                 if let Some(name) = current.file_name() {
                     components_to_append.push(name.to_os_string());
@@ -143,24 +148,29 @@ pub fn validate_path<P: AsRef<Path>, R: AsRef<Path>>(path: P, root: R) -> Result
                     break;
                 }
             }
-            
+
             // Now `current` exists (or should).
-            let canonical_base = current.canonicalize().map_err(|e| anyhow!("Failed to resolve base path: {}", e))?;
-            
+            let canonical_base = current
+                .canonicalize()
+                .map_err(|e| anyhow!("Failed to resolve base path: {e}"))?;
+
             if !canonical_base.starts_with(&canonical_root) {
-                return Err(anyhow!("Path escape detected in base: {:?}", current));
+                return Err(anyhow!(
+                    "Path escape detected in base: {}",
+                    current.display()
+                ));
             }
-            
+
             // Reconstruct path
             let mut safe_path = canonical_base;
             for component in components_to_append.into_iter().rev() {
                 safe_path.push(component);
             }
-            
+
             // Final check: ensure no `..` in the reconstructed path (lexical).
             // Since we built it from `canonical_base` + components, it should be fine unless components contain `..`.
             // `file_name()` shouldn't return `..`.
-            
+
             Ok(safe_path)
         }
     }
@@ -177,7 +187,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let root = temp.path().canonicalize().unwrap();
         let file_path = root.join("safe.txt");
-        
+
         // Create file so it exists for canonicalization
         fs::write(&file_path, "test").unwrap();
 
@@ -190,11 +200,11 @@ mod tests {
     fn test_validate_path_escape() {
         let temp = TempDir::new().unwrap();
         let root = temp.path().canonicalize().unwrap();
-        
-        // We can't easily create a file outside temp without messing up system, 
+
+        // We can't easily create a file outside temp without messing up system,
         // but we can try to access root parent.
         let parent = root.parent().unwrap();
-        
+
         let result = validate_path(parent, &root);
         assert!(result.is_err());
     }
@@ -205,14 +215,14 @@ mod tests {
         let root = temp.path().canonicalize().unwrap();
         let file_path = root.join("safe.txt");
         fs::write(&file_path, "test").unwrap();
-        
+
         // Construct path with ..
         let subdir = root.join("subdir");
         fs::create_dir(&subdir).unwrap();
         let traversal = subdir.join("..").join("safe.txt");
         // subdir doesn't exist, so validate_path logic for non-existing might trigger if we didn't create file.
         // But here file exists.
-        
+
         let result = validate_path(&traversal, &root);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), file_path);

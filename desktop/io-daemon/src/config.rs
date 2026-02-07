@@ -1,19 +1,12 @@
-use anyhow::{Context, Result};
-use axum::{
-    extract::State,
-    http::StatusCode,
-    Json,
-    routing::post,
-    Router,
-};
-use jstorrent_common::{UnifiedRpcInfo, DownloadRoot, get_config_dir};
-use std::sync::Arc;
-use std::fs;
 use crate::AppState;
+use anyhow::{Context, Result};
+use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use jstorrent_common::{get_config_dir, DownloadRoot, UnifiedRpcInfo};
+use std::fs;
+use std::sync::Arc;
 
 pub fn routes() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/api/read-rpc-info-from-disk", post(refresh_handler))
+    Router::new().route("/api/read-rpc-info-from-disk", post(refresh_handler))
 }
 
 /// Profile configuration loaded from rpc-info.json
@@ -29,13 +22,20 @@ pub fn load_config(install_id: &str) -> Result<ProfileConfig> {
     if !rpc_file.exists() {
         // If file doesn't exist, return empty list (or error? Design says native-host creates it)
         // native-host should have created it before launching us.
-        return Err(anyhow::anyhow!("rpc-info.json not found at {:?}", rpc_file));
+        return Err(anyhow::anyhow!(
+            "rpc-info.json not found at {}",
+            rpc_file.display()
+        ));
     }
 
     let file = fs::File::open(&rpc_file).context("Failed to open rpc-info.json")?;
-    let info: UnifiedRpcInfo = serde_json::from_reader(file).context("Failed to parse rpc-info.json")?;
+    let info: UnifiedRpcInfo =
+        serde_json::from_reader(file).context("Failed to parse rpc-info.json")?;
 
-    let profile = info.profiles.iter().find(|p| p.install_id.as_deref() == Some(install_id));
+    let profile = info
+        .profiles
+        .iter()
+        .find(|p| p.install_id.as_deref() == Some(install_id));
 
     match profile {
         Some(p) => Ok(ProfileConfig {
@@ -45,7 +45,9 @@ pub fn load_config(install_id: &str) -> Result<ProfileConfig> {
         None => {
             // If install_id not found, maybe return empty or error.
             // Design says: "Logs a warning, Returns a 404-like failure code"
-            Err(anyhow::anyhow!("Profile with install_id {} not found", install_id))
+            Err(anyhow::anyhow!(
+                "Profile with install_id {install_id} not found"
+            ))
         }
     }
 }

@@ -1,16 +1,16 @@
+use crate::protocol::Event;
+use crate::state::State as AppState;
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use axum::{
-    routing::{get, post},
-    Router, Json, extract::{State, Query}, http::StatusCode,
-};
 use uuid::Uuid;
-use std::fs;
-use crate::state::State as AppState;
-use crate::protocol::Event;
-
-
 
 // Legacy struct used by main.rs, updated to carry necessary info
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -26,8 +26,6 @@ pub struct RpcInfo {
     pub download_roots: Option<Vec<DownloadRoot>>,
     pub install_id: Option<String>,
 }
-
-
 
 #[derive(Deserialize)]
 pub struct TokenQuery {
@@ -61,7 +59,7 @@ pub struct StatusResponse {
 pub async fn start_server(state: Arc<AppState>) -> (u16, String) {
     let token = Uuid::new_v4().to_string();
     let token_clone = token.clone();
-    
+
     let app = Router::new()
         .route("/health", get(health_handler))
         .route("/add-magnet", post(add_magnet_handler))
@@ -106,8 +104,10 @@ async fn add_magnet_handler(
     crate::log!("Received add-magnet request: {}", payload.magnet);
 
     if let Some(sender) = &state.event_sender {
-         let event = Event::MagnetAdded { link: payload.magnet.clone() };
-         let _ = sender.send(event).await;
+        let event = Event::MagnetAdded {
+            link: payload.magnet.clone(),
+        };
+        let _ = sender.send(event).await;
     }
 
     crate::log!("Magnet link queued successfully");
@@ -140,15 +140,19 @@ async fn add_torrent_handler(
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
-    crate::log!("Received add-torrent request: {} ({} bytes)", payload.file_name, payload.contents_base64.len());
+    crate::log!(
+        "Received add-torrent request: {} ({} bytes)",
+        payload.file_name,
+        payload.contents_base64.len()
+    );
 
     if let Some(sender) = &state.event_sender {
         let event = Event::TorrentAdded {
             name: payload.file_name,
-            infohash: "".to_string(), // Extension will calculate this
+            infohash: String::new(), // Extension will calculate this
             contents_base64: payload.contents_base64,
         };
-        
+
         let _ = sender.send(event).await;
     }
 
@@ -160,11 +164,15 @@ async fn add_torrent_handler(
     }))
 }
 
-pub use jstorrent_common::{UnifiedRpcInfo, ProfileEntry, DownloadRoot, BrowserInfo, get_config_dir};
+pub use jstorrent_common::{
+    get_config_dir, BrowserInfo, DownloadRoot, ProfileEntry, UnifiedRpcInfo,
+};
+#[allow(clippy::needless_pass_by_value)]
 pub fn write_discovery_file(info: RpcInfo) -> anyhow::Result<Vec<DownloadRoot>> {
-    let config_dir = get_config_dir().ok_or_else(|| anyhow::anyhow!("Could not find config directory"))?;
+    let config_dir =
+        get_config_dir().ok_or_else(|| anyhow::anyhow!("Could not find config directory"))?;
     let app_dir = config_dir.join("jstorrent-native");
-    
+
     if !app_dir.exists() {
         fs::create_dir_all(&app_dir)?;
     }
@@ -191,13 +199,16 @@ pub fn write_discovery_file(info: RpcInfo) -> anyhow::Result<Vec<DownloadRoot>> 
     // Strategy:
     // 1. Find by install_id (persistent identity)
     // 2. Find by PID (temporary identity for this run)
-    
+
     let mut found_idx = None;
-    
+
     if let Some(ref iid) = info.install_id {
-        found_idx = unified_info.profiles.iter().position(|p| p.install_id.as_ref() == Some(iid));
+        found_idx = unified_info
+            .profiles
+            .iter()
+            .position(|p| p.install_id.as_ref() == Some(iid));
     }
-    
+
     if found_idx.is_none() {
         // If not found by install_id, look for PID.
         // This handles the case where we started (wrote PID entry) and then received handshake (now have install_id).
@@ -224,46 +235,49 @@ pub fn write_discovery_file(info: RpcInfo) -> anyhow::Result<Vec<DownloadRoot>> 
         let mut entry = unified_info.profiles[idx].clone();
         entry.pid = info.pid;
         entry.port = info.port;
-        entry.token = info.token.clone();
+        entry.token.clone_from(&info.token);
         entry.started = info.started;
         entry.last_used = info.last_used;
         // Update browser info, but preserve existing binary if new one doesn't exist on disk
         // (happens when Chrome updates while running - Linux shows "(deleted)" in /proc/pid/exe)
         let new_binary = &info.browser.binary;
         if !new_binary.is_empty() && std::path::Path::new(new_binary).exists() {
-            entry.browser = info.browser.clone();
+            entry.browser.clone_from(&info.browser);
         } else {
             // Update name and extension_id, but preserve the existing binary path
-            entry.browser.name = info.browser.name.clone();
-            entry.browser.extension_id = info.browser.extension_id.clone();
+            entry.browser.name.clone_from(&info.browser.name);
+            entry
+                .browser
+                .extension_id
+                .clone_from(&info.browser.extension_id);
         }
-        entry.extension_id = info.browser.extension_id.clone();
-        
+        entry.extension_id.clone_from(&info.browser.extension_id);
+
         // Update install_id if we have one
         if info.install_id.is_some() {
-            entry.install_id = info.install_id.clone();
+            entry.install_id.clone_from(&info.install_id);
         }
 
         // Only update roots if explicitly provided (Some)
         // None means "don't update" - preserves existing roots on startup
         // Some(vec) means "set to this" - allows removing all roots
         if let Some(roots) = &info.download_roots {
-            entry.download_roots = roots.clone();
+            entry.download_roots.clone_from(roots);
         }
 
         active_roots = entry.download_roots.clone();
-        
+
         unified_info.profiles[idx] = entry;
 
         // Cleanup: Remove any other entries with the same PID (temporary entries)
         if info.install_id.is_some() {
-             unified_info.profiles.retain(|p| {
-                 // Remove if PID matches current PID AND it has no install_id (temp entry)
-                 if p.pid == info.pid && p.install_id.is_none() {
-                     return false;
-                 }
-                 true
-             });
+            unified_info.profiles.retain(|p| {
+                // Remove if PID matches current PID AND it has no install_id (temp entry)
+                if p.pid == info.pid && p.install_id.is_none() {
+                    return false;
+                }
+                true
+            });
         }
     } else {
         // New entry - use provided roots or empty
@@ -310,7 +324,11 @@ mod tests {
         }
     }
 
-    fn make_rpc_info(pid: u32, install_id: Option<&str>, roots: Option<Vec<DownloadRoot>>) -> RpcInfo {
+    fn make_rpc_info(
+        pid: u32,
+        install_id: Option<&str>,
+        roots: Option<Vec<DownloadRoot>>,
+    ) -> RpcInfo {
         RpcInfo {
             version: "0.1.0".to_string(),
             pid,
@@ -368,7 +386,11 @@ mod tests {
         let roots3 = write_discovery_file(info3).unwrap();
 
         // Should return the preserved roots from the original entry
-        assert_eq!(roots3.len(), 1, "Roots should be preserved after restart handshake");
+        assert_eq!(
+            roots3.len(),
+            1,
+            "Roots should be preserved after restart handshake"
+        );
         assert_eq!(roots3[0].key, "root-key-1");
         assert_eq!(roots3[0].path, "/home/user/Downloads");
 
@@ -402,7 +424,11 @@ mod tests {
         // This is the BUG behavior - main.rs now sets download_roots = None before handshake
         let info3 = make_rpc_info(2000, Some(install_id), Some(vec![])); // BUG: Some([]) wipes roots
         let roots3 = write_discovery_file(info3).unwrap();
-        assert_eq!(roots3.len(), 0, "Some([]) wipes roots - main.rs must pass None to preserve");
+        assert_eq!(
+            roots3.len(),
+            0,
+            "Some([]) wipes roots - main.rs must pass None to preserve"
+        );
 
         std::env::remove_var("JSTORRENT_CONFIG_DIR");
     }
@@ -437,7 +463,11 @@ mod tests {
         // Step 3: Verify it's actually gone by reading with None (preserve mode)
         let info3 = make_rpc_info(1000, Some(install_id), None);
         let roots3 = write_discovery_file(info3).unwrap();
-        assert_eq!(roots3.len(), 0, "Root should still be gone after preserve-mode read");
+        assert_eq!(
+            roots3.len(),
+            0,
+            "Root should still be gone after preserve-mode read"
+        );
 
         std::env::remove_var("JSTORRENT_CONFIG_DIR");
     }

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use std::process::{Child, Command, Stdio};
 use std::io::{BufRead, BufReader};
+use std::process::{Child, Command, Stdio};
 
 pub struct DaemonManager {
     child: Option<Child>,
@@ -17,9 +17,11 @@ impl DaemonManager {
         }
     }
 
-    pub async fn start(&mut self, install_id: &str) -> Result<()> {
+    pub fn start(&mut self, install_id: &str) -> Result<()> {
         let exe_path = std::env::current_exe()?;
-        let exe_dir = exe_path.parent().context("Failed to get executable directory")?;
+        let exe_dir = exe_path
+            .parent()
+            .context("Failed to get executable directory")?;
 
         // Find io-daemon path (platform-specific)
         let daemon_path = Self::find_io_daemon_path(exe_dir)?;
@@ -68,25 +70,28 @@ impl DaemonManager {
     pub async fn refresh_config(&self) -> Result<()> {
         if let (Some(port), Some(token)) = (self.port, &self.token) {
             let client = reqwest::Client::new();
-            let url = format!("http://127.0.0.1:{}/api/read-rpc-info-from-disk", port);
-            
+            let url = format!("http://127.0.0.1:{port}/api/read-rpc-info-from-disk");
+
             // We don't really need to wait for response, but it's good to log errors
-            let res = client.post(&url)
-                .header("Authorization", format!("Bearer {}", token))
+            let res = client
+                .post(&url)
+                .header("Authorization", format!("Bearer {token}"))
                 .send()
                 .await?;
-                
+
             if !res.status().is_success() {
                 crate::log!("Failed to refresh daemon config: {}", res.status());
-                return Err(anyhow::anyhow!("Failed to refresh daemon config: {}", res.status()));
+                return Err(anyhow::anyhow!(
+                    "Failed to refresh daemon config: {}",
+                    res.status()
+                ));
             }
             crate::log!("Daemon config refresh triggered successfully");
         }
         Ok(())
     }
 
-
-    pub async fn stop(&mut self) {
+    pub fn stop(&mut self) {
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -111,7 +116,11 @@ impl DaemonManager {
             let exe_dir_str = exe_dir.to_string_lossy();
             if exe_dir_str.contains(".app/Contents/MacOS") {
                 // Navigate up to the JSTorrent directory (3 levels: MacOS -> Contents -> *.app)
-                if let Some(jstorrent_dir) = exe_dir.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+                if let Some(jstorrent_dir) = exe_dir
+                    .parent()
+                    .and_then(|p| p.parent())
+                    .and_then(|p| p.parent())
+                {
                     let daemon_path = jstorrent_dir
                         .join("JSTorrent IO.app")
                         .join("Contents")
@@ -132,7 +141,7 @@ impl DaemonManager {
             return Ok(daemon_path);
         }
 
-        anyhow::bail!("io-daemon not found at {:?}", daemon_path)
+        anyhow::bail!("io-daemon not found at {}", daemon_path.display())
     }
 
     /// Get the platform-specific binary name for io-daemon.

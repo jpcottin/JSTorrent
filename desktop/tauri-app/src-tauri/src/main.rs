@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    jstorrent_desktop_lib::run()
+    jstorrent_desktop_lib::run();
 }

@@ -1,22 +1,24 @@
+use crate::AppState;
 use axum::{
-    extract::{ws::{Message, WebSocket, WebSocketUpgrade}, State},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
     response::Response,
     routing::get,
     Router,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use tokio::net::{TcpListener, TcpStream, UdpSocket};
-use socket2::{SockRef, Socket, Domain, Type, Protocol};
-use tokio::sync::mpsc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::time::{timeout, Duration};
-use std::collections::HashMap;
-use tokio::sync::Mutex;
 use native_tls::TlsConnector;
-use crate::AppState;
-
+use socket2::{Domain, Protocol, SockRef, Socket, Type};
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::sync::mpsc;
+use tokio::sync::Mutex;
+use tokio::time::{timeout, Duration};
 
 // Opcodes
 const OP_CLIENT_HELLO: u8 = 0x01;
@@ -57,10 +59,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/control", get(ws_handler)) // Alias for Android compatibility
 }
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
-) -> Response {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
@@ -106,9 +105,9 @@ impl Envelope {
 struct SocketManager {
     tcp_sockets: HashMap<u32, mpsc::Sender<Vec<u8>>>,
     pending_connects: HashMap<u32, tokio::task::AbortHandle>,
-    pending_tcp: HashMap<u32, TcpStream>,  // Connected but not yet reading/writing (for TLS upgrade)
+    pending_tcp: HashMap<u32, TcpStream>, // Connected but not yet reading/writing (for TLS upgrade)
     udp_sockets: HashMap<u32, Arc<UdpSocket>>,
-    udp_read_tasks: HashMap<u32, tokio::task::AbortHandle>,  // Track UDP read tasks for cleanup on disconnect
+    udp_read_tasks: HashMap<u32, tokio::task::AbortHandle>, // Track UDP read tasks for cleanup on disconnect
     tcp_servers: HashMap<u32, tokio::task::JoinHandle<()>>,
     next_socket_id: u32,
 }
@@ -163,10 +162,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
             if data.len() < 8 {
                 continue;
             }
-            
-            let env = match Envelope::from_bytes(&data[..8]) {
-                Some(e) => e,
-                None => continue,
+
+            let Some(env) = Envelope::from_bytes(&data[..8]) else {
+                continue;
             };
 
             if env.version != PROTOCOL_VERSION {
@@ -198,7 +196,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                             0 => {
                                 // New format: null-separated fields
                                 // Find first null byte to extract token
-                                let token_end = data.iter().position(|&b| b == 0).unwrap_or(data.len());
+                                let token_end =
+                                    data.iter().position(|&b| b == 0).unwrap_or(data.len());
                                 String::from_utf8_lossy(&data[..token_end]).to_string()
                             }
                             1 => {
@@ -210,14 +209,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                 break;
                             }
                         };
-                        
+
                         // Verify token (simple string match for now, or check against state)
                         // In main.rs we generated a token. We need to check it.
                         // But wait, AppState doesn't have the token!
                         // The token was generated in `rpc::start_server` and passed to `DaemonManager`.
                         // The `io-daemon` receives the token as a CLI arg.
                         // We need to store it in `AppState`.
-                        
+
                         let expected_token = state.token.read().unwrap().clone();
                         if token == expected_token {
                             authenticated = true;
@@ -276,69 +275,73 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
                         let connect_result = match timeout(
                             connect_timeout,
-                            TcpStream::connect(format!("{}:{}", hostname, port))
-                        ).await {
+                            TcpStream::connect(format!("{hostname}:{port}")),
+                        )
+                        .await
+                        {
                             Ok(result) => result,
                             Err(_) => Err(std::io::Error::new(
                                 std::io::ErrorKind::TimedOut,
-                                "Connection timeout"
+                                "Connection timeout",
                             )),
                         };
 
-                        match connect_result {
-                            Ok(stream) => {
-                                // Get remote address before moving stream
-                                let remote_addr = stream.peer_addr()
-                                    .map(|a| a.ip().to_string())
-                                    .unwrap_or_default();
+                        if let Ok(stream) = connect_result {
+                            // Get remote address before moving stream
+                            let remote_addr = stream
+                                .peer_addr()
+                                .map(|a| a.ip().to_string())
+                                .unwrap_or_default();
 
-                                // Store in pending_tcp - don't start read/write tasks yet
-                                // This allows for TLS upgrade before activation
-                                {
-                                    let mut mgr = manager.lock().await;
-                                    mgr.pending_connects.remove(&socket_id);
-                                    mgr.pending_tcp.insert(socket_id, stream);
-                                }
-
-                                // Update stats: pending_connect -> pending_tcp
-                                stats_clone.pending_connects.fetch_sub(1, Ordering::Relaxed);
-                                stats_clone.pending_tcp.fetch_add(1, Ordering::Relaxed);
-
-                                // Send TCP_CONNECTED
-                                // Payload: socketId(4), status(1 byte=0), errno(4 bytes=0), addr_len(2), addr(string)
-                                let mut resp = socket_id.to_le_bytes().to_vec();
-                                resp.push(0); // Success
-                                resp.extend_from_slice(&0u32.to_le_bytes());
-                                resp.extend_from_slice(&(remote_addr.len() as u16).to_le_bytes());
-                                resp.extend_from_slice(remote_addr.as_bytes());
-
-                                let env = Envelope::new(OP_TCP_CONNECTED, req_id);
-                                let mut data = env.to_bytes().to_vec();
-                                data.extend_from_slice(&resp);
-                                tx_clone.send(data).await.ok();
+                            // Store in pending_tcp - don't start read/write tasks yet
+                            // This allows for TLS upgrade before activation
+                            {
+                                let mut mgr = manager.lock().await;
+                                mgr.pending_connects.remove(&socket_id);
+                                mgr.pending_tcp.insert(socket_id, stream);
                             }
-                            Err(_) => {
-                                // Remove from pending on failure
-                                manager.lock().await.pending_connects.remove(&socket_id);
 
-                                // Update stats
-                                stats_clone.pending_connects.fetch_sub(1, Ordering::Relaxed);
+                            // Update stats: pending_connect -> pending_tcp
+                            stats_clone.pending_connects.fetch_sub(1, Ordering::Relaxed);
+                            stats_clone.pending_tcp.fetch_add(1, Ordering::Relaxed);
 
-                                // Send TCP_CONNECTED failure
-                                let mut resp = socket_id.to_le_bytes().to_vec();
-                                resp.push(1); // Failure
-                                resp.extend_from_slice(&1u32.to_le_bytes()); // Generic error
+                            // Send TCP_CONNECTED
+                            // Payload: socketId(4), status(1 byte=0), errno(4 bytes=0), addr_len(2), addr(string)
+                            let mut resp = socket_id.to_le_bytes().to_vec();
+                            resp.push(0); // Success
+                            resp.extend_from_slice(&0u32.to_le_bytes());
+                            resp.extend_from_slice(&(remote_addr.len() as u16).to_le_bytes());
+                            resp.extend_from_slice(remote_addr.as_bytes());
 
-                                let env = Envelope::new(OP_TCP_CONNECTED, req_id);
-                                let mut data = env.to_bytes().to_vec();
-                                data.extend_from_slice(&resp);
-                                tx_clone.send(data).await.ok();
-                            }
+                            let env = Envelope::new(OP_TCP_CONNECTED, req_id);
+                            let mut data = env.to_bytes().to_vec();
+                            data.extend_from_slice(&resp);
+                            tx_clone.send(data).await.ok();
+                        } else {
+                            // Remove from pending on failure
+                            manager.lock().await.pending_connects.remove(&socket_id);
+
+                            // Update stats
+                            stats_clone.pending_connects.fetch_sub(1, Ordering::Relaxed);
+
+                            // Send TCP_CONNECTED failure
+                            let mut resp = socket_id.to_le_bytes().to_vec();
+                            resp.push(1); // Failure
+                            resp.extend_from_slice(&1u32.to_le_bytes()); // Generic error
+
+                            let env = Envelope::new(OP_TCP_CONNECTED, req_id);
+                            let mut data = env.to_bytes().to_vec();
+                            data.extend_from_slice(&resp);
+                            tx_clone.send(data).await.ok();
                         }
                     });
 
                     // Track pending connection for cancellation
-                    socket_manager.lock().await.pending_connects.insert(socket_id, task.abort_handle());
+                    socket_manager
+                        .lock()
+                        .await
+                        .pending_connects
+                        .insert(socket_id, task.abort_handle());
                 }
                 OP_TCP_SEND => {
                     // Payload: socketId(4) + data
@@ -348,13 +351,18 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         let data_len = data_to_send.len() as u64;
 
                         // Check if socket is pending (not yet activated)
-                        let pending_stream = socket_manager.lock().await.pending_tcp.remove(&socket_id);
+                        let pending_stream =
+                            socket_manager.lock().await.pending_tcp.remove(&socket_id);
                         if let Some(stream) = pending_stream {
                             // Auto-activate as plain TCP socket
                             let (mut read_half, mut write_half) = stream.into_split();
                             let (write_tx, mut write_rx) = mpsc::channel::<Vec<u8>>(32);
 
-                            socket_manager.lock().await.tcp_sockets.insert(socket_id, write_tx.clone());
+                            socket_manager
+                                .lock()
+                                .await
+                                .tcp_sockets
+                                .insert(socket_id, write_tx.clone());
 
                             // Update stats: pending_tcp -> tcp_sockets
                             stats.pending_tcp.fetch_sub(1, Ordering::Relaxed);
@@ -371,9 +379,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                 let mut buf = [0u8; 8192];
                                 loop {
                                     match read_half.read(&mut buf).await {
-                                        Ok(0) => break,
+                                        Ok(0) | Err(_) => break,
                                         Ok(n) => {
-                                            stats_read.bytes_received.fetch_add(n as u64, Ordering::Relaxed);
+                                            stats_read
+                                                .bytes_received
+                                                .fetch_add(n as u64, Ordering::Relaxed);
                                             let mut p = socket_id.to_le_bytes().to_vec();
                                             p.extend_from_slice(&buf[..n]);
                                             let env = Envelope::new(OP_TCP_RECV, 0);
@@ -383,7 +393,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                                 break;
                                             }
                                         }
-                                        Err(_) => break,
                                     }
                                 }
                                 let mut p = socket_id.to_le_bytes().to_vec();
@@ -406,7 +415,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                     stats_write.bytes_sent.fetch_add(len, Ordering::Relaxed);
                                 }
                             });
-                        } else if let Some(sender) = socket_manager.lock().await.tcp_sockets.get(&socket_id) {
+                        } else if let Some(sender) =
+                            socket_manager.lock().await.tcp_sockets.get(&socket_id)
+                        {
                             sender.send(data_to_send).await.ok();
                             // Note: bytes_sent is tracked in the write task
                         }
@@ -470,7 +481,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                 let connector = match connector_result {
                                     Ok(c) => c,
                                     Err(e) => {
-                                        eprintln!("TLS connector build failed: {}", e);
+                                        eprintln!("TLS connector build failed: {e}");
                                         // Send failure response
                                         let mut resp = socket_id.to_le_bytes().to_vec();
                                         resp.push(1); // Failure
@@ -488,16 +499,22 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                 // Perform TLS handshake with 30 second timeout
                                 let handshake_result = timeout(
                                     Duration::from_secs(30),
-                                    tls_connector.connect(&hostname, stream)
-                                ).await;
+                                    tls_connector.connect(&hostname, stream),
+                                )
+                                .await;
 
                                 match handshake_result {
                                     Ok(Ok(tls_stream)) => {
                                         // TLS handshake succeeded - activate the socket
-                                        let (mut read_half, mut write_half) = tokio::io::split(tls_stream);
+                                        let (mut read_half, mut write_half) =
+                                            tokio::io::split(tls_stream);
                                         let (write_tx, mut write_rx) = mpsc::channel::<Vec<u8>>(32);
 
-                                        manager.lock().await.tcp_sockets.insert(socket_id, write_tx);
+                                        manager
+                                            .lock()
+                                            .await
+                                            .tcp_sockets
+                                            .insert(socket_id, write_tx);
 
                                         // Update stats: added to tcp_sockets
                                         stats_clone.tcp_sockets.fetch_add(1, Ordering::Relaxed);
@@ -517,10 +534,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                             let mut buf = [0u8; 8192];
                                             loop {
                                                 match read_half.read(&mut buf).await {
-                                                    Ok(0) => break,
+                                                    Ok(0) | Err(_) => break,
                                                     Ok(n) => {
-                                                        stats_read.bytes_received.fetch_add(n as u64, Ordering::Relaxed);
-                                                        let mut p = socket_id.to_le_bytes().to_vec();
+                                                        stats_read
+                                                            .bytes_received
+                                                            .fetch_add(n as u64, Ordering::Relaxed);
+                                                        let mut p =
+                                                            socket_id.to_le_bytes().to_vec();
                                                         p.extend_from_slice(&buf[..n]);
                                                         let env = Envelope::new(OP_TCP_RECV, 0);
                                                         let mut d = env.to_bytes().to_vec();
@@ -529,7 +549,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                                             break;
                                                         }
                                                     }
-                                                    Err(_) => break,
                                                 }
                                             }
                                             let mut p = socket_id.to_le_bytes().to_vec();
@@ -549,13 +568,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                                 if write_half.write(&data).await.is_err() {
                                                     break;
                                                 }
-                                                stats_write.bytes_sent.fetch_add(len, Ordering::Relaxed);
+                                                stats_write
+                                                    .bytes_sent
+                                                    .fetch_add(len, Ordering::Relaxed);
                                             }
                                         });
                                     }
                                     Ok(Err(e)) => {
                                         // TLS handshake failed
-                                        eprintln!("TLS handshake failed for {}: {}", hostname, e);
+                                        eprintln!("TLS handshake failed for {hostname}: {e}");
                                         let mut resp = socket_id.to_le_bytes().to_vec();
                                         resp.push(1); // Failure
                                         let env = Envelope::new(OP_TCP_SECURED, req_id);
@@ -565,7 +586,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                     }
                                     Err(_) => {
                                         // Timeout
-                                        eprintln!("TLS handshake timed out for {}", hostname);
+                                        eprintln!("TLS handshake timed out for {hostname}");
                                         let mut resp = socket_id.to_le_bytes().to_vec();
                                         resp.push(1); // Failure
                                         let env = Envelope::new(OP_TCP_SECURED, req_id);
@@ -593,9 +614,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         let port = u16::from_le_bytes(payload[4..6].try_into().unwrap());
                         let bind_addr = String::from_utf8_lossy(&payload[6..]).to_string();
                         let addr = if bind_addr.is_empty() {
-                            format!("0.0.0.0:{}", port)
+                            format!("0.0.0.0:{port}")
                         } else {
-                            format!("{}:{}", bind_addr, port)
+                            format!("{bind_addr}:{port}")
                         };
 
                         let manager = socket_manager.clone();
@@ -606,7 +627,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         tokio::spawn(async move {
                             match TcpListener::bind(&addr).await {
                                 Ok(listener) => {
-                                    let bound_port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
+                                    let bound_port =
+                                        listener.local_addr().map(|a| a.port()).unwrap_or(0);
 
                                     // Send TCP_LISTEN_RESULT success
                                     // Payload: serverId(4), status(1), boundPort(2), errno(4)
@@ -628,93 +650,106 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                     let manager_accept = manager.clone();
                                     let stats_accept = stats_clone.clone();
                                     let accept_handle = tokio::spawn(async move {
-                                        loop {
-                                            match listener.accept().await {
-                                                Ok((stream, peer_addr)) => {
-                                                    // Allocate a new socket ID for this connection
-                                                    let socket_id = {
-                                                        let mut mgr = manager_accept.lock().await;
-                                                        let id = mgr.next_socket_id;
-                                                        mgr.next_socket_id += 1;
-                                                        id
-                                                    };
+                                        while let Ok((stream, peer_addr)) = listener.accept().await
+                                        {
+                                            // Allocate a new socket ID for this connection
+                                            let socket_id = {
+                                                let mut mgr = manager_accept.lock().await;
+                                                let id = mgr.next_socket_id;
+                                                mgr.next_socket_id += 1;
+                                                id
+                                            };
 
-                                                    // Send TCP_ACCEPT
-                                                    // Payload: serverId(4), socketId(4), remotePort(2), remoteAddr(string)
-                                                    let mut p = server_id.to_le_bytes().to_vec();
-                                                    p.extend_from_slice(&socket_id.to_le_bytes());
-                                                    p.extend_from_slice(&peer_addr.port().to_le_bytes());
-                                                    let addr_str = peer_addr.ip().to_string();
-                                                    p.extend_from_slice(addr_str.as_bytes());
+                                            // Send TCP_ACCEPT
+                                            // Payload: serverId(4), socketId(4), remotePort(2), remoteAddr(string)
+                                            let mut p = server_id.to_le_bytes().to_vec();
+                                            p.extend_from_slice(&socket_id.to_le_bytes());
+                                            p.extend_from_slice(&peer_addr.port().to_le_bytes());
+                                            let addr_str = peer_addr.ip().to_string();
+                                            p.extend_from_slice(addr_str.as_bytes());
 
-                                                    let env = Envelope::new(OP_TCP_ACCEPT, 0);
-                                                    let mut d = env.to_bytes().to_vec();
-                                                    d.extend_from_slice(&p);
-                                                    if tx_accept.send(d).await.is_err() {
-                                                        break;
-                                                    }
+                                            let env = Envelope::new(OP_TCP_ACCEPT, 0);
+                                            let mut d = env.to_bytes().to_vec();
+                                            d.extend_from_slice(&p);
+                                            if tx_accept.send(d).await.is_err() {
+                                                break;
+                                            }
 
-                                                    // Set up read/write for the accepted connection
-                                                    let (mut read_half, mut write_half) = stream.into_split();
-                                                    let (write_tx, mut write_rx) = mpsc::channel::<Vec<u8>>(32);
+                                            // Set up read/write for the accepted connection
+                                            let (mut read_half, mut write_half) =
+                                                stream.into_split();
+                                            let (write_tx, mut write_rx) =
+                                                mpsc::channel::<Vec<u8>>(32);
 
-                                                    manager_accept.lock().await.tcp_sockets.insert(socket_id, write_tx);
+                                            manager_accept
+                                                .lock()
+                                                .await
+                                                .tcp_sockets
+                                                .insert(socket_id, write_tx);
 
-                                                    // Update stats: new accepted TCP socket
-                                                    stats_accept.tcp_sockets.fetch_add(1, Ordering::Relaxed);
+                                            // Update stats: new accepted TCP socket
+                                            stats_accept
+                                                .tcp_sockets
+                                                .fetch_add(1, Ordering::Relaxed);
 
-                                                    // Read task
-                                                    let tx_read = tx_accept.clone();
-                                                    let stats_read = stats_accept.clone();
-                                                    tokio::spawn(async move {
-                                                        let mut buf = [0u8; 8192];
-                                                        loop {
-                                                            match read_half.read(&mut buf).await {
-                                                                Ok(0) => break,
-                                                                Ok(n) => {
-                                                                    stats_read.bytes_received.fetch_add(n as u64, Ordering::Relaxed);
-                                                                    let mut p = socket_id.to_le_bytes().to_vec();
-                                                                    p.extend_from_slice(&buf[..n]);
+                                            // Read task
+                                            let tx_read = tx_accept.clone();
+                                            let stats_read = stats_accept.clone();
+                                            tokio::spawn(async move {
+                                                let mut buf = [0u8; 8192];
+                                                loop {
+                                                    match read_half.read(&mut buf).await {
+                                                        Ok(0) | Err(_) => break,
+                                                        Ok(n) => {
+                                                            stats_read.bytes_received.fetch_add(
+                                                                n as u64,
+                                                                Ordering::Relaxed,
+                                                            );
+                                                            let mut p =
+                                                                socket_id.to_le_bytes().to_vec();
+                                                            p.extend_from_slice(&buf[..n]);
 
-                                                                    let env = Envelope::new(OP_TCP_RECV, 0);
-                                                                    let mut d = env.to_bytes().to_vec();
-                                                                    d.extend_from_slice(&p);
-                                                                    if tx_read.send(d).await.is_err() {
-                                                                        break;
-                                                                    }
-                                                                }
-                                                                Err(_) => break,
-                                                            }
-                                                        }
-                                                        // Send TCP_CLOSE
-                                                        let mut p = socket_id.to_le_bytes().to_vec();
-                                                        p.push(0);
-                                                        p.extend_from_slice(&0u32.to_le_bytes());
-
-                                                        let env = Envelope::new(OP_TCP_CLOSE, 0);
-                                                        let mut d = env.to_bytes().to_vec();
-                                                        d.extend_from_slice(&p);
-                                                        tx_read.send(d).await.ok();
-                                                    });
-
-                                                    // Write task
-                                                    let stats_write = stats_accept.clone();
-                                                    tokio::spawn(async move {
-                                                        while let Some(data) = write_rx.recv().await {
-                                                            let len = data.len() as u64;
-                                                            if write_half.write_all(&data).await.is_err() {
+                                                            let env = Envelope::new(OP_TCP_RECV, 0);
+                                                            let mut d = env.to_bytes().to_vec();
+                                                            d.extend_from_slice(&p);
+                                                            if tx_read.send(d).await.is_err() {
                                                                 break;
                                                             }
-                                                            stats_write.bytes_sent.fetch_add(len, Ordering::Relaxed);
                                                         }
-                                                    });
+                                                    }
                                                 }
-                                                Err(_) => break,
-                                            }
+                                                // Send TCP_CLOSE
+                                                let mut p = socket_id.to_le_bytes().to_vec();
+                                                p.push(0);
+                                                p.extend_from_slice(&0u32.to_le_bytes());
+
+                                                let env = Envelope::new(OP_TCP_CLOSE, 0);
+                                                let mut d = env.to_bytes().to_vec();
+                                                d.extend_from_slice(&p);
+                                                tx_read.send(d).await.ok();
+                                            });
+
+                                            // Write task
+                                            let stats_write = stats_accept.clone();
+                                            tokio::spawn(async move {
+                                                while let Some(data) = write_rx.recv().await {
+                                                    let len = data.len() as u64;
+                                                    if write_half.write_all(&data).await.is_err() {
+                                                        break;
+                                                    }
+                                                    stats_write
+                                                        .bytes_sent
+                                                        .fetch_add(len, Ordering::Relaxed);
+                                                }
+                                            });
                                         }
                                     });
 
-                                    manager.lock().await.tcp_servers.insert(server_id, accept_handle);
+                                    manager
+                                        .lock()
+                                        .await
+                                        .tcp_servers
+                                        .insert(server_id, accept_handle);
                                 }
                                 Err(_e) => {
                                     // Send TCP_LISTEN_RESULT failure
@@ -736,7 +771,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                     // Payload: serverId(4)
                     if payload.len() >= 4 {
                         let server_id = u32::from_le_bytes(payload[0..4].try_into().unwrap());
-                        if let Some(handle) = socket_manager.lock().await.tcp_servers.remove(&server_id) {
+                        if let Some(handle) =
+                            socket_manager.lock().await.tcp_servers.remove(&server_id)
+                        {
                             handle.abort();
                             stats.tcp_servers.fetch_sub(1, Ordering::Relaxed);
                         }
@@ -749,9 +786,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         let port = u16::from_le_bytes(payload[4..6].try_into().unwrap());
                         let bind_addr = String::from_utf8_lossy(&payload[6..]).to_string();
                         let addr = if bind_addr.is_empty() {
-                            format!("0.0.0.0:{}", port)
+                            format!("0.0.0.0:{port}")
                         } else {
-                            format!("{}:{}", bind_addr, port)
+                            format!("{bind_addr}:{port}")
                         };
 
                         let manager = socket_manager.clone();
@@ -764,9 +801,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                             // This prevents "address already in use" errors when quickly
                             // reconnecting (e.g., page reload)
                             let bind_result = (|| -> std::io::Result<UdpSocket> {
-                                let socket_addr: std::net::SocketAddr = addr.parse()
-                                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-                                let domain = if socket_addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+                                let socket_addr: std::net::SocketAddr =
+                                    addr.parse().map_err(|e| {
+                                        std::io::Error::new(std::io::ErrorKind::InvalidInput, e)
+                                    })?;
+                                let domain = if socket_addr.is_ipv4() {
+                                    Domain::IPV4
+                                } else {
+                                    Domain::IPV6
+                                };
                                 let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
                                 socket.set_reuse_address(true)?;
                                 socket.set_nonblocking(true)?;
@@ -777,9 +820,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
                             match bind_result {
                                 Ok(socket) => {
-                                    let local_port = socket.local_addr().map(|a| a.port()).unwrap_or(0);
+                                    let local_port =
+                                        socket.local_addr().map(|a| a.port()).unwrap_or(0);
                                     let socket = Arc::new(socket);
-                                    manager.lock().await.udp_sockets.insert(socket_id, socket.clone());
+                                    manager
+                                        .lock()
+                                        .await
+                                        .udp_sockets
+                                        .insert(socket_id, socket.clone());
 
                                     // Update stats: new UDP socket
                                     stats_clone.udp_sockets.fetch_add(1, Ordering::Relaxed);
@@ -801,28 +849,27 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                     let stats_read = stats_clone.clone();
                                     let read_task = tokio::spawn(async move {
                                         let mut buf = [0u8; 65535];
-                                        loop {
-                                            match socket.recv_from(&mut buf).await {
-                                                Ok((n, peer)) => {
-                                                    stats_read.bytes_received.fetch_add(n as u64, Ordering::Relaxed);
-                                                    // Send UDP_RECV
-                                                    // Payload: socketId(4), port(2), addr(string), data
-                                                    // Layout: socketId(4) + port(2) + addr_len(2) + addr + data
-                                                    let mut p = socket_id.to_le_bytes().to_vec();
-                                                    p.extend_from_slice(&peer.port().to_le_bytes());
-                                                    let addr_str = peer.ip().to_string();
-                                                    p.extend_from_slice(&(addr_str.len() as u16).to_le_bytes());
-                                                    p.extend_from_slice(addr_str.as_bytes());
-                                                    p.extend_from_slice(&buf[..n]);
+                                        while let Ok((n, peer)) = socket.recv_from(&mut buf).await {
+                                            stats_read
+                                                .bytes_received
+                                                .fetch_add(n as u64, Ordering::Relaxed);
+                                            // Send UDP_RECV
+                                            // Payload: socketId(4), port(2), addr(string), data
+                                            // Layout: socketId(4) + port(2) + addr_len(2) + addr + data
+                                            let mut p = socket_id.to_le_bytes().to_vec();
+                                            p.extend_from_slice(&peer.port().to_le_bytes());
+                                            let addr_str = peer.ip().to_string();
+                                            p.extend_from_slice(
+                                                &(addr_str.len() as u16).to_le_bytes(),
+                                            );
+                                            p.extend_from_slice(addr_str.as_bytes());
+                                            p.extend_from_slice(&buf[..n]);
 
-                                                    let env = Envelope::new(OP_UDP_RECV, 0);
-                                                    let mut d = env.to_bytes().to_vec();
-                                                    d.extend_from_slice(&p);
-                                                    if tx_read.send(d).await.is_err() {
-                                                        break;
-                                                    }
-                                                }
-                                                Err(_) => break,
+                                            let env = Envelope::new(OP_UDP_RECV, 0);
+                                            let mut d = env.to_bytes().to_vec();
+                                            d.extend_from_slice(&p);
+                                            if tx_read.send(d).await.is_err() {
+                                                break;
                                             }
                                         }
                                         // Send UDP_CLOSE
@@ -835,7 +882,11 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                         tx_read.send(d).await.ok();
                                     });
                                     // Track the read task so we can abort it on disconnect
-                                    manager.lock().await.udp_read_tasks.insert(socket_id, read_task.abort_handle());
+                                    manager
+                                        .lock()
+                                        .await
+                                        .udp_read_tasks
+                                        .insert(socket_id, read_task.abort_handle());
                                 }
                                 Err(_e) => {
                                     // Send UDP_BOUND failure
@@ -859,15 +910,19 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                     if payload.len() >= 8 {
                         let socket_id = u32::from_le_bytes(payload[0..4].try_into().unwrap());
                         let dest_port = u16::from_le_bytes(payload[4..6].try_into().unwrap());
-                        let addr_len = u16::from_le_bytes(payload[6..8].try_into().unwrap()) as usize;
+                        let addr_len =
+                            u16::from_le_bytes(payload[6..8].try_into().unwrap()) as usize;
 
                         if payload.len() >= 8 + addr_len {
-                            let dest_addr = String::from_utf8_lossy(&payload[8..8+addr_len]).to_string();
-                            let data = &payload[8+addr_len..];
+                            let dest_addr =
+                                String::from_utf8_lossy(&payload[8..8 + addr_len]).to_string();
+                            let data = &payload[8 + addr_len..];
                             let data_len = data.len() as u64;
 
-                            if let Some(socket) = socket_manager.lock().await.udp_sockets.get(&socket_id) {
-                                let addr = format!("{}:{}", dest_addr, dest_port);
+                            if let Some(socket) =
+                                socket_manager.lock().await.udp_sockets.get(&socket_id)
+                            {
+                                let addr = format!("{dest_addr}:{dest_port}");
                                 if socket.send_to(data, &addr).await.is_ok() {
                                     stats.bytes_sent.fetch_add(data_len, Ordering::Relaxed);
                                 }
@@ -895,7 +950,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         let socket_id = u32::from_le_bytes(payload[0..4].try_into().unwrap());
                         let group_addr = String::from_utf8_lossy(&payload[4..]).to_string();
 
-                        if let Some(socket) = socket_manager.lock().await.udp_sockets.get(&socket_id) {
+                        if let Some(socket) =
+                            socket_manager.lock().await.udp_sockets.get(&socket_id)
+                        {
                             if let Ok(group) = group_addr.parse::<std::net::Ipv4Addr>() {
                                 let sock_ref = SockRef::from(socket.as_ref());
 
@@ -914,12 +971,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                                 first_interface = Some(local_addr);
                                             }
                                             match sock_ref.join_multicast_v4(&group, &local_addr) {
-                                                Ok(_) => {
+                                                Ok(()) => {
                                                     joined_any = true;
                                                 }
                                                 Err(e) => {
                                                     // Log but continue - some interfaces may fail
-                                                    eprintln!("Failed to join multicast {} on {}: {}", group_addr, local_addr, e);
+                                                    eprintln!(
+                                                        "Failed to join multicast {group_addr} on {local_addr}: {e}"
+                                                    );
                                                 }
                                             }
                                         }
@@ -928,22 +987,29 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
                                 // Fallback: try UNSPECIFIED if no interfaces worked
                                 if !joined_any {
-                                    if let Err(e) = sock_ref.join_multicast_v4(&group, &std::net::Ipv4Addr::UNSPECIFIED) {
-                                        eprintln!("Failed to join multicast {} (fallback): {}", group_addr, e);
+                                    if let Err(e) = sock_ref
+                                        .join_multicast_v4(&group, &std::net::Ipv4Addr::UNSPECIFIED)
+                                    {
+                                        eprintln!(
+                                            "Failed to join multicast {group_addr} (fallback): {e}"
+                                        );
                                     }
                                 }
 
                                 // Set the outgoing multicast interface (required on Windows for sends)
                                 // Use first non-loopback interface, or fall back to UNSPECIFIED
-                                let outgoing_if = first_interface.unwrap_or(std::net::Ipv4Addr::UNSPECIFIED);
+                                let outgoing_if =
+                                    first_interface.unwrap_or(std::net::Ipv4Addr::UNSPECIFIED);
                                 if let Err(e) = sock_ref.set_multicast_if_v4(&outgoing_if) {
-                                    eprintln!("Failed to set multicast interface to {}: {}", outgoing_if, e);
+                                    eprintln!(
+                                        "Failed to set multicast interface to {outgoing_if}: {e}"
+                                    );
                                 }
 
                                 // Set multicast TTL to 2 (sufficient for most home networks)
                                 // Default is 1, which should work but some network configs may need higher
                                 if let Err(e) = sock_ref.set_multicast_ttl_v4(2) {
-                                    eprintln!("Failed to set multicast TTL: {}", e);
+                                    eprintln!("Failed to set multicast TTL: {e}");
                                 }
                             }
                         }
@@ -955,7 +1021,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         let socket_id = u32::from_le_bytes(payload[0..4].try_into().unwrap());
                         let group_addr = String::from_utf8_lossy(&payload[4..]).to_string();
 
-                        if let Some(socket) = socket_manager.lock().await.udp_sockets.get(&socket_id) {
+                        if let Some(socket) =
+                            socket_manager.lock().await.udp_sockets.get(&socket_id)
+                        {
                             if let Ok(group) = group_addr.parse::<std::net::Ipv4Addr>() {
                                 let sock_ref = SockRef::from(socket.as_ref());
 
@@ -966,12 +1034,14 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                                             if local_addr.is_loopback() {
                                                 continue;
                                             }
-                                            let _ = sock_ref.leave_multicast_v4(&group, &local_addr);
+                                            let _ =
+                                                sock_ref.leave_multicast_v4(&group, &local_addr);
                                         }
                                     }
                                 }
                                 // Also try UNSPECIFIED in case we joined via fallback
-                                let _ = sock_ref.leave_multicast_v4(&group, &std::net::Ipv4Addr::UNSPECIFIED);
+                                let _ = sock_ref
+                                    .leave_multicast_v4(&group, &std::net::Ipv4Addr::UNSPECIFIED);
                             }
                         }
                     }
@@ -995,23 +1065,33 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         let udp_socket_count = manager.udp_sockets.len() as u32;
         let tcp_server_count = manager.tcp_servers.len() as u32;
 
-        stats.tcp_sockets.fetch_sub(tcp_socket_count, Ordering::Relaxed);
-        stats.pending_tcp.fetch_sub(pending_tcp_count, Ordering::Relaxed);
-        stats.pending_connects.fetch_sub(pending_connects_count, Ordering::Relaxed);
-        stats.udp_sockets.fetch_sub(udp_socket_count, Ordering::Relaxed);
-        stats.tcp_servers.fetch_sub(tcp_server_count, Ordering::Relaxed);
+        stats
+            .tcp_sockets
+            .fetch_sub(tcp_socket_count, Ordering::Relaxed);
+        stats
+            .pending_tcp
+            .fetch_sub(pending_tcp_count, Ordering::Relaxed);
+        stats
+            .pending_connects
+            .fetch_sub(pending_connects_count, Ordering::Relaxed);
+        stats
+            .udp_sockets
+            .fetch_sub(udp_socket_count, Ordering::Relaxed);
+        stats
+            .tcp_servers
+            .fetch_sub(tcp_server_count, Ordering::Relaxed);
 
         // Abort all TCP server tasks to release their ports
-        for (_, handle) in manager.tcp_servers.iter() {
+        for handle in manager.tcp_servers.values() {
             handle.abort();
         }
         // Abort all pending connects
-        for (_, handle) in manager.pending_connects.iter() {
+        for handle in manager.pending_connects.values() {
             handle.abort();
         }
         // Abort all UDP read tasks to release their sockets immediately
         // This prevents "address already in use" errors on quick reconnect
-        for (_, handle) in manager.udp_read_tasks.iter() {
+        for handle in manager.udp_read_tasks.values() {
             handle.abort();
         }
         // Clear UDP sockets to release Arc references and unbind ports immediately

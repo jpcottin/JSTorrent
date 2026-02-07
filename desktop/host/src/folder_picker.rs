@@ -1,12 +1,12 @@
 use crate::protocol::ResponsePayload;
 use crate::state::State;
 use anyhow::{anyhow, Result};
+use jstorrent_common::DownloadRoot;
 #[cfg(not(target_os = "macos"))]
 use rfd::AsyncFileDialog;
-use jstorrent_common::DownloadRoot;
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use sha2::{Sha256, Digest};
 
 /// Determine the best starting directory for the folder picker.
 /// Falls back through: most recent download root -> system downloads -> home directory
@@ -15,7 +15,8 @@ fn get_starting_directory(state: &State) -> Option<PathBuf> {
     if let Ok(info_guard) = state.rpc_info.lock() {
         if let Some(ref info) = *info_guard {
             if let Some(ref roots) = info.download_roots {
-                if let Some(best) = roots.iter()
+                if let Some(best) = roots
+                    .iter()
                     .filter(|r| r.last_stat_ok)
                     .max_by_key(|r| r.last_checked)
                 {
@@ -33,22 +34,19 @@ fn get_starting_directory(state: &State) -> Option<PathBuf> {
     dirs::home_dir()
 }
 
-/// macOS: Use osascript to show folder picker (works without NSApplication)
+/// macOS: Use osascript to show folder picker (works without `NSApplication`)
 #[cfg(target_os = "macos")]
 async fn pick_folder_platform(start_dir: Option<PathBuf>) -> Option<PathBuf> {
-    let start_path = start_dir
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| "~".to_string());
+    let start_path = start_dir.map_or_else(|| "~".to_string(), |p| p.to_string_lossy().to_string());
 
     let script = format!(
-        r#"set defaultFolder to POSIX file "{}"
+        r#"set defaultFolder to POSIX file "{start_path}"
 try
     set chosenFolder to choose folder with prompt "Select Download Directory" default location defaultFolder
     return POSIX path of chosenFolder
 on error
     return ""
-end try"#,
-        start_path
+end try"#
     );
 
     let output = tokio::task::spawn_blocking(move || {
@@ -73,8 +71,7 @@ end try"#,
 /// Non-macOS: Use rfd
 #[cfg(not(target_os = "macos"))]
 async fn pick_folder_platform(start_dir: Option<PathBuf>) -> Option<PathBuf> {
-    let mut dialog = AsyncFileDialog::new()
-        .set_title("Select Download Directory");
+    let mut dialog = AsyncFileDialog::new().set_title("Select Download Directory");
 
     if let Some(dir) = start_dir {
         dialog = dialog.set_directory(&dir);
@@ -99,11 +96,11 @@ pub async fn pick_download_directory(state: &State) -> Result<ResponsePayload> {
         Some(path) => {
             let canonical = path.canonicalize().unwrap_or(path.clone());
             let path_str = canonical.to_string_lossy().to_string();
-            
+
             // Generate display name from folder name
-            let display_name = path.file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| path_str.clone());
+            let display_name = path
+                .file_name()
+                .map_or_else(|| path_str.clone(), |n| n.to_string_lossy().to_string());
 
             // Generate stable key: sha256(path)
             let mut hasher = Sha256::new();
@@ -140,7 +137,7 @@ pub async fn pick_download_directory(state: &State) -> Result<ResponsePayload> {
                 }
             }
 
-            // Note: The caller (main.rs) calls daemon_manager.refresh_config() 
+            // Note: The caller (main.rs) calls daemon_manager.refresh_config()
             // which should persist changes. If not, we need to save rpc_info here.
 
             Ok(ResponsePayload::RootAdded { root: new_root })

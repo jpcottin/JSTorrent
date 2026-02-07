@@ -1,3 +1,4 @@
+use crate::AppState;
 use axum::{
     extract::State,
     http::{Request, StatusCode},
@@ -5,7 +6,6 @@ use axum::{
     response::Response,
 };
 use std::sync::Arc;
-use crate::AppState;
 
 /// Auth middleware for managed mode (native host launched)
 pub async fn middleware(
@@ -24,7 +24,8 @@ pub async fn middleware(
         return Ok(next.run(req).await);
     }
 
-    let token = req.headers()
+    let token = req
+        .headers()
         .get("X-JST-Auth")
         .and_then(|value| value.to_str().ok())
         .or_else(|| {
@@ -36,12 +37,8 @@ pub async fn middleware(
 
     let expected_token = state.token.read().unwrap().clone();
     match token {
-        Some(t) if t == expected_token => {
-            Ok(next.run(req).await)
-        }
-        _ => {
-            Err(StatusCode::UNAUTHORIZED)
-        }
+        Some(t) if t == expected_token => Ok(next.run(req).await),
+        _ => Err(StatusCode::UNAUTHORIZED),
     }
 }
 
@@ -72,7 +69,8 @@ pub async fn standalone_middleware(
     }
 
     // For all other endpoints, validate the token
-    let token = req.headers()
+    let token = req
+        .headers()
         .get("X-JST-Auth")
         .and_then(|value| value.to_str().ok())
         .or_else(|| {
@@ -84,9 +82,7 @@ pub async fn standalone_middleware(
 
     let expected_token = state.token.read().unwrap().clone();
     match token {
-        Some(t) if t == expected_token => {
-            Ok(next.run(req).await)
-        }
+        Some(t) if t == expected_token => Ok(next.run(req).await),
         _ => {
             tracing::debug!("Standalone auth failed for path: {}", path);
             Err(StatusCode::UNAUTHORIZED)

@@ -1,5 +1,8 @@
 use axum::{
-    http::{header::{AUTHORIZATION, CONTENT_TYPE}, HeaderName, Method},
+    http::{
+        header::{AUTHORIZATION, CONTENT_TYPE},
+        HeaderName, Method,
+    },
     routing::get,
     Router,
 };
@@ -12,24 +15,21 @@ const X_EXPECTED_SHA1: HeaderName = HeaderName::from_static("x-expected-sha1");
 const X_SHA_REASON: HeaderName = HeaderName::from_static("x-sha-reason");
 use clap::Parser;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 mod auth;
+mod config;
 mod control;
 mod files;
 mod hashing;
 mod http;
-mod ws;
-mod config;
 mod standalone;
-
-
-
+mod ws;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -120,7 +120,7 @@ async fn main() -> anyhow::Result<()> {
     // Set up logging to both stderr and file
     let log_dir = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
         .unwrap_or_else(|| std::path::PathBuf::from("."));
 
     let file_appender = tracing_appender::rolling::never(&log_dir, "io-daemon.log");
@@ -131,23 +131,33 @@ async fn main() -> anyhow::Result<()> {
     use tracing_subscriber::EnvFilter;
 
     // Default to INFO level, but allow override via RUST_LOG env var
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::registry()
         .with(filter)
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
-        .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false),
+        )
         .init();
 
-    tracing::info!("io-daemon starting, logging to {:?}", log_dir.join("io-daemon.log"));
+    tracing::info!(
+        "io-daemon starting, logging to {:?}",
+        log_dir.join("io-daemon.log")
+    );
 
     // Log binary mtime to help diagnose stale binary issues
     if let Ok(exe_path) = std::env::current_exe() {
         if let Ok(metadata) = std::fs::metadata(&exe_path) {
             if let Ok(mtime) = metadata.modified() {
                 let datetime: chrono::DateTime<chrono::Local> = mtime.into();
-                tracing::info!("binary: {:?}, mtime: {}", exe_path, datetime.format("%Y-%m-%d %H:%M:%S"));
+                tracing::info!(
+                    "binary: {:?}, mtime: {}",
+                    exe_path,
+                    datetime.format("%Y-%m-%d %H:%M:%S")
+                );
             }
         }
     }
@@ -167,18 +177,23 @@ async fn main() -> anyhow::Result<()> {
 /// Run in managed mode (launched by native host)
 async fn run_managed(args: Args) -> anyhow::Result<()> {
     // In managed mode, token and install_id are required
-    let token = args.token.ok_or_else(|| anyhow::anyhow!("--token is required in managed mode"))?;
-    let install_id = args.install_id.ok_or_else(|| anyhow::anyhow!("--install-id is required in managed mode"))?;
+    let token = args
+        .token
+        .ok_or_else(|| anyhow::anyhow!("--token is required in managed mode"))?;
+    let install_id = args
+        .install_id
+        .ok_or_else(|| anyhow::anyhow!("--install-id is required in managed mode"))?;
     let port = args.port.unwrap_or(0);
     let bind_addr = args.bind.as_deref().unwrap_or("127.0.0.1");
 
     // Load initial config from rpc-info.json
-    let (roots, extension_id) = config::load_config(&install_id)
-        .map(|c| (c.download_roots, c.extension_id))
-        .unwrap_or_else(|e| {
+    let (roots, extension_id) = config::load_config(&install_id).map_or_else(
+        |e| {
             tracing::warn!("Failed to load initial config: {}", e);
             (Vec::new(), None)
-        });
+        },
+        |c| (c.download_roots, c.extension_id),
+    );
 
     let state = Arc::new(AppState {
         token: Arc::new(std::sync::RwLock::new(token.clone())),
@@ -205,12 +220,15 @@ async fn run_managed(args: Args) -> anyhow::Result<()> {
         .merge(control::routes())
         .merge(config::routes())
         .merge(http::routes())
-        .layer(axum::middleware::from_fn_with_state(state.clone(), auth::middleware))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::middleware,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state.clone());
 
-    let addr: SocketAddr = format!("{}:{}", bind_addr, port).parse()?;
+    let addr: SocketAddr = format!("{bind_addr}:{port}").parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local_addr = listener.local_addr()?;
 
@@ -235,9 +253,11 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
     let install_id = args.install_id.unwrap_or_else(|| "standalone".to_string());
 
     // Determine download root
-    let download_root_path = args.download_root
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
-    let download_root_path = download_root_path.canonicalize()
+    let download_root_path = args.download_root.unwrap_or_else(|| {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+    });
+    let download_root_path = download_root_path
+        .canonicalize()
         .unwrap_or(download_root_path);
 
     tracing::info!("Standalone mode: download root = {:?}", download_root_path);
@@ -269,18 +289,26 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
     eprintln!("\n=== JSTorrent IO Daemon (Standalone Mode) ===");
     eprintln!("Download root: {}", download_root_path.display());
     if is_paired {
-        eprintln!("Status: Paired with extension {}", standalone_config.extension_id.as_deref().unwrap_or("unknown"));
+        eprintln!(
+            "Status: Paired with extension {}",
+            standalone_config
+                .extension_id
+                .as_deref()
+                .unwrap_or("unknown")
+        );
     } else {
         eprintln!("Status: Waiting for extension to pair...");
     }
-    eprintln!("Listening on: {}:{}", bind_addr, port);
+    eprintln!("Listening on: {bind_addr}:{port}");
     eprintln!("\nThe Chrome extension will auto-discover this daemon.");
     eprintln!("================================================\n");
 
     let state = Arc::new(AppState {
         token: Arc::new(std::sync::RwLock::new(token.clone())),
         install_id: install_id.clone(),
-        extension_id: Arc::new(std::sync::RwLock::new(standalone_config.extension_id.clone())),
+        extension_id: Arc::new(std::sync::RwLock::new(
+            standalone_config.extension_id.clone(),
+        )),
         download_roots: Arc::new(std::sync::RwLock::new(roots)),
         stats: Arc::new(DaemonStats::new()),
     });
@@ -303,12 +331,15 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
         .merge(ws::routes())
         .merge(control::routes())
         .merge(http::routes())
-        .layer(axum::middleware::from_fn_with_state(state.clone(), auth::standalone_middleware))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::standalone_middleware,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state.clone());
 
-    let addr: SocketAddr = format!("{}:{}", bind_addr, port).parse()?;
+    let addr: SocketAddr = format!("{bind_addr}:{port}").parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local_addr = listener.local_addr()?;
 
@@ -340,7 +371,13 @@ fn build_cors_layer(extension_id: Option<&str>, allow_any: bool) -> CorsLayer {
         tracing::info!("CORS: Allowing any origin (standalone mode)");
         return CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
-            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
             .allow_headers(allowed_headers)
             .max_age(Duration::from_secs(86400));
     }
@@ -349,7 +386,7 @@ fn build_cors_layer(extension_id: Option<&str>, allow_any: bool) -> CorsLayer {
 
     // Add Chrome extension origin if available
     if let Some(ext_id) = extension_id {
-        let origin = format!("chrome-extension://{}", ext_id);
+        let origin = format!("chrome-extension://{ext_id}");
         tracing::info!("CORS: Adding extension origin: {}", origin);
         if let Ok(val) = origin.parse() {
             allowed_origins.push(val);
@@ -381,18 +418,29 @@ fn build_cors_layer(extension_id: Option<&str>, allow_any: bool) -> CorsLayer {
         tracing::warn!("CORS: No origins configured, allowing any origin");
         CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
-            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
             .allow_headers(allowed_headers)
             .max_age(Duration::from_secs(86400))
     } else {
         CorsLayer::new()
             .allow_origin(allowed_origins)
-            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
             .allow_headers(allowed_headers)
             .max_age(Duration::from_secs(86400))
     }
 }
-
 
 #[cfg(unix)]
 async fn monitor_parent(pid: u32) {
@@ -404,17 +452,14 @@ async fn monitor_parent(pid: u32) {
 
         let output = Command::new("kill").arg("-0").arg(pid.to_string()).output();
 
-        match output {
-            Ok(output) => {
-                if !output.status.success() {
-                    tracing::info!("Parent process {} exited, shutting down", pid);
-                    std::process::exit(0);
-                }
+        if let Ok(output) = output {
+            if !output.status.success() {
+                tracing::info!("Parent process {} exited, shutting down", pid);
+                std::process::exit(0);
             }
-            Err(_) => {
-                tracing::warn!("Failed to check parent process, shutting down");
-                std::process::exit(1);
-            }
+        } else {
+            tracing::warn!("Failed to check parent process, shutting down");
+            std::process::exit(1);
         }
     }
 }
@@ -476,8 +521,8 @@ async fn shutdown_signal() {
     let terminate = std::future::pending::<()>();
 
     tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
+        () = ctrl_c => {},
+        () = terminate => {},
     }
 
     tracing::info!("signal received, starting graceful shutdown");
