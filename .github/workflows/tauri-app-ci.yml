@@ -161,7 +161,7 @@ jobs:
           # macOS code signing (Tauri reads these automatically)
           APPLE_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && 'Developer ID Application: Kyle Graehl (VD7BYQ6ABM)' || '' }}
+          APPLE_SIGNING_IDENTITY: "${{ matrix.platform == 'macos-latest' && 'Developer ID Application: Kyle Graehl (VD7BYQ6ABM)' || '' }}"
           # macOS notarization
           APPLE_API_KEY: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_API_ISSUER: ${{ secrets.ASC_API_ISSUER_ID }}
