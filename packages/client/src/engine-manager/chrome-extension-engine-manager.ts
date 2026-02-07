@@ -14,6 +14,7 @@ import {
   Torrent,
   toHex,
   getBatchWriteHistogram,
+  IndexedDbSessionStore,
   type ISocketFactory,
   type CredentialsGetter,
   type EngineLoggingConfig,
@@ -40,6 +41,10 @@ const NULL_STORAGE = false
 
 // Session store key for default root key
 const DEFAULT_ROOT_KEY_KEY = 'settings:defaultRootKey'
+
+function isTauriContext(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
 
 // Augment Window interface for debug exports
 declare global {
@@ -203,7 +208,11 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     )
 
     // 4. Create session store (before registering roots so we can load default)
-    this.sessionStore = new HostChannelSessionStore(this.channel)
+    // Tauri: use IndexedDB directly (native binary, no base64 overhead)
+    // Chrome extension: delegate to host channel (chrome.storage.local via service worker)
+    this.sessionStore = isTauriContext()
+      ? new IndexedDbSessionStore()
+      : new HostChannelSessionStore(this.channel)
 
     // Register download roots from daemon
     if (roots.length > 0) {

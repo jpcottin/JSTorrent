@@ -10,6 +10,7 @@
  * an npm dependency on @tauri-apps/api in the shared client package.
  */
 
+import { clearIndexedDbSessionStore } from '@jstorrent/engine'
 import type { HostChannel } from './host-channel'
 import type {
   HostState,
@@ -305,12 +306,11 @@ export class TauriChannel implements HostChannel {
   }
 
   async clearSessionStorage(): Promise<void> {
-    const keysToRemove: string[] = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (key?.startsWith('jst:session:')) keysToRemove.push(key)
+    try {
+      await clearIndexedDbSessionStore()
+    } catch (e) {
+      console.warn('[TauriChannel] Failed to clear IndexedDB session store:', e)
     }
-    keysToRemove.forEach((k) => localStorage.removeItem(k))
   }
 
   notifyClosing(): void {

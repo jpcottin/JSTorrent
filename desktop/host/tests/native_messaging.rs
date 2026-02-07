@@ -70,6 +70,7 @@ fn test_host_bridge_handshake() {
 
     let mut stdin = child.stdin.take().unwrap();
     let mut stdout = child.stdout.take().unwrap();
+    let mut stderr = child.stderr.take().unwrap();
 
     // 1. Send Handshake
     let handshake = serde_json::json!({
@@ -84,7 +85,23 @@ fn test_host_bridge_handshake() {
     let response = read_native_message(&mut stdout);
 
     assert_eq!(response["id"], "test-handshake", "response id must match");
-    assert_eq!(response["ok"], true, "handshake must succeed: {response}");
+    if response["ok"] != true {
+        // Drain stderr for diagnostics before asserting
+        drop(stdin);
+        let _ = child.kill();
+        let mut stderr_buf = Vec::new();
+        let _ = stderr.read_to_end(&mut stderr_buf);
+        let stderr_str = String::from_utf8_lossy(&stderr_buf);
+        panic!(
+            "handshake must succeed: {response}\n\
+             host_bin: {host_bin}\n\
+             daemon_bin: {}\n\
+             daemon_bin exists: {}\n\
+             stderr:\n{stderr_str}",
+            daemon_bin.display(),
+            daemon_bin.exists(),
+        );
+    }
     assert_eq!(
         response["type"], "DaemonInfo",
         "response type must be DaemonInfo"

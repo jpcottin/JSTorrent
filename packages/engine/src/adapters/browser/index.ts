@@ -1,4 +1,5 @@
 export { ExternalChromeStorageSessionStore } from './external-chrome-storage-session-store'
+export { IndexedDbSessionStore, clearIndexedDbSessionStore } from './indexeddb-session-store'
 export { SubtleCryptoHasher } from './subtle-crypto-hasher'
 export { RoutingHasher } from './routing-hasher'
 export { WorkerHasher } from './worker-hasher'

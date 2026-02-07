@@ -180,7 +180,7 @@ jobs:
           updaterJsonKeepUniversal: true
           args: >-
             ${{ matrix.args }}
-            ${{ matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_SECRET != '' && '--config ''{"bundle":{"windows":{"signCommand":"trusted-signing-cli -e https://eus.codesigning.azure.net -a kylegraehl -c jstorrent-profile %1"}}}''' || '' }}
+            ${{ matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_SECRET != '' && '--config ''{"bundle":{"windows":{"signCommand":"trusted-signing-cli -e https://eus.codesigning.azure.net -a kylegraehl -c jstorrent-profile %1 2>&1"}}}''' || '' }}
 
       # --- Cleanup ---
       - name: Clean up macOS keychain

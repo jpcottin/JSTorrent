@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import 'fake-indexeddb/auto'
 import { TauriChannel } from '../../src/host/tauri-channel'
 import type { HostState, NativeEvent } from '../../src/host/types'
+import { IndexedDbSessionStore } from '@jstorrent/engine'
 
 // --- localStorage mock (happy-dom's localStorage is incomplete) ---
 
@@ -790,19 +792,17 @@ describe('TauriChannel', () => {
   })
 
   describe('clearSessionStorage()', () => {
-    it('removes only jst:session: keys from localStorage', async () => {
-      localStorage.setItem('jst:session:a', JSON.stringify(1))
-      localStorage.setItem('jst:session:b', JSON.stringify(2))
-      localStorage.setItem('jst:config:c', JSON.stringify(3))
-      localStorage.setItem('other', 'value')
+    it('clears IndexedDB session store', async () => {
+      const store = new IndexedDbSessionStore()
+      await store.set('key1', new Uint8Array([1, 2, 3]))
+      await store.setJson('key2', { data: true })
 
       const channel = new TauriChannel()
       await channel.clearSessionStorage()
 
-      expect(localStorage.getItem('jst:session:a')).toBeNull()
-      expect(localStorage.getItem('jst:session:b')).toBeNull()
-      expect(localStorage.getItem('jst:config:c')).toBe(JSON.stringify(3))
-      expect(localStorage.getItem('other')).toBe('value')
+      const store2 = new IndexedDbSessionStore()
+      expect(await store2.get('key1')).toBeNull()
+      expect(await store2.getJson('key2')).toBeNull()
     })
   })
 
