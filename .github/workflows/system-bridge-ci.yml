@@ -53,6 +53,9 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
 
+      - name: Build io-daemon for integration tests
+        run: cargo build -p jstorrent-io-daemon
+
       - name: Run tests
         run: cargo test --workspace
 
