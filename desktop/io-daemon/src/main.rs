@@ -389,9 +389,9 @@ fn build_cors_layer(extension_id: Option<&str>, allow_any: bool) -> CorsLayer {
         if ext_id.starts_with("tauri") {
             // Tauri desktop app: add webview origins for all platforms
             for origin in &[
-                "tauri://localhost",          // macOS/Linux production
-                "https://tauri.localhost",     // Windows production
-                "http://localhost:1420",       // Tauri dev server (Vite)
+                "tauri://localhost",       // macOS/Linux production
+                "https://tauri.localhost", // Windows production
+                "http://localhost:1420",   // Tauri dev server (Vite)
             ] {
                 tracing::info!("CORS: Adding Tauri origin: {}", origin);
                 if let Ok(val) = origin.parse() {

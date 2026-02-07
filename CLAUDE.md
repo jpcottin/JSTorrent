@@ -76,6 +76,22 @@ Python projects in this repo:
 - `extension/tools/` - Extension debugging tools
 - `chromeos-testbed/chromeos-mcp/` - ChromeOS MCP server
 
+## Rust Editing Workflow (desktop/)
+
+After editing Rust files in `desktop/`, run from the `desktop/` directory:
+
+1. `cargo fmt --all` - Fix formatting (CI runs `cargo fmt --all -- --check`)
+2. `cargo clippy --workspace -- -D warnings` - Run lints
+3. `cargo test --workspace` - Run tests
+
+**Note:** CI requires sidecar stubs for the Tauri build script. Clippy/tests may need them:
+```bash
+TRIPLE="$(rustc --print host-tuple)"
+mkdir -p tauri-app/src-tauri/binaries
+touch "tauri-app/src-tauri/binaries/jstorrent-host-$TRIPLE"
+touch "tauri-app/src-tauri/binaries/jstorrent-io-daemon-$TRIPLE"
+```
+
 ## TypeScript Editing Workflow
 
 The `pnpm` scripts are for TypeScript packages (extension, engine, etc.).
