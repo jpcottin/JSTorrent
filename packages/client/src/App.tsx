@@ -18,6 +18,7 @@ import { SettingsOverlay } from './components/SettingsOverlay'
 import { useChromeOSBootstrap } from './hooks/useChromeOSBootstrap'
 import { AppContent } from './AppContent'
 import { standaloneAlert } from './utils/dialogs'
+import jsIcon from './assets/js-32.png'
 
 // Re-export types for backwards compatibility
 export type { AppContentProps, FileInfo } from './AppContent'
@@ -268,7 +269,7 @@ function App() {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <img
-              src="../../icons/js-32.png"
+              src={jsIcon}
               alt="JSTorrent"
               style={{ width: '24px', height: '24px' }}
             />

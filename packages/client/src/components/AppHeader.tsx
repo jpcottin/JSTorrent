@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { formatBytes } from '@jstorrent/ui'
 import type { BtEngine } from '@jstorrent/engine'
+import jsIcon from '../assets/js-32.png'
 
 interface AppHeaderProps {
   /** The torrent engine (for stats display) */
@@ -30,7 +31,7 @@ export function AppHeader({
   trailingSlot,
   onSettingsClick,
   onBugReportClick,
-  logoSrc = '../../icons/js-32.png',
+  logoSrc = jsIcon,
 }: AppHeaderProps) {
   return (
     <div
