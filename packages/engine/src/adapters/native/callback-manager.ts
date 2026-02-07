@@ -164,6 +164,50 @@ class CallbackManager {
       }
     }
 
+    // Batch disk read result receiver
+    // Called by Kotlin when __jstorrent_file_flush() drains the pending read result queue.
+    // Format: [count: u32 LE] then for each:
+    //   [callbackIdLen: u8] [callbackId: bytes] [resultCode: u8] [dataLen: u32 LE] [data: bytes]
+    ;(globalThis as Record<string, unknown>).__jstorrent_file_dispatch_read_batch = (
+      packed: ArrayBuffer,
+    ) => {
+      const view = new DataView(packed)
+      const bytes = new Uint8Array(packed)
+      let offset = 0
+      const count = view.getUint32(offset, true)
+      offset += 4
+
+      const textDecoder = new TextDecoder()
+      const callbacks = (
+        globalThis as unknown as {
+          __jstorrent_file_read_callbacks?: Record<
+            string,
+            (resultCode: number, data: ArrayBuffer) => void
+          >
+        }
+      ).__jstorrent_file_read_callbacks
+
+      for (let i = 0; i < count; i++) {
+        const callbackIdLen = bytes[offset]
+        offset += 1
+        const callbackId = textDecoder.decode(bytes.subarray(offset, offset + callbackIdLen))
+        offset += callbackIdLen
+        const resultCode = bytes[offset]
+        offset += 1
+        const dataLen = view.getUint32(offset, true)
+        offset += 4
+        // Copy the data out of the packed buffer to avoid shared-buffer issues
+        const data = packed.slice(offset, offset + dataLen)
+        offset += dataLen
+
+        const callback = callbacks?.[callbackId]
+        if (callback) {
+          delete callbacks[callbackId]
+          callback(resultCode, data)
+        }
+      }
+    }
+
     // Phase 4: Batch hash result receiver
     // Called by Kotlin when __jstorrent_hash_flush() drains the pending queue.
     // Format: [count: u32 LE] then for each:

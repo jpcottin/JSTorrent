@@ -11,6 +11,8 @@ import { NullFileSystem } from '../adapters/null/null-filesystem'
 import { NativeSessionStore } from '../adapters/native/native-session-store'
 import { NativeHasher } from '../adapters/native/native-hasher'
 import { flushBatchedWrites } from '../adapters/native/native-batching-disk-queue'
+import { flushPendingReads } from '../adapters/native/native-async-read'
+import { NativeFileHandle } from '../adapters/native/native-file-handle'
 import { StorageRootManager, StorageRoot } from '../storage/storage-root-manager'
 import { Socks5SocketFactory } from '../proxy'
 import { TorrentUploader } from '../core/torrent-uploader'
@@ -22,6 +24,10 @@ import type { ConfigHub } from '../config/config-hub'
 // Conservative send buffer watermark for native (QuickJS) to limit buffered upload data.
 // Lower than daemon/extension default (512KB) to protect against OOM on Android.
 TorrentUploader.SEND_BUFFER_WATERMARK = 64 * 1024
+
+// Enable async reads on Android — disk reads dispatch to Kotlin IO threads
+// instead of blocking the JS thread.
+NativeFileHandle.useAsyncReads = true
 
 /**
  * Get network interfaces from the native layer.
@@ -135,7 +141,10 @@ export function createNativeEngine(config: NativeEngineConfig): BtEngine {
     startSuspended: config.startSuspended,
     config: config.config,
     getNetworkInterfaces,
-    onEndOfTick: flushBatchedWrites,
+    onEndOfTick: () => {
+      flushBatchedWrites()
+      flushPendingReads()
+    },
     usePassthroughDiskQueue: true,
   })
 }

@@ -261,6 +261,22 @@ declare global {
   function __jstorrent_file_write_verified_batch(packed: ArrayBuffer): void
 
   /**
+   * Batch async read: send multiple read requests in a single FFI call.
+   * Reads run on background I/O threads. Results delivered via __jstorrent_file_dispatch_read_batch.
+   *
+   * Packed binary format (all multi-byte integers are little-endian):
+   *   [count: u32 LE] then for each read:
+   *     [rootKeyLen: u8] [rootKey: UTF-8 bytes]
+   *     [pathLen: u16 LE] [path: UTF-8 bytes]
+   *     [position: u64 LE]
+   *     [length: u32 LE]
+   *     [callbackIdLen: u8] [callbackId: UTF-8 bytes]
+   *
+   * @param packed Binary-packed read requests
+   */
+  function __jstorrent_file_read_batch(packed: ArrayBuffer): void
+
+  /**
    * Callback storage for verified write results.
    * Managed by native layer, called via __jstorrent_file_dispatch_write_result.
    */
@@ -268,6 +284,15 @@ declare global {
   var __jstorrent_file_write_callbacks: Record<
     string,
     (bytesWritten: number, resultCode: number) => void
+  >
+
+  /**
+   * Callback storage for async read results.
+   * Managed by native-async-read.ts, called via __jstorrent_file_dispatch_read_batch.
+   */
+  var __jstorrent_file_read_callbacks: Record<
+    string,
+    (resultCode: number, data: ArrayBuffer) => void
   >
 
   // ============================================================

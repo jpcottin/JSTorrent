@@ -254,6 +254,7 @@ export class TorrentTickLoop extends EngineComponent {
   private _totalPipelineFilled = 0
   private _phase1TotalMs = 0
   private _phase3TotalMs = 0
+  private _phaseUploadTotalMs = 0
   private _phase4TotalMs = 0
 
   /**
@@ -329,7 +330,9 @@ export class TorrentTickLoop extends EngineComponent {
     this._totalRequestsSent += requestsSentThisTick
 
     // === Phase 3.5: UPLOAD - fill peer send buffers from queued upload requests ===
+    const phaseUploadStart = Date.now()
     this.callbacks.fillSendBuffers(connectedPeers)
+    this._phaseUploadTotalMs += Date.now() - phaseUploadStart
 
     // === Phase 4: OUTPUT - flush all queued sends ===
     // First, broadcast any pending HAVE messages (batched from piece completions during GATHER)
@@ -362,14 +365,31 @@ export class TorrentTickLoop extends EngineComponent {
       const avgPipelineDepth = (this._totalPipelineSlots / this._tickCount).toFixed(0)
       const avgPhase1 = (this._phase1TotalMs / this._tickCount).toFixed(1)
       const avgPhase3 = (this._phase3TotalMs / this._tickCount).toFixed(1)
+      const avgPhaseUpload = (this._phaseUploadTotalMs / this._tickCount).toFixed(1)
       const avgPhase4 = (this._phase4TotalMs / this._tickCount).toFixed(1)
 
       this.logger.info(
-        `Tick: ${this._tickCount} ticks, avg ${avgMs}ms (P1:${avgPhase1}/P3:${avgPhase3}/P4:${avgPhase4}), ` +
+        `Tick: ${this._tickCount} ticks, avg ${avgMs}ms (P1:${avgPhase1}/P3:${avgPhase3}/UP:${avgPhaseUpload}/P4:${avgPhase4}), ` +
           `max ${this._tickMaxMs}ms, ${activePieces} active, ${peersProcessed} peers | ` +
           `BUF:${avgBufferedKB}KB, BLOCKS:recv=${avgBlocksRecv}/sent=${avgReqSent}, ` +
           `PIPE:${pipelineUtil}% of ${avgPipelineDepth}`,
       )
+
+      // Log upload stats if there was any upload activity
+      const uploader = this.callbacks.getUploader()
+      const uploadStats = uploader.getAndResetStats()
+      if (uploadStats.readsIssued > 0 || uploader.queueLength > 0) {
+        const uploadKB = (uploadStats.bytesUploaded / 1024).toFixed(0)
+        this.logger.info(
+          `Upload: ${uploadStats.readsIssued} reads issued, ${uploadStats.readsCompleted} completed` +
+            (uploadStats.readsFailed > 0 ? `, ${uploadStats.readsFailed} failed` : '') +
+            `, ${uploadKB}KB sent, ${uploadStats.peersServed} peers served` +
+            `, wmHits=${uploadStats.watermarkHits}` +
+            (uploadStats.rateLimitHits > 0 ? `, rlHits=${uploadStats.rateLimitHits}` : '') +
+            ` | queue=${uploader.queueLength}, reading=${(uploader.totalReadingBytes / 1024).toFixed(0)}KB` +
+            `, ${uploader.activePeerCount} active peers`,
+        )
+      }
 
       // Reset all counters
       this._tickCount = 0
@@ -383,6 +403,7 @@ export class TorrentTickLoop extends EngineComponent {
       this._totalPipelineFilled = 0
       this._phase1TotalMs = 0
       this._phase3TotalMs = 0
+      this._phaseUploadTotalMs = 0
       this._phase4TotalMs = 0
     }
 

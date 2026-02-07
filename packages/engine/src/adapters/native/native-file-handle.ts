@@ -10,6 +10,7 @@
 
 import type { IFileHandle } from '../../interfaces/filesystem'
 import { getGlobalBatchingQueue } from './native-batching-disk-queue'
+import { getGlobalAsyncReadQueue } from './native-async-read'
 import './bindings.d.ts'
 
 /**
@@ -44,7 +45,10 @@ export class NativeFileHandle implements IFileHandle {
 
   /**
    * Read data from the file at a specific position.
-   * Each call is stateless - Kotlin opens, seeks, reads, closes internally.
+   *
+   * Uses async read batch when available (Android): queues the read for
+   * background I/O dispatch, result arrives at start of next tick.
+   * Falls back to sync __jstorrent_file_read when async batch is not available.
    */
   async read(
     buffer: Uint8Array,
@@ -56,6 +60,25 @@ export class NativeFileHandle implements IFileHandle {
       throw new Error('File handle is closed')
     }
 
+    if (NativeFileHandle.useAsyncReads) {
+      // Async path: queue read, resolved when Kotlin I/O thread completes
+      const data = await getGlobalAsyncReadQueue().queueAsyncRead(
+        this.rootKey,
+        this.path,
+        position,
+        length,
+      )
+
+      if (data.length === 0) {
+        return { bytesRead: 0 }
+      }
+
+      const bytesToCopy = Math.min(data.length, buffer.length - offset)
+      buffer.set(data.subarray(0, bytesToCopy), offset)
+      return { bytesRead: bytesToCopy }
+    }
+
+    // Sync fallback: blocks JS thread
     const result = __jstorrent_file_read(this.rootKey, this.path, position, length)
 
     if (!result || result.byteLength === 0) {
@@ -63,12 +86,14 @@ export class NativeFileHandle implements IFileHandle {
     }
 
     const data = new Uint8Array(result)
-    // Copy data into the provided buffer at the specified offset
     const bytesToCopy = Math.min(data.length, buffer.length - offset)
     buffer.set(data.subarray(0, bytesToCopy), offset)
 
     return { bytesRead: bytesToCopy }
   }
+
+  /** Whether to use async read batch (set by native preset) */
+  static useAsyncReads = false
 
   /**
    * Write data to the file at a specific position.

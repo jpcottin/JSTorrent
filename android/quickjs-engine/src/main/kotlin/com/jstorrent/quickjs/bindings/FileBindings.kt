@@ -35,6 +35,15 @@ object WriteResultCode {
 }
 
 /**
+ * Read result codes for async read batch.
+ */
+object ReadResultCode {
+    const val SUCCESS = 0
+    const val IO_ERROR = 2
+    const val INVALID_ARGS = 3
+}
+
+/**
  * Phase 4: Event holding disk write result for batch delivery.
  */
 data class DiskWriteResultEvent(
@@ -43,6 +52,80 @@ data class DiskWriteResultEvent(
     val resultCode: Int,
     val timestamp: Long = System.currentTimeMillis()
 )
+
+/**
+ * Event holding disk read result for batch delivery.
+ */
+data class DiskReadResultEvent(
+    val callbackId: String,
+    val data: ByteArray,
+    val resultCode: Int,
+)
+
+/**
+ * Parsed read request from batch.
+ */
+data class ReadRequest(
+    val rootKey: String,
+    val path: String,
+    val position: Long,
+    val length: Int,
+    val callbackId: String,
+)
+
+/**
+ * Unpack a batch of read requests from binary format.
+ *
+ * Format (all multi-byte integers are little-endian):
+ *   [count: u32 LE] then for each read:
+ *     [rootKeyLen: u8] [rootKey: UTF-8 bytes]
+ *     [pathLen: u16 LE] [path: UTF-8 bytes]
+ *     [position: u64 LE]
+ *     [length: u32 LE]
+ *     [callbackIdLen: u8] [callbackId: UTF-8 bytes]
+ */
+fun unpackReadBatch(packed: ByteArray): List<ReadRequest> {
+    val buffer = ByteBuffer.wrap(packed).order(ByteOrder.LITTLE_ENDIAN)
+
+    val count = buffer.int
+    if (count < 0 || count > 10000) {
+        throw IllegalArgumentException("Invalid batch count: $count")
+    }
+
+    val reads = mutableListOf<ReadRequest>()
+
+    for (i in 0 until count) {
+        // rootKeyLen + rootKey
+        val rootKeyLen = buffer.get().toInt() and 0xFF
+        val rootKeyBytes = ByteArray(rootKeyLen)
+        buffer.get(rootKeyBytes)
+        val rootKey = String(rootKeyBytes, Charsets.UTF_8)
+
+        // pathLen + path
+        val pathLen = buffer.short.toInt() and 0xFFFF
+        val pathBytes = ByteArray(pathLen)
+        buffer.get(pathBytes)
+        val path = String(pathBytes, Charsets.UTF_8)
+
+        // position (u64 LE) - read as two u32 and combine
+        val positionLow = buffer.int.toLong() and 0xFFFFFFFFL
+        val positionHigh = buffer.int.toLong() and 0xFFFFFFFFL
+        val position = positionLow or (positionHigh shl 32)
+
+        // length
+        val length = buffer.int
+
+        // callbackIdLen + callbackId
+        val callbackIdLen = buffer.get().toInt() and 0xFF
+        val callbackIdBytes = ByteArray(callbackIdLen)
+        buffer.get(callbackIdBytes)
+        val callbackId = String(callbackIdBytes, Charsets.UTF_8)
+
+        reads.add(ReadRequest(rootKey, path, position, length, callbackId))
+    }
+
+    return reads
+}
 
 /**
  * Parsed verified write request from batch.
@@ -252,6 +335,80 @@ class FileBindings(
             return buf.array()
         }
 
+        // ============================================================
+        // Async disk read result crossing
+        // ============================================================
+
+        /**
+         * Pending disk read results from I/O threads, waiting to be flushed to JS.
+         * Thread-safe: I/O threads add, JS thread drains via __jstorrent_file_flush().
+         */
+        private val pendingDiskReadResults = ConcurrentLinkedQueue<DiskReadResultEvent>()
+
+        @Volatile private var readBatchFlushCount = 0
+        @Volatile private var readBatchEventsTotal = 0L
+        @Volatile private var readBatchBytesTotal = 0L
+        @Volatile private var readBatchLogTime = System.currentTimeMillis()
+
+        /**
+         * Queue a disk read result for batch processing.
+         * Called from I/O threads, drained at start of next tick.
+         */
+        fun queueDiskReadResult(callbackId: String, data: ByteArray, resultCode: Int) {
+            pendingDiskReadResults.add(DiskReadResultEvent(callbackId, data, resultCode))
+        }
+
+        /**
+         * Drain pending read results and pack into binary format.
+         * Format: [count: u32 LE] then for each:
+         *   [callbackIdLen: u8] [callbackId: bytes] [resultCode: u8] [dataLen: u32 LE] [data: bytes]
+         * Returns null if queue is empty.
+         */
+        fun drainAndPackDiskReadBatch(): ByteArray? {
+            val batch = mutableListOf<DiskReadResultEvent>()
+            while (true) {
+                val event = pendingDiskReadResults.poll() ?: break
+                batch.add(event)
+            }
+
+            if (batch.isEmpty()) return null
+
+            // Update metrics
+            readBatchFlushCount++
+            readBatchEventsTotal += batch.size
+            readBatchBytesTotal += batch.sumOf { it.data.size.toLong() }
+
+            // Log batch stats periodically
+            val now = System.currentTimeMillis()
+            if (now - readBatchLogTime >= 5000 && readBatchFlushCount > 0) {
+                val avgEvents = readBatchEventsTotal.toFloat() / readBatchFlushCount
+                val totalMB = readBatchBytesTotal / (1024.0 * 1024.0)
+                Log.i(TAG, "Read batch: %d flushes, avg %.1f events/flush, %.2f MB total".format(
+                    readBatchFlushCount, avgEvents, totalMB))
+                readBatchFlushCount = 0
+                readBatchEventsTotal = 0
+                readBatchBytesTotal = 0
+                readBatchLogTime = now
+            }
+
+            // Pack format: [count: u32 LE] then for each:
+            // [callbackIdLen: u8] [callbackId: bytes] [resultCode: u8] [dataLen: u32 LE] [data: bytes]
+            val packedSize = 4 + batch.sumOf { event ->
+                1 + event.callbackId.toByteArray(Charsets.UTF_8).size + 1 + 4 + event.data.size
+            }
+            val buf = ByteBuffer.allocate(packedSize).order(ByteOrder.LITTLE_ENDIAN)
+            buf.putInt(batch.size)
+            for (event in batch) {
+                val idBytes = event.callbackId.toByteArray(Charsets.UTF_8)
+                buf.put(idBytes.size.toByte())
+                buf.put(idBytes)
+                buf.put(event.resultCode.toByte())
+                buf.putInt(event.data.size)
+                buf.put(event.data)
+            }
+            return buf.array()
+        }
+
         /**
          * Get current callback queue depth.
          * This is the number of disk callbacks waiting to be processed by JS.
@@ -303,6 +460,7 @@ class FileBindings(
     fun register(ctx: QuickJsContext) {
         registerReadWrite(ctx)
         registerAsyncWrite(ctx)
+        registerAsyncRead(ctx)
         registerPathFunctions(ctx)
     }
 
@@ -514,21 +672,27 @@ class FileBindings(
         """.trimIndent(), "file-bindings-init.js")
 
         // __jstorrent_file_flush(): void
-        // Phase 4: Flush accumulated disk write results from I/O threads to JS.
+        // Flush accumulated disk write AND read results from I/O threads to JS.
         // Called by JS at start of engine tick to batch all pending results
-        // into a single FFI crossing.
+        // into a single FFI crossing per type.
         ctx.setGlobalFunction("__jstorrent_file_flush") { _ ->
-            val packed = drainAndPackDiskBatch()
-            if (packed != null) {
-                // Dispatch batch to JS - single FFI call for all accumulated results
+            val writePacked = drainAndPackDiskBatch()
+            if (writePacked != null) {
                 ctx.callGlobalFunctionWithBinary(
                     "__jstorrent_file_dispatch_batch",
-                    packed,
-                    0,  // binary is first argument
+                    writePacked,
+                    0,
                     null
                 )
-                // Note: We don't call scheduleJobPump here because flush is called
-                // at the start of tick. The tick will pump jobs at the end.
+            }
+            val readPacked = drainAndPackDiskReadBatch()
+            if (readPacked != null) {
+                ctx.callGlobalFunctionWithBinary(
+                    "__jstorrent_file_dispatch_read_batch",
+                    readPacked,
+                    0,
+                    null
+                )
             }
             null
         }
@@ -741,6 +905,68 @@ class FileBindings(
                             else -> WriteResultCode.IO_ERROR
                         }
                         queueDiskWriteResult(write.callbackId, -1, resultCode)
+                    }
+                }
+            }
+
+            null
+        }
+    }
+
+    /**
+     * Register async read batch function.
+     *
+     * Dispatches disk reads to background I/O threads, results queued in
+     * pendingDiskReadResults and flushed to JS at start of next tick
+     * via __jstorrent_file_flush().
+     */
+    private fun registerAsyncRead(ctx: QuickJsContext) {
+        // Register the JS callback storage for read results
+        ctx.evaluate("""
+            globalThis.__jstorrent_file_read_callbacks = {};
+        """.trimIndent(), "file-read-bindings-init.js")
+
+        // __jstorrent_file_read_batch(packed: ArrayBuffer): void
+        // Batch async read - unpacks multiple read requests, runs in parallel on I/O threads.
+        // Results queue to pendingDiskReadResults for batch delivery via __jstorrent_file_flush.
+        ctx.setGlobalFunctionWithBinary("__jstorrent_file_read_batch", 0) { _, binary ->
+            if (binary == null || binary.isEmpty()) {
+                Log.w(TAG, "read_batch: empty batch")
+                return@setGlobalFunctionWithBinary null
+            }
+
+            val reads = try {
+                unpackReadBatch(binary)
+            } catch (e: Exception) {
+                Log.e(TAG, "read_batch: failed to unpack", e)
+                return@setGlobalFunctionWithBinary null
+            }
+
+            if (reads.isEmpty()) {
+                return@setGlobalFunctionWithBinary null
+            }
+
+            // Launch all reads in parallel on I/O dispatcher
+            for (read in reads) {
+                val rootUri = resolveRoot(read.rootKey)
+                if (rootUri == null) {
+                    Log.w(TAG, "read_batch: unknown root key: ${read.rootKey}")
+                    queueDiskReadResult(read.callbackId, ByteArray(0), ReadResultCode.INVALID_ARGS)
+                    continue
+                }
+
+                if (read.path.isEmpty() || read.length <= 0) {
+                    queueDiskReadResult(read.callbackId, ByteArray(0), ReadResultCode.INVALID_ARGS)
+                    continue
+                }
+
+                ioScope.launch {
+                    try {
+                        val data = fileManager.read(rootUri, read.path, read.position, read.length)
+                        queueDiskReadResult(read.callbackId, data, ReadResultCode.SUCCESS)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "read_batch failed: ${read.path}", e)
+                        queueDiskReadResult(read.callbackId, ByteArray(0), ReadResultCode.IO_ERROR)
                     }
                 }
             }

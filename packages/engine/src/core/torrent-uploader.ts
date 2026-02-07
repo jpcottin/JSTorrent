@@ -54,6 +54,15 @@ export class TorrentUploader extends EngineComponent {
   /** Content storage for reading piece data */
   private contentStorage: ContentReader | null = null
 
+  // === Stats accumulators (reset via getAndResetStats()) ===
+  private _readsIssued = 0
+  private _readsCompleted = 0
+  private _readsFailed = 0
+  private _watermarkHits = 0
+  private _rateLimitHits = 0
+  private _bytesUploaded = 0
+  private _peersServed = 0
+
   /** Callback to check if peer is still connected */
   private readonly isPeerConnected: (peer: PeerConnection) => boolean
 
@@ -148,9 +157,11 @@ export class TorrentUploader extends EngineComponent {
         continue
       }
 
+      let peerIssued = false
       while (state.requests.length > 0) {
         // Watermark check: send buffer + in-flight reads
         if (peer.sendBufferBytes + state.readingBytes >= TorrentUploader.SEND_BUFFER_WATERMARK) {
+          this._watermarkHits++
           break
         }
 
@@ -158,24 +169,30 @@ export class TorrentUploader extends EngineComponent {
 
         // Global rate limit check
         if (this.uploadBucket.isLimited && !this.uploadBucket.tryConsume(req.length)) {
+          this._rateLimitHits++
           return // Rate-limited globally — stop all peers
         }
 
         state.requests.shift()
         state.readingBytes += req.length
+        this._readsIssued++
+        peerIssued = true
 
         // Fire-and-forget async read
         storage.read(req.index, req.begin, req.length).then(
           (block) => {
             state.readingBytes -= req.length
+            this._readsCompleted++
             // Final check: peer still connected and unchoked
             if (!this.isPeerConnected(peer)) return
             if (peer.amChoking) return
             peer.sendPiece(req.index, req.begin, block)
             this.recordUpload(block.length)
+            this._bytesUploaded += block.length
           },
           (err) => {
             state.readingBytes -= req.length
+            this._readsFailed++
             this.logger.error(
               `Error reading for upload: ${err instanceof Error ? err.message : String(err)}`,
               { err },
@@ -183,6 +200,7 @@ export class TorrentUploader extends EngineComponent {
           },
         )
       }
+      if (peerIssued) this._peersServed++
 
       // Clean up empty state
       if (state.requests.length === 0 && state.readingBytes === 0) {
@@ -216,5 +234,43 @@ export class TorrentUploader extends EngineComponent {
       total += state.requests.length
     }
     return total
+  }
+
+  /** Get total bytes currently being read from disk (in-flight reads). */
+  get totalReadingBytes(): number {
+    let total = 0
+    for (const state of this.peerState.values()) {
+      total += state.readingBytes
+    }
+    return total
+  }
+
+  /** Get number of peers with queued or in-flight uploads. */
+  get activePeerCount(): number {
+    return this.peerState.size
+  }
+
+  /**
+   * Get accumulated upload stats and reset counters.
+   * Called by tick loop for periodic logging.
+   */
+  getAndResetStats() {
+    const stats = {
+      readsIssued: this._readsIssued,
+      readsCompleted: this._readsCompleted,
+      readsFailed: this._readsFailed,
+      watermarkHits: this._watermarkHits,
+      rateLimitHits: this._rateLimitHits,
+      bytesUploaded: this._bytesUploaded,
+      peersServed: this._peersServed,
+    }
+    this._readsIssued = 0
+    this._readsCompleted = 0
+    this._readsFailed = 0
+    this._watermarkHits = 0
+    this._rateLimitHits = 0
+    this._bytesUploaded = 0
+    this._peersServed = 0
+    return stats
   }
 }
