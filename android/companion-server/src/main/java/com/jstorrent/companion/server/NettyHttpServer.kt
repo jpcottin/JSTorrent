@@ -275,6 +275,10 @@ private class NettyHttpHandler(
                 path.startsWith("/write/") && method == HttpMethod.POST -> handleWrite(ctx, request, path)
                 path.startsWith("/write-batch/") && method == HttpMethod.POST -> handleWriteBatch(ctx, request, path)
                 path.startsWith("/ops/exists") && method == HttpMethod.GET -> handleOpsExists(ctx, request)
+                path == "/ops/delete" && method == HttpMethod.POST -> handleOpsDelete(ctx, request)
+                path.startsWith("/ops/stat") && method == HttpMethod.GET -> handleOpsStat(ctx, request)
+                path.startsWith("/ops/list") && method == HttpMethod.GET -> handleOpsList(ctx, request)
+                path == "/files/ensure_dir" && method == HttpMethod.POST -> handleEnsureDir(ctx, request)
 
                 else -> sendNotFound(ctx, request)
             }
@@ -697,6 +701,188 @@ private class NettyHttpHandler(
 
         val exists = fileManager.exists(rootUri, relativePath)
         sendJsonResponse(ctx, request, HttpResponseStatus.OK, """{"exists":$exists}""")
+    }
+
+    /**
+     * Delete a file or directory.
+     * POST /ops/delete
+     * Body: {"path": "...", "root_key": "..."}
+     */
+    private fun handleOpsDelete(ctx: ChannelHandlerContext, request: FullHttpRequest) {
+        if (getExtensionHeaders(request) == null && !isStandaloneAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing extension headers")
+            return
+        }
+        if (!validateAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.UNAUTHORIZED, "Invalid token")
+            return
+        }
+
+        val body = request.content().toString(Charsets.UTF_8)
+        val json = try {
+            org.json.JSONObject(body)
+        } catch (e: Exception) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid JSON body")
+            return
+        }
+
+        val rootKey = if (json.has("root_key")) json.getString("root_key") else null
+        val relativePath = if (json.has("path")) json.getString("path") else null
+
+        if (rootKey == null || relativePath == null) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing root_key or path")
+            return
+        }
+
+        if (relativePath.contains("..")) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid path")
+            return
+        }
+
+        val rootUri = deps.rootStore.resolveKey(rootKey)
+        if (rootUri == null) {
+            sendError(ctx, request, HttpResponseStatus.FORBIDDEN, "Invalid root key")
+            return
+        }
+
+        val deleted = fileManager.delete(rootUri, relativePath)
+        if (!deleted) {
+            sendError(ctx, request, HttpResponseStatus.NOT_FOUND, "File not found or could not be deleted")
+            return
+        }
+        sendJsonResponse(ctx, request, HttpResponseStatus.OK, """{"ok":true}""")
+    }
+
+    /**
+     * Get file statistics.
+     * GET /ops/stat?path=...&root_key=...
+     */
+    private fun handleOpsStat(ctx: ChannelHandlerContext, request: FullHttpRequest) {
+        if (getExtensionHeaders(request) == null && !isStandaloneAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing extension headers")
+            return
+        }
+        if (!validateAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.UNAUTHORIZED, "Invalid token")
+            return
+        }
+
+        val query = QueryStringDecoder(request.uri())
+        val rootKey = query.parameters()["root_key"]?.firstOrNull()
+        val relativePath = query.parameters()["path"]?.firstOrNull()
+
+        if (rootKey == null || relativePath == null) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing root_key or path parameter")
+            return
+        }
+
+        if (relativePath.contains("..")) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid path")
+            return
+        }
+
+        val rootUri = deps.rootStore.resolveKey(rootKey)
+        if (rootUri == null) {
+            sendError(ctx, request, HttpResponseStatus.FORBIDDEN, "Invalid root key")
+            return
+        }
+
+        val stat = fileManager.stat(rootUri, relativePath)
+        if (stat == null) {
+            sendError(ctx, request, HttpResponseStatus.NOT_FOUND, "File not found")
+            return
+        }
+        sendJsonResponse(ctx, request, HttpResponseStatus.OK,
+            """{"size":${stat.size},"mtime":${stat.mtime},"is_directory":${stat.isDirectory},"is_file":${stat.isFile}}""")
+    }
+
+    /**
+     * List directory contents.
+     * GET /ops/list?path=...&root_key=...
+     */
+    private fun handleOpsList(ctx: ChannelHandlerContext, request: FullHttpRequest) {
+        if (getExtensionHeaders(request) == null && !isStandaloneAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing extension headers")
+            return
+        }
+        if (!validateAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.UNAUTHORIZED, "Invalid token")
+            return
+        }
+
+        val query = QueryStringDecoder(request.uri())
+        val rootKey = query.parameters()["root_key"]?.firstOrNull()
+        val relativePath = query.parameters()["path"]?.firstOrNull()
+
+        if (rootKey == null || relativePath == null) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing root_key or path parameter")
+            return
+        }
+
+        if (relativePath.contains("..")) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid path")
+            return
+        }
+
+        val rootUri = deps.rootStore.resolveKey(rootKey)
+        if (rootUri == null) {
+            sendError(ctx, request, HttpResponseStatus.FORBIDDEN, "Invalid root key")
+            return
+        }
+
+        val entries = fileManager.readdir(rootUri, relativePath)
+        val jsonArray = entries.joinToString(",") { "\"${it.replace("\"", "\\\"")}\"" }
+        sendJsonResponse(ctx, request, HttpResponseStatus.OK, "[$jsonArray]")
+    }
+
+    /**
+     * Create a directory.
+     * POST /files/ensure_dir
+     * Body: {"path": "...", "root_key": "..."}
+     */
+    private fun handleEnsureDir(ctx: ChannelHandlerContext, request: FullHttpRequest) {
+        if (getExtensionHeaders(request) == null && !isStandaloneAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing extension headers")
+            return
+        }
+        if (!validateAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.UNAUTHORIZED, "Invalid token")
+            return
+        }
+
+        val body = request.content().toString(Charsets.UTF_8)
+        val json = try {
+            org.json.JSONObject(body)
+        } catch (e: Exception) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid JSON body")
+            return
+        }
+
+        val rootKey = if (json.has("root_key")) json.getString("root_key") else null
+        val relativePath = if (json.has("path")) json.getString("path") else null
+
+        if (rootKey == null || relativePath == null) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing root_key or path")
+            return
+        }
+
+        if (relativePath.contains("..")) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid path")
+            return
+        }
+
+        val rootUri = deps.rootStore.resolveKey(rootKey)
+        if (rootUri == null) {
+            sendError(ctx, request, HttpResponseStatus.FORBIDDEN, "Invalid root key")
+            return
+        }
+
+        val created = fileManager.mkdir(rootUri, relativePath)
+        if (!created) {
+            sendError(ctx, request, HttpResponseStatus.INTERNAL_SERVER_ERROR, "Failed to create directory")
+            return
+        }
+        sendJsonResponse(ctx, request, HttpResponseStatus.OK, """{"ok":true}""")
     }
 
     private fun handleWrite(ctx: ChannelHandlerContext, request: FullHttpRequest, path: String) {

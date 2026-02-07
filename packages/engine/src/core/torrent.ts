@@ -676,6 +676,13 @@ export class Torrent extends EngineComponent {
     // Idempotent - already active
     if (this._networkActive) return
 
+    // Recheck in progress — the caller that initiated the check will activate
+    // networking when it completes. Without this guard, the queue manager's
+    // periodic re-evaluation sees !isActive and calls start() again, which
+    // skips the (already-cleared) _needsDataCheck and sets _networkActive=true
+    // while pieces are still being hashed.
+    if (this._isChecking) return
+
     if (this.btEngine.isSuspended) {
       this.logger.debug('Engine suspended, not starting')
       return
