@@ -1,5 +1,11 @@
 use serde::Serialize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager,
+};
+use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::OnceCell;
 
@@ -12,6 +18,8 @@ pub struct DaemonInfo {
 
 struct DaemonState {
     info: OnceCell<DaemonInfo>,
+    #[allow(dead_code)]
+    sidecar: Mutex<Option<CommandChild>>,
 }
 
 #[tauri::command]
@@ -29,14 +37,62 @@ pub fn run() {
     let install_id = uuid::Uuid::new_v4().to_string();
     let daemon_state = Arc::new(DaemonState {
         info: OnceCell::new(),
+        sidecar: Mutex::new(None),
     });
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .manage(daemon_state.clone())
         .invoke_handler(tauri::generate_handler![get_daemon_info])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+            }
+        })
         .setup(move |app| {
+            // System tray
+            let show_i = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+
+            TrayIconBuilder::with_id("tray")
+                .tooltip("JSTorrent")
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            // Spawn io-daemon sidecar
             let shell = app.shell();
             let sidecar = shell
                 .sidecar("binaries/jstorrent-io-daemon")
@@ -55,7 +111,8 @@ pub fn run() {
             let state = daemon_state.clone();
             let token_clone = token.clone();
 
-            let (mut rx, _child) = sidecar.spawn().expect("failed to spawn io-daemon sidecar");
+            let (mut rx, child) = sidecar.spawn().expect("failed to spawn io-daemon sidecar");
+            *daemon_state.sidecar.lock().unwrap() = Some(child);
 
             // Read stdout in background to capture the port
             tauri::async_runtime::spawn(async move {
@@ -96,6 +153,16 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    // Keep app alive when all windows are hidden (user closes window -> hide, not exit).
+    // Explicit quit via tray menu calls app.exit(0), which sets code = Some(0).
+    app.run(|_app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+            if code.is_none() {
+                api.prevent_exit();
+            }
+        }
+    });
 }

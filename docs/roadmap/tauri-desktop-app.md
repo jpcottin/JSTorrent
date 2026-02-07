@@ -58,9 +58,9 @@ The Tauri webview **is** a JavaScript runtime (WebKit on Mac, WebView2 on Window
 
 The webview gives us V8/JSC for free.
 
-### I/O Bridge: invoke() vs Sidecar
+### I/O Bridge: Sidecar
 
-**Open question — needs investigation.** Two approaches for how the engine talks to Rust I/O:
+**Decision: Option A (sidecar).** The engine talks to io-daemon via the existing daemon bridge adapter (WebSocket/HTTP to localhost). This is simpler than the extension path — no native host middleman, since io-daemon already has a `/control` HTTP interface.
 
 #### Option A: Sidecar (reuse existing HTTP/WS transport)
 
@@ -103,9 +103,27 @@ class TauriSocketFactory implements ISocketFactory {
 - Requires extracting io-daemon I/O into a shared library crate
 - More upfront work, additional adapter to maintain
 
-#### Recommendation
+Option B remains a possible future optimization if profiling shows the localhost hop matters for throughput.
 
-Start with Option A (sidecar) for fastest MVP. Investigate Option B as a follow-up optimization — profile whether the localhost hop matters for throughput.
+---
+
+### Window Lifecycle & Background Downloads
+
+**Decision: Engine lives in the main (only) window (Option A).** The engine and UI share the same webview JS context — same as the Chrome extension. When the user closes the window, we hide it instead of destroying it, preserving all JS state (engine, WebSocket connections, timers).
+
+Alternative considered: a dedicated hidden "engine" webview with a separate "UI" webview communicating via Tauri events. Rejected — adds IPC complexity for no real benefit. If the UI webview ever needs to be recreated (crash recovery), session persistence handles restoring engine state.
+
+**Key mechanisms:**
+
+1. **Hide on close** — Intercept `WindowEvent::CloseRequested`, call `window.hide()` + `api.prevent_close()`. The webview stays alive.
+
+2. **Prevent app exit** — Switch from `Builder::run()` to `Builder::build()` + `app.run()` with an `ExitRequested` handler that calls `api.prevent_exit()` when `code.is_none()` (triggered by last window hiding, not explicit quit).
+
+3. **System tray** — Required so users can re-show the window and actually quit. Tray menu: Show / Quit (where Quit calls `app.exit(0)`). Left-click on tray icon shows the window.
+
+4. **Background throttling** — macOS aggressively throttles hidden webviews. Set `"backgroundThrottling": "disabled"` in `tauri.conf.json` window config. This is macOS 14+ only; Linux and Windows don't aggressively throttle, so they're fine without it.
+
+5. **Sidecar lifecycle** — Hold onto the `CommandChild` handle from sidecar spawn. This enables future idle shutdown (kill io-daemon when no active torrents, restart on demand).
 
 ---
 
@@ -185,12 +203,14 @@ This is a pragmatic reason to prioritize the Tauri app for Windows specifically.
 
 ## Open Questions
 
-- **invoke() vs sidecar?** Profile io-daemon sidecar throughput to decide if in-process IPC is worth the refactor. See discussion above.
+- ~~**invoke() vs sidecar?**~~ **Decided: sidecar.** See I/O Bridge section above.
+- ~~**WebView lifecycle?**~~ **Decided: hide on close, single webview (engine + UI together).** See Window Lifecycle section above.
 - **Universal binary (macOS)?** Ship fat binary or separate arm64/x86_64?
 - **Auto-update UX?** Prompt on tray click, or background download + restart?
 - **WebView API parity?** Does the webview have all APIs the engine uses? (Likely yes, but verify)
 - **Magnet handling?** Tauri can register URL protocols. Needs wiring.
 - **webkit2gtk on Linux?** Runtime dependency — not always present on minimal distros.
+- **Sidecar idle shutdown?** Kill io-daemon when no active torrents to save resources? Restart on demand via stored `CommandChild` handle. Nice-to-have.
 
 ---
 

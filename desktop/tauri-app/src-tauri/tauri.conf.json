@@ -14,7 +14,8 @@
       {
         "title": "JSTorrent",
         "width": 1024,
-        "height": 700
+        "height": 700,
+        "backgroundThrottling": "disabled"
       }
     ],
     "security": {

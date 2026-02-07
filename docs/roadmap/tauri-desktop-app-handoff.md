@@ -99,13 +99,54 @@ desktop/tauri-app/
 - Switch from `MemorySessionStore` to `LocalStorageSessionStore` (webview has `localStorage`)
 - Or implement a file-based session store using Tauri's `plugin-fs`
 
-### 5. Tray Icon
+### 5. Tray Icon + Hide-on-Close
 
-**Goal:** Minimize to tray, show download status.
+**Goal:** Keep engine running when user closes the window. Minimize to tray, show download status.
 
-- Tauri has built-in tray support via `tao`
-- Add tray icon with context menu (show/hide, quit)
-- Show active download count or speed in tooltip
+This is critical for background downloads — without it, closing the window kills the engine.
+
+**Implementation:**
+
+1. **Intercept close** — Add `on_window_event` handler in `lib.rs`:
+   ```rust
+   .on_window_event(|window, event| {
+       if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+           window.hide().unwrap();
+           api.prevent_close();
+       }
+   })
+   ```
+
+2. **Prevent app exit** — Switch from `Builder::run()` to `Builder::build()` + `app.run()`:
+   ```rust
+   let app = tauri::Builder::default()
+       // ... existing setup ...
+       .build(tauri::generate_context!())
+       .expect("error while building tauri application");
+
+   app.run(|_app_handle, event| {
+       if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+           if code.is_none() {
+               api.prevent_exit();
+           }
+       }
+   });
+   ```
+
+3. **System tray** — `TrayIconBuilder` with menu (Show / Quit). Left-click shows window. Quit calls `app.exit(0)`.
+
+4. **Background throttling** — Add to window config in `tauri.conf.json`:
+   ```json
+   "backgroundThrottling": "disabled"
+   ```
+   macOS 14+ only. Prevents Safari/WebKit from suspending JS timers in hidden webviews. Linux/Windows don't need this.
+
+5. **Hold sidecar handle** — Currently `_child` is discarded on line 58 of `lib.rs`. Store the `CommandChild` in `DaemonState` for future lifecycle management (idle shutdown/restart).
+
+**Known caveats:**
+- macOS: Don't set `visible: false` at startup — can cause webview to stop working after ~7s. Create visible, then hide if needed.
+- Windows: Ensure recent `tray-icon` crate (v0.21.2+) to avoid crash after ~50 min hidden.
+- `tauri_plugin_window_state` can conflict with `prevent_exit()` — avoid or test carefully.
 
 ### 6. Deep Links (Magnet)
 
@@ -148,6 +189,8 @@ desktop/tauri-app/
 | React version | 18 | Matches extension UI |
 | Sidecar binary placement | Separate for dev vs build | Tauri resolves relative to exe at runtime |
 | State management | Tauri managed state | Clean, type-safe, accessible from commands |
+| Engine placement | Single webview (engine + UI together) | Same as extension; hide-on-close preserves state |
+| Window close behavior | Hide, don't destroy | Preserves engine JS state for background downloads |
 
 ## Reference Repos
 - `~/code/tauri` — Tauri framework source + examples
