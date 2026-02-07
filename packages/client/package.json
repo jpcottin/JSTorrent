@@ -18,7 +18,9 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@jstorrent/engine": "workspace:*",
@@ -31,6 +33,8 @@
     "@types/chrome": "^0.1.31",
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.37",
-    "typescript": "^5.2.2"
+    "happy-dom": "^20.0.0",
+    "typescript": "^5.2.2",
+    "vitest": "^1.0.0"
   }
 }

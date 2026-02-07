@@ -19,6 +19,7 @@ export default tseslint.config(
       'android/**/build/**',
       'android/**/src/main/assets/*.js',
       'android/**/quickjs-ng/**',
+      'desktop/target/**',
     ],
   },
   {

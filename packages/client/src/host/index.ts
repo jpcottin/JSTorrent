@@ -1,4 +1,5 @@
 export type { HostChannel } from './host-channel'
+export { ChromeExtensionChannel } from './chrome-extension-channel'
 export type {
   HostState,
   HostCapabilities,
