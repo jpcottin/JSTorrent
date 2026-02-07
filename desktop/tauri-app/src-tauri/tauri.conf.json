@@ -26,6 +26,7 @@
     "active": true,
     "targets": "all",
     "externalBin": [
+      "binaries/jstorrent-host",
       "binaries/jstorrent-io-daemon"
     ],
     "icon": [
