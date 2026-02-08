@@ -2,6 +2,17 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.8]
+
+- Add single-instance plugin for Windows/Linux deep link forwarding
+- Add Linux ARM64 builds to CI matrix
+- Add openExternalUrl utility using Tauri opener plugin
+- Fix io-daemon resolution to search with target triple suffix (NSIS layout)
+- Fix sysinfo startup: use refresh_processes() instead of slow new_all()
+- Convert unwrap() to proper error propagation in RPC server and KV store init
+- Use app_local_data_dir for Windows native host manifest (matches NSIS cleanup)
+- Hide extension-only settings in Tauri standalone mode
+
 ## [0.1.7]
 
 - Fix CI build on Linux/Windows: gate macOS-only `RunEvent::Reopen` with `#[cfg(target_os = "macos")]`
