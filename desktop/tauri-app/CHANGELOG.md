@@ -2,6 +2,12 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.9]
+
+- Accept raw file paths (not just file:// URLs) for .torrent file association on Windows
+- Downgrade periodic tick/maintenance/backpressure/upload stats from info to debug log level
+- Fix CI release flow: make Tauri release draft until finalize-release job publishes
+
 ## [0.1.8]
 
 - Add single-instance plugin for Windows/Linux deep link forwarding
