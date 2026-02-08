@@ -140,24 +140,28 @@ impl DaemonManager {
             }
         }
 
-        // Default: same directory as host (Linux, Windows, or non-bundle macOS dev builds)
-        let daemon_path = exe_dir.join(Self::daemon_binary_name());
-        if daemon_path.exists() {
-            return Ok(daemon_path);
+        let ext = if cfg!(windows) { ".exe" } else { "" };
+        let triple = env!("TARGET_TRIPLE");
+
+        // Search candidates: with target triple (Tauri NSIS installs), then without
+        let candidates = [
+            exe_dir.join(format!("jstorrent-io-daemon-{triple}{ext}")),
+            exe_dir.join(format!("jstorrent-io-daemon{ext}")),
+        ];
+
+        for candidate in &candidates {
+            if candidate.exists() {
+                return Ok(candidate.clone());
+            }
         }
 
-        anyhow::bail!("io-daemon not found at {}", daemon_path.display())
-    }
-
-    /// Get the platform-specific binary name for io-daemon.
-    fn daemon_binary_name() -> &'static str {
-        #[cfg(target_os = "windows")]
-        {
-            "jstorrent-io-daemon.exe"
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            "jstorrent-io-daemon"
-        }
+        anyhow::bail!(
+            "io-daemon not found. Searched:\n{}",
+            candidates
+                .iter()
+                .map(|c| format!("  {}", c.display()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
     }
 }

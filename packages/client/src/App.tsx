@@ -13,6 +13,7 @@ import { useIOBridgeState, ConnectionStatus } from './hooks/useIOBridgeState'
 import { useSystemBridge } from './hooks/useSystemBridge'
 import { SystemIndicator } from './components/SystemIndicator'
 import { SystemBridgePanel } from './components/SystemBridgePanel'
+import { openExternalUrl } from './utils/external-links'
 import { SystemBridgePanelChromeos } from './components/SystemBridgePanelChromeos'
 import { SettingsOverlay } from './components/SettingsOverlay'
 import { useChromeOSBootstrap } from './hooks/useChromeOSBootstrap'
@@ -355,7 +356,7 @@ function App() {
               )}
             </span>
             <button
-              onClick={() => window.open(systemBridge.getBugReportUrl(), '_blank')}
+              onClick={() => openExternalUrl(systemBridge.getBugReportUrl())}
               style={{
                 background: 'var(--button-bg)',
                 border: '1px solid var(--border-color)',

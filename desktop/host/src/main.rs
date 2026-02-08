@@ -30,11 +30,11 @@ async fn main() -> Result<()> {
 
     // Initialize KV store
     let kv = {
-        let config_dir =
-            jstorrent_common::get_config_dir().expect("Could not determine config directory");
+        let config_dir = jstorrent_common::get_config_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
         let db_path = config_dir.join("jstorrent-native").join("data.db");
         log!("Opening KV store at {:?}", db_path);
-        kv_store::KvStore::open(&db_path).expect("Failed to open KV store")
+        kv_store::KvStore::open(&db_path)?
     };
 
     // Initialize state with event sender and KV store
@@ -50,11 +50,12 @@ async fn main() -> Result<()> {
     // Start RPC server (Legacy? Or still needed for link-handler?)
     // The design doc says link-handler talks to native-host via "minimal RPC".
     // So we keep rpc.rs.
-    let (port, token) = rpc::start_server(state.clone()).await;
+    let (port, token) = rpc::start_server(state.clone()).await?;
 
-    // Initialize system info to find parent process (the browser)
-    let mut system = sysinfo::System::new_all();
-    system.refresh_all();
+    // Only refresh process info — new_all()/refresh_all() is very slow on Windows
+    // (enumerates disks, CPUs, memory, network) and can cause native messaging timeouts.
+    let mut system = sysinfo::System::new();
+    system.refresh_processes();
 
     let mut current_pid = sysinfo::Pid::from(std::process::id() as usize);
     let mut browser_binary = String::new();

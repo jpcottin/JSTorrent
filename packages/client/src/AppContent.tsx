@@ -8,6 +8,7 @@
 import React from 'react'
 import { useState, useRef, useMemo, useCallback } from 'react'
 import { Torrent, generateMagnet } from '@jstorrent/engine'
+import { openExternalUrl } from './utils/external-links'
 import {
   TorrentTable,
   DetailPane,
@@ -259,7 +260,7 @@ export function AppContent({
         name: t.name,
         announce: t.announce,
       })
-    window.open(`${shareUrl}#magnet=${encodeURIComponent(magnet)}`, '_blank')
+    openExternalUrl(`${shareUrl}#magnet=${encodeURIComponent(magnet)}`)
   }
 
   // --- Menu items ---

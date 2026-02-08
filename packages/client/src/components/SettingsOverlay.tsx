@@ -551,62 +551,43 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
       <Section title="Notifications">
         <ToggleRow
           label="Notify when torrent completes"
-          sublabel={
-            isStandalone
-              ? 'Not available in standalone mode'
-              : 'Show notification when a single download finishes'
-          }
+          sublabel="Show notification when a single download finishes"
           checked={settings.notifyOnTorrentComplete}
           onChange={(v) => config.set('notifyOnTorrentComplete', v)}
-          disabled={isStandalone}
         />
         <ToggleRow
           label="Notify on errors"
-          sublabel={
-            isStandalone
-              ? 'Not available in standalone mode'
-              : 'Show notification when a download fails'
-          }
+          sublabel="Show notification when a download fails"
           checked={settings.notifyOnError}
           onChange={(v) => config.set('notifyOnError', v)}
-          disabled={isStandalone}
         />
-        <ToggleRow
-          label="Show progress in background tab"
-          sublabel={
-            isStandalone
-              ? 'Not available in standalone mode'
-              : 'Persistent notification when you switch to another tab'
-          }
-          checked={settings.notifyProgressWhenBackgrounded}
-          onChange={(v) => config.set('notifyProgressWhenBackgrounded', v)}
-          disabled={isStandalone}
-        />
+        {!isStandalone && (
+          <ToggleRow
+            label="Show progress in background tab"
+            sublabel="Persistent notification when you switch to another tab"
+            checked={settings.notifyProgressWhenBackgrounded}
+            onChange={(v) => config.set('notifyProgressWhenBackgrounded', v)}
+          />
+        )}
       </Section>
 
       <Section title="Behavior">
-        <ToggleRow
-          label="Keep system awake while downloading"
-          sublabel={
-            isStandalone
-              ? 'Not available in standalone mode'
-              : 'Prevents sleep during active downloads (requires permission)'
-          }
-          checked={settings.keepAwake}
-          onChange={handleKeepAwakeChange}
-          disabled={isStandalone}
-        />
-        <ToggleRow
-          label="Prevent background throttling"
-          sublabel={
-            isStandalone
-              ? 'Not available in standalone mode'
-              : 'Keeps downloads running at full speed when tab is in background'
-          }
-          checked={settings.preventBackgroundThrottling}
-          onChange={(v) => config.set('preventBackgroundThrottling', v)}
-          disabled={isStandalone}
-        />
+        {!isStandalone && (
+          <ToggleRow
+            label="Keep system awake while downloading"
+            sublabel="Prevents sleep during active downloads (requires permission)"
+            checked={settings.keepAwake}
+            onChange={handleKeepAwakeChange}
+          />
+        )}
+        {!isStandalone && (
+          <ToggleRow
+            label="Prevent background throttling"
+            sublabel="Keeps downloads running at full speed when tab is in background"
+            checked={settings.preventBackgroundThrottling}
+            onChange={(v) => config.set('preventBackgroundThrottling', v)}
+          />
+        )}
       </Section>
     </div>
   )

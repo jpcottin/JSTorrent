@@ -141,6 +141,15 @@ fn torrent_file_event(file_url: &str) -> Option<serde_json::Value> {
     }))
 }
 
+/// Show, unminimize, and focus the main window.
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 /// Resolve sidecar binary path following Tauri's naming convention.
 /// Checks multiple locations to handle different installer layouts:
 /// - With/without `binaries/` subdirectory
@@ -373,6 +382,16 @@ fn show_notification(app: tauri::AppHandle, title: String, body: String) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // Second instance launched (e.g., magnet link clicked on Windows/Linux).
+            // Forward any deep link URLs to the running instance.
+            for arg in &args {
+                if let Some(event) = deep_link_event(arg) {
+                    let _ = app.emit("host-event", &event);
+                }
+            }
+            show_main_window(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
@@ -416,18 +435,10 @@ pub fn run() {
                 .show_menu_on_left_click(cfg!(target_os = "macos"))
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
-                        }
+                        show_main_window(app);
                     }
                     "check-updates" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
-                        }
+                        show_main_window(app);
                         let _ = app.emit("check-for-updates", ());
                     }
                     "quit" => {
@@ -445,12 +456,7 @@ pub fn run() {
                             ..
                         } = event
                         {
-                            let app = tray.app_handle();
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.unminimize();
-                                let _ = window.set_focus();
-                            }
+                            show_main_window(tray.app_handle());
                         }
                     }
                 })
@@ -476,9 +482,10 @@ pub fn run() {
 
             app.manage(deep_link_state);
 
-            // Handle deep links received while the app is already running (macOS).
-            // On Windows/Linux, a new process is spawned instead — handled via get_current() above
-            // combined with single-instance plugin (future enhancement).
+            // Handle deep links received while the app is already running.
+            // On macOS, the OS routes URLs to the running process via this handler.
+            // On Windows/Linux, the single-instance plugin (registered above) forwards
+            // the second instance's args to this instance and exits the duplicate.
             let deep_link_handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 for url in event.urls() {
@@ -486,12 +493,7 @@ pub fn run() {
                         let _ = deep_link_handle.emit("host-event", &evt);
                     }
                 }
-                // Show the main window when a deep link arrives
-                if let Some(window) = deep_link_handle.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
-                }
+                show_main_window(&deep_link_handle);
             });
 
             // Register URL scheme handlers at runtime (Windows/Linux only).
@@ -555,11 +557,7 @@ pub fn run() {
         }
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Reopen { .. } => {
-            if let Some(window) = app_handle.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            show_main_window(app_handle);
         }
         _ => {}
     });

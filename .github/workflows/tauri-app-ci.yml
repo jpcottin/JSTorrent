@@ -34,6 +34,9 @@ jobs:
           - platform: ubuntu-22.04
             args: ''
             rust_target: ''
+          - platform: ubuntu-22.04-arm
+            args: ''
+            rust_target: ''
           - platform: windows-latest
             args: ''
             rust_target: ''
@@ -70,7 +73,7 @@ jobs:
 
       # --- Linux system dependencies ---
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
@@ -255,9 +258,12 @@ jobs:
             echo "| macOS (Intel) | [JSTorrent_${VERSION}_x64.dmg](${BASE}/JSTorrent_${VERSION}_x64.dmg) |"
             echo "| Windows (installer) | [JSTorrent_${VERSION}_x64-setup.exe](${BASE}/JSTorrent_${VERSION}_x64-setup.exe) |"
             echo "| Windows (MSI) | [JSTorrent_${VERSION}_x64_en-US.msi](${BASE}/JSTorrent_${VERSION}_x64_en-US.msi) |"
-            echo "| Linux (Debian/Ubuntu) | [JSTorrent_${VERSION}_amd64.deb](${BASE}/JSTorrent_${VERSION}_amd64.deb) |"
-            echo "| Linux (AppImage) | [JSTorrent_${VERSION}_amd64.AppImage](${BASE}/JSTorrent_${VERSION}_amd64.AppImage) |"
-            echo "| Linux (RPM) | [JSTorrent-${VERSION}-1.x86_64.rpm](${BASE}/JSTorrent-${VERSION}-1.x86_64.rpm) |"
+            echo "| Linux x86_64 (Debian/Ubuntu) | [JSTorrent_${VERSION}_amd64.deb](${BASE}/JSTorrent_${VERSION}_amd64.deb) |"
+            echo "| Linux x86_64 (AppImage) | [JSTorrent_${VERSION}_amd64.AppImage](${BASE}/JSTorrent_${VERSION}_amd64.AppImage) |"
+            echo "| Linux x86_64 (RPM) | [JSTorrent-${VERSION}-1.x86_64.rpm](${BASE}/JSTorrent-${VERSION}-1.x86_64.rpm) |"
+            echo "| Linux ARM64 (Debian/Ubuntu) | [JSTorrent_${VERSION}_arm64.deb](${BASE}/JSTorrent_${VERSION}_arm64.deb) |"
+            echo "| Linux ARM64 (AppImage) | [JSTorrent_${VERSION}_aarch64.AppImage](${BASE}/JSTorrent_${VERSION}_aarch64.AppImage) |"
+            echo "| Linux ARM64 (RPM) | [JSTorrent-${VERSION}-1.aarch64.rpm](${BASE}/JSTorrent-${VERSION}-1.aarch64.rpm) |"
             if [ -n "$CHANGELOG" ]; then
               echo ""
               echo "## Changes"

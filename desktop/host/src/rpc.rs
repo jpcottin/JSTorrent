@@ -56,7 +56,7 @@ pub struct StatusResponse {
     message: String,
 }
 
-pub async fn start_server(state: Arc<AppState>) -> (u16, String) {
+pub async fn start_server(state: Arc<AppState>) -> anyhow::Result<(u16, String)> {
     let token = Uuid::new_v4().to_string();
     let token_clone = token.clone();
 
@@ -66,14 +66,16 @@ pub async fn start_server(state: Arc<AppState>) -> (u16, String) {
         .route("/add-torrent", post(add_torrent_handler))
         .with_state((state, token_clone));
 
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
 
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        if let Err(e) = axum::serve(listener, app).await {
+            crate::log!("RPC server error: {e}");
+        }
     });
 
-    (port, token)
+    Ok((port, token))
 }
 
 async fn health_handler(

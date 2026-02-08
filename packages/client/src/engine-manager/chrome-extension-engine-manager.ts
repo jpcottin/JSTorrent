@@ -87,7 +87,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
   configHub: ConfigHub | null = null
   daemonConnection: DaemonConnection | null = null
   logStore: LogStore = globalLogStore
-  readonly isStandalone = false
+  readonly isStandalone = isTauriContext()
   readonly supportsFileOperations = true
 
   private channel: HostChannel
