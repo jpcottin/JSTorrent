@@ -84,28 +84,35 @@ function useGitHubReleases(): {
           })
         }
 
-        const latestTauri = releases.find(
-          (r) => r.tag_name.startsWith('tauri-app-v') && !r.prerelease,
-        )
+        const latestTauri = releases.find((r) => {
+          if (!r.tag_name.startsWith('tauri-app-v') || r.prerelease) return false
+          const a = r.assets
+          // Only show releases where all major platform builds are complete
+          return (
+            a.some((x) => x.name.endsWith('-setup.exe')) &&
+            a.some((x) => x.name.includes('aarch64') && x.name.endsWith('.dmg')) &&
+            a.some((x) => x.name.endsWith('.deb')) &&
+            a.some((x) => x.name.endsWith('.AppImage'))
+          )
+        })
         if (latestTauri) {
           const tag = latestTauri.tag_name.replace('tauri-app-', '')
-          const info = makeTauriReleaseInfo(tag)
-          const windowsExe = latestTauri.assets.find((a) => a.name.endsWith('-setup.exe'))
+          const windowsExe = latestTauri.assets.find((a) => a.name.endsWith('-setup.exe'))!
           const macosArm = latestTauri.assets.find(
             (a) => a.name.includes('aarch64') && a.name.endsWith('.dmg'),
-          )
+          )!
           const macosIntel = latestTauri.assets.find(
             (a) => a.name.includes('x64') && a.name.endsWith('.dmg'),
-          )
-          const linuxDeb = latestTauri.assets.find((a) => a.name.endsWith('.deb'))
-          const linuxAppImage = latestTauri.assets.find((a) => a.name.endsWith('.AppImage'))
+          )!
+          const linuxDeb = latestTauri.assets.find((a) => a.name.endsWith('.deb'))!
+          const linuxAppImage = latestTauri.assets.find((a) => a.name.endsWith('.AppImage'))!
           setTauri({
             tag,
-            windowsUrl: windowsExe?.browser_download_url ?? info.windowsUrl,
-            macosArmUrl: macosArm?.browser_download_url ?? info.macosArmUrl,
-            macosIntelUrl: macosIntel?.browser_download_url ?? info.macosIntelUrl,
-            linuxDebUrl: linuxDeb?.browser_download_url ?? info.linuxDebUrl,
-            linuxAppImageUrl: linuxAppImage?.browser_download_url ?? info.linuxAppImageUrl,
+            windowsUrl: windowsExe.browser_download_url,
+            macosArmUrl: macosArm.browser_download_url,
+            macosIntelUrl: macosIntel.browser_download_url,
+            linuxDebUrl: linuxDeb.browser_download_url,
+            linuxAppImageUrl: linuxAppImage.browser_download_url,
           })
         }
       })
