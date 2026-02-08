@@ -188,12 +188,12 @@ jobs:
         with:
           projectPath: desktop/tauri-app
           tauriScript: pnpm tauri
-          tagName: tauri-app-v__VERSION__
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && 'tauri-app-v__VERSION__' || '' }}
           releaseName: 'JSTorrent Desktop v__VERSION__'
           releaseBody: ${{ steps.changelog.outputs.notes || 'See the assets to download and install this version.' }}
           releaseDraft: false
           prerelease: true
-          includeUpdaterJson: true
+          includeUpdaterJson: ${{ startsWith(github.ref, 'refs/tags/') }}
           updaterJsonKeepUniversal: true
           args: >-
             ${{ matrix.args }}
