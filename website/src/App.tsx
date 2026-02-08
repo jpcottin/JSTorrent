@@ -25,6 +25,8 @@ interface TauriReleaseInfo {
   macosIntelUrl: string
   linuxDebUrl: string
   linuxAppImageUrl: string
+  linuxArm64DebUrl: string
+  linuxArm64AppImageUrl: string
 }
 
 function makeBridgeReleaseInfo(tag: string): BridgeReleaseInfo {
@@ -44,6 +46,8 @@ function makeTauriReleaseInfo(tag: string): TauriReleaseInfo {
     macosIntelUrl: `https://github.com/kzahel/jstorrent/releases/download/tauri-app-${tag}/JSTorrent_${version}_x64.dmg`,
     linuxDebUrl: `https://github.com/kzahel/jstorrent/releases/download/tauri-app-${tag}/JSTorrent_${version}_amd64.deb`,
     linuxAppImageUrl: `https://github.com/kzahel/jstorrent/releases/download/tauri-app-${tag}/JSTorrent_${version}_amd64.AppImage`,
+    linuxArm64DebUrl: `https://github.com/kzahel/jstorrent/releases/download/tauri-app-${tag}/JSTorrent_${version}_arm64.deb`,
+    linuxArm64AppImageUrl: `https://github.com/kzahel/jstorrent/releases/download/tauri-app-${tag}/JSTorrent_${version}_aarch64.AppImage`,
   }
 }
 
@@ -104,8 +108,19 @@ function useGitHubReleases(): {
           const macosIntel = latestTauri.assets.find(
             (a) => a.name.includes('x64') && a.name.endsWith('.dmg'),
           )!
-          const linuxDeb = latestTauri.assets.find((a) => a.name.endsWith('.deb'))!
-          const linuxAppImage = latestTauri.assets.find((a) => a.name.endsWith('.AppImage'))!
+          const linuxDeb = latestTauri.assets.find(
+            (a) => a.name.endsWith('.deb') && a.name.includes('amd64'),
+          )!
+          const linuxAppImage = latestTauri.assets.find(
+            (a) => a.name.endsWith('.AppImage') && a.name.includes('amd64'),
+          )!
+          const linuxArm64Deb = latestTauri.assets.find(
+            (a) => a.name.endsWith('.deb') && a.name.includes('arm64'),
+          )
+          const linuxArm64AppImage = latestTauri.assets.find(
+            (a) => a.name.endsWith('.AppImage') && a.name.includes('aarch64'),
+          )
+          const info = makeTauriReleaseInfo(tag)
           setTauri({
             tag,
             windowsUrl: windowsExe.browser_download_url,
@@ -113,6 +128,9 @@ function useGitHubReleases(): {
             macosIntelUrl: macosIntel.browser_download_url,
             linuxDebUrl: linuxDeb.browser_download_url,
             linuxAppImageUrl: linuxAppImage.browser_download_url,
+            linuxArm64DebUrl: linuxArm64Deb?.browser_download_url ?? info.linuxArm64DebUrl,
+            linuxArm64AppImageUrl:
+              linuxArm64AppImage?.browser_download_url ?? info.linuxArm64AppImageUrl,
           })
         }
       })
@@ -272,10 +290,16 @@ function App() {
           {selectedPlatform === 'linux' && (
             <div className="btn-group">
               <a href={tauri.linuxDebUrl} className="btn btn-primary">
-                Download .deb ({tauri.tag})
+                Download .deb — x86_64 ({tauri.tag})
               </a>
               <a href={tauri.linuxAppImageUrl} className="btn btn-secondary">
-                AppImage
+                AppImage — x86_64
+              </a>
+              <a href={tauri.linuxArm64DebUrl} className="btn btn-secondary">
+                .deb — ARM64
+              </a>
+              <a href={tauri.linuxArm64AppImageUrl} className="btn btn-secondary">
+                AppImage — ARM64
               </a>
             </div>
           )}
