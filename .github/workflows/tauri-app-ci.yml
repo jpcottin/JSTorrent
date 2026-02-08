@@ -196,6 +196,18 @@ jobs:
             ${{ matrix.args }}
             ${{ matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_SECRET != '' && '--config ''{"bundle":{"windows":{"signCommand":"trusted-signing-cli -e https://eus.codesigning.azure.net -a kylegraehl -c jstorrent-profile %1"}}}''' || '' }}
 
+      # --- Diagnose flaky DMG bundling ---
+      - name: Check for flaky DMG bundling failure
+        if: failure() && matrix.platform == 'macos-latest'
+        run: |
+          # The macOS hdiutil/bundle_dmg.sh step is known to fail intermittently
+          # on GitHub Actions runners due to resource contention.
+          # See: https://github.com/actions/runner-images/issues/7522
+          echo ""
+          echo "::error::macOS DMG bundling failed. This is likely the known flaky hdiutil issue on GitHub Actions runners (not a code problem). Re-run this job: gh run rerun ${{ github.run_id }} --failed"
+          echo ""
+          echo "If this keeps failing, consider using '--bundles app,updater' to skip DMG creation for this target."
+
       # --- Cleanup ---
       - name: Clean up macOS keychain
         if: matrix.platform == 'macos-latest' && always()
