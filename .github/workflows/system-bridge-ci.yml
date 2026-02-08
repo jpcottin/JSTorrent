@@ -30,6 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwayland-dev
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -62,16 +65,8 @@ jobs:
         if: env.HAS_WINDOWS_SIGNING == 'true'
         run: cargo install trusted-signing-cli
 
-      - name: Create sidecar stubs for Tauri build script
-        shell: bash
-        run: |
-          TRIPLE="$(rustc --print host-tuple)"
-          mkdir -p tauri-app/src-tauri/binaries
-          touch "tauri-app/src-tauri/binaries/jstorrent-host-$TRIPLE"
-          touch "tauri-app/src-tauri/binaries/jstorrent-io-daemon-$TRIPLE"
-
       - name: Build Release
-        run: cargo build --release --workspace
+        run: cargo build --release --workspace --exclude jstorrent-desktop
 
       - name: Sign binaries
         if: env.HAS_WINDOWS_SIGNING == 'true'
