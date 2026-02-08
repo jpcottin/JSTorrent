@@ -2,6 +2,10 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.10]
+
+- Fix CI release flow: use prerelease instead of draft so finalize job can edit it
+
 ## [0.1.9]
 
 - Accept raw file paths (not just file:// URLs) for .torrent file association on Windows
