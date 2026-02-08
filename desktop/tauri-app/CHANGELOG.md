@@ -2,6 +2,10 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.6]
+
+- Fix formatting / CI issue from v0.1.5 release
+
 ## [0.1.5]
 
 - Add shared SQLite KV store for desktop, route extension and Tauri KV through native host
