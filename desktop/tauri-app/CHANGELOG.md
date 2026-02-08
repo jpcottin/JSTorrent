@@ -2,6 +2,10 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.3]
+
+- Enable WebView devtools in release builds for all platforms (F12 / right-click Inspect)
+
 ## [0.1.2]
 
 - Fix macOS notarization so Gatekeeper no longer blocks the app
