@@ -76,7 +76,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev xdg-utils
 
       # --- macOS code signing ---
       - name: Set up macOS code signing keychain
@@ -191,7 +191,7 @@ jobs:
           tagName: tauri-app-v__VERSION__
           releaseName: 'JSTorrent Desktop v__VERSION__'
           releaseBody: ${{ steps.changelog.outputs.notes || 'See the assets to download and install this version.' }}
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
           updaterJsonKeepUniversal: true
@@ -272,4 +272,4 @@ jobs:
             fi
           } > /tmp/release-body.md
 
-          gh release edit "$TAG" --notes-file /tmp/release-body.md
+          gh release edit "$TAG" --notes-file /tmp/release-body.md --draft=false

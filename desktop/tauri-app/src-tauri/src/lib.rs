@@ -102,27 +102,29 @@ struct DeepLinkState {
     pending: Mutex<Vec<serde_json::Value>>,
 }
 
-/// Create a host-event JSON value from a deep link URL string.
-/// Returns None if the URL isn't a recognized deep link type.
+/// Create a host-event JSON value from a deep link URL string or file path.
+/// Returns None if the input isn't a recognized deep link type.
 fn deep_link_event(url_str: &str) -> Option<serde_json::Value> {
     if url_str.starts_with("magnet:") {
         Some(serde_json::json!({
             "event": "MagnetAdded",
             "payload": { "link": url_str }
         }))
-    } else if url_str.starts_with("file://") && url_str.to_lowercase().ends_with(".torrent") {
+    } else if url_str.to_lowercase().ends_with(".torrent") {
+        // Accept both file:// URLs and raw file paths (Windows passes raw paths
+        // via command-line args when opening associated .torrent files).
         torrent_file_event(url_str)
     } else {
         None
     }
 }
 
-/// Read a .torrent file from a file:// URL and create a `TorrentAdded` event.
+/// Read a .torrent file from a file:// URL or raw path and create a `TorrentAdded` event.
 fn torrent_file_event(file_url: &str) -> Option<serde_json::Value> {
     use base64::Engine;
 
-    // Parse file:// URL to a path. On Unix, file:///path → /path
-    let path_str = file_url.strip_prefix("file://")?;
+    // Accept both file:// URLs and raw file paths (Windows file associations).
+    let path_str = file_url.strip_prefix("file://").unwrap_or(file_url);
     let path = std::path::Path::new(path_str);
 
     let contents = std::fs::read(path).ok()?;

@@ -368,7 +368,7 @@ export class TorrentTickLoop extends EngineComponent {
       const avgPhaseUpload = (this._phaseUploadTotalMs / this._tickCount).toFixed(1)
       const avgPhase4 = (this._phase4TotalMs / this._tickCount).toFixed(1)
 
-      this.logger.info(
+      this.logger.debug(
         `Tick: ${this._tickCount} ticks, avg ${avgMs}ms (P1:${avgPhase1}/P3:${avgPhase3}/UP:${avgPhaseUpload}/P4:${avgPhase4}), ` +
           `max ${this._tickMaxMs}ms, ${activePieces} active, ${peersProcessed} peers | ` +
           `BUF:${avgBufferedKB}KB, BLOCKS:recv=${avgBlocksRecv}/sent=${avgReqSent}, ` +
@@ -380,7 +380,7 @@ export class TorrentTickLoop extends EngineComponent {
       const uploadStats = uploader.getAndResetStats()
       if (uploadStats.readsIssued > 0 || uploader.queueLength > 0) {
         const uploadKB = (uploadStats.bytesUploaded / 1024).toFixed(0)
-        this.logger.info(
+        this.logger.debug(
           `Upload: ${uploadStats.readsIssued} reads issued, ${uploadStats.readsCompleted} completed` +
             (uploadStats.readsFailed > 0 ? `, ${uploadStats.readsFailed} failed` : '') +
             `, ${uploadKB}KB sent, ${uploadStats.peersServed} peers served` +
@@ -741,7 +741,7 @@ export class TorrentTickLoop extends EngineComponent {
     const slotsToRequest = Math.min(slotsAvailable, candidateCount)
     this.callbacks.requestConnections(this.callbacks.getInfoHashStr(), slotsToRequest)
 
-    this.logger.info(
+    this.logger.debug(
       `Maintenance: swarm=${swarmSize}, connected=${connected}, connecting=${connecting}, ` +
         `requested ${slotsToRequest} slots (${candidateCount} candidates)`,
     )
@@ -833,7 +833,7 @@ export class TorrentTickLoop extends EngineComponent {
       const avgCoordMs = (this._maintCoordinatorMs / this._maintCount).toFixed(1)
       const avgApplyMs = (this._maintApplyMs / this._maintCount).toFixed(1)
 
-      this.logger.info(
+      this.logger.debug(
         `Maintenance: ${this._maintCount} runs, avg ${avgMs}ms (snapshot=${avgSnapshotMs}ms, ` +
           `coord=${avgCoordMs}ms, apply=${avgApplyMs}ms), max ${this._maintMaxMs}ms, ` +
           `swarm=${swarm.size}, peers=${this.callbacks.getNumPeers()}`,
@@ -895,7 +895,7 @@ export class TorrentTickLoop extends EngineComponent {
     // Get WebSocket write stats (in-flight writes awaiting ACK)
     const writeStats = getWriteStats()
 
-    this.logger.info(
+    this.logger.debug(
       `Backpressure: ${activeCount} active (${partialCount}/${maxPartials} partial, ${fullyRequestedCount} fullyReq, ${fullyRespondedCount} awaiting write), ` +
         `${bufferedMB}MB buffered, PIPE:${totalRequests}/${totalPipelineDepth} (limit=${pipelineLimit}), ` +
         `disk: ${diskPending}/${diskRunning} queue, ${diskRateMB}MB/s, ` +
