@@ -2,6 +2,15 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.14]
+
+- Consolidate logging to config dir (~/.config/jstorrent-native/) instead of exe dir
+- Copy triple-suffixed sidecars in prepare-sidecar.sh to prevent stale shadowing
+- Add process:allow-restart and process:allow-exit Tauri capabilities
+- Inject package version into Vite define for runtime access
+- Clean up settings UI: remove unused sections (reset UI, interface mode, component log levels, daemon rate limiting, max active seeds)
+- Log app and system bridge versions on daemon connect
+
 ## [0.1.13]
 
 - Add Linux ARM64 download links to website with architecture auto-detection
