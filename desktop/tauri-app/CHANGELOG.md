@@ -2,6 +2,10 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.12]
+
+- Fix CI: publish releases as non-prerelease directly, validate platform assets before showing on website
+
 ## [0.1.11]
 
 - Fix CI: prevent main branch builds from uploading to tag release
