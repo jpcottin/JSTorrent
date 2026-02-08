@@ -625,12 +625,14 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     )
     const errorTorrents = torrents.filter((t) => t.errorMessage)
     const downloadSpeed = torrents.reduce((sum, t) => sum + (t.downloadSpeed || 0), 0)
+    const uploadSpeed = torrents.reduce((sum, t) => sum + (t.uploadSpeed || 0), 0)
     const eta = this.calculateCombinedEta(activeTorrents)
 
     const stats: ProgressStats = {
       activeCount: activeTorrents.length,
       errorCount: errorTorrents.length,
       downloadSpeed,
+      uploadSpeed,
       eta,
       singleTorrentName: activeTorrents.length === 1 ? activeTorrents[0].name : undefined,
     }

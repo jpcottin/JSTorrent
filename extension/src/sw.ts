@@ -293,14 +293,13 @@ async function openUiTab() {
   const contexts = await chrome.runtime.getContexts({ contextTypes: ['TAB'] })
   const existing = contexts.find((c) => c.documentUrl === url)
   if (existing?.tabId && existing.tabId !== -1) {
-    // Focus existing tab
-    await chrome.tabs.update(existing.tabId, { active: true })
+    // Focus existing window
     if (existing.windowId && existing.windowId !== -1) {
       await chrome.windows.update(existing.windowId, { focused: true })
     }
   } else {
-    // Create new tab
-    await chrome.tabs.create({ url })
+    // Create standalone popup window (no tab strip)
+    await chrome.windows.create({ url, type: 'popup', width: 1024, height: 768 })
   }
 }
 

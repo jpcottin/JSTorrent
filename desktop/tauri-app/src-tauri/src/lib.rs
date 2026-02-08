@@ -282,16 +282,80 @@ fn get_pending_deep_links(state: tauri::State<'_, DeepLinkState>) -> Vec<serde_j
     pending.drain(..).collect()
 }
 
+fn format_bytes(bytes: f64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    if bytes >= GB {
+        format!("{:.1} GB", bytes / GB)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes / MB)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes / KB)
+    } else {
+        format!("{bytes:.0} B")
+    }
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn update_tray_stats(app: tauri::AppHandle, stats: serde_json::Value) {
+    let Some(tray) = app.tray_by_id("tray") else {
+        return;
+    };
+
+    let download_speed = stats.get("downloadSpeed").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+    let upload_speed = stats.get("uploadSpeed").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+    let active_count = stats.get("activeCount").and_then(serde_json::Value::as_u64).unwrap_or(0);
+    let error_count = stats.get("errorCount").and_then(serde_json::Value::as_u64).unwrap_or(0);
+
+    let active = if download_speed > 0.0 || upload_speed > 0.0 || active_count > 0 {
+        let mut lines = vec![format!(
+            "\u{2193} {}/s  \u{2191} {}/s",
+            format_bytes(download_speed),
+            format_bytes(upload_speed)
+        )];
+        if active_count > 0 {
+            lines.push(format!("{active_count} active"));
+        }
+        if error_count > 0 {
+            lines.push(format!("{error_count} error"));
+        }
+        Some(lines.join("\n"))
+    } else {
+        None
+    };
+
+    let tooltip = match &active {
+        Some(detail) => format!("JSTorrent\n{detail}"),
+        None => "JSTorrent".to_string(),
+    };
+    let _ = tray.set_tooltip(Some(&tooltip));
+
+    // On macOS, show speed in menu bar next to icon
+    #[cfg(target_os = "macos")]
+    if download_speed > 0.0 || upload_speed > 0.0 {
+        let _ = tray.set_title(Some(&format!(
+            "\u{2193} {}/s",
+            format_bytes(download_speed)
+        )));
+    } else {
+        let _ = tray.set_title(None::<&str>);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             host_handshake,
             host_message,
             get_pending_deep_links,
+            update_tray_stats,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -307,14 +371,21 @@ pub fn run() {
 
             // System tray
             let show_i = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+            let update_i = MenuItem::with_id(
+                app,
+                "check-updates",
+                "Check for Updates",
+                true,
+                None::<&str>,
+            )?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&show_i, &update_i, &quit_i])?;
 
             TrayIconBuilder::with_id("tray")
                 .tooltip("JSTorrent")
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
-                .show_menu_on_left_click(false)
+                .show_menu_on_left_click(cfg!(target_os = "macos"))
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
@@ -323,23 +394,35 @@ pub fn run() {
                             let _ = window.set_focus();
                         }
                     }
+                    "check-updates" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
+                        let _ = app.emit("check-for-updates", ());
+                    }
                     "quit" => {
                         app.exit(0);
                     }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
+                    // On macOS, left-click opens the menu (standard menu bar behavior).
+                    // On Windows/Linux, left-click shows the window directly.
+                    if !cfg!(target_os = "macos") {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
                         }
                     }
                 })

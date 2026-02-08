@@ -48,6 +48,9 @@
       "signingIdentity": "Developer ID Application: Kyle Graehl (VD7BYQ6ABM)"
     },
     "windows": {
+      "nsis": {
+        "installerHooks": "./nsis/hooks.nsh"
+      },
       "webviewInstallMode": {
         "type": "embedBootstrapper"
       }

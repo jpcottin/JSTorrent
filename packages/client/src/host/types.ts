@@ -83,6 +83,7 @@ export interface ProgressStats {
   activeCount: number
   errorCount: number
   downloadSpeed: number // bytes per second
+  uploadSpeed?: number // bytes per second
   eta: number | null // seconds, null if unknown
   singleTorrentName?: string // set when activeCount === 1
 }

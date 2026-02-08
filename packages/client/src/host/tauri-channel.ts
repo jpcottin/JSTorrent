@@ -270,8 +270,10 @@ export class TauriChannel implements HostChannel {
 
   // --- Notifications ---
 
-  notify(_notification: HostNotification): void {
-    // No-op initially; later can be wired to Tauri notification plugin
+  notify(notification: HostNotification): void {
+    if (notification.type === 'stats') {
+      tauriInvoke('update_tray_stats', { stats: notification.stats }).catch(() => {})
+    }
   }
 
   // --- Host actions ---
