@@ -2,6 +2,12 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.13]
+
+- Add Linux ARM64 download links to website with architecture auto-detection
+- Fix release version detection: sort by semver instead of relying on GitHub API order
+- Show app version in system bridge panel and settings
+
 ## [0.1.12]
 
 - Fix CI: publish releases as non-prerelease directly, validate platform assets before showing on website
