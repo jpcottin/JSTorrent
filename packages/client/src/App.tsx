@@ -287,6 +287,7 @@ function App() {
                 <SystemBridgePanelChromeos
                   state={chromeosBootstrapState}
                   daemonVersion={systemBridge.daemonVersion}
+                  appVersion={channel.getVersion()}
                   roots={roots}
                   defaultRootKey={defaultRootKey}
                   hasEverConnected={chromeosHasEverConnected}
@@ -312,6 +313,7 @@ function App() {
                   state={ioBridgeState as Parameters<typeof SystemBridgePanel>[0]['state']}
                   versionStatus={systemBridge.versionStatus}
                   daemonVersion={systemBridge.daemonVersion}
+                  appVersion={channel.getVersion()}
                   roots={roots}
                   defaultRootKey={defaultRootKey}
                   hasEverConnected={hasEverConnected}

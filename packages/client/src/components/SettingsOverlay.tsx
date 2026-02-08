@@ -589,6 +589,15 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
           />
         )}
       </Section>
+
+      <Section title="About">
+        <div style={styles.fieldRow}>
+          <span>Version</span>
+          <span style={{ color: 'var(--text-secondary)' }}>
+            {channel.getVersion() ?? 'unknown'}
+          </span>
+        </div>
+      </Section>
     </div>
   )
 }

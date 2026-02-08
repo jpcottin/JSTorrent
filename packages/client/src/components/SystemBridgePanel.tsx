@@ -25,6 +25,8 @@ export interface SystemBridgePanelProps {
   onOpenSettings?: () => void
   /** Ref to the anchor element (toggle button) - clicks on it won't trigger close */
   anchorRef?: RefObject<HTMLElement | null>
+  /** App version (extension manifest or Tauri app version) */
+  appVersion?: string | null
   /** Optional callback to fetch daemon stats */
   onFetchStats?: () => Promise<DaemonStats | null>
 }
@@ -44,6 +46,7 @@ export function SystemBridgePanel({
   onAddFolder,
   // onSetDefaultRoot - selection moved to Settings
   onOpenSettings,
+  appVersion,
   anchorRef,
   onFetchStats,
 }: SystemBridgePanelProps) {
@@ -353,6 +356,9 @@ export function SystemBridgePanel({
             <div style={{ marginTop: 'var(--spacing-xs, 4px)' }}>
               {daemonInfo.host ?? '127.0.0.1'}:{daemonInfo.port}
             </div>
+            {appVersion && (
+              <div style={{ marginTop: 'var(--spacing-xs, 4px)' }}>App v{appVersion}</div>
+            )}
           </div>
 
           {versionStatus === 'update_suggested' && (

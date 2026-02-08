@@ -19,6 +19,8 @@ export interface SystemBridgePanelChromeosProps {
   onResetPairing: () => void
   onAddFolder: () => void
   onOpenSettings?: () => void
+  /** App version (extension manifest version) */
+  appVersion?: string | null
   anchorRef?: RefObject<HTMLElement | null>
   /** Optional callback to fetch daemon stats */
   onFetchStats?: () => Promise<DaemonStats | null>
@@ -128,6 +130,7 @@ export function SystemBridgePanelChromeos({
   onResetPairing,
   onAddFolder,
   onOpenSettings,
+  appVersion,
   anchorRef,
   onFetchStats,
 }: SystemBridgePanelChromeosProps) {
@@ -216,6 +219,7 @@ export function SystemBridgePanelChromeos({
           <ConnectedContent
             port={state.port!}
             daemonVersion={daemonVersion}
+            appVersion={appVersion}
             roots={roots}
             defaultRootKey={defaultRootKey}
             onAddFolder={onAddFolder}
@@ -325,6 +329,7 @@ function DisconnectedContent({
 function ConnectedContent({
   port,
   daemonVersion,
+  appVersion,
   roots,
   defaultRootKey,
   onAddFolder,
@@ -334,6 +339,7 @@ function ConnectedContent({
 }: {
   port: number
   daemonVersion?: string
+  appVersion?: string | null
   roots: Array<{ key: string; display_name: string }>
   defaultRootKey: string | null
   onAddFolder: () => void
@@ -410,6 +416,7 @@ function ConnectedContent({
         <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
           <div>&#x25CF; Connected {daemonVersion && `— v${daemonVersion}`}</div>
           <div style={{ marginTop: '4px' }}>100.115.92.2:{port}</div>
+          {appVersion && <div style={{ marginTop: '4px' }}>Extension v{appVersion}</div>}
         </div>
       </div>
 

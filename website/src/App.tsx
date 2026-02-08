@@ -6,7 +6,7 @@ const chromeApi = (globalThis as any).chrome as any
 const EXTENSION_ID = 'dbokmlpefliilbjldladbimlcfgbolhk'
 const WEBSTORE_URL = `https://chromewebstore.google.com/detail/jstorrent/${EXTENSION_ID}`
 const PLAYSTORE_URL = 'https://play.google.com/store/apps/details?id=com.jstorrent.app'
-const GITHUB_RELEASES_URL = 'https://api.github.com/repos/kzahel/jstorrent/releases'
+const GITHUB_RELEASES_URL = 'https://api.github.com/repos/kzahel/jstorrent/releases?per_page=100'
 
 // Build-time values from CI, fall back to hardcoded versions
 const FALLBACK_BRIDGE_TAG = import.meta.env.VITE_SYSTEM_BRIDGE_TAG || 'v0.1.12'
@@ -57,6 +57,25 @@ interface GitHubRelease {
   assets: Array<{ name: string; browser_download_url: string }>
 }
 
+/** Parse "v1.2.3" or "1.2.3" into numeric parts for comparison */
+function parseVersion(tag: string): number[] {
+  return tag
+    .replace(/^v/, '')
+    .split('.')
+    .map((n) => parseInt(n, 10) || 0)
+}
+
+/** Compare two version strings, returns positive if a > b */
+function compareVersions(a: string, b: string): number {
+  const pa = parseVersion(a)
+  const pb = parseVersion(b)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
 function useGitHubReleases(): {
   bridge: BridgeReleaseInfo
   tauri: TauriReleaseInfo
@@ -75,7 +94,14 @@ function useGitHubReleases(): {
       .then((releases: GitHubRelease[]) => {
         if (cancelled) return
 
-        const latestBridge = releases.find((r) => r.tag_name.startsWith('system-bridge-v'))
+        const latestBridge = releases
+          .filter((r) => r.tag_name.startsWith('system-bridge-v') && !r.prerelease)
+          .sort((a, b) =>
+            compareVersions(
+              b.tag_name.replace('system-bridge-', ''),
+              a.tag_name.replace('system-bridge-', ''),
+            ),
+          )[0]
         if (latestBridge) {
           const tag = latestBridge.tag_name.replace('system-bridge-', '')
           const info = makeBridgeReleaseInfo(tag)
@@ -88,17 +114,24 @@ function useGitHubReleases(): {
           })
         }
 
-        const latestTauri = releases.find((r) => {
-          if (!r.tag_name.startsWith('tauri-app-v') || r.prerelease) return false
-          const a = r.assets
-          // Only show releases where all major platform builds are complete
-          return (
-            a.some((x) => x.name.endsWith('-setup.exe')) &&
-            a.some((x) => x.name.includes('aarch64') && x.name.endsWith('.dmg')) &&
-            a.some((x) => x.name.endsWith('.deb')) &&
-            a.some((x) => x.name.endsWith('.AppImage'))
-          )
-        })
+        const latestTauri = releases
+          .filter((r) => {
+            if (!r.tag_name.startsWith('tauri-app-v') || r.prerelease) return false
+            const a = r.assets
+            // Only show releases where all major platform builds are complete
+            return (
+              a.some((x) => x.name.endsWith('-setup.exe')) &&
+              a.some((x) => x.name.includes('aarch64') && x.name.endsWith('.dmg')) &&
+              a.some((x) => x.name.endsWith('.deb')) &&
+              a.some((x) => x.name.endsWith('.AppImage'))
+            )
+          })
+          .sort((a, b) =>
+            compareVersions(
+              b.tag_name.replace('tauri-app-', ''),
+              a.tag_name.replace('tauri-app-', ''),
+            ),
+          )[0]
         if (latestTauri) {
           const tag = latestTauri.tag_name.replace('tauri-app-', '')
           const windowsExe = latestTauri.assets.find((a) => a.name.endsWith('-setup.exe'))!
@@ -166,6 +199,15 @@ function detectPlatform(): Platform {
   return 'linux'
 }
 
+function detectArm64(): boolean {
+  const ua = navigator.userAgent.toLowerCase()
+  // Linux ARM64 UAs typically contain "aarch64" or "arm64"
+  if (ua.includes('aarch64') || ua.includes('arm64')) return true
+  // navigator.platform on Linux ARM64 is "Linux aarch64"
+  if (navigator.platform?.toLowerCase().includes('aarch64')) return true
+  return false
+}
+
 function formatTimestamp(timestamp: number): string {
   const date = new Date(timestamp)
   return date.toLocaleString()
@@ -176,6 +218,7 @@ function App() {
   const [extensionInstalled, setExtensionInstalled] = useState<boolean | null>(null)
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>(detectPlatform)
+  const isArm64 = detectArm64()
   const { bridge, tauri } = useGitHubReleases()
 
   useEffect(() => {
@@ -289,17 +332,29 @@ function App() {
 
           {selectedPlatform === 'linux' && (
             <div className="btn-group">
-              <a href={tauri.linuxDebUrl} className="btn btn-primary">
-                Download .deb — x86_64 ({tauri.tag})
+              <a
+                href={isArm64 ? tauri.linuxArm64DebUrl : tauri.linuxDebUrl}
+                className="btn btn-primary"
+              >
+                Download .deb — {isArm64 ? 'ARM64' : 'x86_64'} ({tauri.tag})
               </a>
-              <a href={tauri.linuxAppImageUrl} className="btn btn-secondary">
-                AppImage — x86_64
+              <a
+                href={isArm64 ? tauri.linuxArm64AppImageUrl : tauri.linuxAppImageUrl}
+                className="btn btn-secondary"
+              >
+                AppImage — {isArm64 ? 'ARM64' : 'x86_64'}
               </a>
-              <a href={tauri.linuxArm64DebUrl} className="btn btn-secondary">
-                .deb — ARM64
+              <a
+                href={isArm64 ? tauri.linuxDebUrl : tauri.linuxArm64DebUrl}
+                className="btn btn-secondary"
+              >
+                .deb — {isArm64 ? 'x86_64' : 'ARM64'}
               </a>
-              <a href={tauri.linuxArm64AppImageUrl} className="btn btn-secondary">
-                AppImage — ARM64
+              <a
+                href={isArm64 ? tauri.linuxAppImageUrl : tauri.linuxArm64AppImageUrl}
+                className="btn btn-secondary"
+              >
+                AppImage — {isArm64 ? 'x86_64' : 'ARM64'}
               </a>
             </div>
           )}
