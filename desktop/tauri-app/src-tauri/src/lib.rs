@@ -13,6 +13,47 @@ use tokio::sync::oneshot;
 
 const TARGET_TRIPLE: &str = env!("TARGET_TRIPLE");
 
+/// Show a fatal error to the user. On Windows (where the GUI subsystem hides
+/// stderr), this displays a native message box so the error is actually visible.
+fn fatal_error(message: &str) -> ! {
+    eprintln!("{message}");
+    // Write crash log next to the executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let _ = std::fs::write(dir.join("crash.log"), message);
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        extern "system" {
+            fn MessageBoxW(
+                hwnd: *mut std::ffi::c_void,
+                text: *const u16,
+                caption: *const u16,
+                utype: u32,
+            ) -> i32;
+        }
+        let wide_msg: Vec<u16> = std::ffi::OsStr::new(message)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let wide_title: Vec<u16> = std::ffi::OsStr::new("JSTorrent")
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        unsafe {
+            MessageBoxW(
+                std::ptr::null_mut(),
+                wide_msg.as_ptr(),
+                wide_title.as_ptr(),
+                0x10, // MB_ICONERROR
+            );
+        }
+    }
+    std::process::exit(1);
+}
+
 struct HostBridge {
     stdin: Mutex<ChildStdin>,
     pending: Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>,
@@ -99,26 +140,51 @@ fn torrent_file_event(file_url: &str) -> Option<serde_json::Value> {
 }
 
 /// Resolve sidecar binary path following Tauri's naming convention.
+/// Checks multiple locations to handle different installer layouts:
+/// - With/without `binaries/` subdirectory
+/// - With/without target triple suffix
+/// - In both `resource_dir` and exe directory
 fn resolve_sidecar(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String> {
     let ext = if cfg!(windows) { ".exe" } else { "" };
     let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf));
 
-    // Standard Tauri sidecar naming: {name}-{triple}{ext}
-    let with_triple = resource_dir.join(format!("{name}-{TARGET_TRIPLE}{ext}"));
-    if with_triple.exists() {
-        return Ok(with_triple);
+    // Extract just the filename (e.g. "jstorrent-host" from "binaries/jstorrent-host")
+    let basename = std::path::Path::new(name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(name);
+
+    let mut candidates = Vec::new();
+    for dir in [Some(&resource_dir), exe_dir.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        // Standard Tauri: {dir}/{name}-{triple}{ext} (e.g. binaries/jstorrent-host-x86_64-...)
+        candidates.push(dir.join(format!("{name}-{TARGET_TRIPLE}{ext}")));
+        // Without triple: {dir}/{name}{ext}
+        candidates.push(dir.join(format!("{name}{ext}")));
+        // Flat with triple: {dir}/{basename}-{triple}{ext}
+        candidates.push(dir.join(format!("{basename}-{TARGET_TRIPLE}{ext}")));
+        // Flat without triple: {dir}/{basename}{ext}
+        candidates.push(dir.join(format!("{basename}{ext}")));
     }
 
-    // Fallback without triple (dev mode)
-    let without_triple = resource_dir.join(format!("{name}{ext}"));
-    if without_triple.exists() {
-        return Ok(without_triple);
+    for candidate in &candidates {
+        if candidate.exists() {
+            return Ok(candidate.clone());
+        }
     }
 
     Err(format!(
-        "Sidecar not found: {} or {}",
-        with_triple.display(),
-        without_triple.display()
+        "Sidecar not found. Searched:\n{}",
+        candidates
+            .iter()
+            .map(|c| format!("  {}", c.display()))
+            .collect::<Vec<_>>()
+            .join("\n")
     ))
 }
 
@@ -353,7 +419,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building tauri application");
+        .unwrap_or_else(|e| fatal_error(&format!("Failed to start JSTorrent: {e}")));
 
     // Keep app alive when all windows are hidden (user closes window -> hide, not exit).
     // Explicit quit via tray menu calls app.exit(0), which sets code = Some(0).
