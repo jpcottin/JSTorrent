@@ -7,8 +7,6 @@ import type { IEngineManager } from '../engine-manager/types'
 import { standaloneConfirm, standaloneAlert } from '../utils/dialogs'
 import { useHostChannel } from '../host/HostChannelContext'
 
-// Component log level type (matches ConfigHub's ComponentLogLevel)
-type ComponentLogLevel = 'default' | 'debug' | 'info' | 'warn' | 'error'
 
 /**
  * Build a config snapshot object from ConfigHub.
@@ -248,19 +246,6 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     }
   }
 
-  // Handle reset UI settings
-  const handleResetUISettings = () => {
-    const confirmed = standaloneConfirm(
-      'Reset all user interface settings to defaults?\n\n' +
-        'This will restore default column configurations for all tables.\n' +
-        'The page will reload to apply changes.',
-    )
-    if (confirmed) {
-      clearAllUISettings()
-      window.location.reload()
-    }
-  }
-
   // State for clear all data operation
   const [clearingData, setClearingData] = useState(false)
 
@@ -387,7 +372,6 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               <InterfaceTab
                 settings={settings}
                 config={config}
-                onResetUISettings={handleResetUISettings}
                 isStandalone={engineManager.isStandalone}
               />
             )}
@@ -571,24 +555,22 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
         )}
       </Section>
 
-      <Section title="Behavior">
-        {!isStandalone && (
+      {!isStandalone && (
+        <Section title="Behavior">
           <ToggleRow
             label="Keep system awake while downloading"
             sublabel="Prevents sleep during active downloads (requires permission)"
             checked={settings.keepAwake}
             onChange={handleKeepAwakeChange}
           />
-        )}
-        {!isStandalone && (
           <ToggleRow
             label="Prevent background throttling"
             sublabel="Keeps downloads running at full speed when tab is in background"
             checked={settings.preventBackgroundThrottling}
             onChange={(v) => config.set('preventBackgroundThrottling', v)}
           />
-        )}
-      </Section>
+        </Section>
+      )}
 
       <Section title="About">
         <div style={styles.fieldRow}>
@@ -603,16 +585,10 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
 }
 
 interface InterfaceTabProps extends TabProps {
-  onResetUISettings: () => void
   isStandalone: boolean
 }
 
-const InterfaceTab: React.FC<InterfaceTabProps> = ({
-  settings,
-  config,
-  onResetUISettings,
-  isStandalone,
-}) => (
+const InterfaceTab: React.FC<InterfaceTabProps> = ({ settings, config, isStandalone }) => (
   <div>
     <Section title="Appearance">
       <div style={styles.fieldRow}>
@@ -696,35 +672,6 @@ const InterfaceTab: React.FC<InterfaceTabProps> = ({
       </div>
     </Section>
 
-    <Section title="User Interface">
-      <div style={{ color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md, 12px)' }}>
-        Restore default column visibility, order, and sizes for all tables.
-      </div>
-      <button onClick={onResetUISettings} style={styles.dangerButton}>
-        Reset UI Settings
-      </button>
-    </Section>
-
-    {isStandalone && (
-      <Section title="Interface Mode">
-        <div style={styles.fieldRow}>
-          <div style={{ flex: 1 }}>
-            <div>Switch Interface</div>
-            <div style={{ fontSize: 'var(--font-xs, 12px)', color: 'var(--text-secondary)' }}>
-              Currently using the full-featured interface
-            </div>
-          </div>
-          <button
-            style={styles.addButton}
-            onClick={() => {
-              window.location.href = 'jstorrent://switch-ui?mode=standalone'
-            }}
-          >
-            Switch to Light
-          </button>
-        </div>
-      </Section>
-    )}
   </div>
 )
 
@@ -947,13 +894,6 @@ const NetworkTab: React.FC<NetworkTabProps> = ({ settings, config, engineManager
           min={1}
           max={20}
         />
-        <NumberRow
-          label="Max active seeds"
-          value={settings.activeSeeds}
-          onChange={(v) => config.set('activeSeeds', v)}
-          min={1}
-          max={50}
-        />
       </Section>
 
       <Section title="Peer Discovery">
@@ -978,24 +918,6 @@ interface AdvancedTabProps extends TabProps {
 const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const
 type LogLevelValue = (typeof LOG_LEVELS)[number]
 
-// Log level options for per-component setting (includes 'default')
-const COMPONENT_LOG_LEVELS = ['default', 'debug', 'info', 'warn', 'error'] as const
-
-// Component config keys for logging (maps display name -> ConfigHub key)
-const LOG_COMPONENT_CONFIG_KEYS = {
-  client: 'loggingLevelClient',
-  torrent: 'loggingLevelTorrent',
-  peer: 'loggingLevelPeer',
-  'active-pieces': 'loggingLevelActivePieces',
-  'content-storage': 'loggingLevelContentStorage',
-  'parts-file': 'loggingLevelPartsFile',
-  'tracker-manager': 'loggingLevelTrackerManager',
-  'http-tracker': 'loggingLevelHttpTracker',
-  'udp-tracker': 'loggingLevelUdpTracker',
-  dht: 'loggingLevelDht',
-} as const
-
-type LogComponentName = keyof typeof LOG_COMPONENT_CONFIG_KEYS
 
 const AdvancedTab: React.FC<AdvancedTabProps> = ({
   settings,
@@ -1004,8 +926,6 @@ const AdvancedTab: React.FC<AdvancedTabProps> = ({
   onClearAllData,
   clearingData,
 }) => {
-  // Component overrides collapsed by default
-  const [overridesExpanded, setOverridesExpanded] = useState(false)
   // Clear all data dialog state
   const [showClearDataDialog, setShowClearDataDialog] = useState(false)
   const [deleteFilesChecked, setDeleteFilesChecked] = useState(false)
@@ -1016,25 +936,6 @@ const AdvancedTab: React.FC<AdvancedTabProps> = ({
     setDeleteFilesChecked(false)
   }
 
-  // Get the value for a component log level from the snapshot
-  const getComponentLogLevel = (comp: LogComponentName): ComponentLogLevel => {
-    const key = LOG_COMPONENT_CONFIG_KEYS[comp]
-    return settings[key]
-  }
-
-  // Set a component log level
-  const setComponentLogLevel = (comp: LogComponentName, level: ComponentLogLevel) => {
-    const key = LOG_COMPONENT_CONFIG_KEYS[comp]
-    config.set(key, level)
-  }
-
-  // Reset logging settings to defaults
-  const handleResetLogging = () => {
-    config.set('loggingLevel', 'info')
-    for (const comp of Object.keys(LOG_COMPONENT_CONFIG_KEYS) as LogComponentName[]) {
-      setComponentLogLevel(comp, 'default')
-    }
-  }
 
   return (
     <div>
@@ -1058,68 +959,6 @@ const AdvancedTab: React.FC<AdvancedTabProps> = ({
           </select>
         </div>
 
-        <div
-          style={styles.collapsibleHeader}
-          onClick={() => setOverridesExpanded(!overridesExpanded)}
-        >
-          <span style={{ marginRight: 'var(--spacing-sm, 8px)' }}>
-            {overridesExpanded ? '▼' : '▶'}
-          </span>
-          Component Overrides (select &ldquo;Default&rdquo; to use global level)
-        </div>
-        {overridesExpanded &&
-          (Object.keys(LOG_COMPONENT_CONFIG_KEYS) as LogComponentName[]).map((comp) => (
-            <div key={comp} style={styles.fieldRow}>
-              <span style={{ flex: 1, fontFamily: 'monospace', fontSize: 'var(--font-xs, 12px)' }}>
-                {comp}
-              </span>
-              <select
-                value={getComponentLogLevel(comp)}
-                onChange={(e) => setComponentLogLevel(comp, e.target.value as ComponentLogLevel)}
-                style={styles.select}
-              >
-                {COMPONENT_LOG_LEVELS.map((level) => (
-                  <option key={level} value={level}>
-                    {level === 'default'
-                      ? 'Default'
-                      : level.charAt(0).toUpperCase() + level.slice(1)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ))}
-
-        <button
-          onClick={handleResetLogging}
-          style={{
-            ...styles.addButton,
-            marginTop: 'var(--spacing-lg, 16px)',
-            background: 'var(--accent-primary)',
-          }}
-        >
-          Reset Logging to Defaults
-        </button>
-      </Section>
-
-      <Section title="Daemon Rate Limiting">
-        <div style={{ color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md, 12px)' }}>
-          Controls how fast new connections and tracker announces are initiated. Lower values reduce
-          resource usage but slow down peer discovery.
-        </div>
-        <NumberRow
-          label="Operations per second"
-          value={settings.daemonOpsPerSecond}
-          onChange={(v) => config.set('daemonOpsPerSecond', v)}
-          min={1}
-          max={100}
-        />
-        <NumberRow
-          label="Burst capacity"
-          value={settings.daemonOpsBurst}
-          onChange={(v) => config.set('daemonOpsBurst', v)}
-          min={1}
-          max={200}
-        />
       </Section>
 
       <Section title="Danger Zone">
@@ -1674,13 +1513,6 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid var(--border-color)',
     background: 'var(--bg-secondary)',
     color: 'var(--text-primary)',
-  },
-  collapsibleHeader: {
-    color: 'var(--text-secondary)',
-    marginTop: 'var(--spacing-lg, 16px)',
-    marginBottom: 'var(--spacing-sm, 8px)',
-    cursor: 'pointer',
-    userSelect: 'none',
   },
   dangerItem: {
     display: 'flex',

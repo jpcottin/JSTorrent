@@ -7,6 +7,8 @@ import fs from 'fs'
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST
 
+const packageJson = JSON.parse(fs.readFileSync(resolve(__dirname, 'package.json'), 'utf-8'))
+
 // Ensure GeoIP data file exists (copy stub if not)
 const geoipDataPath = resolve(__dirname, '../../packages/engine/src/geo/ipv4-country-data.ts')
 const geoipStubPath = resolve(__dirname, '../../packages/engine/src/geo/ipv4-country-data.stub.ts')
@@ -37,6 +39,9 @@ export default defineConfig(async () => ({
       '@jstorrent/client': resolve(__dirname, '../../packages/client/src'),
       '@jstorrent/ui': resolve(__dirname, '../../packages/ui/src'),
     },
+  },
+  define: {
+    'import.meta.env.PACKAGE_VERSION': JSON.stringify(packageJson.version),
   },
   clearScreen: false,
   server: {

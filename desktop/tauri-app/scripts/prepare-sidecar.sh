@@ -38,10 +38,15 @@ mkdir -p "$BIN_DIR"
 cp "$HOST_SRC" "$HOST_BIN"
 cp "$DAEMON_SRC" "$DAEMON_BIN"
 
-# Copy for tauri dev (target/debug/binaries/ without triple suffix)
+# Copy for tauri dev (target/debug/binaries/ with and without triple suffix).
+# Both names are needed: jstorrent-host's find_io_daemon_path checks the
+# triple-suffixed name first, so a stale triple-suffixed copy would shadow
+# a fresh non-triple copy.
 mkdir -p "$TARGET_DIR/debug/binaries"
 cp "$HOST_SRC" "$TARGET_DIR/debug/binaries/jstorrent-host"
 cp "$DAEMON_SRC" "$TARGET_DIR/debug/binaries/jstorrent-io-daemon"
+cp "$HOST_SRC" "$TARGET_DIR/debug/binaries/jstorrent-host-$TRIPLE"
+cp "$DAEMON_SRC" "$TARGET_DIR/debug/binaries/jstorrent-io-daemon-$TRIPLE"
 
 # macOS: re-sign copied binaries. `cp` sets com.apple.provenance which
 # invalidates the ad-hoc signature from cargo build, causing SIGKILL.
@@ -50,6 +55,8 @@ if [[ "$(uname)" == "Darwin" ]]; then
   codesign -fs - "$DAEMON_BIN"
   codesign -fs - "$TARGET_DIR/debug/binaries/jstorrent-host"
   codesign -fs - "$TARGET_DIR/debug/binaries/jstorrent-io-daemon"
+  codesign -fs - "$TARGET_DIR/debug/binaries/jstorrent-host-$TRIPLE"
+  codesign -fs - "$TARGET_DIR/debug/binaries/jstorrent-io-daemon-$TRIPLE"
 fi
 
 echo "Sidecars prepared for $TRIPLE (jstorrent-host + jstorrent-io-daemon)"

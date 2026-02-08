@@ -117,15 +117,6 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Set up logging to both stderr and file
-    let log_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-
-    let file_appender = tracing_appender::rolling::never(&log_dir, "io-daemon.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
     use tracing_subscriber::EnvFilter;
@@ -133,19 +124,39 @@ async fn main() -> anyhow::Result<()> {
     // Default to INFO level, but allow override via RUST_LOG env var
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(non_blocking)
-                .with_ansi(false),
-        )
-        .init();
+    // Set up logging — always stderr, file appender if log dir is writable
+    let log_dir = jstorrent_common::get_log_dir();
+    let file_appender = log_dir.as_ref().and_then(|dir| {
+        tracing_appender::rolling::RollingFileAppender::builder()
+            .rotation(tracing_appender::rolling::Rotation::NEVER)
+            .filename_prefix("io-daemon.log")
+            .build(dir)
+            .ok()
+    });
+
+    let _guard = if let Some(appender) = file_appender {
+        let (non_blocking, guard) = tracing_appender::non_blocking(appender);
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(non_blocking)
+                    .with_ansi(false),
+            )
+            .init();
+        Some(guard)
+    } else {
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+            .init();
+        None
+    };
 
     tracing::info!(
         "io-daemon starting, logging to {:?}",
-        log_dir.join("io-daemon.log")
+        log_dir.map(|d| d.join("io-daemon.log"))
     );
 
     // Log binary mtime to help diagnose stale binary issues

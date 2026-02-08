@@ -70,6 +70,13 @@ pub fn get_config_dir() -> Option<PathBuf> {
     dirs::config_dir()
 }
 
+/// Get the log directory (~/.config/jstorrent-native/), creating it if needed.
+pub fn get_log_dir() -> Option<PathBuf> {
+    let dir = get_config_dir()?.join("jstorrent-native");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
 /// Read a value from jstorrent-native.env file.
 /// Looks in ~/.config/jstorrent-native/jstorrent-native.env
 pub fn read_env_value(key: &str) -> Option<String> {

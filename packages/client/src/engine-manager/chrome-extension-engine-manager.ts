@@ -141,6 +141,12 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     this._daemonInfo = daemonInfo
     const roots: DownloadRoot[] = daemonInfo.roots ?? []
     console.log(
+      '[ChromeExtensionEngineManager] App version:',
+      this.channel.getVersion() ?? 'unknown',
+      'System bridge version:',
+      daemonInfo.version ?? 'unknown',
+    )
+    console.log(
       '[ChromeExtensionEngineManager] Got daemon info:',
       daemonInfo,
       'roots:',
