@@ -2,6 +2,12 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.5]
+
+- Add shared SQLite KV store for desktop, route extension and Tauri KV through native host
+- Add native messaging host registration and macOS fixes
+- Simplify config storage to local-only, add windowMode setting and Tauri notifications
+
 ## [0.1.4]
 
 - Add system tray stats showing download/upload speed
