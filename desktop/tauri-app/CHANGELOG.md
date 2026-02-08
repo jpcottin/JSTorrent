@@ -2,6 +2,10 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.1]
+
+- Fix macOS notarization so Gatekeeper no longer blocks the app
+
 ## [0.1.0]
 
 Initial release of the JSTorrent desktop app.
