@@ -43,4 +43,13 @@ mkdir -p "$TARGET_DIR/debug/binaries"
 cp "$HOST_SRC" "$TARGET_DIR/debug/binaries/jstorrent-host"
 cp "$DAEMON_SRC" "$TARGET_DIR/debug/binaries/jstorrent-io-daemon"
 
+# macOS: re-sign copied binaries. `cp` sets com.apple.provenance which
+# invalidates the ad-hoc signature from cargo build, causing SIGKILL.
+if [[ "$(uname)" == "Darwin" ]]; then
+  codesign -fs - "$HOST_BIN"
+  codesign -fs - "$DAEMON_BIN"
+  codesign -fs - "$TARGET_DIR/debug/binaries/jstorrent-host"
+  codesign -fs - "$TARGET_DIR/debug/binaries/jstorrent-io-daemon"
+fi
+
 echo "Sidecars prepared for $TRIPLE (jstorrent-host + jstorrent-io-daemon)"

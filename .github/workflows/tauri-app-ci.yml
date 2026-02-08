@@ -214,3 +214,56 @@ jobs:
         run: |
           security delete-keychain build.keychain 2>/dev/null || true
           rm -rf ~/private_keys 2>/dev/null || true
+
+  # Clean up release assets after all builds complete
+  finalize-release:
+    if: startsWith(github.ref, 'refs/tags/tauri-app-v')
+    needs: build-tauri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove .sig files from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # Delete all .sig files (signatures are embedded in latest.json)
+          gh release view "$TAG" --json assets --jq '.assets[].name' | grep '\.sig$' | while read -r name; do
+            echo "Deleting $name"
+            gh release delete-asset "$TAG" "$name" --yes
+          done
+
+      - name: Update release body with download table
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#tauri-app-v}"
+          REPO="${GITHUB_REPOSITORY}"
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
+
+          # Extract changelog
+          CHANGELOG=$(awk "/^## \\[$VERSION\\]/{found=1; next} /^## \\[/{found=0} found" desktop/tauri-app/CHANGELOG.md)
+
+          {
+            echo "## Download"
+            echo ""
+            echo "| Platform | Installer |"
+            echo "|----------|-----------|"
+            echo "| macOS (Apple Silicon) | [JSTorrent_${VERSION}_aarch64.dmg](${BASE}/JSTorrent_${VERSION}_aarch64.dmg) |"
+            echo "| macOS (Intel) | [JSTorrent_${VERSION}_x64.dmg](${BASE}/JSTorrent_${VERSION}_x64.dmg) |"
+            echo "| Windows (installer) | [JSTorrent_${VERSION}_x64-setup.exe](${BASE}/JSTorrent_${VERSION}_x64-setup.exe) |"
+            echo "| Windows (MSI) | [JSTorrent_${VERSION}_x64_en-US.msi](${BASE}/JSTorrent_${VERSION}_x64_en-US.msi) |"
+            echo "| Linux (Debian/Ubuntu) | [JSTorrent_${VERSION}_amd64.deb](${BASE}/JSTorrent_${VERSION}_amd64.deb) |"
+            echo "| Linux (AppImage) | [JSTorrent_${VERSION}_amd64.AppImage](${BASE}/JSTorrent_${VERSION}_amd64.AppImage) |"
+            echo "| Linux (RPM) | [JSTorrent-${VERSION}-1.x86_64.rpm](${BASE}/JSTorrent-${VERSION}-1.x86_64.rpm) |"
+            if [ -n "$CHANGELOG" ]; then
+              echo ""
+              echo "## Changes"
+              echo ""
+              echo "$CHANGELOG"
+            fi
+          } > /tmp/release-body.md
+
+          gh release edit "$TAG" --notes-file /tmp/release-body.md

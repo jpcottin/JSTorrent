@@ -11,6 +11,8 @@ use tauri::{
 use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::oneshot;
 
+mod native_host;
+
 const TARGET_TRIPLE: &str = env!("TARGET_TRIPLE");
 
 /// Show a fatal error to the user. On Windows (where the GUI subsystem hides
@@ -497,6 +499,12 @@ pub fn run() {
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             app.deep_link().register_all()?;
 
+            // Register native messaging host manifest for all detected browsers
+            match native_host::register_native_messaging_hosts(app.handle()) {
+                Ok(count) => eprintln!("native-host: registered for {count} browser(s)"),
+                Err(e) => eprintln!("native-host: registration failed: {e}"),
+            }
+
             // Spawn system-bridge sidecar
             let host_path = resolve_sidecar(app.handle(), "binaries/jstorrent-host")?;
             eprintln!("Spawning system-bridge: {}", host_path.display());
@@ -539,11 +547,21 @@ pub fn run() {
 
     // Keep app alive when all windows are hidden (user closes window -> hide, not exit).
     // Explicit quit via tray menu calls app.exit(0), which sets code = Some(0).
-    app.run(|_app_handle, event| {
-        if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
-            if code.is_none() {
-                api.prevent_exit();
+    app.run(|app_handle, event| {
+        match event {
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
+                if code.is_none() {
+                    api.prevent_exit();
+                }
             }
+            tauri::RunEvent::Reopen { .. } => {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+            _ => {}
         }
     });
 }

@@ -31,3 +31,15 @@
 !macro NSIS_HOOK_PREUNINSTALL
   !insertmacro _KillJSTorrentProcesses
 !macroend
+
+; Clean up native messaging host registration on uninstall
+!macro NSIS_HOOK_POSTUNINSTALL
+  ; Remove Chrome native messaging host registry keys
+  DeleteRegKey HKCU "Software\Google\Chrome\NativeMessagingHosts\com.jstorrent.native"
+  DeleteRegKey HKCU "Software\Chromium\NativeMessagingHosts\com.jstorrent.native"
+  DeleteRegKey HKCU "Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.jstorrent.native"
+  DeleteRegKey HKCU "Software\Microsoft\Edge\NativeMessagingHosts\com.jstorrent.native"
+
+  ; Remove manifest JSON from app data directory
+  Delete "$LOCALAPPDATA\com.jstorrent.desktop\com.jstorrent.native.json"
+!macroend
