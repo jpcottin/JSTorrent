@@ -391,6 +391,7 @@ fn build_cors_layer(extension_id: Option<&str>, allow_any: bool) -> CorsLayer {
             for origin in &[
                 "tauri://localhost",       // macOS/Linux production
                 "https://tauri.localhost", // Windows production
+                "http://tauri.localhost",  // Windows production (WebView2)
                 "http://localhost:1420",   // Tauri dev server (Vite)
             ] {
                 tracing::info!("CORS: Adding Tauri origin: {}", origin);

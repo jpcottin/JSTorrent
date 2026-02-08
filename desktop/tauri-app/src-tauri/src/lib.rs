@@ -392,10 +392,17 @@ pub fn run() {
             let host_path = resolve_sidecar(app.handle(), "binaries/jstorrent-host")?;
             eprintln!("Spawning system-bridge: {}", host_path.display());
 
-            let mut child = std::process::Command::new(&host_path)
-                .stdin(std::process::Stdio::piped())
+            let mut cmd = std::process::Command::new(&host_path);
+            cmd.stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit());
+            // Prevent a visible console window for the sidecar on Windows
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            }
+            let mut child = cmd
                 .spawn()
                 .map_err(|e| format!("Failed to spawn system-bridge: {e}"))?;
 
