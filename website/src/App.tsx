@@ -8,20 +8,42 @@ const WEBSTORE_URL = `https://chromewebstore.google.com/detail/jstorrent/${EXTEN
 const PLAYSTORE_URL = 'https://play.google.com/store/apps/details?id=com.jstorrent.app'
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/kzahel/jstorrent/releases'
 
-// Build-time value from CI, falls back to hardcoded version
-const FALLBACK_TAG = import.meta.env.VITE_SYSTEM_BRIDGE_TAG || 'v0.1.12'
+// Build-time values from CI, fall back to hardcoded versions
+const FALLBACK_BRIDGE_TAG = import.meta.env.VITE_SYSTEM_BRIDGE_TAG || 'v0.1.12'
+const FALLBACK_TAURI_TAG = import.meta.env.VITE_TAURI_APP_TAG || 'v0.1.0'
 
-interface ReleaseInfo {
+interface BridgeReleaseInfo {
   tag: string
   windowsUrl: string
   macosUrl: string
 }
 
-function makeReleaseInfo(tag: string): ReleaseInfo {
+interface TauriReleaseInfo {
+  tag: string
+  windowsUrl: string
+  macosArmUrl: string
+  macosIntelUrl: string
+  linuxDebUrl: string
+  linuxAppImageUrl: string
+}
+
+function makeBridgeReleaseInfo(tag: string): BridgeReleaseInfo {
   return {
     tag,
     windowsUrl: `https://github.com/kzahel/jstorrent/releases/download/system-bridge-${tag}/jstorrent-system-bridge-install-windows-x86_64.exe`,
     macosUrl: `https://github.com/kzahel/jstorrent/releases/download/system-bridge-${tag}/jstorrent-system-bridge-install-macos-x86_64.pkg`,
+  }
+}
+
+function makeTauriReleaseInfo(tag: string): TauriReleaseInfo {
+  const version = tag.replace(/^v/, '')
+  return {
+    tag,
+    windowsUrl: `https://github.com/kzahel/jstorrent/releases/download/tauri-app-${tag}/JSTorrent_${version}_x64-setup.exe`,
+    macosArmUrl: `https://github.com/kzahel/jstorrent/releases/download/tauri-app-${tag}/JSTorrent_${version}_aarch64.dmg`,
+    macosIntelUrl: `https://github.com/kzahel/jstorrent/releases/download/tauri-app-${tag}/JSTorrent_${version}_x64.dmg`,
+    linuxDebUrl: `https://github.com/kzahel/jstorrent/releases/download/tauri-app-${tag}/JSTorrent_${version}_amd64.deb`,
+    linuxAppImageUrl: `https://github.com/kzahel/jstorrent/releases/download/tauri-app-${tag}/JSTorrent_${version}_amd64.AppImage`,
   }
 }
 
@@ -30,8 +52,16 @@ interface GitHubRelease {
   assets: Array<{ name: string; browser_download_url: string }>
 }
 
-function useLatestRelease(): ReleaseInfo {
-  const [release, setRelease] = useState<ReleaseInfo>(() => makeReleaseInfo(FALLBACK_TAG))
+function useGitHubReleases(): {
+  bridge: BridgeReleaseInfo
+  tauri: TauriReleaseInfo
+} {
+  const [bridge, setBridge] = useState<BridgeReleaseInfo>(() =>
+    makeBridgeReleaseInfo(FALLBACK_BRIDGE_TAG),
+  )
+  const [tauri, setTauri] = useState<TauriReleaseInfo>(() =>
+    makeTauriReleaseInfo(FALLBACK_TAURI_TAG),
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -39,15 +69,40 @@ function useLatestRelease(): ReleaseInfo {
       .then((res) => res.json())
       .then((releases: GitHubRelease[]) => {
         if (cancelled) return
-        const latest = releases.find((r) => r.tag_name.startsWith('system-bridge-v'))
-        if (latest) {
-          const tag = latest.tag_name.replace('system-bridge-', '')
-          const windows = latest.assets.find((a) => a.name.includes('windows'))
-          const macos = latest.assets.find((a) => a.name.includes('macos'))
-          setRelease({
+
+        const latestBridge = releases.find((r) => r.tag_name.startsWith('system-bridge-v'))
+        if (latestBridge) {
+          const tag = latestBridge.tag_name.replace('system-bridge-', '')
+          const info = makeBridgeReleaseInfo(tag)
+          const windows = latestBridge.assets.find((a) => a.name.includes('windows'))
+          const macos = latestBridge.assets.find((a) => a.name.includes('macos'))
+          setBridge({
             tag,
-            windowsUrl: windows?.browser_download_url ?? makeReleaseInfo(tag).windowsUrl,
-            macosUrl: macos?.browser_download_url ?? makeReleaseInfo(tag).macosUrl,
+            windowsUrl: windows?.browser_download_url ?? info.windowsUrl,
+            macosUrl: macos?.browser_download_url ?? info.macosUrl,
+          })
+        }
+
+        const latestTauri = releases.find((r) => r.tag_name.startsWith('tauri-app-v'))
+        if (latestTauri) {
+          const tag = latestTauri.tag_name.replace('tauri-app-', '')
+          const info = makeTauriReleaseInfo(tag)
+          const windowsExe = latestTauri.assets.find((a) => a.name.endsWith('-setup.exe'))
+          const macosArm = latestTauri.assets.find(
+            (a) => a.name.includes('aarch64') && a.name.endsWith('.dmg'),
+          )
+          const macosIntel = latestTauri.assets.find(
+            (a) => a.name.includes('x64') && a.name.endsWith('.dmg'),
+          )
+          const linuxDeb = latestTauri.assets.find((a) => a.name.endsWith('.deb'))
+          const linuxAppImage = latestTauri.assets.find((a) => a.name.endsWith('.AppImage'))
+          setTauri({
+            tag,
+            windowsUrl: windowsExe?.browser_download_url ?? info.windowsUrl,
+            macosArmUrl: macosArm?.browser_download_url ?? info.macosArmUrl,
+            macosIntelUrl: macosIntel?.browser_download_url ?? info.macosIntelUrl,
+            linuxDebUrl: linuxDeb?.browser_download_url ?? info.linuxDebUrl,
+            linuxAppImageUrl: linuxAppImage?.browser_download_url ?? info.linuxAppImageUrl,
           })
         }
       })
@@ -59,7 +114,7 @@ function useLatestRelease(): ReleaseInfo {
     }
   }, [])
 
-  return release
+  return { bridge, tauri }
 }
 
 type Platform = 'windows' | 'mac' | 'linux' | 'chromeos'
@@ -93,7 +148,7 @@ function App() {
   const [extensionInstalled, setExtensionInstalled] = useState<boolean | null>(null)
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>(detectPlatform)
-  const release = useLatestRelease()
+  const { bridge, tauri } = useGitHubReleases()
 
   useEffect(() => {
     // Check extension status with comprehensive info
@@ -154,13 +209,68 @@ function App() {
       <header className="header">
         <img src="/cook/JSTorrent/js-128.png" alt="JSTorrent" className="logo" />
         <h1>JSTorrent</h1>
-        <p className="subtitle">A BitTorrent client for Chrome.</p>
+        <p className="subtitle">A fast, free BitTorrent client.</p>
         <p className="description">
-          Download torrents directly in your browser. JSTorrent consists of a Chrome extension and a
-          small native helper for fast file and network access. No admin privileges needed. Free and{' '}
+          Download torrents on desktop, Android, or directly in Chrome. Free and{' '}
           <a href="https://github.com/kzahel/jstorrent">open source</a>.
         </p>
       </header>
+
+      {/* Desktop App section */}
+      <section className="section">
+        <h2>Desktop App</h2>
+        <p>Standalone desktop client with built-in UI. No browser extension needed.</p>
+        <div className="tabs">
+          <button
+            className={`tab ${selectedPlatform === 'windows' ? 'active' : ''}`}
+            onClick={() => setSelectedPlatform('windows')}
+          >
+            Windows
+          </button>
+          <button
+            className={`tab ${selectedPlatform === 'mac' ? 'active' : ''}`}
+            onClick={() => setSelectedPlatform('mac')}
+          >
+            Mac
+          </button>
+          <button
+            className={`tab ${selectedPlatform === 'linux' ? 'active' : ''}`}
+            onClick={() => setSelectedPlatform('linux')}
+          >
+            Linux
+          </button>
+        </div>
+
+        <div className="tab-content">
+          {selectedPlatform === 'windows' && (
+            <a href={tauri.windowsUrl} className="btn btn-primary">
+              Download for Windows ({tauri.tag})
+            </a>
+          )}
+
+          {selectedPlatform === 'mac' && (
+            <div className="btn-group">
+              <a href={tauri.macosArmUrl} className="btn btn-primary">
+                Download for Mac — Apple Silicon ({tauri.tag})
+              </a>
+              <a href={tauri.macosIntelUrl} className="btn btn-secondary">
+                Intel Mac
+              </a>
+            </div>
+          )}
+
+          {selectedPlatform === 'linux' && (
+            <div className="btn-group">
+              <a href={tauri.linuxDebUrl} className="btn btn-primary">
+                Download .deb ({tauri.tag})
+              </a>
+              <a href={tauri.linuxAppImageUrl} className="btn btn-secondary">
+                AppImage
+              </a>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Extension section */}
       <section className="section">
@@ -255,8 +365,8 @@ function App() {
           {selectedPlatform === 'windows' && (
             <>
               <p>Download and run the Windows installer:</p>
-              <a href={release.windowsUrl} className="btn btn-primary">
-                Download for Windows ({release.tag})
+              <a href={bridge.windowsUrl} className="btn btn-primary">
+                Download for Windows ({bridge.tag})
               </a>
             </>
           )}
@@ -264,8 +374,8 @@ function App() {
           {selectedPlatform === 'mac' && (
             <>
               <p>Download and run the macOS installer:</p>
-              <a href={release.macosUrl} className="btn btn-primary">
-                Download for macOS ({release.tag})
+              <a href={bridge.macosUrl} className="btn btn-primary">
+                Download for macOS ({bridge.tag})
               </a>
             </>
           )}

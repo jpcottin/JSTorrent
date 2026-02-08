@@ -148,6 +148,18 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
+      # --- Extract changelog ---
+      - name: Extract changelog
+        id: changelog
+        if: startsWith(github.ref, 'refs/tags/tauri-app-v')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#tauri-app-v}"
+          NOTES=$(awk "/^## \\[$VERSION\\]/{found=1; next} /^## \\[/{found=0} found" desktop/tauri-app/CHANGELOG.md)
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
       # --- Build Tauri app ---
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -173,8 +185,8 @@ jobs:
           tauriScript: pnpm tauri
           tagName: tauri-app-v__VERSION__
           releaseName: 'JSTorrent Desktop v__VERSION__'
-          releaseBody: 'See the assets to download and install this version.'
-          releaseDraft: true
+          releaseBody: ${{ steps.changelog.outputs.notes || 'See the assets to download and install this version.' }}
+          releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
           updaterJsonKeepUniversal: true
