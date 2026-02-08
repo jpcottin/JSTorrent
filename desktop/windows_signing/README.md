@@ -1,129 +1,102 @@
-# Windows Code Signing Directory
+# Windows Code Signing
 
-This directory contains all files and configuration for signing Windows binaries and installers with Azure Trusted Signing.
+Signs Windows binaries and installers with Azure Trusted Signing using `trusted-signing-cli`.
 
-## 📁 Directory Structure
+## Prerequisites
 
-```
-windows_signing/
-├── .env                           # Environment variables (in .gitignore)
-├── .env.example                   # Template with all values except secret
-├── load-signing-env.ps1           # Helper to load .env variables
-├── sign-binary.ps1                # Main signing script
-├── signing/
-│   ├── .gitignore                 # Prevents committing DLL and secrets
-│   ├── Azure.CodeSigning.Dlib.dll # Microsoft signing client (119KB)
-│   ├── download-signing-dll.bat   # One-time DLL download script
-│   ├── metadata.json              # Azure Trusted Signing configuration
-│   └── README.md                  # Signing directory details
-├── SIGNING.md                     # Complete signing documentation
-├── SIGNING-CHECKLIST.md           # Quick verification checklist
-└── SIGNING-SETUP-GUIDE.md         # Full setup and usage guide
-```
+1. **Rust toolchain** (for installing the CLI)
+2. **Azure credentials** (3 environment variables)
 
-## 🚀 Quick Start
+No DLLs, no signtool.exe, no .NET runtime, no Windows SDK required.
 
-### 1. Add Your Secret
+## One-Time Setup
 
-Edit [.env](.env) and add your Azure client secret:
-
-```bash
-AZURE_CLIENT_SECRET=<your-actual-secret-value>
-```
-
-### 2. Load Environment Variables
+### 1. Install trusted-signing-cli
 
 ```powershell
-cd windows_signing
-
-# Load the environment variables
-. .\load-signing-env.ps1
+cargo install trusted-signing-cli
 ```
 
-### 3. Build with Signing
+### 2. Set up credentials
+
+Copy `.env.example` to `.env` and fill in `AZURE_CLIENT_SECRET`:
 
 ```powershell
-cd ..  # Back to desktop/
-
-$env:SIGN_BINARIES = "1"
-.\scripts\build-windows-installer.ps1
+cp .env.example .env
+# Edit .env and add your secret VALUE (not the secret ID!)
 ```
 
-## 📚 Documentation
+The `.env` file contains:
+- `AZURE_CLIENT_ID` - App Registration client ID
+- `AZURE_TENANT_ID` - Azure AD tenant ID
+- `AZURE_CLIENT_SECRET` - Client secret VALUE (expires 12/19/2027)
 
-- **[SIGNING-SETUP-GUIDE.md](SIGNING-SETUP-GUIDE.md)** - Start here! Complete setup instructions
-- **[SIGNING-CHECKLIST.md](SIGNING-CHECKLIST.md)** - Quick verification checklist
-- **[SIGNING.md](SIGNING.md)** - Complete documentation with examples
-- **[signing/README.md](signing/README.md)** - Signing directory details
+If you don't have the secret value, create a new one:
+Azure Portal -> App Registration -> Certificates & secrets -> New client secret.
+Copy the VALUE immediately (shown only once).
 
-## 🔑 Files Reference
+## Usage
 
-| File | Purpose | Status |
-|------|---------|--------|
-| [.env](.env) | Your Azure credentials | ⚠️ Fill in secret |
-| [.env.example](.env.example) | Template (safe to commit) | ✅ Ready |
-| [load-signing-env.ps1](load-signing-env.ps1) | Load env vars helper | ✅ Ready |
-| [sign-binary.ps1](sign-binary.ps1) | Sign individual binaries | ✅ Ready |
-| [signing/metadata.json](signing/metadata.json) | Azure config | ✅ Ready |
-| [signing/Azure.CodeSigning.Dlib.dll](signing/Azure.CodeSigning.Dlib.dll) | Microsoft DLL (119KB) | ✅ Downloaded |
-| [signing/download-signing-dll.bat](signing/download-signing-dll.bat) | DLL download script | ✅ Ready |
-
-## 🔒 Security Notes
-
-- `.env` is in .gitignore (won't be committed)
-- `.env.example` is safe to commit
-- DLL is in .gitignore (download with script)
-- Secrets are redacted when loading env vars
-
-## 💡 Usage Examples
-
-### Load Environment Variables
-
-```powershell
-cd windows_signing
-. .\load-signing-env.ps1
-
-# Verify they're loaded
-.\load-signing-env.ps1 -Verify
-```
-
-### Sign a Single Binary
-
-```powershell
-cd windows_signing
-.\sign-binary.ps1 -FilePath "..\target\release\jstorrent-host.exe"
-```
-
-### Build and Sign Installer
+### Load credentials and build with signing
 
 ```powershell
 # From desktop/ directory
-cd ..
-
-# Load env vars
 . .\windows_signing\load-signing-env.ps1
 
-# Build with signing
 $env:SIGN_BINARIES = "1"
 .\scripts\build-windows-installer.ps1
 ```
 
-### Re-download DLL
+This will:
+1. Build all Rust binaries
+2. Sign each binary (jstorrent-host, jstorrent-io-daemon, jstorrent-link-handler)
+3. Create the Inno Setup installer
+4. Sign the installer
+
+### Sign a single binary
 
 ```powershell
-cd windows_signing\signing
-.\download-signing-dll.bat -f
+. .\windows_signing\load-signing-env.ps1
+.\windows_signing\sign-binary.ps1 -FilePath "target\release\jstorrent-host.exe"
 ```
 
-## 🛠️ Integration
+### Build without signing
 
-The build script ([scripts/build-windows-installer.ps1](../scripts/build-windows-installer.ps1)) automatically uses the signing infrastructure in this directory when `SIGN_BINARIES=1` is set.
+```powershell
+.\scripts\build-windows-installer.ps1
+```
 
-It will:
-1. Sign all three binaries (jstorrent-host, jstorrent-io-daemon, jstorrent-link-handler)
-2. Create the Inno Setup installer
-3. Sign the installer
+## CI
 
-## 📖 More Information
+Signing is enabled in `.github/workflows/system-bridge-ci.yml` when `AZURE_CLIENT_SECRET` is configured as a GitHub secret. CI uses the same `trusted-signing-cli` tool and Azure endpoint.
 
-See [SIGNING-SETUP-GUIDE.md](SIGNING-SETUP-GUIDE.md) for complete setup instructions, troubleshooting, and CI/CD integration.
+Required GitHub secrets:
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_CLIENT_SECRET`
+
+## Azure Configuration
+
+- **Endpoint**: `https://eus.codesigning.azure.net` (East US)
+- **Account**: `kylegraehl`
+- **Certificate profile**: `jstorrent-profile`
+- **Required role**: App Registration needs "Trusted Signing Certificate Profile Signer" on the Trusted Signing Account
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| 403 Forbidden | Check env vars are set; verify secret VALUE not ID; check IAM role |
+| "Invalid client secret" | You're using the secret ID instead of the VALUE |
+| Endpoint error | Verify endpoint matches Azure Portal -> Trusted Signing Account -> Account URI |
+| `trusted-signing-cli` not found | Run `cargo install trusted-signing-cli` |
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `sign-binary.ps1` | Sign a single binary |
+| `load-signing-env.ps1` | Load Azure credentials from `.env` |
+| `.env.example` | Template for credentials |
+| `.env` | Your credentials (gitignored) |
+| `signing/` | Deprecated (old signtool.exe + DLL approach) |
