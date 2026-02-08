@@ -7,7 +7,6 @@ import type { IEngineManager } from '../engine-manager/types'
 import { standaloneConfirm, standaloneAlert } from '../utils/dialogs'
 import { useHostChannel } from '../host/HostChannelContext'
 
-
 /**
  * Build a config snapshot object from ConfigHub.
  * This is extracted to ensure consistent structure.
@@ -671,7 +670,6 @@ const InterfaceTab: React.FC<InterfaceTabProps> = ({ settings, config, isStandal
         </select>
       </div>
     </Section>
-
   </div>
 )
 
@@ -918,7 +916,6 @@ interface AdvancedTabProps extends TabProps {
 const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const
 type LogLevelValue = (typeof LOG_LEVELS)[number]
 
-
 const AdvancedTab: React.FC<AdvancedTabProps> = ({
   settings,
   config,
@@ -935,7 +932,6 @@ const AdvancedTab: React.FC<AdvancedTabProps> = ({
     setShowClearDataDialog(false)
     setDeleteFilesChecked(false)
   }
-
 
   return (
     <div>
@@ -958,7 +954,6 @@ const AdvancedTab: React.FC<AdvancedTabProps> = ({
             ))}
           </select>
         </div>
-
       </Section>
 
       <Section title="Danger Zone">
