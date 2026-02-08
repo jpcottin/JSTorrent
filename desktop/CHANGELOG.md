@@ -2,6 +2,18 @@
 
 All notable changes to the desktop native host components are documented here.
 
+## [1.0.2] - 2026-02-08
+
+### Added
+- diskId plumbing across all platforms for disk I/O layer
+- Native messaging integration test for system-bridge
+- Tauri webview origins to io-daemon CORS allowlist
+
+### Changed
+- Link-handler opens browser UI when launched without arguments
+- Switched Windows signing from signtool.exe+DLL to trusted-signing-cli
+- Rustfmt/clippy linting fixes across all crates
+
 ## [1.0.1] - 2026-02-04
 
 - No functional changes from 1.0.0 (re-release due to CI issue)
