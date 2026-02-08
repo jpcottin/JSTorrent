@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import 'fake-indexeddb/auto'
 import { TauriChannel } from '../../src/host/tauri-channel'
 import type { HostState, NativeEvent } from '../../src/host/types'
-import { IndexedDbSessionStore } from '@jstorrent/engine'
 
 // --- Tauri internals mock ---
 
@@ -15,7 +13,10 @@ function setupTauriMock() {
   nextCallbackId = 1
   const registeredCallbacks = new Map<number, (...args: unknown[]) => void>()
 
-  invokeHandler = vi.fn(async () => ({}))
+  invokeHandler = vi.fn(async (cmd: string) => {
+    if (cmd === 'get_pending_deep_links') return []
+    return {}
+  })
 
   const internals = {
     invoke: vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
@@ -62,33 +63,76 @@ function emitTauriEvent(event: string, payload: unknown) {
   }
 }
 
+/**
+ * In-memory KV store that simulates the host's SQLite KV store.
+ * Used by the mock invokeHandler to provide consistent KV responses.
+ */
+class MockKvStore {
+  private data = new Map<string, string>()
+
+  handle(msg: Record<string, unknown>): Record<string, unknown> {
+    const op = msg.op as string
+    switch (op) {
+      case 'kvGet': {
+        const key = msg.key as string
+        const value = this.data.get(key) ?? null
+        return { ok: true, type: 'KvValue', payload: { value } }
+      }
+      case 'kvGetMulti': {
+        const keys = msg.keys as string[]
+        const entries: Record<string, string> = {}
+        for (const key of keys) {
+          const val = this.data.get(key)
+          if (val !== undefined) entries[key] = val
+        }
+        return { ok: true, type: 'KvMultiValue', payload: { entries } }
+      }
+      case 'kvSet': {
+        const key = msg.key as string
+        const value = msg.value as string
+        this.data.set(key, value)
+        return { ok: true, type: 'Empty' }
+      }
+      case 'kvDelete': {
+        const key = msg.key as string
+        this.data.delete(key)
+        return { ok: true, type: 'Empty' }
+      }
+      case 'kvKeys': {
+        const prefix = msg.prefix as string | null
+        let keys = Array.from(this.data.keys())
+        if (prefix) keys = keys.filter((k) => k.startsWith(prefix))
+        keys.sort()
+        return { ok: true, type: 'KvKeys', payload: { keys } }
+      }
+      case 'kvClear': {
+        const prefix = msg.prefix as string | null
+        if (prefix) {
+          for (const key of this.data.keys()) {
+            if (key.startsWith(prefix)) this.data.delete(key)
+          }
+        } else {
+          this.data.clear()
+        }
+        return { ok: true, type: 'Empty' }
+      }
+      default:
+        return { ok: false, error: `Unknown op: ${op}` }
+    }
+  }
+}
+
 describe('TauriChannel', () => {
   let tauriMock: ReturnType<typeof setupTauriMock>
 
-  beforeEach(async () => {
+  beforeEach(() => {
     tauriMock = setupTauriMock()
-    // Clear the shared IndexedDB store between tests for isolation.
-    // We wait for tx.oncomplete (not just req.onsuccess) to ensure the clear
-    // is committed before the test starts, since fake-indexeddb doesn't
-    // guarantee cross-connection visibility for uncommitted transactions.
-    await new Promise<void>((resolve, reject) => {
-      const req = indexedDB.open('jstorrent-session', 1)
-      req.onupgradeneeded = () => {
-        if (!req.result.objectStoreNames.contains('kv')) {
-          req.result.createObjectStore('kv')
-        }
-      }
-      req.onsuccess = () => {
-        const tx = req.result.transaction('kv', 'readwrite')
-        tx.objectStore('kv').clear()
-        tx.oncomplete = () => resolve()
-        tx.onerror = () => reject(tx.error)
-      }
-      req.onerror = () => reject(req.error)
-    })
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Flush microtasks so floating promises (e.g. from showNotificationIfEnabled)
+    // resolve while the Tauri mock is still active.
+    await new Promise((r) => setTimeout(r, 0))
     teardownTauriMock()
     vi.restoreAllMocks()
   })
@@ -362,7 +406,20 @@ describe('TauriChannel', () => {
   })
 
   describe('KV operations', () => {
-    it('kvSet and kvGet round-trip through IndexedDB', async () => {
+    let kvStore: MockKvStore
+
+    beforeEach(() => {
+      kvStore = new MockKvStore()
+      invokeHandler = vi.fn(async (cmd, args) => {
+        if (cmd === 'host_message') {
+          const msg = args?.message as Record<string, unknown>
+          return kvStore.handle(msg)
+        }
+        return {}
+      })
+    })
+
+    it('kvSet and kvGet round-trip through host', async () => {
       const channel = new TauriChannel()
       await channel.kvSet('myKey', 'hello')
       const result = await channel.kvGet('myKey')
@@ -410,7 +467,6 @@ describe('TauriChannel', () => {
       await channel.kvSet('torrent:a', 1)
       await channel.kvSet('torrent:b', 2)
       await channel.kvSet('other', 3)
-      // Also write a config key (different keyPrefix namespace)
       await channel.kvSet('setting', 4, { keyPrefix: 'config:' })
 
       const keys = await channel.kvKeys('torrent:')
@@ -462,15 +518,22 @@ describe('TauriChannel', () => {
       expect(await channel.kvGet('theme')).toBe('session-value')
     })
 
-    it('shares IndexedDB with session store', async () => {
-      // Write via TauriChannel KV (commits via tx.oncomplete)
+    it('sends correct host_message format for kvSet', async () => {
       const channel = new TauriChannel()
-      await channel.kvSet('shared', { from: 'kv' }, { keyPrefix: 'config:' })
+      await channel.kvSet('myKey', { complex: true })
 
-      // Read via IndexedDbSessionStore — same DB, same object store
-      const store = new IndexedDbSessionStore()
-      const result = await store.getJson('config:shared')
-      expect(result).toEqual({ from: 'kv' })
+      expect(invokeHandler).toHaveBeenCalledWith('host_message', {
+        message: { op: 'kvSet', key: 'session:myKey', value: '{"complex":true}' },
+      })
+    })
+
+    it('sends correct host_message format for kvGet', async () => {
+      const channel = new TauriChannel()
+      await channel.kvGet('myKey', { keyPrefix: 'config:' })
+
+      expect(invokeHandler).toHaveBeenCalledWith('host_message', {
+        message: { op: 'kvGet', key: 'config:myKey' },
+      })
     })
   })
 
@@ -780,17 +843,24 @@ describe('TauriChannel', () => {
   })
 
   describe('clearSessionStorage()', () => {
-    it('clears IndexedDB session store', async () => {
-      const store = new IndexedDbSessionStore()
-      await store.set('key1', new Uint8Array([1, 2, 3]))
-      await store.setJson('key2', { data: true })
+    it('clears session keys via host kvClear', async () => {
+      const kvStore = new MockKvStore()
+      invokeHandler = vi.fn(async (cmd, args) => {
+        if (cmd === 'host_message') {
+          const msg = args?.message as Record<string, unknown>
+          return kvStore.handle(msg)
+        }
+        return {}
+      })
 
       const channel = new TauriChannel()
+      await channel.kvSet('key1', 'val1')
+      await channel.kvSet('key2', 'val2')
+
       await channel.clearSessionStorage()
 
-      const store2 = new IndexedDbSessionStore()
-      expect(await store2.get('key1')).toBeNull()
-      expect(await store2.getJson('key2')).toBeNull()
+      expect(await channel.kvGet('key1')).toBeUndefined()
+      expect(await channel.kvGet('key2')).toBeUndefined()
     })
   })
 

@@ -7,10 +7,20 @@ DESKTOP_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TARGET_DIR="$DESKTOP_DIR/target"
 TRIPLE="$(rustc --print host-tuple)"
 
-# If sidecar binaries already exist for this triple (e.g. CI pre-built them), skip building
-if [ -f "$SCRIPT_DIR/../src-tauri/binaries/jstorrent-host-$TRIPLE" ] || \
-   [ -f "$SCRIPT_DIR/../src-tauri/binaries/jstorrent-host-$TRIPLE.exe" ]; then
-  echo "Sidecar binaries already present for $TRIPLE, skipping build"
+BIN_DIR="$SCRIPT_DIR/../src-tauri/binaries"
+HOST_BIN="$BIN_DIR/jstorrent-host-$TRIPLE"
+DAEMON_BIN="$BIN_DIR/jstorrent-io-daemon-$TRIPLE"
+
+# On Windows, binaries have .exe extension
+if [[ "$TRIPLE" == *"windows"* ]]; then
+  HOST_BIN="$HOST_BIN.exe"
+  DAEMON_BIN="$DAEMON_BIN.exe"
+fi
+
+# In CI, sidecars are pre-built (possibly cross-compiled). Skip rebuild to avoid
+# overwriting a cross-compiled binary with a host-triple build.
+if [ "${CI:-}" = "true" ] && [ -s "$HOST_BIN" ] && [ -s "$DAEMON_BIN" ]; then
+  echo "CI: sidecar binaries already built for $TRIPLE, skipping rebuild"
   exit 0
 fi
 
@@ -24,9 +34,9 @@ HOST_SRC="$TARGET_DIR/release/jstorrent-host"
 DAEMON_SRC="$TARGET_DIR/release/jstorrent-io-daemon"
 
 # Copy for tauri build (src-tauri/binaries/ with triple suffix)
-mkdir -p "$SCRIPT_DIR/../src-tauri/binaries"
-cp "$HOST_SRC" "$SCRIPT_DIR/../src-tauri/binaries/jstorrent-host-$TRIPLE"
-cp "$DAEMON_SRC" "$SCRIPT_DIR/../src-tauri/binaries/jstorrent-io-daemon-$TRIPLE"
+mkdir -p "$BIN_DIR"
+cp "$HOST_SRC" "$HOST_BIN"
+cp "$DAEMON_SRC" "$DAEMON_BIN"
 
 # Copy for tauri dev (target/debug/binaries/ without triple suffix)
 mkdir -p "$TARGET_DIR/debug/binaries"

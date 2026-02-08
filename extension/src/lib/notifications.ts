@@ -381,8 +381,8 @@ export class NotificationManager {
   private async focusOrOpenUI(): Promise<void> {
     try {
       const url = chrome.runtime.getURL('src/ui/app.html')
-      // Use getContexts() instead of tabs.query({ url }) - works without "tabs" permission
-      const contexts = await chrome.runtime.getContexts({ contextTypes: ['TAB'] })
+      // Query all contexts and match by URL - popup windows may not have contextType 'TAB'
+      const contexts = await chrome.runtime.getContexts({})
       const existing = contexts.find((c) => c.documentUrl === url)
 
       if (existing?.tabId && existing.tabId !== -1) {

@@ -1055,6 +1055,14 @@ export class DaemonBridge {
   }
 
   /**
+   * Check if connected to desktop native host (jstorrent-host via native messaging).
+   * When true, KV operations should go through native messaging to SQLite.
+   */
+  isDesktopHost(): boolean {
+    return this.state.status === 'connected' && this.state.platform === 'desktop'
+  }
+
+  /**
    * Send a KV request over WebSocket and wait for response.
    * Only works when connected to Android companion.
    */
@@ -1086,6 +1094,47 @@ export class DaemonBridge {
       })
 
       this.ws!.send(this.buildFrame(opcode, requestId, payloadBytes))
+    })
+  }
+
+  /**
+   * Send a KV request to the desktop native host via native messaging.
+   * Returns the full response object (including payload fields like value, entries, keys).
+   * Only works when connected to desktop native host.
+   */
+  async sendNativeKvRequest(
+    op: string,
+    params: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (!this.nativePort) {
+      return { ok: false, error: 'Not connected' }
+    }
+
+    return new Promise((resolve) => {
+      const requestId = crypto.randomUUID()
+      let resolved = false
+
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true
+          resolve({ ok: false, error: 'Request timed out' })
+        }
+      }, 10000)
+
+      const handler = (msg: unknown) => {
+        if (resolved) return
+        if (typeof msg !== 'object' || msg === null) return
+        const response = msg as Record<string, unknown>
+
+        if (response.id !== requestId) return
+
+        resolved = true
+        clearTimeout(timeout)
+        resolve(response)
+      }
+
+      this.nativePort!.onMessage.addListener(handler)
+      this.nativePort!.postMessage({ op, ...params, id: requestId })
     })
   }
 

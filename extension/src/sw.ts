@@ -290,11 +290,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 // ============================================================================
 async function openUiTab() {
   const url = chrome.runtime.getURL('src/ui/app.html')
-  // Use getContexts() instead of tabs.query({ url }) - works without "tabs" permission
-  const contexts = await chrome.runtime.getContexts({ contextTypes: ['TAB'] })
+  // Query all contexts and match by URL - popup windows may not have contextType 'TAB'
+  const contexts = await chrome.runtime.getContexts({})
   const existing = contexts.find((c) => c.documentUrl === url)
   if (existing?.tabId && existing.tabId !== -1) {
-    // Focus existing window
+    // Activate the tab and focus its window
+    await chrome.tabs.update(existing.tabId, { active: true })
     if (existing.windowId && existing.windowId !== -1) {
       await chrome.windows.update(existing.windowId, { focused: true })
     }
@@ -494,6 +495,144 @@ async function handleKVMessageViaWebSocket(
   }
 }
 
+/**
+ * Handle KV_GET_MULTI when keys are split between chrome.storage.local and a remote store.
+ * Fetches from both in parallel and merges the results.
+ */
+async function handleSplitKVGetMulti(
+  remoteHandler: (
+    message: { type?: string; keys?: string[]; keyPrefix?: string },
+    sendResponse: SendResponse,
+  ) => void,
+  message: { type?: string; keys?: string[]; keyPrefix?: string },
+  localKeys: string[],
+  remoteKeys: string[],
+  sendResponse: SendResponse,
+): Promise<void> {
+  try {
+    const localPromise = new Promise<Record<string, unknown>>((resolve) => {
+      handleKVMessage({ ...message, keys: localKeys }, (resp: unknown) => {
+        const r = resp as { ok: boolean; values?: Record<string, unknown> }
+        resolve(r.ok && r.values ? r.values : {})
+      })
+    })
+    const remotePromise = new Promise<Record<string, unknown>>((resolve) => {
+      remoteHandler({ ...message, keys: remoteKeys }, (resp: unknown) => {
+        const r = resp as { ok: boolean; values?: Record<string, unknown> }
+        resolve(r.ok && r.values ? r.values : {})
+      })
+    })
+    const [localValues, remoteValues] = await Promise.all([localPromise, remotePromise])
+    sendResponse({ ok: true, values: { ...remoteValues, ...localValues } })
+  } catch (e) {
+    console.error('[SW] Split KV_GET_MULTI error:', e)
+    sendResponse({ ok: false, error: String(e) })
+  }
+}
+
+/**
+ * Handle KV message via native messaging to desktop jstorrent-host.
+ * Routes settings and session data to SQLite (shared with Tauri app).
+ *
+ * Values are JSON.stringify'd before sending and JSON.parse'd on receive,
+ * matching the TauriChannel and Android companion patterns.
+ */
+async function handleKVMessageViaNativeHost(
+  bridge: ReturnType<typeof getDaemonBridge>,
+  message: {
+    type?: string
+    key?: string
+    keys?: string[]
+    value?: unknown
+    prefix?: string
+    keyPrefix?: string
+  },
+  sendResponse: SendResponse,
+): Promise<void> {
+  try {
+    const keyPrefix = message.keyPrefix ?? DEFAULT_KV_PREFIX
+
+    function prefixKey(key: string): string {
+      return keyPrefix + key
+    }
+
+    function unprefixKey(key: string): string {
+      return key.startsWith(keyPrefix) ? key.slice(keyPrefix.length) : key
+    }
+
+    let response: Record<string, unknown>
+
+    switch (message.type) {
+      case 'KV_GET': {
+        response = await bridge.sendNativeKvRequest('kvGet', { key: prefixKey(message.key!) })
+        if (response.ok && response.type === 'KvValue') {
+          const payload = response.payload as { value?: string | null } | undefined
+          const raw = payload?.value
+          sendResponse({ ok: true, value: raw != null ? JSON.parse(raw as string) : undefined })
+        } else {
+          sendResponse({ ok: response.ok as boolean, error: response.error as string | undefined })
+        }
+        return
+      }
+      case 'KV_GET_MULTI': {
+        const prefixedKeys = message.keys!.map(prefixKey)
+        response = await bridge.sendNativeKvRequest('kvGetMulti', { keys: prefixedKeys })
+        if (response.ok && response.type === 'KvMultiValue') {
+          const payload = response.payload as { entries?: Record<string, string> } | undefined
+          const entries = payload?.entries ?? {}
+          const values: Record<string, unknown> = {}
+          for (const [k, v] of Object.entries(entries)) {
+            values[unprefixKey(k)] = JSON.parse(v)
+          }
+          sendResponse({ ok: true, values })
+        } else {
+          sendResponse({ ok: response.ok as boolean, error: response.error as string | undefined })
+        }
+        return
+      }
+      case 'KV_SET': {
+        response = await bridge.sendNativeKvRequest('kvSet', {
+          key: prefixKey(message.key!),
+          value: JSON.stringify(message.value),
+        })
+        sendResponse({ ok: response.ok as boolean, error: response.error as string | undefined })
+        return
+      }
+      case 'KV_DELETE': {
+        response = await bridge.sendNativeKvRequest('kvDelete', { key: prefixKey(message.key!) })
+        sendResponse({ ok: response.ok as boolean, error: response.error as string | undefined })
+        return
+      }
+      case 'KV_KEYS': {
+        const fullPrefix = keyPrefix + (message.prefix ?? '')
+        response = await bridge.sendNativeKvRequest('kvKeys', { prefix: fullPrefix })
+        if (response.ok && response.type === 'KvKeys') {
+          const payload = response.payload as { keys?: string[] } | undefined
+          const keys = (payload?.keys ?? [])
+            .filter((k: string) => k.startsWith(keyPrefix))
+            .map(unprefixKey)
+            .filter((k: string) => !message.prefix || k.startsWith(message.prefix))
+          sendResponse({ ok: true, keys })
+        } else {
+          sendResponse({ ok: response.ok as boolean, error: response.error as string | undefined })
+        }
+        return
+      }
+      case 'KV_CLEAR': {
+        const clearPrefix = keyPrefix + (message.prefix ?? '')
+        response = await bridge.sendNativeKvRequest('kvClear', { prefix: clearPrefix })
+        sendResponse({ ok: response.ok as boolean, error: response.error as string | undefined })
+        return
+      }
+      default:
+        sendResponse({ ok: false, error: `Unknown KV message type: ${message.type}` })
+    }
+  } catch (e) {
+    console.error('[SW] KV native host error:', e)
+    sendResponse({ ok: false, error: String(e) })
+  }
+}
+
 function handleMessage(
   message: {
     type?: string
@@ -515,15 +654,43 @@ function handleMessage(
   }
 
   // KV operations (external session store)
-  // Route to Android SQLite via WebSocket when connected to Android companion,
+  // Route to shared SQLite via native host (desktop) or Android companion (ChromeOS),
   // otherwise use chrome.storage.local.
   // Some keys must always stay in chrome.storage.local:
   // - extensionOnly config keys (e.g. windowMode) — read directly by the SW,
-  //   meaningless on the companion
+  //   meaningless on the companion/host
   // - Auth/pairing keys (android:*, installId) — needed before companion connection
   if (message.type?.startsWith('KV_')) {
-    if (bridge.isAndroidCompanion() && !isExtensionLocalKey(message.key)) {
-      handleKVMessageViaWebSocket(bridge, message, sendResponse)
+    // Determine which remote handler to use (native host or Android companion)
+    let remoteHandler: ((msg: typeof message, resp: SendResponse) => void | Promise<void>) | null =
+      null
+    if (bridge.isDesktopHost()) {
+      remoteHandler = (msg, resp) => handleKVMessageViaNativeHost(bridge, msg, resp)
+    } else if (bridge.isAndroidCompanion()) {
+      remoteHandler = (msg, resp) => handleKVMessageViaWebSocket(bridge, msg, resp)
+    }
+
+    if (remoteHandler) {
+      // Single-key ops: route based on key
+      if (!message.keys) {
+        if (isExtensionLocalKey(message.key)) {
+          return handleKVMessage(message, sendResponse)
+        }
+        remoteHandler(message, sendResponse)
+        return true
+      }
+      // KV_GET_MULTI: split extension-local keys from remote keys
+      const localKeys = message.keys.filter((k) => isExtensionLocalKey(k))
+      const remoteKeys = message.keys.filter((k) => !isExtensionLocalKey(k))
+      if (localKeys.length === 0) {
+        remoteHandler(message, sendResponse)
+        return true
+      }
+      if (remoteKeys.length === 0) {
+        return handleKVMessage(message, sendResponse)
+      }
+      // Mixed: fetch from both and merge
+      handleSplitKVGetMulti(remoteHandler, message, localKeys, remoteKeys, sendResponse)
       return true
     }
     return handleKVMessage(message, sendResponse)
@@ -650,20 +817,27 @@ function handleMessage(
 
   // Clear session storage (session:* keys) but preserve installId and metrics
   if (message.type === 'CLEAR_SESSION_STORAGE') {
-    chrome.storage.local
-      .get(null)
-      .then((all) => {
-        // Keys to preserve: installId, metrics:*, daemon:hasConnectedSuccessfully
-        const keysToRemove = Object.keys(all).filter((k) => {
-          if (k === 'installId') return false
-          if (k.startsWith('metrics:')) return false
-          if (k === 'daemon:hasConnectedSuccessfully') return false
-          // Remove session:* keys and any other torrent-related data
-          return k.startsWith('session:') || k.startsWith('torrent:')
-        })
-        console.log('[SW] Clearing session storage keys:', keysToRemove.length)
-        return chrome.storage.local.remove(keysToRemove)
+    const clearLocal = chrome.storage.local.get(null).then((all) => {
+      // Keys to preserve: installId, metrics:*, daemon:hasConnectedSuccessfully
+      const keysToRemove = Object.keys(all).filter((k) => {
+        if (k === 'installId') return false
+        if (k.startsWith('metrics:')) return false
+        if (k === 'daemon:hasConnectedSuccessfully') return false
+        // Remove session:* keys and any other torrent-related data
+        return k.startsWith('session:') || k.startsWith('torrent:')
       })
+      console.log('[SW] Clearing session storage keys:', keysToRemove.length)
+      return chrome.storage.local.remove(keysToRemove)
+    })
+
+    // Also clear session data on the shared SQLite store if connected
+    const clearRemote = bridge.isDesktopHost()
+      ? bridge.sendNativeKvRequest('kvClear', { prefix: 'session:' }).catch((e: unknown) => {
+          console.warn('[SW] Failed to clear native host session storage:', e)
+        })
+      : Promise.resolve()
+
+    Promise.all([clearLocal, clearRemote])
       .then(() => {
         sendResponse({ ok: true })
       })

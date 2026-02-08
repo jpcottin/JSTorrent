@@ -1,6 +1,7 @@
 mod daemon_manager;
 mod folder_picker;
 mod ipc;
+mod kv_store;
 mod logging;
 mod opener;
 mod path_safety;
@@ -27,8 +28,17 @@ async fn main() -> Result<()> {
 
     let (event_tx, mut event_rx) = mpsc::channel(32);
 
-    // Initialize state with event sender
-    let state = Arc::new(State::new(Some(event_tx.clone())));
+    // Initialize KV store
+    let kv = {
+        let config_dir =
+            jstorrent_common::get_config_dir().expect("Could not determine config directory");
+        let db_path = config_dir.join("jstorrent-native").join("data.db");
+        log!("Opening KV store at {:?}", db_path);
+        kv_store::KvStore::open(&db_path).expect("Failed to open KV store")
+    };
+
+    // Initialize state with event sender and KV store
+    let state = Arc::new(State::new(Some(event_tx.clone()), kv));
 
     // Start Daemon - DELAYED until Handshake
     let mut daemon_manager = daemon_manager::DaemonManager::new();
@@ -429,6 +439,39 @@ async fn handle_request(
                 }
                 None => Err(anyhow::anyhow!("Root not found: {root_key}")),
             }
+        }
+
+        // KV storage operations
+        Operation::KvGet { key } => {
+            let kv = state.kv.lock().unwrap();
+            kv.get(&key).map(|value| ResponsePayload::KvValue { value })
+        }
+
+        Operation::KvGetMulti { keys } => {
+            let kv = state.kv.lock().unwrap();
+            kv.get_multi(&keys)
+                .map(|entries| ResponsePayload::KvMultiValue { entries })
+        }
+
+        Operation::KvSet { key, value } => {
+            let kv = state.kv.lock().unwrap();
+            kv.set(&key, &value).map(|()| ResponsePayload::Empty)
+        }
+
+        Operation::KvDelete { key } => {
+            let kv = state.kv.lock().unwrap();
+            kv.delete(&key).map(|()| ResponsePayload::Empty)
+        }
+
+        Operation::KvKeys { prefix } => {
+            let kv = state.kv.lock().unwrap();
+            kv.keys(prefix.as_deref())
+                .map(|keys| ResponsePayload::KvKeys { keys })
+        }
+
+        Operation::KvClear { prefix } => {
+            let kv = state.kv.lock().unwrap();
+            kv.clear(prefix.as_deref()).map(|()| ResponsePayload::Empty)
         }
     };
 

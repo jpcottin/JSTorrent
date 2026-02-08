@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 pub struct Request {
@@ -39,6 +40,27 @@ pub enum Operation {
         root_key: String,
         path: String,
     },
+
+    // KV storage operations
+    KvGet {
+        key: String,
+    },
+    KvGetMulti {
+        keys: Vec<String>,
+    },
+    KvSet {
+        key: String,
+        value: String,
+    },
+    KvDelete {
+        key: String,
+    },
+    KvKeys {
+        prefix: Option<String>,
+    },
+    KvClear {
+        prefix: Option<String>,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -71,6 +93,15 @@ pub enum ResponsePayload {
     },
     RootRemoved {
         key: String,
+    },
+    KvValue {
+        value: Option<String>,
+    },
+    KvMultiValue {
+        entries: HashMap<String, String>,
+    },
+    KvKeys {
+        keys: Vec<String>,
     },
 }
 
