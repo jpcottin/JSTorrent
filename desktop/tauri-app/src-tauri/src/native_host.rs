@@ -49,10 +49,7 @@ fn write_manifest_for_browser(browser_config_dir: &Path, manifest_bytes: &[u8]) 
     }
     let hosts_dir = browser_config_dir.join("NativeMessagingHosts");
     if std::fs::create_dir_all(&hosts_dir).is_err() {
-        eprintln!(
-            "native-host: failed to create {}",
-            hosts_dir.display()
-        );
+        eprintln!("native-host: failed to create {}", hosts_dir.display());
         return false;
     }
     let manifest_path = hosts_dir.join(MANIFEST_FILENAME);
@@ -62,7 +59,10 @@ fn write_manifest_for_browser(browser_config_dir: &Path, manifest_bytes: &[u8]) 
             true
         }
         Err(e) => {
-            eprintln!("native-host: failed to write {}: {e}", manifest_path.display());
+            eprintln!(
+                "native-host: failed to write {}: {e}",
+                manifest_path.display()
+            );
             false
         }
     }

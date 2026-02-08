@@ -547,21 +547,19 @@ pub fn run() {
 
     // Keep app alive when all windows are hidden (user closes window -> hide, not exit).
     // Explicit quit via tray menu calls app.exit(0), which sets code = Some(0).
-    app.run(|app_handle, event| {
-        match event {
-            tauri::RunEvent::ExitRequested { api, code, .. } => {
-                if code.is_none() {
-                    api.prevent_exit();
-                }
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::ExitRequested { api, code, .. } => {
+            if code.is_none() {
+                api.prevent_exit();
             }
-            tauri::RunEvent::Reopen { .. } => {
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
-                }
-            }
-            _ => {}
         }
+        tauri::RunEvent::Reopen { .. } => {
+            if let Some(window) = app_handle.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
+        _ => {}
     });
 }
