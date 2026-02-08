@@ -49,6 +49,7 @@ function makeTauriReleaseInfo(tag: string): TauriReleaseInfo {
 
 interface GitHubRelease {
   tag_name: string
+  prerelease: boolean
   assets: Array<{ name: string; browser_download_url: string }>
 }
 
@@ -83,7 +84,9 @@ function useGitHubReleases(): {
           })
         }
 
-        const latestTauri = releases.find((r) => r.tag_name.startsWith('tauri-app-v'))
+        const latestTauri = releases.find(
+          (r) => r.tag_name.startsWith('tauri-app-v') && !r.prerelease,
+        )
         if (latestTauri) {
           const tag = latestTauri.tag_name.replace('tauri-app-', '')
           const info = makeTauriReleaseInfo(tag)

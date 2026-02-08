@@ -191,8 +191,8 @@ jobs:
           tagName: tauri-app-v__VERSION__
           releaseName: 'JSTorrent Desktop v__VERSION__'
           releaseBody: ${{ steps.changelog.outputs.notes || 'See the assets to download and install this version.' }}
-          releaseDraft: true
-          prerelease: false
+          releaseDraft: false
+          prerelease: true
           includeUpdaterJson: true
           updaterJsonKeepUniversal: true
           args: >-
@@ -272,4 +272,4 @@ jobs:
             fi
           } > /tmp/release-body.md
 
-          gh release edit "$TAG" --notes-file /tmp/release-body.md --draft=false
+          gh release edit "$TAG" --notes-file /tmp/release-body.md --prerelease=false
