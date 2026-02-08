@@ -131,7 +131,6 @@ export class ChromeExtensionChannel implements HostChannel {
       type: 'KV_GET',
       key,
       keyPrefix: opts?.keyPrefix ?? 'session:',
-      area: opts?.area ?? 'local',
     })
     return response.ok ? response.value : undefined
   }
@@ -141,7 +140,6 @@ export class ChromeExtensionChannel implements HostChannel {
       type: 'KV_GET_MULTI',
       keys,
       keyPrefix: opts?.keyPrefix ?? 'session:',
-      area: opts?.area ?? 'local',
     })
     return response.ok && response.values ? response.values : {}
   }
@@ -152,7 +150,6 @@ export class ChromeExtensionChannel implements HostChannel {
       key,
       value,
       keyPrefix: opts?.keyPrefix ?? 'session:',
-      area: opts?.area ?? 'local',
     })
   }
 
@@ -161,7 +158,6 @@ export class ChromeExtensionChannel implements HostChannel {
       type: 'KV_DELETE',
       key,
       keyPrefix: opts?.keyPrefix ?? 'session:',
-      area: opts?.area ?? 'local',
     })
   }
 
@@ -170,7 +166,6 @@ export class ChromeExtensionChannel implements HostChannel {
       type: 'KV_KEYS',
       prefix: prefix ?? '',
       keyPrefix: opts?.keyPrefix ?? 'session:',
-      area: opts?.area ?? 'local',
     })
     return response.ok && response.keys ? response.keys : []
   }
@@ -180,7 +175,6 @@ export class ChromeExtensionChannel implements HostChannel {
       type: 'KV_CLEAR',
       prefix: prefix ?? '',
       keyPrefix: opts?.keyPrefix ?? 'session:',
-      area: opts?.area ?? 'local',
     })
   }
 
@@ -336,18 +330,10 @@ export class ChromeExtensionChannel implements HostChannel {
   }
 
   /**
-   * Fire-and-forget via port if connected, else via sendMessage ignoring response.
+   * Fire-and-forget via sendMessage. Always uses chrome.runtime.sendMessage
+   * (not the port) because the SW only handles these in onMessage, not port.onMessage.
    */
   private postMessage(message: unknown): void {
-    if (this.port) {
-      try {
-        this.port.postMessage(message)
-        return
-      } catch {
-        // Port may have disconnected; fall through to sendMessage
-      }
-    }
-    // Fallback: fire-and-forget via sendMessage
     if (chrome?.runtime?.sendMessage) {
       if (this.extensionId) {
         chrome.runtime.sendMessage(this.extensionId, message).catch(() => {})

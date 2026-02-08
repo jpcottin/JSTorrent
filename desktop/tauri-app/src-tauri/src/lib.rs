@@ -304,10 +304,22 @@ fn update_tray_stats(app: tauri::AppHandle, stats: serde_json::Value) {
         return;
     };
 
-    let download_speed = stats.get("downloadSpeed").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
-    let upload_speed = stats.get("uploadSpeed").and_then(serde_json::Value::as_f64).unwrap_or(0.0);
-    let active_count = stats.get("activeCount").and_then(serde_json::Value::as_u64).unwrap_or(0);
-    let error_count = stats.get("errorCount").and_then(serde_json::Value::as_u64).unwrap_or(0);
+    let download_speed = stats
+        .get("downloadSpeed")
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or(0.0);
+    let upload_speed = stats
+        .get("uploadSpeed")
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or(0.0);
+    let active_count = stats
+        .get("activeCount")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let error_count = stats
+        .get("errorCount")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
 
     let active = if download_speed > 0.0 || upload_speed > 0.0 || active_count > 0 {
         let mut lines = vec![format!(
@@ -340,8 +352,20 @@ fn update_tray_stats(app: tauri::AppHandle, stats: serde_json::Value) {
             format_bytes(download_speed)
         )));
     } else {
-        let _ = tray.set_title(None::<&str>);
+        let _ = tray.set_title(Some(""));
     }
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn show_notification(app: tauri::AppHandle, title: String, body: String) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app
+        .notification()
+        .builder()
+        .title(&title)
+        .body(&body)
+        .show();
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -350,12 +374,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             host_handshake,
             host_message,
             get_pending_deep_links,
             update_tray_stats,
+            show_notification,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

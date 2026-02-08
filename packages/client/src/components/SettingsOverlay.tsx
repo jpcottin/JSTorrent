@@ -28,6 +28,7 @@ function buildConfigSnapshot(config: ConfigHub) {
     progressBarStyle: config.progressBarStyle.get(),
     uiScale: config.uiScale.get(),
     maxFps: config.maxFps.get(),
+    windowMode: config.windowMode.get(),
     // Network
     listeningPortAuto: config.listeningPortAuto.get(),
     listeningPort: config.listeningPort.get(),
@@ -110,6 +111,7 @@ type SettingsTab = 'general' | 'interface' | 'network' | 'advanced'
 type Theme = 'system' | 'dark' | 'light'
 type ProgressBarStyle = 'text' | 'bar'
 type UiScale = 'small' | 'default' | 'large' | 'larger'
+type WindowMode = 'popup' | 'tab'
 
 /** Strip Windows extended-length path prefix for display */
 function formatPathForDisplay(path: string): string {
@@ -667,6 +669,24 @@ const InterfaceTab: React.FC<InterfaceTabProps> = ({
           ))}
         </select>
       </div>
+      {!isStandalone && (
+        <div style={styles.fieldRow}>
+          <div style={{ flex: 1 }}>
+            <div>Window Mode</div>
+            <div style={{ fontSize: 'var(--font-xs, 12px)', color: 'var(--text-secondary)' }}>
+              Popup opens in a standalone window without browser chrome
+            </div>
+          </div>
+          <select
+            value={settings.windowMode}
+            onChange={(e) => config.set('windowMode', e.target.value as WindowMode)}
+            style={styles.select}
+          >
+            <option value="popup">Popup Window</option>
+            <option value="tab">Browser Tab</option>
+          </select>
+        </div>
+      )}
     </Section>
 
     <Section title="Performance">

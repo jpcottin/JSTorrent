@@ -11,4 +11,4 @@ export type Unsubscribe = () => void
 export type ConfigCategory = 'setting' | 'runtime' | 'storage'
 
 /** Storage class for persisted settings */
-export type ConfigStorageClass = 'sync' | 'local'
+export type ConfigStorageClass = 'local'

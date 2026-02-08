@@ -72,8 +72,6 @@ export interface HostCapabilities {
 export interface KVOpts {
   /** Key namespace (default: 'session:') */
   keyPrefix?: string
-  /** Chrome storage area; Tauri ignores */
-  area?: 'local' | 'sync'
 }
 
 // --- Notifications ---

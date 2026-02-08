@@ -311,7 +311,7 @@ describe('ChromeExtensionChannel', () => {
       const result = await channel.kvGet('testKey')
 
       expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
-        { type: 'KV_GET', key: 'testKey', keyPrefix: 'session:', area: 'local' },
+        { type: 'KV_GET', key: 'testKey', keyPrefix: 'session:' },
         expect.any(Function),
       )
       expect(result).toBe('hello')
@@ -325,10 +325,10 @@ describe('ChromeExtensionChannel', () => {
       await channel.connect()
 
       sendMessageResponse = { ok: true, value: 42 }
-      await channel.kvGet('key', { keyPrefix: 'config:', area: 'sync' })
+      await channel.kvGet('key', { keyPrefix: 'config:' })
 
       expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
-        { type: 'KV_GET', key: 'key', keyPrefix: 'config:', area: 'sync' },
+        { type: 'KV_GET', key: 'key', keyPrefix: 'config:' },
         expect.any(Function),
       )
 
@@ -356,7 +356,7 @@ describe('ChromeExtensionChannel', () => {
       const result = await channel.kvGetMulti(['a', 'b'])
 
       expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
-        { type: 'KV_GET_MULTI', keys: ['a', 'b'], keyPrefix: 'session:', area: 'local' },
+        { type: 'KV_GET_MULTI', keys: ['a', 'b'], keyPrefix: 'session:' },
         expect.any(Function),
       )
       expect(result).toEqual({ a: 1, b: 2 })
@@ -370,7 +370,7 @@ describe('ChromeExtensionChannel', () => {
       await channel.connect()
 
       sendMessageResponse = { ok: true }
-      await channel.kvSet('myKey', { foo: 'bar' }, { keyPrefix: 'config:', area: 'sync' })
+      await channel.kvSet('myKey', { foo: 'bar' }, { keyPrefix: 'config:' })
 
       expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
         {
@@ -378,7 +378,6 @@ describe('ChromeExtensionChannel', () => {
           key: 'myKey',
           value: { foo: 'bar' },
           keyPrefix: 'config:',
-          area: 'sync',
         },
         expect.any(Function),
       )
@@ -395,7 +394,7 @@ describe('ChromeExtensionChannel', () => {
       await channel.kvDelete('delKey')
 
       expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
-        { type: 'KV_DELETE', key: 'delKey', keyPrefix: 'session:', area: 'local' },
+        { type: 'KV_DELETE', key: 'delKey', keyPrefix: 'session:' },
         expect.any(Function),
       )
 
@@ -411,7 +410,7 @@ describe('ChromeExtensionChannel', () => {
       const result = await channel.kvKeys('prefix:')
 
       expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
-        { type: 'KV_KEYS', prefix: 'prefix:', keyPrefix: 'session:', area: 'local' },
+        { type: 'KV_KEYS', prefix: 'prefix:', keyPrefix: 'session:' },
         expect.any(Function),
       )
       expect(result).toEqual(['a', 'b', 'c'])
@@ -428,7 +427,7 @@ describe('ChromeExtensionChannel', () => {
       await channel.kvClear('prefix:')
 
       expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
-        { type: 'KV_CLEAR', prefix: 'prefix:', keyPrefix: 'session:', area: 'local' },
+        { type: 'KV_CLEAR', prefix: 'prefix:', keyPrefix: 'session:' },
         expect.any(Function),
       )
 
@@ -520,14 +519,14 @@ describe('ChromeExtensionChannel', () => {
   })
 
   describe('notify()', () => {
-    it('sends notification via port postMessage', async () => {
+    it('sends notification via sendMessage', async () => {
       sendMessageResponse = { ok: false }
       const channel = new ChromeExtensionChannel()
       await channel.connect()
 
       channel.notify({ type: 'visibility', visible: true })
 
-      expect(mockPort.postMessage).toHaveBeenCalledWith({
+      expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith({
         type: 'notification:visibility',
         visible: true,
       })
@@ -542,7 +541,7 @@ describe('ChromeExtensionChannel', () => {
 
       channel.notify({ type: 'torrent-complete', infoHash: 'abc', name: 'test.torrent' })
 
-      expect(mockPort.postMessage).toHaveBeenCalledWith({
+      expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith({
         type: 'notification:torrent-complete',
         infoHash: 'abc',
         name: 'test.torrent',
@@ -577,7 +576,7 @@ describe('ChromeExtensionChannel', () => {
 
       channel.triggerLaunch()
 
-      expect(mockPort.postMessage).toHaveBeenCalledWith({ type: 'TRIGGER_LAUNCH' })
+      expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith({ type: 'TRIGGER_LAUNCH' })
 
       channel.disconnect()
     })
@@ -654,14 +653,14 @@ describe('ChromeExtensionChannel', () => {
   })
 
   describe('notifyClosing()', () => {
-    it('sends UI_CLOSING via postMessage', async () => {
+    it('sends UI_CLOSING via sendMessage', async () => {
       sendMessageResponse = { ok: false }
       const channel = new ChromeExtensionChannel()
       await channel.connect()
 
       channel.notifyClosing()
 
-      expect(mockPort.postMessage).toHaveBeenCalledWith({ type: 'UI_CLOSING' })
+      expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith({ type: 'UI_CLOSING' })
 
       channel.disconnect()
     })
@@ -718,7 +717,7 @@ describe('ChromeExtensionChannel', () => {
 
       channel.openChromeOSIntent()
 
-      expect(mockPort.postMessage).toHaveBeenCalledWith({ type: 'CHROMEOS_OPEN_INTENT' })
+      expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith({ type: 'CHROMEOS_OPEN_INTENT' })
 
       channel.disconnect()
     })
@@ -730,7 +729,9 @@ describe('ChromeExtensionChannel', () => {
 
       channel.resetChromeOSPairing()
 
-      expect(mockPort.postMessage).toHaveBeenCalledWith({ type: 'CHROMEOS_RESET_PAIRING' })
+      expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith({
+        type: 'CHROMEOS_RESET_PAIRING',
+      })
 
       channel.disconnect()
     })

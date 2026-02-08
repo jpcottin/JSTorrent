@@ -1,11 +1,14 @@
 import { ISessionStore } from '../../interfaces/session-store'
 
+/** IndexedDB database name shared by session store and KV storage. */
+export const INDEXEDDB_NAME = 'jstorrent-session'
+
 const STORE_NAME = 'kv'
 
 export class IndexedDbSessionStore implements ISessionStore {
   private _dbPromise: Promise<IDBDatabase> | null = null
 
-  constructor(private dbName: string = 'jstorrent-session') {}
+  constructor(private dbName: string = INDEXEDDB_NAME) {}
 
   private openDb(): Promise<IDBDatabase> {
     if (!this._dbPromise) {
@@ -114,9 +117,7 @@ export class IndexedDbSessionStore implements ISessionStore {
  * Clear the IndexedDB session database.
  * Standalone utility for use by TauriChannel.clearSessionStorage().
  */
-export async function clearIndexedDbSessionStore(
-  dbName: string = 'jstorrent-session',
-): Promise<void> {
+export async function clearIndexedDbSessionStore(dbName: string = INDEXEDDB_NAME): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(dbName, 1)
     request.onupgradeneeded = () => {

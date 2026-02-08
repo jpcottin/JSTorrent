@@ -116,6 +116,7 @@ export abstract class BaseConfigHub implements ConfigHub {
   readonly progressBarStyle = createConfigValue(this, 'progressBarStyle')
   readonly uiScale = createConfigValue(this, 'uiScale')
   readonly pieceViewMode = createConfigValue(this, 'pieceViewMode')
+  readonly windowMode = createConfigValue(this, 'windowMode')
 
   // Settings: Notifications
   readonly notifyOnTorrentComplete = createConfigValue(this, 'notifyOnTorrentComplete')

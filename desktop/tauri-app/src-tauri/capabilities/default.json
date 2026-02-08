@@ -9,6 +9,7 @@
     "shell:allow-spawn",
     "shell:allow-execute",
     "deep-link:default",
-    "updater:default"
+    "updater:default",
+    "notification:default"
   ]
 }

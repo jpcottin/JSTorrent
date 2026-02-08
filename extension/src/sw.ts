@@ -11,6 +11,7 @@ self.addEventListener('activate', () => {
   console.log('[SW] Activate event - now controlling pages')
 })
 
+import { getConfigDefault, isConfigExtensionOnly, type ConfigKey } from '@jstorrent/engine'
 import { getDaemonBridge, type NativeEvent, type DaemonBridgeState } from './lib/daemon-bridge'
 import { handleKVMessage } from './lib/kv-handlers'
 import { NotificationManager, ProgressStats } from './lib/notifications'
@@ -298,8 +299,13 @@ async function openUiTab() {
       await chrome.windows.update(existing.windowId, { focused: true })
     }
   } else {
-    // Create standalone popup window (no tab strip)
-    await chrome.windows.create({ url, type: 'popup', width: 1024, height: 768 })
+    const result = await chrome.storage.local.get('config:windowMode')
+    const mode = result['config:windowMode'] ?? getConfigDefault('windowMode')
+    if (mode === 'popup') {
+      await chrome.windows.create({ url, type: 'popup', width: 1024, height: 768 })
+    } else {
+      await chrome.tabs.create({ url })
+    }
   }
 }
 
@@ -373,6 +379,25 @@ const KV_OPCODES = {
 
 // Default key prefix for KV storage (must match kv-handlers.ts)
 const DEFAULT_KV_PREFIX = 'session:'
+
+const CONFIG_KEY_PREFIX = 'config:'
+
+/** Keys that must stay in chrome.storage.local even when a companion is connected. */
+function isExtensionLocalKey(key: string | undefined): boolean {
+  if (!key) return false
+  // Auth/pairing keys — needed before/outside companion connection
+  if (key === 'installId' || key.startsWith('android:')) return true
+  // extensionOnly config keys — read directly by the SW, meaningless on companion
+  if (key.startsWith(CONFIG_KEY_PREFIX)) {
+    const configKey = key.slice(CONFIG_KEY_PREFIX.length)
+    try {
+      return isConfigExtensionOnly(configKey as ConfigKey)
+    } catch {
+      return false
+    }
+  }
+  return false
+}
 
 /**
  * Handle KV message via WebSocket to Android companion.
@@ -491,16 +516,13 @@ function handleMessage(
 
   // KV operations (external session store)
   // Route to Android SQLite via WebSocket when connected to Android companion,
-  // otherwise use chrome.storage.
-  // EXCEPTION: Auth credentials (android:authToken, installId) must stay in
-  // chrome.storage.local because they're used for pairing/authentication and
-  // are written directly by daemon-bridge.ts and chromeos-bootstrap.ts.
+  // otherwise use chrome.storage.local.
+  // Some keys must always stay in chrome.storage.local:
+  // - extensionOnly config keys (e.g. windowMode) — read directly by the SW,
+  //   meaningless on the companion
+  // - Auth/pairing keys (android:*, installId) — needed before companion connection
   if (message.type?.startsWith('KV_')) {
-    const key = message.key as string | undefined
-    const isCredentialKey =
-      key === 'android:authToken' || key === 'installId' || key?.startsWith('android:')
-
-    if (bridge.isAndroidCompanion() && !isCredentialKey) {
+    if (bridge.isAndroidCompanion() && !isExtensionLocalKey(message.key)) {
       handleKVMessageViaWebSocket(bridge, message, sendResponse)
       return true
     }

@@ -10,7 +10,6 @@ import {
   type ConfigKey,
   type ConfigType,
   getConfigCategory,
-  getConfigStorageClass,
   configSchema,
 } from '@jstorrent/engine'
 import type { HostChannel } from './host-channel'
@@ -66,63 +65,26 @@ export class HostChannelConfigHub extends BaseConfigHub {
     console.log('[HostChannelConfigHub] loadFromStorage called')
     const result: Partial<ConfigType> = {}
 
-    // Get all setting keys (category === 'setting')
+    // Get all setting keys (category === 'setting') plus defaultRootKey (storage category)
     const settingKeys = (Object.keys(configSchema) as ConfigKey[]).filter(
       (key) => getConfigCategory(key) === 'setting',
     )
+    const allKeys = [
+      ...settingKeys.map((k) => SETTINGS_KEY_PREFIX + k),
+      SETTINGS_KEY_PREFIX + 'defaultRootKey',
+    ]
 
-    // Group keys by their storage area (sync vs local)
-    const syncKeys: string[] = []
-    const localKeys: string[] = []
-
-    for (const configKey of settingKeys) {
-      const storageClass = getConfigStorageClass(configKey) ?? 'sync'
-      const prefixedKey = SETTINGS_KEY_PREFIX + configKey
-
-      if (storageClass === 'local') {
-        localKeys.push(prefixedKey)
-      } else {
-        syncKeys.push(prefixedKey)
-      }
-    }
-
-    // Also fetch defaultRootKey (storage category, uses 'local')
-    localKeys.push(SETTINGS_KEY_PREFIX + 'defaultRootKey')
-
-    // Fetch values from both storage areas
     let stored: Record<string, unknown> = {}
-
-    // Fetch sync storage
-    if (syncKeys.length > 0) {
-      try {
-        const syncValues = await this.channel.kvGetMulti(syncKeys, {
-          keyPrefix: '',
-          area: 'sync',
-        })
-        stored = { ...stored, ...syncValues }
-      } catch (e) {
-        console.warn('[HostChannelConfigHub] Failed to load sync settings:', e)
-      }
-    }
-
-    // Fetch local storage
-    if (localKeys.length > 0) {
-      try {
-        const localValues = await this.channel.kvGetMulti(localKeys, {
-          keyPrefix: '',
-          area: 'local',
-        })
-        stored = { ...stored, ...localValues }
-      } catch (e) {
-        console.warn('[HostChannelConfigHub] Failed to load local settings:', e)
-      }
+    try {
+      stored = await this.channel.kvGetMulti(allKeys, { keyPrefix: '' })
+    } catch (e) {
+      console.warn('[HostChannelConfigHub] Failed to load settings:', e)
+      return result
     }
 
     // Map stored values back to ConfigHub keys
     for (const configKey of settingKeys) {
-      const storageKey = SETTINGS_KEY_PREFIX + configKey
-      const value = stored[storageKey]
-
+      const value = stored[SETTINGS_KEY_PREFIX + configKey]
       if (value !== undefined) {
         ;(result as Record<string, unknown>)[configKey] = value
       }
@@ -158,12 +120,7 @@ export class HostChannelConfigHub extends BaseConfigHub {
       return
     }
 
-    const storageClass = getConfigStorageClass(key) ?? 'sync'
-
-    await this.channel.kvSet(SETTINGS_KEY_PREFIX + key, value, {
-      keyPrefix: '',
-      area: storageClass,
-    })
+    await this.channel.kvSet(SETTINGS_KEY_PREFIX + key, value, { keyPrefix: '' })
   }
 
   /**

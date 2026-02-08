@@ -4,32 +4,6 @@ import { TauriChannel } from '../../src/host/tauri-channel'
 import type { HostState, NativeEvent } from '../../src/host/types'
 import { IndexedDbSessionStore } from '@jstorrent/engine'
 
-// --- localStorage mock (happy-dom's localStorage is incomplete) ---
-
-function createMockLocalStorage(): Storage {
-  const store = new Map<string, string>()
-  return {
-    getItem(key: string) {
-      return store.get(key) ?? null
-    },
-    setItem(key: string, value: string) {
-      store.set(key, value)
-    },
-    removeItem(key: string) {
-      store.delete(key)
-    },
-    key(index: number) {
-      return [...store.keys()][index] ?? null
-    },
-    get length() {
-      return store.size
-    },
-    clear() {
-      store.clear()
-    },
-  }
-}
-
 // --- Tauri internals mock ---
 
 let invokeHandler: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
@@ -88,26 +62,35 @@ function emitTauriEvent(event: string, payload: unknown) {
   }
 }
 
-let mockStorage: Storage
-let originalLocalStorage: Storage
-
 describe('TauriChannel', () => {
   let tauriMock: ReturnType<typeof setupTauriMock>
 
-  beforeEach(() => {
+  beforeEach(async () => {
     tauriMock = setupTauriMock()
-    mockStorage = createMockLocalStorage()
-    originalLocalStorage = globalThis.localStorage
-    Object.defineProperty(globalThis, 'localStorage', { value: mockStorage, configurable: true })
+    // Clear the shared IndexedDB store between tests for isolation.
+    // We wait for tx.oncomplete (not just req.onsuccess) to ensure the clear
+    // is committed before the test starts, since fake-indexeddb doesn't
+    // guarantee cross-connection visibility for uncommitted transactions.
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('jstorrent-session', 1)
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains('kv')) {
+          req.result.createObjectStore('kv')
+        }
+      }
+      req.onsuccess = () => {
+        const tx = req.result.transaction('kv', 'readwrite')
+        tx.objectStore('kv').clear()
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+      }
+      req.onerror = () => reject(req.error)
+    })
   })
 
   afterEach(() => {
     teardownTauriMock()
     vi.restoreAllMocks()
-    Object.defineProperty(globalThis, 'localStorage', {
-      value: originalLocalStorage,
-      configurable: true,
-    })
   })
 
   describe('constructor', () => {
@@ -379,10 +362,9 @@ describe('TauriChannel', () => {
   })
 
   describe('KV operations', () => {
-    it('kvGet reads from localStorage with jst: prefix', async () => {
-      localStorage.setItem('jst:session:myKey', JSON.stringify('hello'))
-
+    it('kvSet and kvGet round-trip through IndexedDB', async () => {
       const channel = new TauriChannel()
+      await channel.kvSet('myKey', 'hello')
       const result = await channel.kvGet('myKey')
       expect(result).toBe('hello')
     })
@@ -394,95 +376,101 @@ describe('TauriChannel', () => {
     })
 
     it('kvGet uses custom keyPrefix', async () => {
-      localStorage.setItem('jst:config:theme', JSON.stringify('dark'))
-
       const channel = new TauriChannel()
+      await channel.kvSet('theme', 'dark', { keyPrefix: 'config:' })
       const result = await channel.kvGet('theme', { keyPrefix: 'config:' })
       expect(result).toBe('dark')
     })
 
-    it('kvGet ignores area (treated as local)', async () => {
-      localStorage.setItem('jst:config:setting', JSON.stringify(42))
-
+    it('kvSet stores objects', async () => {
       const channel = new TauriChannel()
-      const result = await channel.kvGet('setting', { keyPrefix: 'config:', area: 'sync' })
-      expect(result).toBe(42)
+      await channel.kvSet('key1', { foo: 'bar' })
+      const result = await channel.kvGet('key1')
+      expect(result).toEqual({ foo: 'bar' })
     })
 
     it('kvGetMulti reads multiple keys', async () => {
-      localStorage.setItem('jst:session:a', JSON.stringify(1))
-      localStorage.setItem('jst:session:b', JSON.stringify(2))
-
       const channel = new TauriChannel()
+      await channel.kvSet('a', 1)
+      await channel.kvSet('b', 2)
       const result = await channel.kvGetMulti(['a', 'b', 'c'])
       expect(result).toEqual({ a: 1, b: 2 })
     })
 
-    it('kvSet writes to localStorage', async () => {
+    it('kvDelete removes key', async () => {
       const channel = new TauriChannel()
-      await channel.kvSet('key1', { foo: 'bar' })
-      expect(localStorage.getItem('jst:session:key1')).toBe(JSON.stringify({ foo: 'bar' }))
-    })
-
-    it('kvSet uses custom keyPrefix', async () => {
-      const channel = new TauriChannel()
-      await channel.kvSet('theme', 'dark', { keyPrefix: 'config:' })
-      expect(localStorage.getItem('jst:config:theme')).toBe(JSON.stringify('dark'))
-    })
-
-    it('kvDelete removes from localStorage', async () => {
-      localStorage.setItem('jst:session:delMe', JSON.stringify('value'))
-
-      const channel = new TauriChannel()
+      await channel.kvSet('delMe', 'value')
       await channel.kvDelete('delMe')
-      expect(localStorage.getItem('jst:session:delMe')).toBeNull()
+      const result = await channel.kvGet('delMe')
+      expect(result).toBeUndefined()
     })
 
     it('kvKeys returns keys matching prefix', async () => {
-      localStorage.setItem('jst:session:torrent:a', JSON.stringify(1))
-      localStorage.setItem('jst:session:torrent:b', JSON.stringify(2))
-      localStorage.setItem('jst:session:other', JSON.stringify(3))
-      localStorage.setItem('jst:config:setting', JSON.stringify(4))
-
       const channel = new TauriChannel()
+      await channel.kvSet('torrent:a', 1)
+      await channel.kvSet('torrent:b', 2)
+      await channel.kvSet('other', 3)
+      // Also write a config key (different keyPrefix namespace)
+      await channel.kvSet('setting', 4, { keyPrefix: 'config:' })
+
       const keys = await channel.kvKeys('torrent:')
       expect(keys.sort()).toEqual(['torrent:a', 'torrent:b'])
     })
 
     it('kvKeys returns all session keys when no prefix', async () => {
-      localStorage.setItem('jst:session:a', JSON.stringify(1))
-      localStorage.setItem('jst:session:b', JSON.stringify(2))
-      localStorage.setItem('jst:config:c', JSON.stringify(3))
-
       const channel = new TauriChannel()
+      await channel.kvSet('a', 1)
+      await channel.kvSet('b', 2)
+      await channel.kvSet('c', 3, { keyPrefix: 'config:' })
+
       const keys = await channel.kvKeys()
       expect(keys.sort()).toEqual(['a', 'b'])
     })
 
     it('kvClear removes keys matching prefix', async () => {
-      localStorage.setItem('jst:session:torrent:a', JSON.stringify(1))
-      localStorage.setItem('jst:session:torrent:b', JSON.stringify(2))
-      localStorage.setItem('jst:session:other', JSON.stringify(3))
-
       const channel = new TauriChannel()
+      await channel.kvSet('torrent:a', 1)
+      await channel.kvSet('torrent:b', 2)
+      await channel.kvSet('other', 3)
+
       await channel.kvClear('torrent:')
 
-      expect(localStorage.getItem('jst:session:torrent:a')).toBeNull()
-      expect(localStorage.getItem('jst:session:torrent:b')).toBeNull()
-      expect(localStorage.getItem('jst:session:other')).toBe(JSON.stringify(3))
+      expect(await channel.kvGet('torrent:a')).toBeUndefined()
+      expect(await channel.kvGet('torrent:b')).toBeUndefined()
+      expect(await channel.kvGet('other')).toBe(3)
     })
 
     it('kvClear removes all session keys when no prefix', async () => {
-      localStorage.setItem('jst:session:a', JSON.stringify(1))
-      localStorage.setItem('jst:session:b', JSON.stringify(2))
-      localStorage.setItem('jst:config:c', JSON.stringify(3))
-
       const channel = new TauriChannel()
+      await channel.kvSet('a', 1)
+      await channel.kvSet('b', 2)
+      await channel.kvSet('c', 3, { keyPrefix: 'config:' })
+
       await channel.kvClear()
 
-      expect(localStorage.getItem('jst:session:a')).toBeNull()
-      expect(localStorage.getItem('jst:session:b')).toBeNull()
-      expect(localStorage.getItem('jst:config:c')).toBe(JSON.stringify(3))
+      expect(await channel.kvGet('a')).toBeUndefined()
+      expect(await channel.kvGet('b')).toBeUndefined()
+      expect(await channel.kvGet('c', { keyPrefix: 'config:' })).toBe(3)
+    })
+
+    it('config and session keys are isolated', async () => {
+      const channel = new TauriChannel()
+      await channel.kvSet('theme', 'dark', { keyPrefix: 'config:' })
+      await channel.kvSet('theme', 'session-value')
+
+      expect(await channel.kvGet('theme', { keyPrefix: 'config:' })).toBe('dark')
+      expect(await channel.kvGet('theme')).toBe('session-value')
+    })
+
+    it('shares IndexedDB with session store', async () => {
+      // Write via TauriChannel KV (commits via tx.oncomplete)
+      const channel = new TauriChannel()
+      await channel.kvSet('shared', { from: 'kv' }, { keyPrefix: 'config:' })
+
+      // Read via IndexedDbSessionStore — same DB, same object store
+      const store = new IndexedDbSessionStore()
+      const result = await store.getJson('config:shared')
+      expect(result).toEqual({ from: 'kv' })
     })
   })
 
@@ -832,7 +820,7 @@ describe('TauriChannel', () => {
       expect(channel.capabilities).toEqual({
         rootsManageable: true,
         hasSync: false,
-        hasNativeNotifications: false,
+        hasNativeNotifications: true,
         hasBackgroundPersistence: true,
       })
     })

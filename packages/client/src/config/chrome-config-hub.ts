@@ -10,7 +10,6 @@ import {
   type ConfigKey,
   type ConfigType,
   getConfigCategory,
-  getConfigStorageClass,
   configSchema,
 } from '@jstorrent/engine'
 
@@ -99,73 +98,37 @@ export class ChromeConfigHub extends BaseConfigHub {
   }
 
   /**
-   * Load all persisted settings from chrome.storage.
+   * Load all persisted settings from chrome.storage.local.
    */
   protected async loadFromStorage(): Promise<Partial<ConfigType>> {
     console.log('[ChromeConfigHub] loadFromStorage called')
     const result: Partial<ConfigType> = {}
 
-    // Get all setting keys (category === 'setting')
+    // Get all setting keys (category === 'setting') plus defaultRootKey (storage category)
     const settingKeys = (Object.keys(configSchema) as ConfigKey[]).filter(
       (key) => getConfigCategory(key) === 'setting',
     )
+    const allKeys = [
+      ...settingKeys.map((k) => SETTINGS_KEY_PREFIX + k),
+      SETTINGS_KEY_PREFIX + 'defaultRootKey',
+    ]
 
-    // Group keys by their storage area (sync vs local)
-    const syncKeys: string[] = []
-    const localKeys: string[] = []
+    const response = await sendKVMessage<Record<string, unknown>>(this.extensionId, {
+      type: 'KV_GET_MULTI',
+      keys: allKeys,
+      keyPrefix: '',
+    })
 
-    for (const configKey of settingKeys) {
-      const storageClass = getConfigStorageClass(configKey) ?? 'sync'
-      const prefixedKey = SETTINGS_KEY_PREFIX + configKey
-
-      if (storageClass === 'local') {
-        localKeys.push(prefixedKey)
-      } else {
-        syncKeys.push(prefixedKey)
-      }
+    if (!response.ok || !response.values) {
+      console.warn('[ChromeConfigHub] Failed to load settings:', response.error)
+      return result
     }
 
-    // Also fetch defaultRootKey (storage category, uses 'local')
-    localKeys.push(SETTINGS_KEY_PREFIX + 'defaultRootKey')
-
-    // Fetch values from both storage areas
-    let stored: Record<string, unknown> = {}
-
-    // Fetch sync storage
-    if (syncKeys.length > 0) {
-      const syncResponse = await sendKVMessage<Record<string, unknown>>(this.extensionId, {
-        type: 'KV_GET_MULTI',
-        keys: syncKeys,
-        keyPrefix: '',
-        area: 'sync',
-      })
-      if (syncResponse.ok && syncResponse.values) {
-        stored = { ...stored, ...syncResponse.values }
-      } else {
-        console.warn('[ChromeConfigHub] Failed to load sync settings:', syncResponse.error)
-      }
-    }
-
-    // Fetch local storage
-    if (localKeys.length > 0) {
-      const localResponse = await sendKVMessage<Record<string, unknown>>(this.extensionId, {
-        type: 'KV_GET_MULTI',
-        keys: localKeys,
-        keyPrefix: '',
-        area: 'local',
-      })
-      if (localResponse.ok && localResponse.values) {
-        stored = { ...stored, ...localResponse.values }
-      } else {
-        console.warn('[ChromeConfigHub] Failed to load local settings:', localResponse.error)
-      }
-    }
+    const stored = response.values
 
     // Map stored values back to ConfigHub keys
     for (const configKey of settingKeys) {
-      const storageKey = SETTINGS_KEY_PREFIX + configKey
-      const value = stored[storageKey]
-
+      const value = stored[SETTINGS_KEY_PREFIX + configKey]
       if (value !== undefined) {
         ;(result as Record<string, unknown>)[configKey] = value
       }
@@ -186,7 +149,7 @@ export class ChromeConfigHub extends BaseConfigHub {
   }
 
   /**
-   * Save a single value to chrome.storage.
+   * Save a single value to chrome.storage.local.
    */
   protected async saveToStorage<K extends ConfigKey>(key: K, value: ConfigType[K]): Promise<void> {
     const category = getConfigCategory(key)
@@ -201,14 +164,11 @@ export class ChromeConfigHub extends BaseConfigHub {
       return
     }
 
-    const storageClass = getConfigStorageClass(key) ?? 'sync'
-
     await sendKVMessage(this.extensionId, {
       type: 'KV_SET',
       key: SETTINGS_KEY_PREFIX + key,
       value,
       keyPrefix: '',
-      area: storageClass,
     })
   }
 

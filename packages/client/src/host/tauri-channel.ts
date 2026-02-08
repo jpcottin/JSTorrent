@@ -4,13 +4,13 @@
  * Communicates with the system-bridge via the Tauri Rust backend, which relays
  * messages over stdin/stdout using the native messaging protocol.
  *
- * KV storage uses localStorage with `jst:` prefix (no sync storage in Tauri).
+ * KV storage uses IndexedDB (shared `jstorrent-session` database, `kv` object store).
  *
  * Accesses the Tauri runtime directly via window.__TAURI_INTERNALS__ to avoid
  * an npm dependency on @tauri-apps/api in the shared client package.
  */
 
-import { clearIndexedDbSessionStore } from '@jstorrent/engine'
+import { clearIndexedDbSessionStore, INDEXEDDB_NAME } from '@jstorrent/engine'
 import type { HostChannel } from './host-channel'
 import type {
   HostState,
@@ -67,9 +67,108 @@ function tauriListen<T>(
     })
 }
 
+// --- IndexedDB KV (shares jstorrent-session database with session store) ---
+
+const IDB_STORE = 'kv'
+
+class IndexedDbKV {
+  private _dbPromise: Promise<IDBDatabase> | null = null
+
+  private openDb(): Promise<IDBDatabase> {
+    if (!this._dbPromise) {
+      this._dbPromise = new Promise((resolve, reject) => {
+        const request = indexedDB.open(INDEXEDDB_NAME, 1)
+        request.onupgradeneeded = () => {
+          if (!request.result.objectStoreNames.contains(IDB_STORE)) {
+            request.result.createObjectStore(IDB_STORE)
+          }
+        }
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+    }
+    return this._dbPromise
+  }
+
+  async get<T>(key: string): Promise<T | undefined> {
+    const db = await this.openDb()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly')
+      const req = tx.objectStore(IDB_STORE).get(key)
+      req.onsuccess = () => resolve(req.result as T | undefined)
+      tx.onerror = () => reject(tx.error)
+    })
+  }
+
+  async getMulti(keys: string[]): Promise<Record<string, unknown>> {
+    if (keys.length === 0) return {}
+    const db = await this.openDb()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly')
+      const store = tx.objectStore(IDB_STORE)
+      const result: Record<string, unknown> = {}
+      for (const key of keys) {
+        const req = store.get(key)
+        req.onsuccess = () => {
+          if (req.result !== undefined) result[key] = req.result
+        }
+      }
+      tx.oncomplete = () => resolve(result)
+      tx.onerror = () => reject(tx.error)
+    })
+  }
+
+  async set(key: string, value: unknown): Promise<void> {
+    const db = await this.openDb()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite')
+      tx.objectStore(IDB_STORE).put(value, key)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  }
+
+  async delete(key: string): Promise<void> {
+    const db = await this.openDb()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite')
+      tx.objectStore(IDB_STORE).delete(key)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  }
+
+  async keys(prefix?: string): Promise<string[]> {
+    const db = await this.openDb()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly')
+      const req = tx.objectStore(IDB_STORE).getAllKeys()
+      req.onsuccess = () => {
+        const all = req.result.filter((k): k is string => typeof k === 'string')
+        resolve(prefix ? all.filter((k) => k.startsWith(prefix)) : all)
+      }
+      tx.onerror = () => reject(tx.error)
+    })
+  }
+
+  async deleteByPrefix(prefix: string): Promise<void> {
+    const matching = await this.keys(prefix)
+    if (matching.length === 0) return
+    const db = await this.openDb()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite')
+      const store = tx.objectStore(IDB_STORE)
+      for (const key of matching) store.delete(key)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  }
+}
+
 // --- TauriChannel ---
 
 export class TauriChannel implements HostChannel {
+  private kv = new IndexedDbKV()
   private currentState: HostState = {
     status: 'connecting',
     platform: 'tauri',
@@ -172,62 +271,51 @@ export class TauriChannel implements HostChannel {
     return {
       rootsManageable: true,
       hasSync: false,
-      hasNativeNotifications: false,
+      hasNativeNotifications: true,
       hasBackgroundPersistence: true,
     }
   }
 
-  // --- KV storage (localStorage with jst: prefix) ---
+  // --- KV storage (IndexedDB, shared jstorrent-session database) ---
 
   async kvGet<T = unknown>(key: string, opts?: KVOpts): Promise<T | undefined> {
     const prefixed = (opts?.keyPrefix ?? 'session:') + key
-    const raw = localStorage.getItem(`jst:${prefixed}`)
-    return raw != null ? (JSON.parse(raw) as T) : undefined
+    return this.kv.get<T>(prefixed)
   }
 
   async kvGetMulti(keys: string[], opts?: KVOpts): Promise<Record<string, unknown>> {
     const prefix = opts?.keyPrefix ?? 'session:'
+    const prefixedKeys = keys.map((k) => prefix + k)
+    const stored = await this.kv.getMulti(prefixedKeys)
+    // Return results keyed by the original (un-prefixed) keys
     const result: Record<string, unknown> = {}
-    for (const key of keys) {
-      const raw = localStorage.getItem(`jst:${prefix}${key}`)
-      if (raw != null) result[key] = JSON.parse(raw)
+    for (const [k, v] of Object.entries(stored)) {
+      result[k.slice(prefix.length)] = v
     }
     return result
   }
 
   async kvSet(key: string, value: unknown, opts?: KVOpts): Promise<void> {
     const prefixed = (opts?.keyPrefix ?? 'session:') + key
-    localStorage.setItem(`jst:${prefixed}`, JSON.stringify(value))
+    await this.kv.set(prefixed, value)
   }
 
   async kvDelete(key: string, opts?: KVOpts): Promise<void> {
     const prefixed = (opts?.keyPrefix ?? 'session:') + key
-    localStorage.removeItem(`jst:${prefixed}`)
+    await this.kv.delete(prefixed)
   }
 
   async kvKeys(prefix?: string, opts?: KVOpts): Promise<string[]> {
     const keyPrefix = opts?.keyPrefix ?? 'session:'
-    const fullPrefix = `jst:${keyPrefix}${prefix ?? ''}`
-    const keys: string[] = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
-      if (k?.startsWith(fullPrefix)) {
-        // Strip the jst:{keyPrefix} prefix to return the bare key
-        keys.push(k.slice(`jst:${keyPrefix}`.length))
-      }
-    }
-    return keys
+    const fullPrefix = keyPrefix + (prefix ?? '')
+    const keys = await this.kv.keys(fullPrefix)
+    return keys.map((k) => k.slice(keyPrefix.length))
   }
 
   async kvClear(prefix?: string, opts?: KVOpts): Promise<void> {
     const keyPrefix = opts?.keyPrefix ?? 'session:'
-    const fullPrefix = `jst:${keyPrefix}${prefix ?? ''}`
-    const keysToRemove: string[] = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
-      if (k?.startsWith(fullPrefix)) keysToRemove.push(k)
-    }
-    keysToRemove.forEach((k) => localStorage.removeItem(k))
+    const fullPrefix = keyPrefix + (prefix ?? '')
+    await this.kv.deleteByPrefix(fullPrefix)
   }
 
   // --- File operations ---
@@ -273,7 +361,37 @@ export class TauriChannel implements HostChannel {
   notify(notification: HostNotification): void {
     if (notification.type === 'stats') {
       tauriInvoke('update_tray_stats', { stats: notification.stats }).catch(() => {})
+    } else if (notification.type === 'torrent-complete') {
+      this.showNotificationIfEnabled(
+        'notifyOnTorrentComplete',
+        'Download Complete',
+        notification.name,
+      )
+    } else if (notification.type === 'torrent-error') {
+      this.showNotificationIfEnabled(
+        'notifyOnError',
+        'Download Error',
+        `${notification.name}: ${notification.error}`,
+      )
+    } else if (notification.type === 'duplicate-torrent') {
+      tauriInvoke('show_notification', {
+        title: 'Already Added',
+        body: `"${notification.name}" is already in your torrent list`,
+      }).catch(() => {})
     }
+  }
+
+  private showNotificationIfEnabled(settingKey: string, title: string, body: string): void {
+    this.kvGet<boolean>(settingKey, { keyPrefix: 'config:' })
+      .then((enabled) => {
+        if (enabled !== false) {
+          tauriInvoke('show_notification', { title, body }).catch(() => {})
+        }
+      })
+      .catch(() => {
+        // Setting not found, default to enabled
+        tauriInvoke('show_notification', { title, body }).catch(() => {})
+      })
   }
 
   // --- Host actions ---

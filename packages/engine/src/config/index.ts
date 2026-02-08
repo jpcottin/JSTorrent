@@ -27,6 +27,7 @@ export {
   type ProgressBarStyle,
   type UiScale,
   type PieceViewMode,
+  type WindowMode,
   type PlatformType,
   type UPnPStatus,
   getConfigDef,

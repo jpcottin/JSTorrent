@@ -62,8 +62,8 @@ declare global {
 function createCredentialsGetter(channel: HostChannel): CredentialsGetter {
   return async () => {
     const [token, installId] = await Promise.all([
-      channel.kvGet<string>('android:authToken', { keyPrefix: '', area: 'local' }),
-      channel.kvGet<string>('installId', { keyPrefix: '', area: 'local' }),
+      channel.kvGet<string>('android:authToken', { keyPrefix: '' }),
+      channel.kvGet<string>('installId', { keyPrefix: '' }),
     ])
 
     if (!token) {

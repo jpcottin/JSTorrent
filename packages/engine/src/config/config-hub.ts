@@ -16,6 +16,7 @@ import type {
   ProgressBarStyle,
   UiScale,
   PieceViewMode,
+  WindowMode,
   PlatformType,
   UPnPStatus,
   ComponentLogLevel,
@@ -177,6 +178,9 @@ export interface ConfigHub extends ConfigValueMap {
 
   /** Piece visualization display mode. */
   readonly pieceViewMode: ConfigValue<PieceViewMode>
+
+  /** How the extension UI opens: tab or popup window. Extension-only. */
+  readonly windowMode: ConfigValue<WindowMode>
 
   // ===========================================================================
   // Settings: Notifications (extension-only)

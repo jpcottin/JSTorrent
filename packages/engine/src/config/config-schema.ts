@@ -32,6 +32,9 @@ export type PieceViewMode = 'summary' | 'bar' | 'grid'
 /** UI scale for font and spacing sizes */
 export type UiScale = 'small' | 'default' | 'large' | 'larger'
 
+/** How the extension UI window opens */
+export type WindowMode = 'popup' | 'tab'
+
 /** Default max pipeline depth (outstanding block requests per peer) */
 export const DEFAULT_MAX_PIPELINE_DEPTH = 500
 
@@ -43,6 +46,12 @@ export type ComponentLogLevel = 'default' | 'debug' | 'info' | 'warn' | 'error'
 
 // ============================================================================
 // Schema Definition Types
+//
+// Common fields:
+//   extensionOnly — Setting only applies to the Chrome extension. Controls two things:
+//     1. UI visibility: hidden in non-extension contexts (e.g. standalone Tauri app)
+//     2. Storage routing: always persisted to chrome.storage.local, never routed to
+//        a companion (Android SQLite). The SW reads these directly from chrome.storage.local.
 // ============================================================================
 
 interface BooleanConfigDef {
@@ -114,7 +123,7 @@ export const configSchema = {
   downloadSpeedUnlimited: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: true,
   },
 
@@ -122,7 +131,7 @@ export const configSchema = {
   downloadSpeedLimit: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 1048576, // 1 MB/s
     min: 1,
   },
@@ -131,7 +140,7 @@ export const configSchema = {
   uploadSpeedUnlimited: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: true,
   },
 
@@ -139,7 +148,7 @@ export const configSchema = {
   uploadSpeedLimit: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 1048576, // 1 MB/s
     min: 1,
   },
@@ -152,7 +161,7 @@ export const configSchema = {
   maxPeersPerTorrent: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 20,
     min: 1,
     max: 500,
@@ -162,7 +171,7 @@ export const configSchema = {
   maxGlobalPeers: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 200,
     min: 1,
     max: 2000,
@@ -172,7 +181,7 @@ export const configSchema = {
   maxUploadSlots: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 4,
     min: 0, // 0 = no uploads (pure leecher mode)
     max: 50,
@@ -182,7 +191,7 @@ export const configSchema = {
   maxPipelineDepth: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: DEFAULT_MAX_PIPELINE_DEPTH,
     min: 10,
     max: 2000,
@@ -192,7 +201,7 @@ export const configSchema = {
   sendBufferWatermark: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 512 * 1024, // 512 KB (matches libtorrent default of 500 KB)
     min: 16 * 1024, // 16 KB (single block)
     max: 10 * 1024 * 1024, // 10 MB
@@ -206,7 +215,7 @@ export const configSchema = {
   activeDownloads: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 5,
     min: 1,
     max: 20,
@@ -216,7 +225,7 @@ export const configSchema = {
   activeSeeds: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 2,
     min: 1,
     max: 50,
@@ -226,7 +235,7 @@ export const configSchema = {
   activeChecking: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 1,
     min: 1,
     max: 10,
@@ -240,7 +249,7 @@ export const configSchema = {
   encryptionPolicy: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['disabled', 'allow', 'prefer', 'required'] as const,
     default: 'allow' as EncryptionPolicy,
   },
@@ -273,7 +282,7 @@ export const configSchema = {
   proxyEnabled: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: false,
     restartRequired: true,
   },
@@ -282,7 +291,7 @@ export const configSchema = {
   proxyHost: {
     type: 'string',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: null,
     restartRequired: true,
   },
@@ -291,7 +300,7 @@ export const configSchema = {
   proxyPort: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 1080,
     min: 1,
     max: 65535,
@@ -302,7 +311,7 @@ export const configSchema = {
   proxyUsername: {
     type: 'string',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: null,
     restartRequired: true,
   },
@@ -311,7 +320,7 @@ export const configSchema = {
   proxyPassword: {
     type: 'string',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: null,
     restartRequired: true,
   },
@@ -320,7 +329,7 @@ export const configSchema = {
   proxyHttpTrackers: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: true,
     restartRequired: true,
   },
@@ -329,7 +338,7 @@ export const configSchema = {
   proxyUdpTrackers: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: true,
     restartRequired: true,
   },
@@ -338,7 +347,7 @@ export const configSchema = {
   proxyPeerConnections: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: true,
     restartRequired: true,
   },
@@ -351,7 +360,7 @@ export const configSchema = {
   dhtEnabled: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: true,
   },
 
@@ -359,7 +368,7 @@ export const configSchema = {
   pexEnabled: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: true,
   },
 
@@ -367,7 +376,7 @@ export const configSchema = {
   upnpEnabled: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: true,
   },
 
@@ -379,7 +388,7 @@ export const configSchema = {
   daemonOpsPerSecond: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 2,
     min: 1,
     max: 20,
@@ -389,7 +398,7 @@ export const configSchema = {
   daemonOpsBurst: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 2,
     min: 1,
     max: 40,
@@ -403,7 +412,7 @@ export const configSchema = {
   theme: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['system', 'dark', 'light'] as const,
     default: 'system' as Theme,
   },
@@ -412,7 +421,7 @@ export const configSchema = {
   maxFps: {
     type: 'number',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: 60,
     min: 0,
     max: 240,
@@ -422,7 +431,7 @@ export const configSchema = {
   progressBarStyle: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['text', 'bar'] as const,
     default: 'bar' as ProgressBarStyle,
   },
@@ -431,7 +440,7 @@ export const configSchema = {
   uiScale: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['small', 'default', 'large', 'larger'] as const,
     default: 'large' as UiScale, // Default to 'large' for better readability
   },
@@ -440,38 +449,46 @@ export const configSchema = {
   pieceViewMode: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['summary', 'bar', 'grid'] as const,
     default: 'summary' as PieceViewMode,
   },
 
+  /** How the extension UI opens: in a browser tab or a standalone popup window. */
+  windowMode: {
+    type: 'enum',
+    category: 'setting',
+    storage: 'local',
+    values: ['popup', 'tab'] as const,
+    default: 'tab' as WindowMode,
+    extensionOnly: true,
+  },
+
   // ===========================================================================
-  // Settings: Notifications (extension-only)
+  // Settings: Notifications
   // ===========================================================================
 
   /** Notify when a torrent completes. */
   notifyOnTorrentComplete: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: true,
-    extensionOnly: true,
   },
 
   /** Notify on errors. */
   notifyOnError: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: true,
-    extensionOnly: true,
   },
 
-  /** Show progress notification when UI is backgrounded. */
+  /** Show progress notification when UI is backgrounded. Extension-only. */
   notifyProgressWhenBackgrounded: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: false,
     extensionOnly: true,
   },
@@ -484,7 +501,7 @@ export const configSchema = {
   keepAwake: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: false,
     extensionOnly: true,
   },
@@ -493,7 +510,7 @@ export const configSchema = {
   preventBackgroundThrottling: {
     type: 'boolean',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     default: true,
     extensionOnly: true,
   },
@@ -506,7 +523,7 @@ export const configSchema = {
   loggingLevel: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['debug', 'info', 'warn', 'error'] as const,
     default: 'info' as LogLevel,
   },
@@ -520,7 +537,7 @@ export const configSchema = {
   loggingLevelClient: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['default', 'debug', 'info', 'warn', 'error'] as const,
     default: 'default' as ComponentLogLevel,
   },
@@ -529,7 +546,7 @@ export const configSchema = {
   loggingLevelTorrent: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['default', 'debug', 'info', 'warn', 'error'] as const,
     default: 'default' as ComponentLogLevel,
   },
@@ -538,7 +555,7 @@ export const configSchema = {
   loggingLevelPeer: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['default', 'debug', 'info', 'warn', 'error'] as const,
     default: 'default' as ComponentLogLevel,
   },
@@ -547,7 +564,7 @@ export const configSchema = {
   loggingLevelActivePieces: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['default', 'debug', 'info', 'warn', 'error'] as const,
     default: 'default' as ComponentLogLevel,
   },
@@ -556,7 +573,7 @@ export const configSchema = {
   loggingLevelContentStorage: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['default', 'debug', 'info', 'warn', 'error'] as const,
     default: 'default' as ComponentLogLevel,
   },
@@ -565,7 +582,7 @@ export const configSchema = {
   loggingLevelPartsFile: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['default', 'debug', 'info', 'warn', 'error'] as const,
     default: 'default' as ComponentLogLevel,
   },
@@ -574,7 +591,7 @@ export const configSchema = {
   loggingLevelTrackerManager: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['default', 'debug', 'info', 'warn', 'error'] as const,
     default: 'default' as ComponentLogLevel,
   },
@@ -583,7 +600,7 @@ export const configSchema = {
   loggingLevelHttpTracker: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['default', 'debug', 'info', 'warn', 'error'] as const,
     default: 'default' as ComponentLogLevel,
   },
@@ -592,7 +609,7 @@ export const configSchema = {
   loggingLevelUdpTracker: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['default', 'debug', 'info', 'warn', 'error'] as const,
     default: 'default' as ComponentLogLevel,
   },
@@ -601,7 +618,7 @@ export const configSchema = {
   loggingLevelDht: {
     type: 'enum',
     category: 'setting',
-    storage: 'sync',
+    storage: 'local',
     values: ['default', 'debug', 'info', 'warn', 'error'] as const,
     default: 'default' as ComponentLogLevel,
   },
