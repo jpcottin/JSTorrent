@@ -2,6 +2,10 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.7]
+
+- Fix CI build on Linux/Windows: gate macOS-only `RunEvent::Reopen` with `#[cfg(target_os = "macos")]`
+
 ## [0.1.6]
 
 - Fix formatting / CI issue from v0.1.5 release
