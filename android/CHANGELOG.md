@@ -2,6 +2,26 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.15] - 2026-02-08
+
+### Added
+- Queue management UI and settings
+- Log viewer
+- File opening support
+- Completion notifications
+- Seed rotation and reset command
+- Async disk reads and upload diagnostics
+- Disk I/O layer plumbing (diskId across platforms)
+
+### Fixed
+- Instrumented test failures (missing resetTorrent and null-mode session restore)
+- Recheck race in torrent file ops
+
+### Changed
+- Tick bottleneck diagnostics and reduced active pieces
+- Simplified test helpers and improved companion server shutdown
+- Network detection improvements
+
 ## [1.0.14] - 2026-02-05
 
 ### Fixed
