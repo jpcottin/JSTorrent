@@ -62,7 +62,7 @@ function createCredentialsGetter(channel: HostChannel): CredentialsGetter {
   return async () => {
     const [token, installId] = await Promise.all([
       channel.kvGet<string>('android:authToken', { keyPrefix: '' }),
-      channel.kvGet<string>('installId', { keyPrefix: '' }),
+      channel.kvGet<string>('telemetryId', { keyPrefix: '' }),
     ])
 
     if (!token) {

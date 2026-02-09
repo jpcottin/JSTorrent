@@ -16,7 +16,7 @@ import { getDaemonBridge, type NativeEvent, type DaemonBridgeState } from './lib
 import { handleKVMessage } from './lib/kv-handlers'
 import { NotificationManager, ProgressStats } from './lib/notifications'
 import { PowerManager } from './lib/power'
-import { getOrCreateInstallId } from './lib/install-id'
+import { getOrCreateTelemetryId } from './lib/telemetry-id'
 import { detectPlatform, findAndroidDaemonPort } from './lib/platform'
 import { getChromeOSBootstrap, type BootstrapState } from './lib/chromeos-bootstrap'
 import {
@@ -281,8 +281,8 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log(`[SW] onInstalled fired at ${new Date().toISOString()} - reason: ${details.reason}`)
   // Just ensure install ID exists - connection happens via IOBridgeService when UI opens
-  const installId = await getOrCreateInstallId()
-  console.log('Generated/Retrieved Install ID:', installId)
+  const telemetryId = await getOrCreateTelemetryId()
+  console.log('Generated/Retrieved Telemetry ID:', telemetryId)
 })
 
 // ============================================================================
@@ -387,7 +387,7 @@ const CONFIG_KEY_PREFIX = 'config:'
 function isExtensionLocalKey(key: string | undefined): boolean {
   if (!key) return false
   // Auth/pairing keys — needed before/outside companion connection
-  if (key === 'installId' || key.startsWith('android:')) return true
+  if (key === 'telemetryId' || key.startsWith('android:')) return true
   // extensionOnly config keys — read directly by the SW, meaningless on companion
   if (key.startsWith(CONFIG_KEY_PREFIX)) {
     const configKey = key.slice(CONFIG_KEY_PREFIX.length)
@@ -659,7 +659,7 @@ function handleMessage(
   // Some keys must always stay in chrome.storage.local:
   // - extensionOnly config keys (e.g. windowMode) — read directly by the SW,
   //   meaningless on the companion/host
-  // - Auth/pairing keys (android:*, installId) — needed before companion connection
+  // - Auth/pairing keys (android:*, telemetryId) — needed before companion connection
   if (message.type?.startsWith('KV_')) {
     // Determine which remote handler to use (native host or Android companion)
     let remoteHandler: ((msg: typeof message, resp: SendResponse) => void | Promise<void>) | null =
@@ -823,12 +823,12 @@ function handleMessage(
     return true
   }
 
-  // Clear session storage (session:* keys) but preserve installId and metrics
+  // Clear session storage (session:* keys) but preserve telemetryId and metrics
   if (message.type === 'CLEAR_SESSION_STORAGE') {
     const clearLocal = chrome.storage.local.get(null).then((all) => {
-      // Keys to preserve: installId, metrics:*, daemon:hasConnectedSuccessfully
+      // Keys to preserve: telemetryId, metrics:*, daemon:hasConnectedSuccessfully
       const keysToRemove = Object.keys(all).filter((k) => {
-        if (k === 'installId') return false
+        if (k === 'telemetryId') return false
         if (k.startsWith('metrics:')) return false
         if (k === 'daemon:hasConnectedSuccessfully') return false
         // Remove session:* keys and any other torrent-related data
@@ -899,7 +899,7 @@ interface StatusResponse {
   nativeHostVersion?: string
   hasEverConnected: boolean
   lastConnectedTime?: number
-  installId: string
+  telemetryId: string
 }
 
 async function handleStatusRequest(
@@ -909,8 +909,8 @@ async function handleStatusRequest(
   const manifest = chrome.runtime.getManifest()
 
   // Gather static info first
-  const [installId, hasEverConnected, lastConnectedTime] = await Promise.all([
-    getOrCreateInstallId(),
+  const [telemetryId, hasEverConnected, lastConnectedTime] = await Promise.all([
+    getOrCreateTelemetryId(),
     bridge.hasEverConnected(),
     bridge.getLastConnectedTime(),
   ])
@@ -923,7 +923,7 @@ async function handleStatusRequest(
     nativeHostConnected: false,
     hasEverConnected,
     lastConnectedTime: lastConnectedTime ?? undefined,
-    installId,
+    telemetryId,
   }
 
   // Check current state first

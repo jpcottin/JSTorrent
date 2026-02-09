@@ -5,6 +5,8 @@
  * Replaces the complex recursive timeout logic in daemon-bridge.ts.
  */
 
+import { getOrCreateTelemetryId } from './telemetry-id'
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -376,14 +378,14 @@ export class ChromeOSBootstrap {
     tokenValid: boolean | null
     ioPort: number | null
   }> {
-    const installId = await this.getInstallId()
+    const telemetryId = await this.getTelemetryId()
 
     const response = await fetch(`http://${CHROMEOS_HOST}:${port}/status`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-JST-ExtensionId': chrome.runtime.id,
-        'X-JST-InstallId': installId,
+        'X-JST-InstallId': telemetryId,
       },
       body: JSON.stringify({ token }),
     })
@@ -399,7 +401,7 @@ export class ChromeOSBootstrap {
     port: number,
     token: string,
   ): Promise<'approved' | 'pending' | 'conflict'> {
-    const installId = await this.getInstallId()
+    const telemetryId = await this.getTelemetryId()
 
     try {
       const response = await fetch(`http://${CHROMEOS_HOST}:${port}/pair`, {
@@ -407,7 +409,7 @@ export class ChromeOSBootstrap {
         headers: {
           'Content-Type': 'application/json',
           'X-JST-ExtensionId': chrome.runtime.id,
-          'X-JST-InstallId': installId,
+          'X-JST-InstallId': telemetryId,
         },
         body: JSON.stringify({ token }),
       })
@@ -425,7 +427,7 @@ export class ChromeOSBootstrap {
   }
 
   private async connectWebSocket(port: number, token: string): Promise<WebSocket> {
-    const installId = await this.getInstallId()
+    const telemetryId = await this.getTelemetryId()
     console.log(`[ChromeOSBootstrap] Connecting to /control on port ${port}`)
 
     return new Promise((resolve, reject) => {
@@ -451,10 +453,10 @@ export class ChromeOSBootstrap {
           const encoder = new TextEncoder()
           const tokenBytes = encoder.encode(token)
           const extIdBytes = encoder.encode(chrome.runtime.id)
-          const installIdBytes = encoder.encode(installId)
+          const telemetryIdBytes = encoder.encode(telemetryId)
 
           const payload = new Uint8Array(
-            1 + tokenBytes.length + 1 + extIdBytes.length + 1 + installIdBytes.length,
+            1 + tokenBytes.length + 1 + extIdBytes.length + 1 + telemetryIdBytes.length,
           )
           payload[0] = 0 // authType
           let offset = 1
@@ -464,7 +466,7 @@ export class ChromeOSBootstrap {
           payload.set(extIdBytes, offset)
           offset += extIdBytes.length
           payload[offset++] = 0
-          payload.set(installIdBytes, offset)
+          payload.set(telemetryIdBytes, offset)
 
           ws.send(this.buildFrame(0x03, 0, payload))
         } else if (opcode === 0x04) {
@@ -507,14 +509,8 @@ export class ChromeOSBootstrap {
     return token
   }
 
-  private async getInstallId(): Promise<string> {
-    const stored = await chrome.storage.local.get(['installId'])
-    if (stored.installId) {
-      return stored.installId as string
-    }
-    const id = crypto.randomUUID()
-    await chrome.storage.local.set({ installId: id })
-    return id
+  private async getTelemetryId(): Promise<string> {
+    return getOrCreateTelemetryId()
   }
 
   private buildFrame(opcode: number, requestId: number, payload: Uint8Array): ArrayBuffer {

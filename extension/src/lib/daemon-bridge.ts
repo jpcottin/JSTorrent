@@ -8,7 +8,7 @@
 import type { Platform } from './platform'
 import { detectPlatform } from './platform'
 import type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
-import { getOrCreateInstallId } from './install-id'
+import { getOrCreateTelemetryId } from './telemetry-id'
 
 // Re-export types for convenience
 export type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
@@ -277,13 +277,13 @@ export class DaemonBridge {
    * Check pairing status and initiate pairing flow if needed.
    */
   private async checkStatusAndPair(host: string, port: number): Promise<void> {
-    const installId = await getOrCreateInstallId()
+    const telemetryId = await getOrCreateTelemetryId()
     const extensionId = chrome.runtime.id
 
     const status = await this.fetchStatus(host, port)
 
     // Already paired with us?
-    if (status.paired && status.extensionId === extensionId && status.installId === installId) {
+    if (status.paired && status.extensionId === extensionId && status.installId === telemetryId) {
       console.log('[DaemonBridge] Already paired, connecting...')
       await this.completeConnection(
         host,
@@ -330,7 +330,7 @@ export class DaemonBridge {
   private async pollForPairing(host: string, port: number): Promise<void> {
     const maxPollAttempts = 60 // 60s for user to approve
     const pollInterval = 1000
-    const installId = await getOrCreateInstallId()
+    const telemetryId = await getOrCreateTelemetryId()
     const extensionId = chrome.runtime.id
 
     for (let i = 0; i < maxPollAttempts; i++) {
@@ -338,7 +338,11 @@ export class DaemonBridge {
 
       try {
         const status = await this.fetchStatus(host, port)
-        if (status.paired && status.extensionId === extensionId && status.installId === installId) {
+        if (
+          status.paired &&
+          status.extensionId === extensionId &&
+          status.installId === telemetryId
+        ) {
           console.log('[DaemonBridge] Pairing approved')
           await this.completeConnection(
             host,
@@ -367,7 +371,7 @@ export class DaemonBridge {
   private async buildHeaders(includeAuth: boolean = false): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
       'X-JST-ExtensionId': chrome.runtime.id,
-      'X-JST-InstallId': await getOrCreateInstallId(),
+      'X-JST-InstallId': await getOrCreateTelemetryId(),
     }
     if (includeAuth) {
       const token = await this.getOrCreateToken()
@@ -630,8 +634,8 @@ export class DaemonBridge {
   // ==========================================================================
 
   private async connectDesktop(): Promise<void> {
-    const installId = await getOrCreateInstallId()
-    console.log('[DaemonBridge] connectDesktop() called, installId:', installId)
+    const telemetryId = await getOrCreateTelemetryId()
+    console.log('[DaemonBridge] connectDesktop() called, telemetryId:', telemetryId)
 
     return new Promise((resolve, reject) => {
       console.log('[DaemonBridge] Calling chrome.runtime.connectNative("com.jstorrent.native")')
@@ -710,7 +714,7 @@ export class DaemonBridge {
       const handshakeMsg = {
         op: 'handshake',
         extensionId: chrome.runtime.id,
-        installId,
+        installId: telemetryId,
         id: crypto.randomUUID(),
       }
       console.log('[DaemonBridge] Sending handshake:', handshakeMsg)
@@ -826,12 +830,12 @@ export class DaemonBridge {
     }
 
     const { host, port } = found
-    const installId = await getOrCreateInstallId()
+    const telemetryId = await getOrCreateTelemetryId()
     const extensionId = chrome.runtime.id
     const status = await this.fetchStatus(host, port)
 
     // Already paired with us? Try connecting
-    if (status.paired && status.extensionId === extensionId && status.installId === installId) {
+    if (status.paired && status.extensionId === extensionId && status.installId === telemetryId) {
       await this.completeConnection(
         host,
         port,
@@ -856,7 +860,7 @@ export class DaemonBridge {
   }
 
   private async connectWebSocket(host: string, port: number, token: string): Promise<void> {
-    const installId = await getOrCreateInstallId()
+    const telemetryId = await getOrCreateTelemetryId()
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`ws://${host}:${port}/control`)
@@ -877,22 +881,22 @@ export class DaemonBridge {
         const opcode = data[1]
 
         if (opcode === 0x02) {
-          // SERVER_HELLO - send AUTH with token + extensionId + installId
+          // SERVER_HELLO - send AUTH with token + extensionId + telemetryId
           const encoder = new TextEncoder()
           const tokenBytes = encoder.encode(token)
           const extensionIdBytes = encoder.encode(chrome.runtime.id)
-          const installIdBytes = encoder.encode(installId)
+          const telemetryIdBytes = encoder.encode(telemetryId)
 
           // Format: authType(1) + token + \0 + extensionId + \0 + installId
           const authPayload = new Uint8Array(
-            1 + tokenBytes.length + 1 + extensionIdBytes.length + 1 + installIdBytes.length,
+            1 + tokenBytes.length + 1 + extensionIdBytes.length + 1 + telemetryIdBytes.length,
           )
           authPayload[0] = 0 // authType
           authPayload.set(tokenBytes, 1)
           authPayload[1 + tokenBytes.length] = 0 // null separator
           authPayload.set(extensionIdBytes, 1 + tokenBytes.length + 1)
           authPayload[1 + tokenBytes.length + 1 + extensionIdBytes.length] = 0 // null separator
-          authPayload.set(installIdBytes, 1 + tokenBytes.length + 1 + extensionIdBytes.length + 1)
+          authPayload.set(telemetryIdBytes, 1 + tokenBytes.length + 1 + extensionIdBytes.length + 1)
 
           ws.send(this.buildFrame(0x03, 0, authPayload))
         } else if (opcode === 0x04) {
@@ -1329,7 +1333,7 @@ export class DaemonBridge {
   async takeOver(): Promise<boolean> {
     if (!this.nativePort) return false
 
-    const installId = await getOrCreateInstallId()
+    const telemetryId = await getOrCreateTelemetryId()
 
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
@@ -1364,7 +1368,7 @@ export class DaemonBridge {
       this.nativePort!.postMessage({
         op: 'takeOver',
         extensionId: chrome.runtime.id,
-        installId,
+        installId: telemetryId,
         id: crypto.randomUUID(),
       })
     })

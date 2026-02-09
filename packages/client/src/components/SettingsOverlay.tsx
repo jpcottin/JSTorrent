@@ -284,7 +284,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
         }
       }
 
-      // 2. Clear session storage (session:* keys) but preserve installId and metrics
+      // 2. Clear session storage (session:* keys) but preserve telemetryId and metrics
       try {
         await channel.clearSessionStorage()
       } catch (e) {

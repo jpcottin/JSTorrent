@@ -40,7 +40,7 @@
  * - Last-write-wins timestamps (lastSeenByDevice)
  */
 
-import { getOrCreateInstallId } from './install-id'
+import { getOrCreateTelemetryId } from './telemetry-id'
 import { detectDetailedPlatform, type DetailedPlatform } from './platform'
 
 // Re-export for convenience
@@ -150,22 +150,22 @@ async function writeSyncMetrics(metrics: SyncMetrics): Promise<void> {
 
 /**
  * Register this device in the metrics.
- * Adds installId to deviceIds array and updates lastSeen timestamp.
+ * Adds telemetryId to deviceIds array and updates lastSeen timestamp.
  */
 export async function registerDevice(): Promise<void> {
-  const installId = await getOrCreateInstallId()
+  const telemetryId = await getOrCreateTelemetryId()
   const timestamp = Date.now()
   const platform = detectDetailedPlatform()
 
   const current = await getSyncMetrics()
 
   // Merge deviceIds (Set union)
-  const deviceIds = [...new Set([...current.deviceIds, installId])]
+  const deviceIds = [...new Set([...current.deviceIds, telemetryId])]
 
   // Merge lastSeenByDevice
   const lastSeenByDevice = {
     ...current.lastSeenByDevice,
-    [installId]: timestamp,
+    [telemetryId]: timestamp,
   }
 
   // Ensure platform entry exists
@@ -185,7 +185,7 @@ export async function registerDevice(): Promise<void> {
   // Ensure install timestamp exists
   await getInstallTimestamp()
 
-  console.log('[Metrics] Device registered:', installId, 'platform:', platform)
+  console.log('[Metrics] Device registered:', telemetryId, 'platform:', platform)
 }
 
 /**
@@ -246,7 +246,7 @@ export async function incrementCompletedDownloads(): Promise<void> {
  */
 export async function incrementSessionsStarted(): Promise<void> {
   const platform = detectDetailedPlatform()
-  const installId = await getOrCreateInstallId()
+  const telemetryId = await getOrCreateTelemetryId()
   const timestamp = Date.now()
   const current = await getSyncMetrics()
 
@@ -265,7 +265,7 @@ export async function incrementSessionsStarted(): Promise<void> {
     // Also update lastSeen on session start
     lastSeenByDevice: {
       ...current.lastSeenByDevice,
-      [installId]: timestamp,
+      [telemetryId]: timestamp,
     },
   })
 
@@ -297,7 +297,7 @@ function scheduleUninstallUrlUpdate(): void {
  *
  * Parameters:
  * - v: extension version
- * - id: install ID
+ * - id: telemetry ID
  * - days: days since install
  * - connected: has ever connected to daemon (0/1)
  * - downloads: total completed downloads
@@ -309,8 +309,8 @@ export async function updateUninstallUrl(): Promise<void> {
   lastUninstallUrlUpdate = Date.now()
 
   try {
-    const [installId, installTimestamp, metrics, hasConnectedResult] = await Promise.all([
-      getOrCreateInstallId(),
+    const [telemetryId, installTimestamp, metrics, hasConnectedResult] = await Promise.all([
+      getOrCreateTelemetryId(),
       getInstallTimestamp(),
       getSyncMetrics(),
       chrome.storage.local.get('daemon:hasConnectedSuccessfully'),
@@ -323,7 +323,7 @@ export async function updateUninstallUrl(): Promise<void> {
 
     const params = new URLSearchParams({
       v: version,
-      id: installId,
+      id: telemetryId,
       days: String(daysInstalled),
       connected: String(connected),
       downloads: String(metrics.completedDownloads),

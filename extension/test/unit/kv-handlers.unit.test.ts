@@ -113,7 +113,7 @@ describe('KV Handlers', () => {
         'session:torrent:abc': 'data1',
         'session:torrent:def': 'data2',
         'session:settings': 'data3',
-        installId: 'non-session-key',
+        telemetryId: 'non-session-key',
       })
 
       handleKVMessage({ type: 'KV_KEYS' }, mockSendResponse)
@@ -148,7 +148,7 @@ describe('KV Handlers', () => {
       mockStorageGet.mockResolvedValue({
         'session:torrent:abc': 'data1',
         'session:settings': 'data2',
-        installId: 'should-keep',
+        telemetryId: 'should-keep',
       })
       mockStorageRemove.mockResolvedValue(undefined)
 
