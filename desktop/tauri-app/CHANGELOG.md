@@ -2,6 +2,16 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.18]
+
+- Add profile system: per-profile KV isolation, liveness checks, profile_id identity
+- Add system bridge updater and headless Tauri updater
+- Add macOS .pkg installer with postinstall/preinstall scripts
+- Add NSIS native host registration hooks
+- Recreate main window from tray when run_in_background is off
+- Persist and resend profileId in Tauri app handshake
+- Isolate host bridge integration test from real config directory
+
 ## [0.1.17]
 
 - Add desktop/extension mutual exclusion: Tauri kills incumbent Chrome native host on startup; extension shows TakeOver flow to quit desktop app
