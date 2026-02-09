@@ -67,6 +67,13 @@ function tauriListen<T>(
     })
 }
 
+/**
+ * Emit a Tauri event. Equivalent to `emit()` from @tauri-apps/api/event.
+ */
+function tauriEmit(event: string, payload?: unknown): Promise<void> {
+  return tauriInvoke('plugin:event|emit', { event, payload })
+}
+
 // --- Host message helper ---
 
 interface HostResponse {
@@ -94,6 +101,11 @@ export class TauriChannel implements HostChannel {
   private eventListeners = new Set<(event: NativeEvent) => void>()
   private eventUnlisten: (() => void) | null = null
   private daemonInfo: { port: number; token: string } | null = null
+
+  // --- Power management state ---
+  private keepAwakeEnabled = false
+  private activeDownloadCount = 0
+  private isBlocking = false
 
   // --- Lifecycle ---
 
@@ -141,6 +153,13 @@ export class TauriChannel implements HostChannel {
       // Retrieve any deep link events that arrived before the frontend was ready
       // (e.g., app was launched by clicking a magnet link)
       this.drainPendingDeepLinks()
+
+      // Load keepAwake setting from persisted config
+      this.kvGet<boolean>('keepAwake', { keyPrefix: 'config:' })
+        .then((enabled) => {
+          if (enabled) this.setKeepAwake(true)
+        })
+        .catch(() => {})
     } catch (e) {
       this.updateState({
         ...this.currentState,
@@ -289,6 +308,8 @@ export class TauriChannel implements HostChannel {
   notify(notification: HostNotification): void {
     if (notification.type === 'stats') {
       tauriInvoke('update_tray_stats', { stats: notification.stats }).catch(() => {})
+      this.activeDownloadCount = notification.stats.activeCount
+      this.updateNoSleep()
     } else if (notification.type === 'torrent-complete') {
       this.showNotificationIfEnabled(
         'notifyOnTorrentComplete',
@@ -381,6 +402,15 @@ export class TauriChannel implements HostChannel {
     return Promise.resolve(true) // Desktop apps have full permissions
   }
 
+  setKeepAwake(enabled: boolean): void {
+    this.keepAwakeEnabled = enabled
+    this.updateNoSleep()
+  }
+
+  checkForUpdates(): void {
+    tauriEmit('check-for-updates')
+  }
+
   // --- Private helpers ---
 
   private drainPendingDeepLinks(): void {
@@ -398,6 +428,21 @@ export class TauriChannel implements HostChannel {
       .catch((e) => {
         console.warn('[TauriChannel] Failed to get pending deep links:', e)
       })
+  }
+
+  private updateNoSleep(): void {
+    const shouldBlock = this.keepAwakeEnabled && this.activeDownloadCount > 0
+    if (shouldBlock && !this.isBlocking) {
+      tauriInvoke('plugin:nosleep|block', {
+        noSleepType: 'PreventUserIdleSystemSleep',
+      }).catch((e) => console.warn('[TauriChannel] Failed to block sleep:', e))
+      this.isBlocking = true
+    } else if (!shouldBlock && this.isBlocking) {
+      tauriInvoke('plugin:nosleep|unblock').catch((e) =>
+        console.warn('[TauriChannel] Failed to unblock sleep:', e),
+      )
+      this.isBlocking = false
+    }
   }
 
   private updateState(newState: HostState): void {

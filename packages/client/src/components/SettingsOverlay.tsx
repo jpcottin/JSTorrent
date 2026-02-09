@@ -436,6 +436,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
         const granted = await channel.requestPermission('power')
         if (granted) {
           config.set('keepAwake', true)
+          channel.setKeepAwake(true)
         }
         // If denied, toggle stays off (no action needed)
       } catch (e) {
@@ -443,6 +444,7 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
       }
     } else {
       config.set('keepAwake', false)
+      channel.setKeepAwake(false)
     }
   }
 
@@ -554,22 +556,26 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
         )}
       </Section>
 
-      {!isStandalone && (
-        <Section title="Behavior">
-          <ToggleRow
-            label="Keep system awake while downloading"
-            sublabel="Prevents sleep during active downloads (requires permission)"
-            checked={settings.keepAwake}
-            onChange={handleKeepAwakeChange}
-          />
+      <Section title="Behavior">
+        <ToggleRow
+          label="Keep system awake while downloading"
+          sublabel={
+            isStandalone
+              ? 'Prevents sleep during active downloads'
+              : 'Prevents sleep during active downloads (requires permission)'
+          }
+          checked={settings.keepAwake}
+          onChange={handleKeepAwakeChange}
+        />
+        {!isStandalone && (
           <ToggleRow
             label="Prevent background throttling"
             sublabel="Keeps downloads running at full speed when tab is in background"
             checked={settings.preventBackgroundThrottling}
             onChange={(v) => config.set('preventBackgroundThrottling', v)}
           />
-        </Section>
-      )}
+        )}
+      </Section>
 
       <Section title="About">
         <div style={styles.fieldRow}>
@@ -578,6 +584,14 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
             {channel.getVersion() ?? 'unknown'}
           </span>
         </div>
+        {isStandalone && (
+          <div style={styles.fieldRow}>
+            <span>Updates</span>
+            <button onClick={() => channel.checkForUpdates()} style={styles.checkUpdatesButton}>
+              Check for Updates
+            </button>
+          </div>
+        )}
       </Section>
     </div>
   )
@@ -1454,6 +1468,16 @@ const styles: Record<string, React.CSSProperties> = {
     border: 'none',
     borderRadius: '4px',
     cursor: 'pointer',
+  },
+  checkUpdatesButton: {
+    padding: 'var(--spacing-xs, 6px) var(--spacing-md, 12px)',
+    background: 'var(--bg-secondary)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--border-light)',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: 'var(--font-xs, 12px)',
+    marginLeft: 'auto',
   },
   dangerButton: {
     padding: 'var(--spacing-sm, 8px) var(--spacing-lg, 16px)',

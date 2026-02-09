@@ -497,13 +497,12 @@ export const configSchema = {
   // Settings: Behavior
   // ===========================================================================
 
-  /** Keep system awake while downloading. Extension-only. */
+  /** Keep system awake while downloading. */
   keepAwake: {
     type: 'boolean',
     category: 'setting',
     storage: 'local',
     default: false,
-    extensionOnly: true,
   },
 
   /** Prevent background throttling. Extension-only. */

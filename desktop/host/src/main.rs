@@ -182,7 +182,7 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Err(e) => eprintln!("Failed to write discovery file: {e}"),
+        Err(e) => log!("Failed to write discovery file: {e}"),
     }
 
     // Spawn a task to read from stdin
@@ -226,7 +226,7 @@ async fn main() -> Result<()> {
             // Handle outgoing events
             Some(event) = event_rx.recv() => {
                 if let Err(e) = ipc::write_message(&mut stdout, &event).await {
-                    eprintln!("Failed to write event: {e}");
+                    log!("Failed to write event: {e}");
                     break;
                 }
             }
@@ -328,7 +328,7 @@ async fn handle_request(
                             info.download_roots = Some(roots);
                             success = true;
                         }
-                        Err(e) => eprintln!("Failed to update discovery file on handshake: {e}"),
+                        Err(e) => log!("Failed to update discovery file on handshake: {e}"),
                     }
                 }
             }

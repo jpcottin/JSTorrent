@@ -279,6 +279,14 @@ export class ChromeExtensionChannel implements HostChannel {
     return true
   }
 
+  setKeepAwake(_enabled: boolean): void {
+    // No-op — extension handles this via PowerManager in the service worker
+  }
+
+  checkForUpdates(): void {
+    // No-op — Chrome extensions update through the Web Store
+  }
+
   // --- ChromeOS-specific methods (not on HostChannel interface) ---
 
   openChromeOSIntent(): void {

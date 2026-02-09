@@ -64,4 +64,10 @@ export interface HostChannel {
   getVersion(): string | null
   isDevMode(): boolean
   requestPermission(permission: string): Promise<boolean>
+
+  // --- Power management ---
+  setKeepAwake(enabled: boolean): void
+
+  // --- Updates ---
+  checkForUpdates(): void
 }

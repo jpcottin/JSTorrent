@@ -7,7 +7,7 @@ import { EngineManagerProvider } from './context/EngineManagerContext'
 import { useConfigInit } from './hooks/useConfigInit'
 import { createHostChannel } from './host/create-host-channel'
 import { HostChannelProvider } from './host/HostChannelContext'
-import { ChromeExtensionEngineManager } from './engine-manager/chrome-extension-engine-manager'
+import { DaemonEngineManager } from './engine-manager/daemon-engine-manager'
 import type { DownloadRoot } from './types'
 import { useIOBridgeState, ConnectionStatus } from './hooks/useIOBridgeState'
 import { useSystemBridge } from './hooks/useSystemBridge'
@@ -27,7 +27,7 @@ export type { AppContentProps, FileInfo } from './AppContent'
 // Create the host channel and engine manager at module level
 const channel = createHostChannel()
 channel.connect() // fire-and-forget; state changes arrive via onStateChanged
-const engineManager = new ChromeExtensionEngineManager(channel)
+const engineManager = new DaemonEngineManager(channel)
 window.engineManager = engineManager
 
 const isDevMode = channel.isDevMode()

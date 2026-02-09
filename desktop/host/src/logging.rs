@@ -21,8 +21,11 @@ pub fn log(msg: &str) {
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
     let formatted_msg = format!("[{timestamp}] {msg}\n");
 
-    // Always print to stderr (for terminal visibility)
-    eprint!("{formatted_msg}");
+    // Write to stderr if available. Use write_all instead of eprint! because
+    // eprint! panics on write failure (.expect("failed printing to stderr")).
+    // On Windows, Chrome launches native messaging hosts without a valid stderr
+    // handle, so eprint! would crash the process on the very first log call.
+    let _ = std::io::stderr().write_all(formatted_msg.as_bytes());
 
     // Write to log file if enabled
     if let Ok(mut file_guard) = LOG_FILE.lock() {
@@ -35,6 +38,6 @@ pub fn log(msg: &str) {
 #[macro_export]
 macro_rules! log {
     ($($arg:tt)*) => {
-        $crate::logging::log(&format!($($arg)*));
+        $crate::logging::log(&format!($($arg)*))
     }
 }

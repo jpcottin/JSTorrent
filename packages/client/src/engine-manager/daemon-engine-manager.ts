@@ -51,7 +51,7 @@ declare global {
   interface Window {
     engine?: unknown
     getBatchWriteHistogram?: typeof getBatchWriteHistogram
-    engineManager?: ChromeExtensionEngineManager
+    engineManager?: DaemonEngineManager
   }
 }
 
@@ -79,10 +79,11 @@ function createCredentialsGetter(channel: HostChannel): CredentialsGetter {
 }
 
 /**
- * Chrome Extension engine manager.
- * Manages the BtEngine lifecycle in the UI thread for Chrome extension context.
+ * Daemon engine manager.
+ * Manages the BtEngine lifecycle in the UI thread, connecting to an external
+ * daemon (system bridge) over WebSocket. Used by both Chrome extension and Tauri contexts.
  */
-export class ChromeExtensionEngineManager implements IEngineManager {
+export class DaemonEngineManager implements IEngineManager {
   engine: BtEngine | null = null
   configHub: ConfigHub | null = null
   daemonConnection: DaemonConnection | null = null
@@ -131,7 +132,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
   }
 
   private async doInit(): Promise<BtEngine> {
-    console.log('[ChromeExtensionEngineManager] Initializing...')
+    console.log('[DaemonEngineManager] Initializing...')
 
     // 1. Get daemon info from host channel
     const daemonInfo = await this.channel.getDaemonInfo()
@@ -141,13 +142,13 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     this._daemonInfo = daemonInfo
     const roots: DownloadRoot[] = daemonInfo.roots ?? []
     console.log(
-      '[ChromeExtensionEngineManager] App version:',
+      '[DaemonEngineManager] App version:',
       this.channel.getVersion() ?? 'unknown',
       'System bridge version:',
       daemonInfo.version ?? 'unknown',
     )
     console.log(
-      '[ChromeExtensionEngineManager] Got daemon info:',
+      '[DaemonEngineManager] Got daemon info:',
       daemonInfo,
       'roots:',
       roots.length,
@@ -185,28 +186,26 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     } catch (error) {
       // If auth failed, signal host to retry connection
       if (error instanceof Error && error.message.includes('auth failed')) {
-        console.log('[ChromeExtensionEngineManager] Auth failed, signaling host')
+        console.log('[DaemonEngineManager] Auth failed, signaling host')
         this.channel.retryConnection()
       }
       throw error
     }
-    console.log('[ChromeExtensionEngineManager] WebSocket connected')
+    console.log('[DaemonEngineManager] WebSocket connected')
 
     // Register disconnect/reconnect handlers
     this.daemonConnection.onDisconnect((reason) => {
-      console.error('[ChromeExtensionEngineManager] IO WebSocket disconnected:', reason)
+      console.error('[DaemonEngineManager] IO WebSocket disconnected:', reason)
       this.handleIoDisconnect(reason)
     })
     this.daemonConnection.onReconnect(() => {
-      console.log('[ChromeExtensionEngineManager] IO WebSocket reconnected')
+      console.log('[DaemonEngineManager] IO WebSocket reconnected')
       this.handleIoReconnect()
     })
 
     // 3. Set up storage root manager
     if (NULL_STORAGE) {
-      console.warn(
-        '[ChromeExtensionEngineManager] NULL_STORAGE enabled - writes will be discarded!',
-      )
+      console.warn('[DaemonEngineManager] NULL_STORAGE enabled - writes will be discarded!')
     }
 
     const srm = new StorageRootManager(
@@ -240,16 +239,16 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       } else if (roots.length > 0) {
         srm.setDefaultRoot(roots[0].key)
       }
-      console.log('[ChromeExtensionEngineManager] Registered', roots.length, 'download roots')
+      console.log('[DaemonEngineManager] Registered', roots.length, 'download roots')
     } else {
-      console.warn('[ChromeExtensionEngineManager] No download roots configured!')
+      console.warn('[DaemonEngineManager] No download roots configured!')
     }
 
     // 5. Create and init ConfigHub
     const configHub = new HostChannelConfigHub(this.channel)
     await configHub.init()
     this.configHub = configHub
-    console.log('[ChromeExtensionEngineManager] ConfigHub initialized')
+    console.log('[DaemonEngineManager] ConfigHub initialized')
 
     // Set initial runtime values from daemon info
     configHub.setRuntime('daemonPort', daemonInfo.port)
@@ -284,7 +283,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
         username: configHub.proxyUsername.get() ?? undefined,
         password: configHub.proxyPassword.get() ?? undefined,
       })
-      console.log(`[ChromeExtensionEngineManager] SOCKS5 proxy enabled: ${proxyHost}:${proxyPort}`)
+      console.log(`[DaemonEngineManager] SOCKS5 proxy enabled: ${proxyHost}:${proxyPort}`)
     }
 
     this.engine = new BtEngine({
@@ -301,11 +300,11 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     })
     window.engine = this.engine // expose for debugging
     window.getBatchWriteHistogram = getBatchWriteHistogram // expose for benchmarking
-    console.log('[ChromeExtensionEngineManager] Engine created (suspended)')
+    console.log('[DaemonEngineManager] Engine created (suspended)')
 
     // 7. Restore session
     const restored = await this.engine.restoreSession()
-    console.log(`[ChromeExtensionEngineManager] Restored ${restored} torrents`)
+    console.log(`[DaemonEngineManager] Restored ${restored} torrents`)
 
     // 8. Resume engine
     // Guard: engine may have been destroyed during restoreSession() if daemon disconnected
@@ -313,7 +312,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
       throw new Error('Engine was destroyed during initialization (daemon disconnected)')
     }
     this.engine.resume()
-    console.log('[ChromeExtensionEngineManager] Engine resumed')
+    console.log('[DaemonEngineManager] Engine resumed')
 
     // 9. Set up background throttling prevention (UI-only, not engine)
     this.backgroundKeepAlive.setEnabled(configHub.preventBackgroundThrottling.get())
@@ -332,7 +331,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     // 12. Process any native events that arrived during initialization
     if (this.pendingNativeEvents.length > 0) {
       console.log(
-        '[ChromeExtensionEngineManager] Processing',
+        '[DaemonEngineManager] Processing',
         this.pendingNativeEvents.length,
         'queued events',
       )
@@ -353,7 +352,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
    * Clean shutdown - notify host that this UI is closing.
    */
   shutdown(): void {
-    console.log('[ChromeExtensionEngineManager] Shutting down...')
+    console.log('[DaemonEngineManager] Shutting down...')
 
     // Clean up notification interval
     if (this.notificationProgressInterval) {
@@ -391,7 +390,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
    * Called when the daemon disconnects so we can reinitialize with fresh connection info.
    */
   reset(): void {
-    console.log('[ChromeExtensionEngineManager] Resetting for reconnection...')
+    console.log('[DaemonEngineManager] Resetting for reconnection...')
 
     // Clean up notification interval
     if (this.notificationProgressInterval) {
@@ -488,7 +487,7 @@ export class ChromeExtensionEngineManager implements IEngineManager {
     try {
       await this.channel.removeDownloadRoot(key)
     } catch (e) {
-      console.error('[ChromeExtensionEngineManager] Failed to remove root:', e)
+      console.error('[DaemonEngineManager] Failed to remove root:', e)
       return false
     }
 
@@ -597,13 +596,11 @@ export class ChromeExtensionEngineManager implements IEngineManager {
 
   setLoggingConfig(config: EngineLoggingConfig): void {
     if (!this.engine) {
-      console.warn(
-        '[ChromeExtensionEngineManager] Cannot set logging config: engine not initialized',
-      )
+      console.warn('[DaemonEngineManager] Cannot set logging config: engine not initialized')
       return
     }
     this.engine.setLoggingConfig(config)
-    console.log(`[ChromeExtensionEngineManager] Logging config updated: level=${config.level}`)
+    console.log(`[DaemonEngineManager] Logging config updated: level=${config.level}`)
   }
 
   private setupNotifications(): void {
@@ -682,27 +679,27 @@ export class ChromeExtensionEngineManager implements IEngineManager {
 
   async handleNativeEvent(event: string, payload: unknown): Promise<void> {
     if (!this.engine) {
-      console.log('[ChromeExtensionEngineManager] Engine not ready, queueing event:', event)
+      console.log('[DaemonEngineManager] Engine not ready, queueing event:', event)
       this.pendingNativeEvents.push({ event, payload })
       return
     }
 
     if (event === 'TorrentAdded') {
       const p = payload as { name: string; infohash: string; contentsBase64: string }
-      console.log('[ChromeExtensionEngineManager] Adding torrent:', p.name)
+      console.log('[DaemonEngineManager] Adding torrent:', p.name)
       try {
         const bytes = Uint8Array.from(atob(p.contentsBase64), (c) => c.charCodeAt(0))
         await this.engine.addTorrent(bytes)
       } catch (e) {
-        console.error('[ChromeExtensionEngineManager] Failed to add torrent:', e)
+        console.error('[DaemonEngineManager] Failed to add torrent:', e)
       }
     } else if (event === 'MagnetAdded') {
       const p = payload as { link: string }
-      console.log('[ChromeExtensionEngineManager] Adding magnet:', p.link)
+      console.log('[DaemonEngineManager] Adding magnet:', p.link)
       try {
         await this.engine.addTorrent(p.link)
       } catch (e) {
-        console.error('[ChromeExtensionEngineManager] Failed to add magnet:', e)
+        console.error('[DaemonEngineManager] Failed to add magnet:', e)
       }
     }
   }

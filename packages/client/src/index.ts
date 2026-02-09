@@ -10,7 +10,7 @@ export * from './core'
 
 // Host channel (replaces getBridge/notificationBridge singletons)
 export { createHostChannel, HostChannelProvider, useHostChannel } from './host'
-export { ChromeExtensionEngineManager } from './engine-manager/chrome-extension-engine-manager'
+export { DaemonEngineManager } from './engine-manager/daemon-engine-manager'
 export { createNotificationBridge } from './chrome/notification-bridge'
 export type { ProgressStats } from './chrome/notification-bridge'
 
