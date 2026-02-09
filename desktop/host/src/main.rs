@@ -30,19 +30,12 @@ async fn main() -> Result<()> {
     let (event_tx, mut event_rx) = mpsc::channel(32);
 
     // --- Parse args early ---
-    let mut extension_id = None;
     let mut launcher = "chrome".to_string();
     {
         let args: Vec<String> = std::env::args().skip(1).collect();
         let mut i = 0;
         while i < args.len() {
-            if args[i].starts_with("chrome-extension://") {
-                extension_id = args[i]
-                    .trim_start_matches("chrome-extension://")
-                    .trim_end_matches('/')
-                    .to_string()
-                    .into();
-            } else if args[i] == "--launcher" {
+            if args[i] == "--launcher" {
                 if let Some(val) = args.get(i + 1) {
                     launcher.clone_from(val);
                     i += 1;
@@ -62,7 +55,7 @@ async fn main() -> Result<()> {
     // Start Daemon - DELAYED until Handshake
     let mut daemon_manager = daemon_manager::DaemonManager::new();
 
-    // Start RPC server (used by link-handler for magnet/torrent intake)
+    // Start RPC server
     let (port, token) = rpc::start_server(state.clone()).await?;
 
     // Only refresh process info
@@ -132,9 +125,7 @@ async fn main() -> Result<()> {
         .unwrap()
         .as_secs();
 
-    // Write a placeholder discovery entry so the RPC server port/token are discoverable
-    // for link handling. This entry is replaced on handshake.
-    let pending_profile_id = format!("pending-{}", std::process::id());
+    // Store startup info in state — rpc-info.json is NOT written until handshake
     let info = rpc::RpcWriteInfo {
         version: env!("CARGO_PKG_VERSION").to_string(),
         pid: std::process::id(),
@@ -145,10 +136,10 @@ async fn main() -> Result<()> {
         browser: rpc::BrowserInfo {
             name: browser_name,
             binary: browser_binary,
-            extension_id: extension_id.clone(),
+            extension_id: None,
         },
         download_roots: None,
-        profile_id: pending_profile_id,
+        profile_id: String::new(),
         display_name: String::new(),
         created: now,
         client_type: None,
@@ -156,25 +147,8 @@ async fn main() -> Result<()> {
         launcher: Some(launcher),
     };
 
-    // Store info in state so we can update it later
     if let Ok(mut info_guard) = state.rpc_info.lock() {
-        *info_guard = Some(info.clone());
-    }
-
-    match rpc::write_discovery_file(info) {
-        Ok(mut roots) => {
-            for root in &mut roots {
-                if root.disk_id.is_empty() {
-                    root.disk_id = jstorrent_common::get_disk_id(std::path::Path::new(&root.path));
-                }
-            }
-            if let Ok(mut info_guard) = state.rpc_info.lock() {
-                if let Some(info) = info_guard.as_mut() {
-                    info.download_roots = Some(roots);
-                }
-            }
-        }
-        Err(e) => log!("Failed to write discovery file: {e}"),
+        *info_guard = Some(info);
     }
 
     loop {
@@ -264,20 +238,11 @@ async fn do_handshake(
             }
         }
     } else {
-        // Auto-resolve: find by extension_id, or create new
-        let existing = unified
-            .profiles
-            .iter()
-            .find(|p| p.extension_id.as_deref() == Some(&extension_id));
-        if let Some(p) = existing {
-            (p.profile_id.clone(), p.display_name.clone(), p.created)
-        } else {
-            // Create new profile
-            let new_id = uuid::Uuid::new_v4().to_string();
-            let count = unified.profiles.len() + 1;
-            let name = format!("Profile {count}");
-            (new_id, name, now)
-        }
+        // No profile_id → create new profile
+        let new_id = uuid::Uuid::new_v4().to_string();
+        let count = unified.profiles.len() + 1;
+        let name = format!("Profile {count}");
+        (new_id, name, now)
     };
 
     // 3. Check incumbent liveness (if profile exists and has a different PID)
@@ -551,10 +516,7 @@ async fn handle_request(
             let target_profile = if let Some(ref pid) = profile_id {
                 unified.profiles.iter().find(|p| &p.profile_id == pid)
             } else {
-                unified
-                    .profiles
-                    .iter()
-                    .find(|p| p.extension_id.as_deref() == Some(&extension_id))
+                None
             };
 
             if let Some(profile) = target_profile {

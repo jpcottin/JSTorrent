@@ -153,16 +153,14 @@ fn handshake(
 fn takeover(
     host: &mut HostProcess,
     extension_id: &str,
-    profile_id: Option<&str>,
+    profile_id: &str,
 ) -> serde_json::Value {
-    let mut msg = serde_json::json!({
+    let msg = serde_json::json!({
         "id": next_id(),
         "op": "takeOver",
         "extensionId": extension_id,
+        "profileId": profile_id,
     });
-    if let Some(pid) = profile_id {
-        msg["profileId"] = serde_json::Value::String(pid.to_string());
-    }
     write_native_message(host.stdin.as_mut().unwrap(), &msg);
     read_native_message(&mut host.stdout)
 }
@@ -244,6 +242,7 @@ fn read_rpc_info(config_dir: &Path) -> serde_json::Value {
 // Tests
 // ===========================================================================
 
+/// profile_id: None → creates a new profile with a valid UUID.
 #[test]
 fn test_fresh_profile_creation() {
     assert_daemon_binary_exists();
@@ -263,72 +262,84 @@ fn test_fresh_profile_creation() {
         "daemon should respond to health check"
     );
 
-    // Verify rpc-info.json
+    // Verify rpc-info.json has the profile
     let rpc_info = read_rpc_info(config_dir.path());
-    let profiles = rpc_info["profiles"]
-        .as_array()
-        .expect("profiles should be array");
-
-    // Find the real (non-pending) profile
-    // Note: rpc-info.json uses snake_case field names (profile_id, extension_id)
-    let real_profile = profiles
+    let profiles = rpc_info["profiles"].as_array().expect("profiles should be array");
+    let profile = profiles
         .iter()
-        .find(|p| {
-            p["profile_id"]
-                .as_str()
-                .is_some_and(|id| !id.starts_with("pending-"))
-        })
-        .expect("should find a non-pending profile in rpc-info.json");
-    assert_eq!(real_profile["profile_id"].as_str().unwrap(), profile_id);
-    assert_eq!(
-        real_profile["browser"]["extension_id"].as_str().unwrap(),
-        "ext-fresh-test"
-    );
-    assert!(real_profile["pid"].as_u64().unwrap() > 0);
+        .find(|p| p["profile_id"].as_str() == Some(profile_id.as_str()))
+        .expect("should find profile in rpc-info.json");
+    assert!(profile["pid"].as_u64().unwrap() > 0);
 
     shutdown_host(host);
 }
 
+/// Passing an explicit profile_id from a previous session → reuses the same profile.
 #[test]
-fn test_profile_reuse_by_extension_id() {
+fn test_profile_reuse_by_profile_id() {
     assert_daemon_binary_exists();
     let config_dir = tempfile::tempdir().unwrap();
 
-    // Host A: handshake → get profile ID
+    // Host A: create profile
     let mut host_a = spawn_host(config_dir.path());
     let response_a = handshake(&mut host_a, "ext-reuse-test", None);
     let (profile_id_a, _, _) = assert_daemon_info(&response_a);
     shutdown_host(host_a);
 
-    // Wait for cleanup
     std::thread::sleep(Duration::from_millis(500));
 
-    // Host B: same config dir, same extensionId → should reuse profile
+    // Host B: pass A's profile_id explicitly → should reuse it
     let mut host_b = spawn_host(config_dir.path());
-    let response_b = handshake(&mut host_b, "ext-reuse-test", None);
+    let response_b = handshake(&mut host_b, "ext-reuse-test", Some(&profile_id_a));
     let (profile_id_b, _, _) = assert_daemon_info(&response_b);
 
     assert_eq!(
         profile_id_a, profile_id_b,
-        "same extensionId should reuse the same profileId"
+        "explicit profile_id should reuse the same profile"
     );
 
     shutdown_host(host_b);
 }
 
+/// Two hosts with no profile_id → each gets a separate new profile,
+/// even with the same extension_id.
+#[test]
+fn test_no_profile_id_always_creates_new() {
+    assert_daemon_binary_exists();
+    let config_dir = tempfile::tempdir().unwrap();
+
+    let mut host_a = spawn_host(config_dir.path());
+    let response_a = handshake(&mut host_a, "ext-same", None);
+    let (profile_id_a, _, _) = assert_daemon_info(&response_a);
+    shutdown_host(host_a);
+
+    std::thread::sleep(Duration::from_millis(500));
+
+    let mut host_b = spawn_host(config_dir.path());
+    let response_b = handshake(&mut host_b, "ext-same", None);
+    let (profile_id_b, _, _) = assert_daemon_info(&response_b);
+
+    assert_ne!(
+        profile_id_a, profile_id_b,
+        "two handshakes with profile_id: None should create different profiles"
+    );
+
+    shutdown_host(host_b);
+}
+
+/// Host A active with profile. Host B sends same profile_id → ProfileInUse.
 #[test]
 fn test_profile_in_use_detection() {
     assert_daemon_binary_exists();
     let config_dir = tempfile::tempdir().unwrap();
 
-    // Host A: handshake → profile is active
+    // Host A: create and hold profile
     let mut host_a = spawn_host(config_dir.path());
-    let response_a = handshake(&mut host_a, "ext-in-use-test", None);
+    let response_a = handshake(&mut host_a, "ext-in-use-a", None);
     let (profile_id_a, _, _) = assert_daemon_info(&response_a);
 
-    // Verify host A's RPC health endpoint works (this is what liveness check hits)
+    // Verify host A's RPC health endpoint works
     let rpc_info = read_rpc_info(config_dir.path());
-    // rpc-info.json uses snake_case field names
     let host_a_entry = rpc_info["profiles"]
         .as_array()
         .unwrap()
@@ -343,18 +354,12 @@ fn test_profile_in_use_detection() {
         .timeout(Duration::from_secs(2))
         .build()
         .unwrap();
-    let health_resp = client
-        .get(&health_url)
-        .send()
-        .expect("health check should succeed");
-    assert!(
-        health_resp.status().is_success(),
-        "host A RPC health check should succeed"
-    );
+    let health_resp = client.get(&health_url).send().expect("health check should succeed");
+    assert!(health_resp.status().is_success(), "host A RPC health check should succeed");
 
-    // Host B: same config dir, same extensionId → should get ProfileInUse
+    // Host B: explicitly request A's profile → ProfileInUse
     let mut host_b = spawn_host(config_dir.path());
-    let response_b = handshake(&mut host_b, "ext-in-use-test", None);
+    let response_b = handshake(&mut host_b, "ext-in-use-b", Some(&profile_id_a));
 
     assert_eq!(response_b["ok"], false, "should be error: {response_b}");
     assert_eq!(
@@ -362,10 +367,7 @@ fn test_profile_in_use_detection() {
         "profile_in_use",
         "error should be profile_in_use: {response_b}"
     );
-    assert_eq!(
-        response_b["type"], "ProfileInUse",
-        "type should be ProfileInUse: {response_b}"
-    );
+    assert_eq!(response_b["type"], "ProfileInUse", "type should be ProfileInUse: {response_b}");
 
     let payload_b = &response_b["payload"];
     assert_eq!(
@@ -373,22 +375,19 @@ fn test_profile_in_use_detection() {
         profile_id_a,
         "ProfileInUse should reference A's profileId"
     );
-    assert!(
-        payload_b["pid"].as_u64().unwrap() > 0,
-        "ProfileInUse should have incumbent PID"
-    );
+    assert!(payload_b["pid"].as_u64().unwrap() > 0, "ProfileInUse should have incumbent PID");
 
-    // Clean up: B first (no daemon to stop), then A
     shutdown_host(host_b);
     shutdown_host(host_a);
 }
 
+/// Host A crashes (stale entry). Host B passes A's profile_id → takes over.
 #[test]
 fn test_stale_process_takeover() {
     assert_daemon_binary_exists();
     let config_dir = tempfile::tempdir().unwrap();
 
-    // Host A: handshake → active profile
+    // Host A: create profile
     let mut host_a = spawn_host(config_dir.path());
     let response_a = handshake(&mut host_a, "ext-stale-test", None);
     let (profile_id_a, _, _) = assert_daemon_info(&response_a);
@@ -397,41 +396,37 @@ fn test_stale_process_takeover() {
     host_a.child.kill().ok();
     let _ = host_a.child.wait();
 
-    // Wait for daemon to notice parent death and exit (monitors every 1s)
+    // Wait for daemon to notice parent death
     std::thread::sleep(Duration::from_secs(2));
 
-    // Host B: same config dir, same extensionId
-    // → sysinfo sees A's PID is dead → takes over → DaemonInfo with same profileId
+    // Host B: pass A's profile_id → stale PID is dead → takes over
     let mut host_b = spawn_host(config_dir.path());
-    let response_b = handshake(&mut host_b, "ext-stale-test", None);
+    let response_b = handshake(&mut host_b, "ext-stale-test", Some(&profile_id_a));
     let (profile_id_b, daemon_port_b, _) = assert_daemon_info(&response_b);
 
     assert_eq!(
         profile_id_a, profile_id_b,
         "should reuse same profile after stale process takeover"
     );
-    assert!(
-        check_daemon_health(daemon_port_b),
-        "new daemon should be healthy"
-    );
+    assert!(check_daemon_health(daemon_port_b), "new daemon should be healthy");
 
     shutdown_host(host_b);
-    // host_a is already dead — Drop will try kill+wait which is harmless
 }
 
+/// Host B sends TakeOver with A's profile_id → kills A, takes profile.
 #[test]
 fn test_explicit_takeover() {
     assert_daemon_binary_exists();
     let config_dir = tempfile::tempdir().unwrap();
 
-    // Host A: handshake → active profile
+    // Host A: create and hold profile
     let mut host_a = spawn_host(config_dir.path());
-    let response_a = handshake(&mut host_a, "ext-takeover-test", None);
+    let response_a = handshake(&mut host_a, "ext-takeover-a", None);
     let (profile_id_a, _, _) = assert_daemon_info(&response_a);
 
-    // Host B: send TakeOver → kills A, then handshakes
+    // Host B: TakeOver with A's profile_id → kills A, then handshakes
     let mut host_b = spawn_host(config_dir.path());
-    let response_b = takeover(&mut host_b, "ext-takeover-test", None);
+    let response_b = takeover(&mut host_b, "ext-takeover-b", &profile_id_a);
     let (profile_id_b, daemon_port_b, _) = assert_daemon_info(&response_b);
 
     assert_eq!(
@@ -439,78 +434,47 @@ fn test_explicit_takeover() {
         "should get same profile after takeover"
     );
 
-    // Verify host A was killed by the takeover
+    // Verify host A was killed
     std::thread::sleep(Duration::from_millis(200));
     let exit_status = host_a.child.try_wait().unwrap();
-    assert!(
-        exit_status.is_some(),
-        "host A should have been killed by takeover"
-    );
+    assert!(exit_status.is_some(), "host A should have been killed by takeover");
 
-    // Verify B's daemon is working
-    assert!(
-        check_daemon_health(daemon_port_b),
-        "host B's daemon should be healthy"
-    );
+    assert!(check_daemon_health(daemon_port_b), "host B's daemon should be healthy");
 
     shutdown_host(host_b);
-    // host_a is already dead — Drop is harmless
 }
 
+/// Two hosts both send profile_id: None → two different profiles, two daemons.
 #[test]
-fn test_multiple_profiles_different_extensions() {
+fn test_multiple_independent_profiles() {
     assert_daemon_binary_exists();
     let config_dir = tempfile::tempdir().unwrap();
 
-    // Host A: ext-a → profile P1
     let mut host_a = spawn_host(config_dir.path());
     let response_a = handshake(&mut host_a, "ext-multi-a", None);
     let (profile_id_a, daemon_port_a, _) = assert_daemon_info(&response_a);
 
-    // Host B: ext-b (same config dir) → profile P2
     let mut host_b = spawn_host(config_dir.path());
     let response_b = handshake(&mut host_b, "ext-multi-b", None);
     let (profile_id_b, daemon_port_b, _) = assert_daemon_info(&response_b);
 
-    // Different extensions → different profiles
-    assert_ne!(
-        profile_id_a, profile_id_b,
-        "different extensions should get different profiles"
-    );
+    assert_ne!(profile_id_a, profile_id_b, "should get different profiles");
+    assert_ne!(daemon_port_a, daemon_port_b, "daemons should be on different ports");
 
-    // Different daemon ports
-    assert_ne!(
-        daemon_port_a, daemon_port_b,
-        "daemons should be on different ports"
-    );
+    assert!(check_daemon_health(daemon_port_a), "daemon A should be healthy");
+    assert!(check_daemon_health(daemon_port_b), "daemon B should be healthy");
 
-    // Both daemons healthy
-    assert!(
-        check_daemon_health(daemon_port_a),
-        "daemon A should be healthy"
-    );
-    assert!(
-        check_daemon_health(daemon_port_b),
-        "daemon B should be healthy"
-    );
-
-    // Verify rpc-info.json has both profiles
+    // Verify rpc-info.json has both
     let rpc_info = read_rpc_info(config_dir.path());
     let profiles = rpc_info["profiles"].as_array().unwrap();
-    // rpc-info.json uses snake_case field names
-    let found_a = profiles
-        .iter()
-        .any(|p| p["profile_id"].as_str() == Some(profile_id_a.as_str()));
-    let found_b = profiles
-        .iter()
-        .any(|p| p["profile_id"].as_str() == Some(profile_id_b.as_str()));
-    assert!(found_a, "should find profile A in rpc-info.json");
-    assert!(found_b, "should find profile B in rpc-info.json");
+    assert!(profiles.iter().any(|p| p["profile_id"].as_str() == Some(profile_id_a.as_str())));
+    assert!(profiles.iter().any(|p| p["profile_id"].as_str() == Some(profile_id_b.as_str())));
 
     shutdown_host(host_a);
     shutdown_host(host_b);
 }
 
+/// Explicit bad profile_id → error. Then handshake with None → creates new profile.
 #[test]
 fn test_invalid_profile_id() {
     assert_daemon_binary_exists();
@@ -518,16 +482,8 @@ fn test_invalid_profile_id() {
 
     let mut host = spawn_host(config_dir.path());
 
-    // Handshake with nonexistent explicit profileId → should fail
-    let response = handshake(
-        &mut host,
-        "ext-invalid-test",
-        Some("nonexistent-uuid-12345"),
-    );
-    assert_eq!(
-        response["ok"], false,
-        "should fail for invalid profileId: {response}"
-    );
+    let response = handshake(&mut host, "ext-invalid-test", Some("nonexistent-uuid-12345"));
+    assert_eq!(response["ok"], false, "should fail for invalid profileId: {response}");
     let error = response["error"].as_str().unwrap();
     assert!(
         error.contains("Invalid profile ID") || error.contains("not found"),
@@ -536,20 +492,18 @@ fn test_invalid_profile_id() {
 
     // Host should still be alive — send a valid handshake
     let response2 = handshake(&mut host, "ext-invalid-test", None);
-    assert_eq!(
-        response2["ok"], true,
-        "second handshake without explicit profileId should succeed: {response2}"
-    );
+    assert_eq!(response2["ok"], true, "handshake with None should succeed: {response2}");
 
     shutdown_host(host);
 }
 
+/// KV data is isolated per profile and persists across host restarts.
 #[test]
 fn test_per_profile_kv_isolation() {
     assert_daemon_binary_exists();
     let config_dir = tempfile::tempdir().unwrap();
 
-    // Host A (ext-a): set a KV value
+    // Host A: create profile, set KV value
     let mut host_a = spawn_host(config_dir.path());
     let response_a = handshake(&mut host_a, "ext-kv-a", None);
     let (profile_id_a, _, _) = assert_daemon_info(&response_a);
@@ -559,49 +513,39 @@ fn test_per_profile_kv_isolation() {
 
     let get_resp = kv_get(&mut host_a, "setting");
     assert_eq!(get_resp["ok"], true, "KvGet should succeed: {get_resp}");
-    assert_eq!(
-        get_resp["payload"]["value"].as_str().unwrap(),
-        "hello",
-        "KvGet should return set value"
-    );
+    assert_eq!(get_resp["payload"]["value"].as_str().unwrap(), "hello");
 
     shutdown_host(host_a);
     std::thread::sleep(Duration::from_millis(500));
 
-    // Host B (ext-b): different profile, should not see A's KV data
+    // Host B: different profile (None) → should NOT see A's KV data
     let mut host_b = spawn_host(config_dir.path());
     let response_b = handshake(&mut host_b, "ext-kv-b", None);
     let (profile_id_b, _, _) = assert_daemon_info(&response_b);
-    assert_ne!(
-        profile_id_a, profile_id_b,
-        "different extensions should have different profiles"
-    );
+    assert_ne!(profile_id_a, profile_id_b, "should be different profiles");
 
     let get_resp_b = kv_get(&mut host_b, "setting");
     assert_eq!(get_resp_b["ok"], true, "KvGet should succeed on host B");
     assert!(
         get_resp_b["payload"]["value"].is_null(),
-        "KvGet should return null for a different profile: {get_resp_b}"
+        "different profile should not see A's KV data: {get_resp_b}"
     );
 
     shutdown_host(host_b);
     std::thread::sleep(Duration::from_millis(500));
 
-    // Host C (ext-a again): same profile as A, should see persisted KV data
+    // Host C: reconnect to A's profile by profile_id → should see persisted KV data
     let mut host_c = spawn_host(config_dir.path());
-    let response_c = handshake(&mut host_c, "ext-kv-a", None);
+    let response_c = handshake(&mut host_c, "ext-kv-c", Some(&profile_id_a));
     let (profile_id_c, _, _) = assert_daemon_info(&response_c);
-    assert_eq!(
-        profile_id_a, profile_id_c,
-        "same extension should reuse same profile"
-    );
+    assert_eq!(profile_id_a, profile_id_c, "should reuse A's profile");
 
     let get_resp_c = kv_get(&mut host_c, "setting");
     assert_eq!(get_resp_c["ok"], true, "KvGet should succeed on host C");
     assert_eq!(
         get_resp_c["payload"]["value"].as_str().unwrap(),
         "hello",
-        "KvGet should return value persisted by host A"
+        "should see A's persisted KV data"
     );
 
     shutdown_host(host_c);

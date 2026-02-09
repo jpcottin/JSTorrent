@@ -14,7 +14,6 @@ import {
   Torrent,
   toHex,
   getBatchWriteHistogram,
-  IndexedDbSessionStore,
   type ISocketFactory,
   type CredentialsGetter,
   type EngineLoggingConfig,
@@ -155,6 +154,12 @@ export class DaemonEngineManager implements IEngineManager {
       'rootsManageable:',
       this.rootsManageable,
     )
+    console.log(
+      '[DaemonEngineManager] profileId:',
+      daemonInfo.profileId ?? 'none',
+      'standalone:',
+      this.isStandalone,
+    )
 
     // 2. Create direct WebSocket connection to daemon
     // On ChromeOS, use credentials getter for fresh token
@@ -212,12 +217,8 @@ export class DaemonEngineManager implements IEngineManager {
       (root) => new DaemonFileSystem(this.daemonConnection!, root.key, NULL_STORAGE),
     )
 
-    // 4. Create session store (before registering roots so we can load default)
-    // Tauri: use IndexedDB directly (native binary, no base64 overhead)
-    // Chrome extension: delegate to host channel (chrome.storage.local via service worker)
-    this.sessionStore = isTauriContext()
-      ? new IndexedDbSessionStore()
-      : new HostChannelSessionStore(this.channel)
+    // 4. Create session store — always delegate to host channel (per-profile KV via native host)
+    this.sessionStore = new HostChannelSessionStore(this.channel)
 
     // Register download roots from daemon
     if (roots.length > 0) {
