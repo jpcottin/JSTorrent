@@ -115,19 +115,45 @@ export class TauriChannel implements HostChannel {
       const response = await tauriInvoke<{
         ok: boolean
         type?: string
-        payload?: { port: number; token: string; version?: string; roots?: DownloadRoot[] }
+        payload?: {
+          port: number
+          token: string
+          version?: string
+          roots?: DownloadRoot[]
+          profileId?: string
+          clientType?: string
+          clientVersion?: string
+          browserName?: string
+          pid?: number
+          started?: number
+        }
         error?: string
       }>('host_handshake')
 
       if (response.ok && response.type === 'DaemonInfo' && response.payload) {
-        const { port, token, version, roots } = response.payload
+        const { port, token, version, roots, profileId } = response.payload
         this.daemonInfo = { port, token }
+        if (profileId) {
+          try {
+            localStorage.setItem('jstorrent:profileId', profileId)
+          } catch {
+            // localStorage may not be available
+          }
+        }
         this.updateState({
           status: 'connected',
           platform: 'tauri',
-          daemonInfo: { port, token, version, roots: roots ?? [], host: '127.0.0.1' },
+          daemonInfo: { port, token, version, roots: roots ?? [], host: '127.0.0.1', profileId },
           roots: roots ?? [],
           lastError: null,
+        })
+      } else if (response.error === 'profile_in_use' && response.payload) {
+        const { clientType, clientVersion, browserName, pid, started } = response.payload
+        this.updateState({
+          ...this.currentState,
+          status: 'disconnected',
+          lastError: 'profile_in_use',
+          profileInUseInfo: { clientType, clientVersion, browserName, pid, started },
         })
       } else {
         this.updateState({
@@ -354,6 +380,48 @@ export class TauriChannel implements HostChannel {
 
   triggerLaunch(): void {
     // No-op — daemon is always launched by system-bridge
+  }
+
+  takeOver(): void {
+    hostMessage({
+      op: 'takeOver',
+      extensionId: 'tauri-desktop',
+      clientType: 'tauri',
+      clientVersion: this.getVersion() ?? undefined,
+    })
+      .then((response) => {
+        if (response.ok && response.type === 'DaemonInfo' && response.payload) {
+          const port = response.payload.port as number
+          const token = response.payload.token as string
+          const version = response.payload.version as string | undefined
+          const roots = (response.payload.roots as DownloadRoot[] | undefined) ?? []
+          const profileId = response.payload.profileId as string | undefined
+          this.daemonInfo = { port, token }
+          if (profileId) {
+            try {
+              localStorage.setItem('jstorrent:profileId', profileId)
+            } catch {
+              // localStorage may not be available
+            }
+          }
+          this.updateState({
+            status: 'connected',
+            platform: 'tauri',
+            daemonInfo: { port, token, version, roots, host: '127.0.0.1', profileId },
+            roots,
+            lastError: null,
+          })
+        } else {
+          this.updateState({
+            ...this.currentState,
+            status: 'disconnected',
+            lastError: response.error ?? 'Take over failed',
+          })
+        }
+      })
+      .catch((e) => {
+        console.error('[TauriChannel] Take over failed:', e)
+      })
   }
 
   // --- Debug / admin ---

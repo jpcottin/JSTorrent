@@ -100,9 +100,7 @@ export function useIOBridgeState(config: UseIOBridgeStateConfig = {}): UseIOBrid
     // Cancel is no longer used in simplified bridge, but keep for API compatibility
   }, [])
   const takeOver = useCallback(() => {
-    if (channel instanceof ChromeExtensionChannel) {
-      channel.takeOver()
-    }
+    channel.takeOver()
   }, [channel])
   const getStats = useCallback(() => channel.getStats(), [channel])
 

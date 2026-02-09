@@ -495,8 +495,7 @@ async fn handle_request(
             if result.is_ok() && state.launcher == "chrome" {
                 let should_check = {
                     let kv = state.kv.lock().unwrap();
-                    kv.as_ref()
-                        .is_some_and(updater::should_auto_check)
+                    kv.as_ref().is_some_and(updater::should_auto_check)
                 };
                 if should_check {
                     let kv_guard = state.kv.lock().unwrap();

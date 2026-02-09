@@ -54,6 +54,8 @@ export interface HostChannel {
   // --- Host actions ---
   retryConnection(): void
   triggerLaunch(): void
+  /** Take over from the incumbent client using this profile. */
+  takeOver(): void
 
   // --- Debug / admin ---
   getStats(): Promise<DaemonStats | null>

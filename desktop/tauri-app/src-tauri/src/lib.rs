@@ -269,24 +269,6 @@ fn resolve_sidecar(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String
     ))
 }
 
-/// Get or create a persistent install ID in the app data directory.
-fn get_or_create_install_id(app: &tauri::AppHandle) -> String {
-    let data_dir = app.path().app_data_dir().expect("no app data directory");
-    std::fs::create_dir_all(&data_dir).ok();
-    let path = data_dir.join("install-id");
-
-    if let Ok(id) = std::fs::read_to_string(&path) {
-        let id = id.trim().to_string();
-        if !id.is_empty() {
-            return id;
-        }
-    }
-
-    let id = uuid::Uuid::new_v4().to_string();
-    std::fs::write(&path, &id).ok();
-    id
-}
-
 /// Read native messaging frames from system-bridge stdout and dispatch them.
 fn run_stdout_reader(stdout: &mut ChildStdout, bridge: &HostBridge, app_handle: &tauri::AppHandle) {
     let mut len_buf = [0u8; 4];
@@ -331,15 +313,14 @@ fn run_stdout_reader(stdout: &mut ChildStdout, bridge: &HostBridge, app_handle: 
 
 #[tauri::command]
 async fn host_handshake(
-    app: tauri::AppHandle,
     state: tauri::State<'_, Arc<HostBridge>>,
 ) -> Result<serde_json::Value, String> {
-    let install_id = get_or_create_install_id(&app);
     state
         .request(serde_json::json!({
             "op": "handshake",
             "extensionId": "tauri-desktop",
-            "installId": install_id,
+            "clientType": "tauri",
+            "clientVersion": env!("CARGO_PKG_VERSION"),
         }))
         .await
 }
