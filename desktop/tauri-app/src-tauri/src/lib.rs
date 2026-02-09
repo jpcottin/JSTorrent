@@ -625,7 +625,9 @@ pub fn run() {
             eprintln!("Spawning system-bridge: {}", host_path.display());
 
             let mut cmd = std::process::Command::new(&host_path);
-            cmd.stdin(std::process::Stdio::piped())
+            cmd.arg("--launcher")
+                .arg("tauri")
+                .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::inherit());
             // Prevent a visible console window for the sidecar on Windows
@@ -648,11 +650,15 @@ pub fn run() {
 
             app.manage(bridge.clone());
 
-            // Background stdout reader on a dedicated OS thread
+            // Background stdout reader on a dedicated OS thread.
+            // When stdout closes (sidecar died, e.g. killed by extension TakeOver),
+            // exit the Tauri app so it doesn't linger as a headless window.
             let app_handle = app.handle().clone();
             std::thread::spawn(move || {
                 let _child = child; // Keep child handle alive
                 run_stdout_reader(&mut stdout, &bridge, &app_handle);
+                eprintln!("system-bridge: sidecar exited, shutting down Tauri app");
+                app_handle.exit(0);
             });
 
             Ok(())

@@ -140,6 +140,7 @@ function App() {
     retry,
     launch,
     cancel,
+    takeOverFromDesktop,
     getStats,
     chromeosBootstrapState,
     chromeosHasEverConnected,
@@ -321,6 +322,7 @@ function App() {
                   onRetry={retry}
                   onLaunch={launch}
                   onCancel={cancel}
+                  onTakeOverFromDesktop={takeOverFromDesktop}
                   onAddFolder={async () => {
                     const existingRoots = engineManager.getRoots().length
                     const root = await engineManager.pickDownloadFolder()
@@ -421,6 +423,41 @@ function App() {
             <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
               {ioBridgeState.status === 'connecting' && 'Connecting to daemon...'}
               {ioBridgeState.status === 'disconnected' &&
+                ioBridgeState.lastError === 'desktop_app_running' && (
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 'var(--font-lg, 16px)',
+                        fontWeight: 600,
+                        color: 'var(--text-primary)',
+                        marginBottom: '12px',
+                      }}
+                    >
+                      Desktop App Running
+                    </div>
+                    <div style={{ marginBottom: '20px', lineHeight: 1.5 }}>
+                      The JSTorrent desktop app is currently running.
+                      <br />
+                      The extension and desktop app cannot run simultaneously.
+                    </div>
+                    <button
+                      onClick={takeOverFromDesktop}
+                      style={{
+                        padding: '8px 16px',
+                        background: 'var(--accent-primary)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        fontSize: 'var(--font-base, 13px)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Quit Desktop App & Use Extension
+                    </button>
+                  </div>
+                )}
+              {ioBridgeState.status === 'disconnected' &&
+                ioBridgeState.lastError !== 'desktop_app_running' &&
                 (ioBridgeState.platform === 'chromeos'
                   ? 'Click the indicator above to launch the companion app.'
                   : 'Click the indicator above to set up JSTorrent.')}

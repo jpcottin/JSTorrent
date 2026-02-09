@@ -741,6 +741,14 @@ function handleMessage(
     return true
   }
 
+  // Take over from desktop Tauri app
+  if (message.type === 'TAKE_OVER_FROM_DESKTOP') {
+    bridge.takeOver().then((ok: boolean) => {
+      sendResponse({ ok })
+    })
+    return true
+  }
+
   // Retry connection
   if (message.type === 'RETRY_CONNECTION') {
     bridge.connect().then((success: boolean) => {

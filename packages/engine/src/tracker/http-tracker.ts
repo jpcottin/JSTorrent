@@ -80,7 +80,7 @@ export class HttpTracker extends EngineComponent implements ITracker {
     const query = this.buildQuery(event, stats)
     const url = `${this.announceUrl}?${query}`
 
-    this.logger.info(`HttpTracker: Announcing '${event}' to ${this.announceUrl}`)
+    this.logger.debug(`HttpTracker: Announcing '${event}' to ${this.announceUrl}`)
     this._status = 'announcing'
 
     // Estimate request size (URL + headers, approximate)

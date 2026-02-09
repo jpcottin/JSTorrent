@@ -70,7 +70,7 @@ export class UdpTracker extends EngineComponent implements ITracker {
   }
 
   async announce(event: TrackerAnnounceEvent = 'started', stats?: AnnounceStats): Promise<void> {
-    this.logger.info(`UdpTracker: Announcing '${event}' to ${this.announceUrl}`)
+    this.logger.debug(`UdpTracker: Announcing '${event}' to ${this.announceUrl}`)
     this._status = 'announcing'
     try {
       if (!this.socket) {

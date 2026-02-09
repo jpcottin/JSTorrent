@@ -663,6 +663,17 @@ export class DaemonBridge {
 
       port.onMessage.addListener((msg: unknown) => {
         console.log('[DaemonBridge] Received message from native host:', msg)
+
+        // Check for desktop_app_running block before DaemonInfo check
+        if (!resolved && this.isDesktopAppRunningMessage(msg)) {
+          resolved = true
+          clearTimeout(timeout)
+          // Keep port alive for potential TakeOver
+          this.nativePort = port
+          reject(new Error('desktop_app_running'))
+          return
+        }
+
         if (!resolved && this.isDaemonInfoMessage(msg)) {
           resolved = true
           clearTimeout(timeout)
@@ -1299,12 +1310,84 @@ export class DaemonBridge {
     )
   }
 
+  private isDesktopAppRunningMessage(msg: unknown): boolean {
+    return (
+      typeof msg === 'object' &&
+      msg !== null &&
+      'ok' in msg &&
+      (msg as { ok: boolean }).ok === false &&
+      'error' in msg &&
+      (msg as { error: string }).error === 'desktop_app_running'
+    )
+  }
+
+  /**
+   * Take over from the desktop Tauri app.
+   * Sends TakeOver to the native host which kills the Tauri sidecar,
+   * waits for the daemon to start, and completes the handshake.
+   */
+  async takeOver(): Promise<boolean> {
+    if (!this.nativePort) return false
+
+    const installId = await getOrCreateInstallId()
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        this.nativePort?.onMessage.removeListener(handler)
+        resolve(false)
+      }, 15000) // 15s — needs time for Tauri to die + daemon to start
+
+      const handler = (msg: unknown) => {
+        if (this.isDaemonInfoMessage(msg)) {
+          clearTimeout(timeout)
+          this.nativePort?.onMessage.removeListener(handler)
+          const payload = (msg as { payload: DaemonInfo }).payload
+          console.log('[DaemonBridge] TakeOver succeeded, version:', payload.version)
+          this.updateState({
+            status: 'connected',
+            daemonInfo: {
+              port: payload.port,
+              token: payload.token,
+              version: payload.version ?? 'unknown',
+              roots: payload.roots || [],
+              host: DESKTOP_HOST,
+            },
+            roots: payload.roots || [],
+            lastError: null,
+          })
+          this.startHealthCheck(DESKTOP_HOST, payload.port)
+          resolve(true)
+        }
+      }
+
+      this.nativePort!.onMessage.addListener(handler)
+      this.nativePort!.postMessage({
+        op: 'takeOver',
+        extensionId: chrome.runtime.id,
+        installId,
+        id: crypto.randomUUID(),
+      })
+    })
+  }
+
   private handleDisconnect(): void {
+    const wasConnected = this.state.status === 'connected'
     this.cleanup()
     this.updateState({
       status: 'disconnected',
       lastError: 'Connection lost',
     })
+    // On desktop, auto-reconnect once to detect if Tauri took over.
+    // A new native host will check for a live Tauri incumbent and
+    // return desktop_app_running, giving the UI the right state.
+    if (wasConnected && this.state.platform === 'desktop') {
+      setTimeout(() => {
+        if (this.state.status === 'disconnected') {
+          console.log('[DaemonBridge] Auto-reconnecting after disconnect to detect Tauri')
+          this.connect()
+        }
+      }, 1000)
+    }
   }
 
   private cleanup(): void {

@@ -592,7 +592,7 @@ export class TorrentPieceRequester extends EngineComponent {
     this._findCandidatesCallCount++
     const now = Date.now()
     if (now - this._findCandidatesLastLogTime >= 5000) {
-      this.logger.info(
+      this.logger.debug(
         `findNewPieceCandidates: ${iterations} iterations, ${candidates.length} found, ` +
           `${elapsed}ms, firstNeeded=${firstNeededPiece}, total=${pieceCount}, ` +
           `calls=${this._findCandidatesCallCount}, maxCount=${maxCount}, usedIndex=${usedIndex}`,

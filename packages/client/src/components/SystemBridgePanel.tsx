@@ -23,6 +23,8 @@ export interface SystemBridgePanelProps {
   onAddFolder: () => void
   onSetDefaultRoot: (key: string) => void
   onOpenSettings?: () => void
+  /** Callback to take over from desktop Tauri app (desktop only) */
+  onTakeOverFromDesktop?: () => void
   /** Ref to the anchor element (toggle button) - clicks on it won't trigger close */
   anchorRef?: RefObject<HTMLElement | null>
   /** App version (extension manifest or Tauri app version) */
@@ -46,6 +48,7 @@ export function SystemBridgePanel({
   onAddFolder,
   // onSetDefaultRoot - selection moved to Settings
   onOpenSettings,
+  onTakeOverFromDesktop,
   appVersion,
   anchorRef,
   onFetchStats,
@@ -230,6 +233,25 @@ export function SystemBridgePanel({
       case 'disconnected':
         // Different messages based on platform and whether we've connected before
         if (state.platform === 'desktop') {
+          if (state.lastError === 'desktop_app_running') {
+            return (
+              <div>
+                <div style={{ marginBottom: 'var(--spacing-md, 12px)', fontWeight: 500 }}>
+                  Desktop App Running
+                </div>
+                <div
+                  style={{
+                    color: 'var(--text-secondary)',
+                    fontSize: 'var(--font-base, 13px)',
+                    marginBottom: 'var(--spacing-lg, 16px)',
+                  }}
+                >
+                  The JSTorrent desktop app is currently running. The extension and desktop app
+                  cannot run simultaneously.
+                </div>
+              </div>
+            )
+          }
           return (
             <div>
               <div style={{ marginBottom: 'var(--spacing-md, 12px)', fontWeight: 500 }}>
@@ -526,6 +548,25 @@ export function SystemBridgePanel({
 
       case 'disconnected':
         if (state.platform === 'desktop') {
+          // Desktop app is running — offer to take over
+          if (state.lastError === 'desktop_app_running' && onTakeOverFromDesktop) {
+            return (
+              <button
+                onClick={onTakeOverFromDesktop}
+                style={{
+                  padding: 'var(--spacing-xs, 6px) var(--spacing-md, 12px)',
+                  background: 'var(--accent-primary)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  fontSize: 'var(--font-base, 13px)',
+                  cursor: 'pointer',
+                }}
+              >
+                Quit Desktop App &amp; Use Extension
+              </button>
+            )
+          }
           // Desktop: show download/retry
           return (
             <>

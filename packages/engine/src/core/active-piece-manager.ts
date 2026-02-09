@@ -519,7 +519,7 @@ export class ActivePieceManager extends EngineComponent {
     this._getPartialsCallCount++
     const now = Date.now()
     if (now - this._getPartialsLastLogTime >= 5000) {
-      this.logger.info(
+      this.logger.debug(
         `getPartialsRarestFirst: ${partials.length} partials, ${elapsed}ms, ` +
           `calls=${this._getPartialsCallCount}`,
       )

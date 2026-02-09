@@ -186,7 +186,7 @@ export class TrackerManager extends EngineComponent {
    * For new code, prefer queueAnnounces() + requestDaemonOps().
    */
   async announce(event: TrackerAnnounceEvent = 'started') {
-    this.logger.info(`TrackerManager: Announcing '${event}' to ${this.trackers.length} trackers`)
+    this.logger.debug(`TrackerManager: Announcing '${event}' to ${this.trackers.length} trackers`)
     const stats = this.statsGetter?.()
     const promises = this.trackers.map((t) =>
       t.announce(event, stats).catch((err) => {

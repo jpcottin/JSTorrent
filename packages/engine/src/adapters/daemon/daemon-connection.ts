@@ -1,4 +1,5 @@
 import type { NetworkInterface } from '../../upnp/upnp-manager'
+import { type Logger, basicLogger } from '../../logging/logger'
 
 export interface IDaemonConnection {
   connect(info: { port: number; token: string }): Promise<void>
@@ -48,6 +49,8 @@ export class DaemonConnection {
   static readonly OP_FILE_WRITE = 0x30
   static readonly OP_FILE_WRITE_ACK = 0x31
   static readonly OP_FILE_WRITE_ERROR = 0x32
+
+  private logger: Logger = basicLogger()
 
   constructor(
     private port: number,
@@ -177,14 +180,14 @@ export class DaemonConnection {
     // Handle unexpected disconnect with auto-reconnect
     this.ws!.onclose = (ev) => {
       const reason = `WebSocket closed: code=${ev.code} reason=${ev.reason}`
-      console.log(`[DaemonConnection] ${reason}`)
+      this.logger.debug(`[DaemonConnection] ${reason}`)
       this.notifyDisconnect(reason)
       // Trigger reconnect in background (don't await)
       this.attemptReconnect()
     }
     this.ws!.onerror = () => {
       // onerror is usually followed by onclose, so just log here
-      console.error('[DaemonConnection] WebSocket error')
+      this.logger.error('[DaemonConnection] WebSocket error')
     }
   }
 
@@ -214,7 +217,7 @@ export class DaemonConnection {
     const now = Date.now()
     if (now - this.sendStats.lastLogTime >= 5000 && this.sendStats.count > 0) {
       const avgBuffered = Math.round(this.sendStats.totalBuffered / this.sendStats.count)
-      console.log(
+      this.logger.debug(
         `[DaemonConnection] WS send stats: ${this.sendStats.count} frames, ` +
           `bufferedAmount avg=${avgBuffered}, max=${this.sendStats.maxBuffered}`,
       )
@@ -287,7 +290,7 @@ export class DaemonConnection {
         this.drainStats.totalDrains > 0
           ? (this.drainStats.totalFrames / this.drainStats.totalDrains).toFixed(1)
           : '0'
-      console.log(
+      this.logger.debug(
         `[WS-BATCH] ${this.drainStats.totalDrains} drains, ${this.drainStats.totalFrames} frames, ` +
           `avg=${avgFrames}/drain, max=${this.drainStats.maxFramesInDrain}/drain`,
       )
@@ -326,7 +329,7 @@ export class DaemonConnection {
     while (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++
       const delay = 1000 * Math.pow(2, this.reconnectAttempts - 1) // 1s, 2s, 4s, 8s, 16s
-      console.log(
+      this.logger.debug(
         `[DaemonConnection] Reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`,
       )
 
@@ -334,23 +337,23 @@ export class DaemonConnection {
 
       // Check if reconnecting was cancelled during the delay
       if (!this.reconnecting) {
-        console.log('[DaemonConnection] Reconnect cancelled')
+        this.logger.debug('[DaemonConnection] Reconnect cancelled')
         return
       }
 
       try {
         await this.connectWebSocket()
-        console.log('[DaemonConnection] Reconnected successfully')
+        this.logger.debug('[DaemonConnection] Reconnected successfully')
         this.reconnectAttempts = 0
         this.reconnecting = false
         this.notifyReconnect()
         return
       } catch (e) {
-        console.error('[DaemonConnection] Reconnect failed:', e)
+        this.logger.error('[DaemonConnection] Reconnect failed:', e)
       }
     }
 
-    console.error('[DaemonConnection] Max reconnect attempts reached, giving up')
+    this.logger.error('[DaemonConnection] Max reconnect attempts reached, giving up')
     this.reconnecting = false
     // Notify disconnect again with final message
     this.notifyDisconnect('Max reconnect attempts reached')

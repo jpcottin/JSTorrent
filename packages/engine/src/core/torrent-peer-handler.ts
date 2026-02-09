@@ -298,7 +298,7 @@ export class TorrentPeerHandler extends EngineComponent {
     if (!this.callbacks.hasMetadata()) return false
 
     const reason = peer.isSeed ? 'both seeders' : 'peer upload_only'
-    this.logger.info(
+    this.logger.debug(
       `Disconnecting redundant connection (${reason}): ${peer.remoteAddress}:${peer.remotePort}`,
     )
     peer.close()

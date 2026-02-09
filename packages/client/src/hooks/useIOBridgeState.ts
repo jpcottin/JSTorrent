@@ -26,6 +26,8 @@ export interface UseIOBridgeStateResult {
   retry: () => void
   launch: () => void
   cancel: () => void
+  /** Take over from desktop Tauri app (kills Tauri, extension takes control) */
+  takeOverFromDesktop: () => void
   /** Fetch daemon stats for debug panel */
   getStats: () => Promise<DaemonStats | null>
   /** ChromeOS bootstrap state (only relevant on ChromeOS) */
@@ -97,6 +99,11 @@ export function useIOBridgeState(config: UseIOBridgeStateConfig = {}): UseIOBrid
   const cancel = useCallback(() => {
     // Cancel is no longer used in simplified bridge, but keep for API compatibility
   }, [])
+  const takeOverFromDesktop = useCallback(() => {
+    if (channel instanceof ChromeExtensionChannel) {
+      channel.takeOverFromDesktop()
+    }
+  }, [channel])
   const getStats = useCallback(() => channel.getStats(), [channel])
 
   return {
@@ -106,6 +113,7 @@ export function useIOBridgeState(config: UseIOBridgeStateConfig = {}): UseIOBrid
     retry,
     launch,
     cancel,
+    takeOverFromDesktop,
     getStats,
     chromeosBootstrapState,
     chromeosHasEverConnected,

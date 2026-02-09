@@ -287,6 +287,19 @@ export class ChromeExtensionChannel implements HostChannel {
     // No-op — Chrome extensions update through the Web Store
   }
 
+  // --- Desktop mutual exclusion ---
+
+  async takeOverFromDesktop(): Promise<boolean> {
+    try {
+      const response = await this.sendMessage<{ ok: boolean }>({
+        type: 'TAKE_OVER_FROM_DESKTOP',
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
   // --- ChromeOS-specific methods (not on HostChannel interface) ---
 
   openChromeOSIntent(): void {
