@@ -250,10 +250,10 @@ async fn main() -> Result<()> {
                             }
                         };
 
-                        log!("Received request: {:?}", req);
+                        let op_summary = format!("{}", req.op);
 
                         let response = handle_request(&state, req, event_tx.clone(), &mut daemon_manager, &mut system).await;
-                        log!("Sending response: {:?}", response);
+                        log!("{} → {}", op_summary, response.payload);
 
                         if let Err(e) = ipc::write_message(&mut stdout, &response).await {
                             log!("Failed to write response: {}", e);

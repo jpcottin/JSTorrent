@@ -169,6 +169,8 @@ jobs:
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
+          # linuxdeploy is an AppImage that needs FUSE; CI runners may lack it
+          APPIMAGE_EXTRACT_AND_RUN: '1'
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Updater signing
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

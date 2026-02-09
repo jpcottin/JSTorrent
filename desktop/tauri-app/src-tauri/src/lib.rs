@@ -10,6 +10,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::oneshot;
 
 mod native_host;
@@ -489,6 +490,8 @@ pub fn run() {
 
             // System tray
             let show_i = MenuItem::with_id(app, "show", "Show App", true, None::<&str>)?;
+            let open_ext_i =
+                MenuItem::with_id(app, "open-extension", "Open Extension", true, None::<&str>)?;
             let update_i = MenuItem::with_id(
                 app,
                 "check-updates",
@@ -521,7 +524,15 @@ pub fn run() {
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
-                &[&show_i, &update_i, &sep1, &settings_menu, &sep2, &quit_i],
+                &[
+                    &show_i,
+                    &open_ext_i,
+                    &update_i,
+                    &sep1,
+                    &settings_menu,
+                    &sep2,
+                    &quit_i,
+                ],
             )?;
 
             TrayIconBuilder::with_id("tray")
@@ -532,6 +543,11 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         show_main_window(app);
+                    }
+                    "open-extension" => {
+                        let _ = app
+                            .opener()
+                            .open_url("https://new.jstorrent.com/launch", None::<&str>);
                     }
                     "check-updates" => {
                         show_main_window(app);

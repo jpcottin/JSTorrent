@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Debug, Deserialize)]
 pub struct Request {
@@ -115,6 +116,71 @@ pub enum ResponsePayload {
     DesktopAppRunning {
         tauri_pid: u32,
     },
+}
+
+impl fmt::Display for Operation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Operation::PickDownloadDirectory => write!(f, "PickDownloadDirectory"),
+            Operation::DeleteDownloadRoot { key } => write!(f, "DeleteDownloadRoot {key}"),
+            Operation::Handshake {
+                extension_id,
+                install_id,
+            } => write!(f, "Handshake ext={extension_id} install={install_id}"),
+            Operation::TakeOver {
+                extension_id,
+                install_id,
+            } => write!(f, "TakeOver ext={extension_id} install={install_id}"),
+            Operation::OpenFile { root_key, path } => {
+                write!(f, "OpenFile {root_key}:{path}")
+            }
+            Operation::RevealInFolder { root_key, path } => {
+                write!(f, "RevealInFolder {root_key}:{path}")
+            }
+            Operation::KvGet { key } => write!(f, "KvGet {key}"),
+            Operation::KvGetMulti { keys } => write!(f, "KvGetMulti [{}]", keys.join(", ")),
+            Operation::KvSet { key, value } => write!(f, "KvSet {key} ({} bytes)", value.len()),
+            Operation::KvDelete { key } => write!(f, "KvDelete {key}"),
+            Operation::KvKeys { prefix } => {
+                write!(f, "KvKeys {}", prefix.as_deref().unwrap_or("(all)"))
+            }
+            Operation::KvClear { prefix } => {
+                write!(f, "KvClear {}", prefix.as_deref().unwrap_or("(all)"))
+            }
+        }
+    }
+}
+
+impl fmt::Display for ResponsePayload {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ResponsePayload::Empty => write!(f, "Empty"),
+            ResponsePayload::DaemonInfo {
+                port,
+                version,
+                roots,
+                ..
+            } => write!(
+                f,
+                "DaemonInfo port={port} v={version} roots={}",
+                roots.len()
+            ),
+            ResponsePayload::Path { path } => write!(f, "Path {path}"),
+            ResponsePayload::RootAdded { root } => write!(f, "RootAdded {}", root.key),
+            ResponsePayload::RootRemoved { key } => write!(f, "RootRemoved {key}"),
+            ResponsePayload::KvValue { value } => match value {
+                Some(v) => write!(f, "{} bytes", v.len()),
+                None => write!(f, "None"),
+            },
+            ResponsePayload::KvMultiValue { entries } => {
+                write!(f, "{} entries", entries.len())
+            }
+            ResponsePayload::KvKeys { keys } => write!(f, "{} keys", keys.len()),
+            ResponsePayload::DesktopAppRunning { tauri_pid } => {
+                write!(f, "DesktopAppRunning pid={tauri_pid}")
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
