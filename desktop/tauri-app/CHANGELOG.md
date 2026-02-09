@@ -2,6 +2,11 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.16]
+
+- Add SQLite busy timeout (5s) to prevent SQLITE_BUSY crashes from concurrent sidecar/native host access on Windows
+- Strip `\\?\` extended-length path prefix from Windows paths for Chrome native messaging compatibility
+
 ## [0.1.15]
 
 - Add tauri-plugin-nosleep to prevent system sleep during active downloads
