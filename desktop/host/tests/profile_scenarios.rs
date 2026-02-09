@@ -150,11 +150,7 @@ fn handshake(
     read_native_message(&mut host.stdout)
 }
 
-fn takeover(
-    host: &mut HostProcess,
-    extension_id: &str,
-    profile_id: &str,
-) -> serde_json::Value {
+fn takeover(host: &mut HostProcess, extension_id: &str, profile_id: &str) -> serde_json::Value {
     let msg = serde_json::json!({
         "id": next_id(),
         "op": "takeOver",
@@ -264,7 +260,9 @@ fn test_fresh_profile_creation() {
 
     // Verify rpc-info.json has the profile
     let rpc_info = read_rpc_info(config_dir.path());
-    let profiles = rpc_info["profiles"].as_array().expect("profiles should be array");
+    let profiles = rpc_info["profiles"]
+        .as_array()
+        .expect("profiles should be array");
     let profile = profiles
         .iter()
         .find(|p| p["profile_id"].as_str() == Some(profile_id.as_str()))
@@ -354,8 +352,14 @@ fn test_profile_in_use_detection() {
         .timeout(Duration::from_secs(2))
         .build()
         .unwrap();
-    let health_resp = client.get(&health_url).send().expect("health check should succeed");
-    assert!(health_resp.status().is_success(), "host A RPC health check should succeed");
+    let health_resp = client
+        .get(&health_url)
+        .send()
+        .expect("health check should succeed");
+    assert!(
+        health_resp.status().is_success(),
+        "host A RPC health check should succeed"
+    );
 
     // Host B: explicitly request A's profile → ProfileInUse
     let mut host_b = spawn_host(config_dir.path());
@@ -367,7 +371,10 @@ fn test_profile_in_use_detection() {
         "profile_in_use",
         "error should be profile_in_use: {response_b}"
     );
-    assert_eq!(response_b["type"], "ProfileInUse", "type should be ProfileInUse: {response_b}");
+    assert_eq!(
+        response_b["type"], "ProfileInUse",
+        "type should be ProfileInUse: {response_b}"
+    );
 
     let payload_b = &response_b["payload"];
     assert_eq!(
@@ -375,7 +382,10 @@ fn test_profile_in_use_detection() {
         profile_id_a,
         "ProfileInUse should reference A's profileId"
     );
-    assert!(payload_b["pid"].as_u64().unwrap() > 0, "ProfileInUse should have incumbent PID");
+    assert!(
+        payload_b["pid"].as_u64().unwrap() > 0,
+        "ProfileInUse should have incumbent PID"
+    );
 
     shutdown_host(host_b);
     shutdown_host(host_a);
@@ -408,7 +418,10 @@ fn test_stale_process_takeover() {
         profile_id_a, profile_id_b,
         "should reuse same profile after stale process takeover"
     );
-    assert!(check_daemon_health(daemon_port_b), "new daemon should be healthy");
+    assert!(
+        check_daemon_health(daemon_port_b),
+        "new daemon should be healthy"
+    );
 
     shutdown_host(host_b);
 }
@@ -437,9 +450,15 @@ fn test_explicit_takeover() {
     // Verify host A was killed
     std::thread::sleep(Duration::from_millis(200));
     let exit_status = host_a.child.try_wait().unwrap();
-    assert!(exit_status.is_some(), "host A should have been killed by takeover");
+    assert!(
+        exit_status.is_some(),
+        "host A should have been killed by takeover"
+    );
 
-    assert!(check_daemon_health(daemon_port_b), "host B's daemon should be healthy");
+    assert!(
+        check_daemon_health(daemon_port_b),
+        "host B's daemon should be healthy"
+    );
 
     shutdown_host(host_b);
 }
@@ -459,16 +478,29 @@ fn test_multiple_independent_profiles() {
     let (profile_id_b, daemon_port_b, _) = assert_daemon_info(&response_b);
 
     assert_ne!(profile_id_a, profile_id_b, "should get different profiles");
-    assert_ne!(daemon_port_a, daemon_port_b, "daemons should be on different ports");
+    assert_ne!(
+        daemon_port_a, daemon_port_b,
+        "daemons should be on different ports"
+    );
 
-    assert!(check_daemon_health(daemon_port_a), "daemon A should be healthy");
-    assert!(check_daemon_health(daemon_port_b), "daemon B should be healthy");
+    assert!(
+        check_daemon_health(daemon_port_a),
+        "daemon A should be healthy"
+    );
+    assert!(
+        check_daemon_health(daemon_port_b),
+        "daemon B should be healthy"
+    );
 
     // Verify rpc-info.json has both
     let rpc_info = read_rpc_info(config_dir.path());
     let profiles = rpc_info["profiles"].as_array().unwrap();
-    assert!(profiles.iter().any(|p| p["profile_id"].as_str() == Some(profile_id_a.as_str())));
-    assert!(profiles.iter().any(|p| p["profile_id"].as_str() == Some(profile_id_b.as_str())));
+    assert!(profiles
+        .iter()
+        .any(|p| p["profile_id"].as_str() == Some(profile_id_a.as_str())));
+    assert!(profiles
+        .iter()
+        .any(|p| p["profile_id"].as_str() == Some(profile_id_b.as_str())));
 
     shutdown_host(host_a);
     shutdown_host(host_b);
@@ -482,8 +514,15 @@ fn test_invalid_profile_id() {
 
     let mut host = spawn_host(config_dir.path());
 
-    let response = handshake(&mut host, "ext-invalid-test", Some("nonexistent-uuid-12345"));
-    assert_eq!(response["ok"], false, "should fail for invalid profileId: {response}");
+    let response = handshake(
+        &mut host,
+        "ext-invalid-test",
+        Some("nonexistent-uuid-12345"),
+    );
+    assert_eq!(
+        response["ok"], false,
+        "should fail for invalid profileId: {response}"
+    );
     let error = response["error"].as_str().unwrap();
     assert!(
         error.contains("Invalid profile ID") || error.contains("not found"),
@@ -492,7 +531,10 @@ fn test_invalid_profile_id() {
 
     // Host should still be alive — send a valid handshake
     let response2 = handshake(&mut host, "ext-invalid-test", None);
-    assert_eq!(response2["ok"], true, "handshake with None should succeed: {response2}");
+    assert_eq!(
+        response2["ok"], true,
+        "handshake with None should succeed: {response2}"
+    );
 
     shutdown_host(host);
 }
