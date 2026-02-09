@@ -28,6 +28,31 @@ async fn main() -> Result<()> {
 
     let (event_tx, mut event_rx) = mpsc::channel(32);
 
+    // --- Parse args early (before State creation) ---
+    // Chrome passes chrome-extension://<id>/, Tauri passes --launcher tauri
+    let mut extension_id = None;
+    let mut launcher = "chrome".to_string();
+    {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        let mut i = 0;
+        while i < args.len() {
+            if args[i].starts_with("chrome-extension://") {
+                extension_id = args[i]
+                    .trim_start_matches("chrome-extension://")
+                    .trim_end_matches('/')
+                    .to_string()
+                    .into();
+            } else if args[i] == "--launcher" {
+                if let Some(val) = args.get(i + 1) {
+                    launcher.clone_from(val);
+                    i += 1;
+                }
+            }
+            i += 1;
+        }
+    }
+    log!("Launcher: {}", launcher);
+
     // Initialize KV store
     let kv = {
         let config_dir = jstorrent_common::get_config_dir()
@@ -37,26 +62,65 @@ async fn main() -> Result<()> {
         kv_store::KvStore::open(&db_path)?
     };
 
-    // Initialize state with event sender and KV store
-    let state = Arc::new(State::new(Some(event_tx.clone()), kv));
-
-    // Start Daemon - DELAYED until Handshake
-    let mut daemon_manager = daemon_manager::DaemonManager::new();
-    // if let Err(e) = daemon_manager.start().await {
-    //     log!("Failed to start daemon: {}", e);
-    //     // We continue, but the extension might fail to connect
-    // }
-
-    // Start RPC server (Legacy? Or still needed for link-handler?)
-    // The design doc says link-handler talks to native-host via "minimal RPC".
-    // So we keep rpc.rs.
-    let (port, token) = rpc::start_server(state.clone()).await?;
-
     // Only refresh process info — new_all()/refresh_all() is very slow on Windows
     // (enumerates disks, CPUs, memory, network) and can cause native messaging timeouts.
     let mut system = sysinfo::System::new();
     system.refresh_processes();
 
+    // --- Incumbent detection ---
+    let mut blocked_by_tauri: Option<u32> = None;
+    {
+        let unified = rpc::read_discovery_file();
+        for profile in &unified.profiles {
+            let incumbent_pid = sysinfo::Pid::from(profile.pid as usize);
+            let is_alive = system.process(incumbent_pid).is_some();
+            if !is_alive {
+                continue;
+            }
+            // Skip our own PID
+            if profile.pid == std::process::id() {
+                continue;
+            }
+            let incumbent_launcher = profile.launcher.as_deref().unwrap_or("chrome");
+
+            match (launcher.as_str(), incumbent_launcher) {
+                ("tauri", "chrome") => {
+                    // Kill Chrome's native host — its daemon dies via parent-pid monitoring
+                    log!(
+                        "Tauri startup: killing Chrome native host PID {}",
+                        profile.pid
+                    );
+                    if let Some(proc) = system.process(incumbent_pid) {
+                        proc.kill();
+                    }
+                }
+                ("chrome", "tauri") => {
+                    // Block — handshake will return error
+                    log!("Chrome startup: blocked by Tauri app PID {}", profile.pid);
+                    blocked_by_tauri = Some(profile.pid);
+                }
+                _ => {
+                    // Same launcher or unknown — proceed (old one is stale or being replaced)
+                }
+            }
+        }
+    }
+
+    // Initialize state with event sender, KV store, launcher identity, blocked flag
+    let state = Arc::new(State::new(
+        Some(event_tx.clone()),
+        kv,
+        launcher.clone(),
+        blocked_by_tauri,
+    ));
+
+    // Start Daemon - DELAYED until Handshake
+    let mut daemon_manager = daemon_manager::DaemonManager::new();
+
+    // Start RPC server (used by link-handler for magnet/torrent intake)
+    let (port, token) = rpc::start_server(state.clone()).await?;
+
+    // --- Browser detection via process tree ---
     let mut current_pid = sysinfo::Pid::from(std::process::id() as usize);
     let mut browser_binary = String::new();
     let mut browser_name = "Unknown".to_string();
@@ -124,20 +188,6 @@ async fn main() -> Result<()> {
         browser_name = fallback_name;
     }
 
-    // Extract extension ID from args (if present)
-    // Chrome passes origin as first argument: chrome-extension://<id>/
-    let mut extension_id = None;
-    for arg in std::env::args().skip(1) {
-        if arg.starts_with("chrome-extension://") {
-            extension_id = arg
-                .trim_start_matches("chrome-extension://")
-                .trim_end_matches('/')
-                .to_string()
-                .into();
-            break;
-        }
-    }
-
     // Write discovery file
     // Note: download_roots is None on startup to preserve existing roots in the file
     let info = rpc::RpcInfo {
@@ -160,6 +210,7 @@ async fn main() -> Result<()> {
         },
         download_roots: None, // Don't overwrite existing roots
         install_id: None,
+        launcher: Some(launcher),
     };
 
     // Store info in state so we can update it later (e.g. on handshake)
@@ -185,8 +236,6 @@ async fn main() -> Result<()> {
         Err(e) => log!("Failed to write discovery file: {e}"),
     }
 
-    // Spawn a task to read from stdin
-
     loop {
         tokio::select! {
             // Handle incoming requests
@@ -203,7 +252,7 @@ async fn main() -> Result<()> {
 
                         log!("Received request: {:?}", req);
 
-                        let response = handle_request(&state, req, event_tx.clone(), &mut daemon_manager).await;
+                        let response = handle_request(&state, req, event_tx.clone(), &mut daemon_manager, &mut system).await;
                         log!("Sending response: {:?}", response);
 
                         if let Err(e) = ipc::write_message(&mut stdout, &response).await {
@@ -247,11 +296,83 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Shared handshake logic: update discovery file, start daemon, return `DaemonInfo`.
+/// Used by both `Handshake` and `TakeOver` handlers.
+async fn do_handshake(
+    state: &State,
+    extension_id: String,
+    install_id: String,
+    daemon_manager: &mut daemon_manager::DaemonManager,
+) -> Result<ResponsePayload, anyhow::Error> {
+    // Update extension ID and install ID in state and rewrite discovery file
+    let mut success = false;
+    if let Ok(mut info_guard) = state.rpc_info.lock() {
+        if let Some(info) = info_guard.as_mut() {
+            info.browser.extension_id = Some(extension_id);
+            info.install_id = Some(install_id.clone());
+            // Set to None to preserve existing roots in the file
+            info.download_roots = None;
+            match crate::rpc::write_discovery_file(info.clone()) {
+                Ok(roots) => {
+                    info.download_roots = Some(roots);
+                    success = true;
+                }
+                Err(e) => log!("Failed to update discovery file on handshake: {e}"),
+            }
+        }
+    }
+
+    if !success {
+        return Err(anyhow::anyhow!(
+            "Failed to update extension ID or install ID"
+        ));
+    }
+
+    let start_result = if daemon_manager.port.is_none() {
+        log!("Starting daemon with install_id: {}", install_id);
+        daemon_manager.start(&install_id)
+    } else {
+        let _ = daemon_manager.refresh_config().await;
+        Ok(())
+    };
+
+    if let Err(e) = start_result {
+        log!("Failed to start daemon: {:#}", e);
+        return Err(anyhow::anyhow!("Failed to start daemon: {e:#}"));
+    }
+
+    log!(
+        "Handshake success, checking daemon info: {:?} {:?}",
+        daemon_manager.port,
+        daemon_manager.token
+    );
+
+    if let (Some(port), Some(token)) = (daemon_manager.port, daemon_manager.token.clone()) {
+        let roots = state
+            .rpc_info
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|info| info.download_roots.clone())
+            .unwrap_or_default();
+
+        Ok(ResponsePayload::DaemonInfo {
+            port,
+            token,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            roots,
+        })
+    } else {
+        Err(anyhow::anyhow!("Daemon not running"))
+    }
+}
+
 async fn handle_request(
     state: &State,
     req: Request,
     _event_tx: mpsc::Sender<Event>,
     daemon_manager: &mut daemon_manager::DaemonManager,
+    system: &mut sysinfo::System,
 ) -> Response {
     let result = match req.op {
         Operation::PickDownloadDirectory => {
@@ -310,76 +431,54 @@ async fn handle_request(
             extension_id,
             install_id,
         } => {
+            // Check if blocked by Tauri
+            if let Some(tauri_pid) = *state.blocked_by_tauri.lock().unwrap() {
+                log!("Handshake blocked: Tauri app running at PID {}", tauri_pid);
+                return Response {
+                    id: req.id,
+                    ok: false,
+                    error: Some("desktop_app_running".to_string()),
+                    payload: ResponsePayload::DesktopAppRunning { tauri_pid },
+                };
+            }
+
             log!(
                 "Handling Handshake for extension_id: {}, install_id: {}",
                 extension_id,
                 install_id
             );
-            // Update extension ID and install ID in state and rewrite discovery file
-            let mut success = false;
-            if let Ok(mut info_guard) = state.rpc_info.lock() {
-                if let Some(info) = info_guard.as_mut() {
-                    info.browser.extension_id = Some(extension_id);
-                    info.install_id = Some(install_id.clone()); // Update install_id
-                                                                // Set to None to preserve existing roots in the file
-                    info.download_roots = None;
-                    match crate::rpc::write_discovery_file(info.clone()) {
-                        Ok(roots) => {
-                            info.download_roots = Some(roots);
-                            success = true;
-                        }
-                        Err(e) => log!("Failed to update discovery file on handshake: {e}"),
-                    }
+            do_handshake(state, extension_id, install_id, daemon_manager).await
+        }
+
+        Operation::TakeOver {
+            extension_id,
+            install_id,
+        } => {
+            log!(
+                "Handling TakeOver for extension_id: {}, install_id: {}",
+                extension_id,
+                install_id
+            );
+
+            let tauri_pid = *state.blocked_by_tauri.lock().unwrap();
+            if let Some(pid) = tauri_pid {
+                // Kill the Tauri native host — its daemon dies via parent-pid monitoring
+                system.refresh_processes();
+                let sys_pid = sysinfo::Pid::from(pid as usize);
+                if let Some(proc) = system.process(sys_pid) {
+                    log!("TakeOver: killing Tauri native host PID {}", pid);
+                    proc.kill();
                 }
+
+                // Clear blocked state
+                *state.blocked_by_tauri.lock().unwrap() = None;
+
+                // Wait for daemon to die via parent-pid monitoring
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
 
-            if success {
-                let start_result = if daemon_manager.port.is_none() {
-                    log!("Starting daemon with install_id: {}", install_id);
-                    daemon_manager.start(&install_id)
-                } else {
-                    let _ = daemon_manager.refresh_config().await;
-                    Ok(())
-                };
-
-                if let Err(e) = start_result {
-                    log!("Failed to start daemon: {:#}", e);
-                    Err(anyhow::anyhow!("Failed to start daemon: {e:#}"))
-                } else {
-                    log!(
-                        "Handshake success, checking daemon info: {:?} {:?}",
-                        daemon_manager.port,
-                        daemon_manager.token
-                    );
-                    if let (Some(port), Some(token)) =
-                        (daemon_manager.port, daemon_manager.token.clone())
-                    {
-                        // Get roots from rpc_info
-                        let roots = state
-                            .rpc_info
-                            .lock()
-                            .unwrap()
-                            .as_ref()
-                            .and_then(|info| info.download_roots.clone())
-                            .unwrap_or_default();
-
-                        Ok(ResponsePayload::DaemonInfo {
-                            port,
-                            token,
-                            version: env!("CARGO_PKG_VERSION").to_string(),
-                            roots,
-                        })
-                    } else {
-                        log!("Daemon info missing");
-                        Err(anyhow::anyhow!("Daemon not running"))
-                    }
-                }
-            } else {
-                log!("Handshake failed to update state");
-                Err(anyhow::anyhow!(
-                    "Failed to update extension ID or install ID"
-                ))
-            }
+            // Proceed with handshake
+            do_handshake(state, extension_id, install_id, daemon_manager).await
         }
 
         Operation::OpenFile { root_key, path } => {

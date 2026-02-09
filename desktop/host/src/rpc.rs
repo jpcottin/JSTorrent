@@ -25,6 +25,7 @@ pub struct RpcInfo {
     /// None = don't update roots, Some(vec) = set roots to vec (even if empty)
     pub download_roots: Option<Vec<DownloadRoot>>,
     pub install_id: Option<String>,
+    pub launcher: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -169,6 +170,32 @@ async fn add_torrent_handler(
 pub use jstorrent_common::{
     get_config_dir, BrowserInfo, DownloadRoot, ProfileEntry, UnifiedRpcInfo,
 };
+
+/// Read the unified rpc-info.json file, returning empty profiles if missing or corrupt.
+pub fn read_discovery_file() -> UnifiedRpcInfo {
+    let Some(config_dir) = get_config_dir() else {
+        return UnifiedRpcInfo {
+            version: 1,
+            profiles: Vec::new(),
+        };
+    };
+    let rpc_file = config_dir.join("jstorrent-native").join("rpc-info.json");
+    if rpc_file.exists() {
+        std::fs::File::open(&rpc_file)
+            .ok()
+            .and_then(|f| serde_json::from_reader(f).ok())
+            .unwrap_or(UnifiedRpcInfo {
+                version: 1,
+                profiles: Vec::new(),
+            })
+    } else {
+        UnifiedRpcInfo {
+            version: 1,
+            profiles: Vec::new(),
+        }
+    }
+}
+
 #[allow(clippy::needless_pass_by_value)]
 pub fn write_discovery_file(info: RpcInfo) -> anyhow::Result<Vec<DownloadRoot>> {
     let config_dir =
@@ -260,6 +287,11 @@ pub fn write_discovery_file(info: RpcInfo) -> anyhow::Result<Vec<DownloadRoot>> 
             entry.install_id.clone_from(&info.install_id);
         }
 
+        // Update launcher if provided
+        if info.launcher.is_some() {
+            entry.launcher.clone_from(&info.launcher);
+        }
+
         // Only update roots if explicitly provided (Some)
         // None means "don't update" - preserves existing roots on startup
         // Some(vec) means "set to this" - allows removing all roots
@@ -293,6 +325,7 @@ pub fn write_discovery_file(info: RpcInfo) -> anyhow::Result<Vec<DownloadRoot>> 
             last_used: info.last_used,
             browser: info.browser.clone(),
             download_roots: info.download_roots.clone().unwrap_or_default(),
+            launcher: info.launcher.clone(),
         };
         active_roots = new_entry.download_roots.clone();
         unified_info.profiles.push(new_entry);
@@ -345,6 +378,7 @@ mod tests {
             },
             download_roots: roots,
             install_id: install_id.map(|s| s.to_string()),
+            launcher: None,
         }
     }
 

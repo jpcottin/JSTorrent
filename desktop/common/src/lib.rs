@@ -18,6 +18,8 @@ pub struct ProfileEntry {
     pub last_used: u64,
     pub browser: BrowserInfo,
     pub download_roots: Vec<DownloadRoot>,
+    #[serde(default)]
+    pub launcher: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

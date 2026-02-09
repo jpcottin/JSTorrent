@@ -4,10 +4,11 @@ use std::path::PathBuf;
 use std::process::{ChildStdin, ChildStdout};
 use std::sync::{Arc, Mutex};
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
 };
+use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::oneshot;
 
@@ -113,6 +114,45 @@ impl HostBridge {
 /// Pending deep link events that arrived before the frontend was ready.
 struct DeepLinkState {
     pending: Mutex<Vec<serde_json::Value>>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct Settings {
+    #[serde(default)]
+    autostart: bool,
+    #[serde(default = "default_true")]
+    run_in_background: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            autostart: false,
+            run_in_background: true,
+        }
+    }
+}
+
+fn load_settings(app: &tauri::AppHandle) -> Settings {
+    let data_dir = app.path().app_data_dir().expect("no app data directory");
+    let path = data_dir.join("settings.json");
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_settings(app: &tauri::AppHandle, settings: &Settings) {
+    let data_dir = app.path().app_data_dir().expect("no app data directory");
+    std::fs::create_dir_all(&data_dir).ok();
+    let path = data_dir.join("settings.json");
+    if let Ok(json) = serde_json::to_string_pretty(settings) {
+        std::fs::write(&path, json).ok();
+    }
 }
 
 /// Create a host-event JSON value from a deep link URL string or file path.
@@ -416,6 +456,10 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_nosleep::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![
             host_handshake,
             host_message,
@@ -425,8 +469,12 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let _ = window.hide();
-                api.prevent_close();
+                let state = window.app_handle().state::<Mutex<Settings>>();
+                let run_in_bg = state.lock().unwrap().run_in_background;
+                if run_in_bg {
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
             }
         })
         .setup(|app| {
@@ -435,8 +483,12 @@ pub fn run() {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
 
+            // Settings
+            let settings = load_settings(app.handle());
+            app.manage(Mutex::new(settings.clone()));
+
             // System tray
-            let show_i = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+            let show_i = MenuItem::with_id(app, "show", "Show App", true, None::<&str>)?;
             let update_i = MenuItem::with_id(
                 app,
                 "check-updates",
@@ -444,8 +496,33 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let autostart_i = CheckMenuItem::with_id(
+                app,
+                "autostart",
+                "Start at Login",
+                true,
+                settings.autostart,
+                None::<&str>,
+            )?;
+            let background_i = CheckMenuItem::with_id(
+                app,
+                "run-in-background",
+                "Run in Background",
+                true,
+                settings.run_in_background,
+                None::<&str>,
+            )?;
+            let settings_menu = SubmenuBuilder::new(app, "Settings")
+                .item(&autostart_i)
+                .item(&background_i)
+                .build()?;
+            let sep1 = PredefinedMenuItem::separator(app)?;
+            let sep2 = PredefinedMenuItem::separator(app)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &update_i, &quit_i])?;
+            let menu = Menu::with_items(
+                app,
+                &[&show_i, &update_i, &sep1, &settings_menu, &sep2, &quit_i],
+            )?;
 
             TrayIconBuilder::with_id("tray")
                 .tooltip("JSTorrent")
@@ -459,6 +536,23 @@ pub fn run() {
                     "check-updates" => {
                         show_main_window(app);
                         let _ = app.emit("check-for-updates", ());
+                    }
+                    "autostart" => {
+                        let state = app.state::<Mutex<Settings>>();
+                        let mut s = state.lock().unwrap();
+                        s.autostart = !s.autostart;
+                        if s.autostart {
+                            let _ = app.autolaunch().enable();
+                        } else {
+                            let _ = app.autolaunch().disable();
+                        }
+                        save_settings(app, &s);
+                    }
+                    "run-in-background" => {
+                        let state = app.state::<Mutex<Settings>>();
+                        let mut s = state.lock().unwrap();
+                        s.run_in_background = !s.run_in_background;
+                        save_settings(app, &s);
                     }
                     "quit" => {
                         app.exit(0);
@@ -571,7 +665,10 @@ pub fn run() {
     app.run(|app_handle, event| match event {
         tauri::RunEvent::ExitRequested { api, code, .. } => {
             if code.is_none() {
-                api.prevent_exit();
+                let state = app_handle.state::<Mutex<Settings>>();
+                if state.lock().unwrap().run_in_background {
+                    api.prevent_exit();
+                }
             }
         }
         #[cfg(target_os = "macos")]

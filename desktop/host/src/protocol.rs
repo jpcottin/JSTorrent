@@ -27,6 +27,15 @@ pub enum Operation {
         install_id: String,
     },
 
+    // Take over from Tauri desktop app (fields used in Phase 4)
+    #[allow(dead_code)]
+    TakeOver {
+        #[serde(rename = "extensionId")]
+        extension_id: String,
+        #[serde(rename = "installId")]
+        install_id: String,
+    },
+
     // Open file with default application
     OpenFile {
         #[serde(rename = "rootKey")]
@@ -102,6 +111,9 @@ pub enum ResponsePayload {
     },
     KvKeys {
         keys: Vec<String>,
+    },
+    DesktopAppRunning {
+        tauri_pid: u32,
     },
 }
 
