@@ -198,11 +198,21 @@ fn torrent_file_event(file_url: &str) -> Option<serde_json::Value> {
 }
 
 /// Show, unminimize, and focus the main window.
+/// If the window was destroyed (`run_in_background=false`), recreate it.
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+    } else {
+        let _ = tauri::WebviewWindowBuilder::new(
+            app,
+            "main",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("JSTorrent")
+        .inner_size(1024.0, 700.0)
+        .build();
     }
 }
 
@@ -471,11 +481,12 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.app_handle().state::<Mutex<Settings>>();
-                let run_in_bg = state.lock().unwrap().run_in_background;
-                if run_in_bg {
+                if state.lock().unwrap().run_in_background {
+                    // Hide window but keep webview alive (downloads continue)
                     let _ = window.hide();
                     api.prevent_close();
                 }
+                // else: let window destroy (stops downloads), tray stays
             }
         })
         .setup(|app| {
@@ -686,11 +697,10 @@ pub fn run() {
     // Explicit quit via tray menu calls app.exit(0), which sets code = Some(0).
     app.run(|app_handle, event| match event {
         tauri::RunEvent::ExitRequested { api, code, .. } => {
+            // Keep app alive for tray when windows close.
+            // Only app.exit(0) from Quit menu (code=Some(0)) actually exits.
             if code.is_none() {
-                let state = app_handle.state::<Mutex<Settings>>();
-                if state.lock().unwrap().run_in_background {
-                    api.prevent_exit();
-                }
+                api.prevent_exit();
             }
         }
         #[cfg(target_os = "macos")]
