@@ -423,41 +423,6 @@ function App() {
             <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
               {ioBridgeState.status === 'connecting' && 'Connecting to daemon...'}
               {ioBridgeState.status === 'disconnected' &&
-                ioBridgeState.lastError === 'desktop_app_running' && (
-                  <div>
-                    <div
-                      style={{
-                        fontSize: 'var(--font-lg, 16px)',
-                        fontWeight: 600,
-                        color: 'var(--text-primary)',
-                        marginBottom: '12px',
-                      }}
-                    >
-                      Desktop App Running
-                    </div>
-                    <div style={{ marginBottom: '20px', lineHeight: 1.5 }}>
-                      The JSTorrent desktop app is currently running.
-                      <br />
-                      The extension and desktop app cannot run simultaneously.
-                    </div>
-                    <button
-                      onClick={takeOverFromDesktop}
-                      style={{
-                        padding: '8px 16px',
-                        background: 'var(--accent-primary)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        fontSize: 'var(--font-base, 13px)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Quit Desktop App & Use Extension
-                    </button>
-                  </div>
-                )}
-              {ioBridgeState.status === 'disconnected' &&
-                ioBridgeState.lastError !== 'desktop_app_running' &&
                 (ioBridgeState.platform === 'chromeos'
                   ? 'Click the indicator above to launch the companion app.'
                   : 'Click the indicator above to set up JSTorrent.')}
@@ -465,6 +430,73 @@ function App() {
             </div>
           )}
         </div>
+
+        {/* Desktop app running overlay */}
+        {ioBridgeState.status === 'disconnected' &&
+          ioBridgeState.lastError === 'desktop_app_running' && (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(0, 0, 0, 0.5)',
+                backdropFilter: 'blur(4px)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+              }}
+            >
+              <div
+                style={{
+                  background: 'var(--bg-primary)',
+                  borderRadius: '8px',
+                  padding: '32px',
+                  maxWidth: '400px',
+                  textAlign: 'center',
+                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: '18px',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '12px',
+                  }}
+                >
+                  Desktop App Running
+                </div>
+                <div
+                  style={{
+                    color: 'var(--text-secondary)',
+                    marginBottom: '24px',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  The JSTorrent desktop app is currently running. The extension and desktop app
+                  cannot run simultaneously.
+                </div>
+                <button
+                  onClick={takeOverFromDesktop}
+                  style={{
+                    padding: '10px 20px',
+                    background: 'var(--accent-primary)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    fontWeight: 500,
+                  }}
+                >
+                  Quit Desktop App & Use Extension
+                </button>
+              </div>
+            </div>
+          )}
 
         {/* Settings overlay - only render when config is available */}
         {configHub && (

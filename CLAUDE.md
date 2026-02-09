@@ -13,6 +13,10 @@ This loads PATH entries for:
 - Rust/Cargo
 - Other development tools
 
+## Git Commit Policy
+
+**Do NOT include `Co-Authored-By` lines referencing Claude, AI, or Anthropic in commit messages. Do NOT include "Generated with Claude Code" or similar AI attribution. Commits are authored solely by the user.**
+
 ## Git Configuration and Commit Attribution
 
 ### User Identity Management

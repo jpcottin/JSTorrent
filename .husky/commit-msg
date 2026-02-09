@@ -1,0 +1,20 @@
+#!/bin/bash
+# Reject commits that mention AI assistant authorship
+
+commit_msg=$(cat "$1")
+
+# Check for Co-Authored-By with Claude (the AI)
+if echo "$commit_msg" | grep -qiE "Co-Authored-By:.*Claude.*(Opus|Sonnet|Haiku|anthropic|noreply)"; then
+    echo "ERROR: Commit message contains Co-Authored-By referencing the AI assistant."
+    echo "Per project guidelines, do not mention AI in commits."
+    exit 1
+fi
+
+# Check for "Generated with Claude Code" pattern
+if echo "$commit_msg" | grep -qi "Generated with.*Claude"; then
+    echo "ERROR: Commit message contains 'Generated with Claude' reference."
+    echo "Per project guidelines, do not mention AI in commits."
+    exit 1
+fi
+
+exit 0

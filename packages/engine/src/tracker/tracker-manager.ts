@@ -76,7 +76,7 @@ export class TrackerManager extends EngineComponent {
               const msg = `Tracker ${url} error: ${err.message}`
               // Connect timeouts are expected, not exceptional
               if (err.message === 'Connect timeout') {
-                this.logger.info(msg)
+                this.logger.debug(msg)
               } else {
                 this.logger.warn(msg)
               }
