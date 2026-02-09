@@ -46,9 +46,9 @@ struct Args {
     #[arg(long)]
     parent_pid: Option<u32>,
 
-    /// Installation ID (required for managed mode, defaults to "standalone")
+    /// Profile ID (required for managed mode, defaults to "standalone")
     #[arg(long)]
-    install_id: Option<String>,
+    profile_id: Option<String>,
 
     /// Run in standalone mode for Crostini/Linux without native host.
     /// Enables Android-compatible pairing endpoints at /status, /pair, /roots.
@@ -109,7 +109,7 @@ impl DaemonStats {
 #[derive(Clone)]
 pub struct AppState {
     pub token: Arc<std::sync::RwLock<String>>,
-    pub install_id: String,
+    pub profile_id: String,
     pub extension_id: Arc<std::sync::RwLock<Option<String>>>,
     pub download_roots: Arc<std::sync::RwLock<Vec<jstorrent_common::DownloadRoot>>>,
     pub stats: Arc<DaemonStats>,
@@ -187,18 +187,18 @@ async fn main() -> anyhow::Result<()> {
 
 /// Run in managed mode (launched by native host)
 async fn run_managed(args: Args) -> anyhow::Result<()> {
-    // In managed mode, token and install_id are required
+    // In managed mode, token and profile_id are required
     let token = args
         .token
         .ok_or_else(|| anyhow::anyhow!("--token is required in managed mode"))?;
-    let install_id = args
-        .install_id
-        .ok_or_else(|| anyhow::anyhow!("--install-id is required in managed mode"))?;
+    let profile_id = args
+        .profile_id
+        .ok_or_else(|| anyhow::anyhow!("--profile-id is required in managed mode"))?;
     let port = args.port.unwrap_or(0);
     let bind_addr = args.bind.as_deref().unwrap_or("127.0.0.1");
 
     // Load initial config from rpc-info.json
-    let (roots, extension_id) = config::load_config(&install_id).map_or_else(
+    let (roots, extension_id) = config::load_config(&profile_id).map_or_else(
         |e| {
             tracing::warn!("Failed to load initial config: {}", e);
             (Vec::new(), None)
@@ -208,7 +208,7 @@ async fn run_managed(args: Args) -> anyhow::Result<()> {
 
     let state = Arc::new(AppState {
         token: Arc::new(std::sync::RwLock::new(token.clone())),
-        install_id: install_id.clone(),
+        profile_id: profile_id.clone(),
         extension_id: Arc::new(std::sync::RwLock::new(extension_id.clone())),
         download_roots: Arc::new(std::sync::RwLock::new(roots)),
         stats: Arc::new(DaemonStats::new()),
@@ -261,7 +261,7 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
 
     let port = args.port.unwrap_or(7800);
     let bind_addr = args.bind.as_deref().unwrap_or("0.0.0.0");
-    let install_id = args.install_id.unwrap_or_else(|| "standalone".to_string());
+    let profile_id = args.profile_id.unwrap_or_else(|| "standalone".to_string());
 
     // Determine download root
     let download_root_path = args.download_root.unwrap_or_else(|| {
@@ -316,7 +316,7 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
 
     let state = Arc::new(AppState {
         token: Arc::new(std::sync::RwLock::new(token.clone())),
-        install_id: install_id.clone(),
+        profile_id: profile_id.clone(),
         extension_id: Arc::new(std::sync::RwLock::new(
             standalone_config.extension_id.clone(),
         )),

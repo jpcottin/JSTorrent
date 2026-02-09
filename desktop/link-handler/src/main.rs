@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use jstorrent_common::{get_config_dir, ProfileEntry, UnifiedRpcInfo};
+use jstorrent_common::{get_config_dir, ProfileEntry, RpcInfo};
 use reqwest::blocking::Client;
 use std::fs;
 use std::path::PathBuf;
@@ -138,7 +138,7 @@ fn find_running_host() -> Option<ProfileEntry> {
     system.refresh_all();
 
     if let Ok(file) = fs::File::open(&rpc_file) {
-        if let Ok(mut info) = serde_json::from_reader::<_, UnifiedRpcInfo>(file) {
+        if let Ok(mut info) = serde_json::from_reader::<_, RpcInfo>(file) {
             // Sort profiles by last_used descending
             info.profiles.sort_by(|a, b| b.last_used.cmp(&a.last_used));
 
@@ -290,7 +290,7 @@ fn find_previous_browser_binary() -> Option<String> {
     let mut best_time = 0;
 
     if let Ok(file) = fs::File::open(&rpc_file) {
-        if let Ok(info) = serde_json::from_reader::<_, UnifiedRpcInfo>(file) {
+        if let Ok(info) = serde_json::from_reader::<_, RpcInfo>(file) {
             for profile in info.profiles {
                 if profile.last_used > best_time {
                     best_time = profile.last_used;

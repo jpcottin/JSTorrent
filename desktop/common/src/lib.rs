@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct UnifiedRpcInfo {
+pub struct RpcInfo {
     pub version: u32,
     pub profiles: Vec<ProfileEntry>,
 }
@@ -10,7 +10,15 @@ pub struct UnifiedRpcInfo {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProfileEntry {
     pub extension_id: Option<String>,
-    pub install_id: Option<String>,
+    pub profile_id: String,
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub created: u64,
+    #[serde(default)]
+    pub client_type: Option<String>,
+    #[serde(default)]
+    pub client_version: Option<String>,
     pub pid: u32,
     pub port: u16,
     pub token: String,
@@ -58,7 +66,6 @@ pub fn get_disk_id(path: &std::path::Path) -> String {
 pub struct BrowserInfo {
     pub name: String,
     pub binary: String,
-    // Removed profile_id and profile_path as requested
     pub extension_id: Option<String>,
 }
 

@@ -1,7 +1,7 @@
 use crate::AppState;
 use anyhow::{Context, Result};
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
-use jstorrent_common::{get_config_dir, DownloadRoot, UnifiedRpcInfo};
+use jstorrent_common::{get_config_dir, DownloadRoot, RpcInfo};
 use std::fs;
 use std::sync::Arc;
 
@@ -15,13 +15,11 @@ pub struct ProfileConfig {
     pub extension_id: Option<String>,
 }
 
-pub fn load_config(install_id: &str) -> Result<ProfileConfig> {
+pub fn load_config(profile_id: &str) -> Result<ProfileConfig> {
     let config_dir = get_config_dir().context("Could not find config directory")?;
     let rpc_file = config_dir.join("jstorrent-native").join("rpc-info.json");
 
     if !rpc_file.exists() {
-        // If file doesn't exist, return empty list (or error? Design says native-host creates it)
-        // native-host should have created it before launching us.
         return Err(anyhow::anyhow!(
             "rpc-info.json not found at {}",
             rpc_file.display()
@@ -29,26 +27,18 @@ pub fn load_config(install_id: &str) -> Result<ProfileConfig> {
     }
 
     let file = fs::File::open(&rpc_file).context("Failed to open rpc-info.json")?;
-    let info: UnifiedRpcInfo =
-        serde_json::from_reader(file).context("Failed to parse rpc-info.json")?;
+    let info: RpcInfo = serde_json::from_reader(file).context("Failed to parse rpc-info.json")?;
 
-    let profile = info
-        .profiles
-        .iter()
-        .find(|p| p.install_id.as_deref() == Some(install_id));
+    let profile = info.profiles.iter().find(|p| p.profile_id == profile_id);
 
     match profile {
         Some(p) => Ok(ProfileConfig {
             download_roots: p.download_roots.clone(),
             extension_id: p.extension_id.clone(),
         }),
-        None => {
-            // If install_id not found, maybe return empty or error.
-            // Design says: "Logs a warning, Returns a 404-like failure code"
-            Err(anyhow::anyhow!(
-                "Profile with install_id {install_id} not found"
-            ))
-        }
+        None => Err(anyhow::anyhow!(
+            "Profile with profile_id {profile_id} not found"
+        )),
     }
 }
 
@@ -57,7 +47,7 @@ async fn refresh_handler(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     tracing::info!("Received refresh request");
 
-    let config = match load_config(&state.install_id) {
+    let config = match load_config(&state.profile_id) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!("Failed to reload config: {}", e);

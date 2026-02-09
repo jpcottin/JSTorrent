@@ -17,7 +17,7 @@ impl DaemonManager {
         }
     }
 
-    pub fn start(&mut self, install_id: &str) -> Result<()> {
+    pub fn start(&mut self, profile_id: &str) -> Result<()> {
         let exe_path = std::env::current_exe()?;
         let exe_dir = exe_path
             .parent()
@@ -39,8 +39,8 @@ impl DaemonManager {
             .arg(&token)
             .arg("--parent-pid")
             .arg(std::process::id().to_string())
-            .arg("--install-id")
-            .arg(install_id)
+            .arg("--profile-id")
+            .arg(profile_id)
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
 

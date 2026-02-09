@@ -24,17 +24,30 @@ pub enum Operation {
     Handshake {
         #[serde(rename = "extensionId")]
         extension_id: String,
-        #[serde(rename = "installId")]
-        install_id: String,
+        #[allow(dead_code)] // Legacy field, ignored after Phase 2
+        #[serde(default, rename = "installId")]
+        install_id: Option<String>,
+        #[serde(default, rename = "profileId")]
+        profile_id: Option<String>,
+        #[serde(default, rename = "clientType")]
+        client_type: Option<String>,
+        #[serde(default, rename = "clientVersion")]
+        client_version: Option<String>,
     },
 
-    // Take over from Tauri desktop app (fields used in Phase 4)
-    #[allow(dead_code)]
+    // Take over an in-use profile
     TakeOver {
         #[serde(rename = "extensionId")]
         extension_id: String,
-        #[serde(rename = "installId")]
-        install_id: String,
+        #[allow(dead_code)] // Legacy field, ignored after Phase 2
+        #[serde(default, rename = "installId")]
+        install_id: Option<String>,
+        #[serde(default, rename = "profileId")]
+        profile_id: Option<String>,
+        #[serde(default, rename = "clientType")]
+        client_type: Option<String>,
+        #[serde(default, rename = "clientVersion")]
+        client_version: Option<String>,
     },
 
     // Open file with default application
@@ -94,6 +107,8 @@ use jstorrent_common::DownloadRoot;
 pub enum ResponsePayload {
     Empty,
     DaemonInfo {
+        #[serde(rename = "profileId")]
+        profile_id: String,
         port: u16,
         token: String,
         version: String,
@@ -117,8 +132,17 @@ pub enum ResponsePayload {
     KvKeys {
         keys: Vec<String>,
     },
-    DesktopAppRunning {
-        tauri_pid: u32,
+    ProfileInUse {
+        #[serde(rename = "profileId")]
+        profile_id: String,
+        #[serde(rename = "clientType")]
+        client_type: Option<String>,
+        #[serde(rename = "clientVersion")]
+        client_version: Option<String>,
+        #[serde(rename = "browserName")]
+        browser_name: Option<String>,
+        pid: u32,
+        started: u64,
     },
     UpdateCheck {
         available: bool,
@@ -136,12 +160,22 @@ impl fmt::Display for Operation {
             Operation::DeleteDownloadRoot { key } => write!(f, "DeleteDownloadRoot {key}"),
             Operation::Handshake {
                 extension_id,
-                install_id,
-            } => write!(f, "Handshake ext={extension_id} install={install_id}"),
+                profile_id,
+                ..
+            } => write!(
+                f,
+                "Handshake ext={extension_id} profile={}",
+                profile_id.as_deref().unwrap_or("(auto)")
+            ),
             Operation::TakeOver {
                 extension_id,
-                install_id,
-            } => write!(f, "TakeOver ext={extension_id} install={install_id}"),
+                profile_id,
+                ..
+            } => write!(
+                f,
+                "TakeOver ext={extension_id} profile={}",
+                profile_id.as_deref().unwrap_or("(auto)")
+            ),
             Operation::OpenFile { root_key, path } => {
                 write!(f, "OpenFile {root_key}:{path}")
             }
@@ -172,10 +206,11 @@ impl fmt::Display for ResponsePayload {
                 port,
                 version,
                 roots,
+                profile_id,
                 ..
             } => write!(
                 f,
-                "DaemonInfo port={port} v={version} roots={}",
+                "DaemonInfo port={port} v={version} profile={profile_id} roots={}",
                 roots.len()
             ),
             ResponsePayload::Path { path } => write!(f, "Path {path}"),
@@ -189,8 +224,10 @@ impl fmt::Display for ResponsePayload {
                 write!(f, "{} entries", entries.len())
             }
             ResponsePayload::KvKeys { keys } => write!(f, "{} keys", keys.len()),
-            ResponsePayload::DesktopAppRunning { tauri_pid } => {
-                write!(f, "DesktopAppRunning pid={tauri_pid}")
+            ResponsePayload::ProfileInUse {
+                profile_id, pid, ..
+            } => {
+                write!(f, "ProfileInUse profile={profile_id} pid={pid}")
             }
             ResponsePayload::UpdateCheck {
                 available, version, ..

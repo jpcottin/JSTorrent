@@ -125,6 +125,10 @@ fn test_host_bridge_handshake() {
     );
 
     let payload = &response["payload"];
+    let profile_id = payload["profileId"]
+        .as_str()
+        .expect("profileId must be present");
+    assert!(!profile_id.is_empty(), "profileId must not be empty");
     let port = payload["port"].as_u64().expect("port must be a number");
     assert!(port > 0, "port must be > 0");
     let token = payload["token"].as_str().expect("token must be a string");
@@ -134,7 +138,7 @@ fn test_host_bridge_handshake() {
         .expect("version must be a string");
     assert!(!version.is_empty(), "version must not be empty");
 
-    eprintln!("Handshake OK: port={port}, version={version}");
+    eprintln!("Handshake OK: port={port}, version={version}, profileId={profile_id}");
 
     // 3. Send a second request to validate framing (deleteDownloadRoot with nonexistent key)
     let delete_req = serde_json::json!({
