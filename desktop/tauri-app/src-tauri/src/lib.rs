@@ -15,6 +15,19 @@ mod native_host;
 
 const TARGET_TRIPLE: &str = env!("TARGET_TRIPLE");
 
+/// Strip the `\\?\` extended-length path prefix that Windows APIs like
+/// `canonicalize()` and `current_exe()` produce. Chrome's native messaging
+/// launcher doesn't understand this prefix, so we need plain paths.
+#[cfg(windows)]
+pub(crate) fn strip_win_prefix(p: PathBuf) -> PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        p
+    }
+}
+
 /// Show a fatal error to the user. On Windows (where the GUI subsystem hides
 /// stderr), this displays a native message box so the error is actually visible.
 fn fatal_error(message: &str) -> ! {
@@ -187,6 +200,9 @@ fn resolve_sidecar(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String
 
     for candidate in &candidates {
         if candidate.exists() {
+            #[cfg(windows)]
+            return Ok(strip_win_prefix(candidate.clone()));
+            #[cfg(not(windows))]
             return Ok(candidate.clone());
         }
     }

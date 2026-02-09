@@ -120,7 +120,8 @@ fn register_windows_browsers(
     // Write manifest file to Tauri's local app data directory.
     // On Windows this is AppData\Local (matching NSIS uninstall cleanup).
     // On macOS/Linux this is the same as app_data_dir().
-    let app_data = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    let app_data =
+        super::strip_win_prefix(app.path().app_local_data_dir().map_err(|e| e.to_string())?);
     std::fs::create_dir_all(&app_data).map_err(|e| e.to_string())?;
     let manifest_path = app_data.join(MANIFEST_FILENAME);
     std::fs::write(&manifest_path, manifest_bytes).map_err(|e| e.to_string())?;

@@ -13,6 +13,11 @@ impl KvStore {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(path)?;
+        // Allow up to 5s wait when another process holds the database lock.
+        // The Tauri app's sidecar and Chrome's native messaging host both open
+        // this database; without a timeout, the second process gets SQLITE_BUSY
+        // immediately and crashes (especially on Windows where locking is stricter).
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
