@@ -63,7 +63,12 @@ fn test_host_bridge_handshake() {
         daemon_bin.display()
     );
 
+    // Use a temp config dir so the test doesn't read real ~/.config/jstorrent-native/
+    // (avoids false failures from mutual exclusion with a running Tauri app)
+    let config_dir = tempfile::tempdir().expect("failed to create temp config dir");
+
     let mut child = Command::new(host_bin)
+        .env("JSTORRENT_CONFIG_DIR", config_dir.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
