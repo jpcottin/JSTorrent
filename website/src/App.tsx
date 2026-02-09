@@ -10,7 +10,7 @@ const GITHUB_RELEASES_URL = 'https://api.github.com/repos/kzahel/jstorrent/relea
 
 // Build-time values from CI, fall back to hardcoded versions
 const FALLBACK_BRIDGE_TAG = import.meta.env.VITE_SYSTEM_BRIDGE_TAG || 'v0.1.12'
-const FALLBACK_TAURI_TAG = import.meta.env.VITE_TAURI_APP_TAG || 'v0.1.0'
+const FALLBACK_TAURI_TAG = import.meta.env.VITE_TAURI_APP_TAG || 'v0.1.14'
 
 interface BridgeReleaseInfo {
   tag: string

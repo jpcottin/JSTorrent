@@ -47,7 +47,7 @@ jobs:
         run: pnpm install
 
       - name: Fetch latest system-bridge release
-        id: release
+        id: bridge-release
         run: |
           TAG=$(gh release list --json tagName -q '[.[] | select(.tagName | startswith("system-bridge-v"))][0].tagName // empty')
           if [ -n "$TAG" ]; then
@@ -60,12 +60,27 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Fetch latest tauri-app release
+        id: tauri-release
+        run: |
+          TAG=$(gh release list --json tagName -q '[.[] | select(.tagName | startswith("tauri-app-v"))][0].tagName // empty')
+          if [ -n "$TAG" ]; then
+            echo "tag=${TAG#tauri-app-}" >> $GITHUB_OUTPUT
+            echo "Found latest tauri-app release: $TAG"
+          else
+            echo "tag=v0.1.14" >> $GITHUB_OUTPUT
+            echo "No tauri-app release found, using fallback"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build Website
         run: |
           cd website
           pnpm run build
         env:
-          VITE_SYSTEM_BRIDGE_TAG: ${{ steps.release.outputs.tag }}
+          VITE_SYSTEM_BRIDGE_TAG: ${{ steps.bridge-release.outputs.tag }}
+          VITE_TAURI_APP_TAG: ${{ steps.tauri-release.outputs.tag }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
