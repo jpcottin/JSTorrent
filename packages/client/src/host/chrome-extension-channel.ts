@@ -20,6 +20,7 @@ import type {
   DaemonStats,
   DaemonInfo,
   DownloadRoot,
+  UpdateCheckResult,
 } from './types'
 
 export class ChromeExtensionChannel implements HostChannel {
@@ -283,8 +284,38 @@ export class ChromeExtensionChannel implements HostChannel {
     // No-op — extension handles this via PowerManager in the service worker
   }
 
-  checkForUpdates(): void {
-    // No-op — Chrome extensions update through the Web Store
+  async checkForUpdates(): Promise<UpdateCheckResult | null> {
+    try {
+      const response = await this.sendMessage<{
+        ok: boolean
+        available?: boolean
+        version?: string
+        currentVersion?: string
+        body?: string
+      }>({ type: 'CHECK_FOR_UPDATES' })
+      if (response.ok && response.available !== undefined) {
+        return {
+          available: response.available,
+          version: response.version,
+          currentVersion: response.currentVersion,
+          body: response.body,
+        }
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  async installUpdate(): Promise<boolean> {
+    try {
+      const response = await this.sendMessage<{ ok: boolean }>({
+        type: 'INSTALL_UPDATE',
+      })
+      return response.ok
+    } catch {
+      return false
+    }
   }
 
   // --- Desktop mutual exclusion ---

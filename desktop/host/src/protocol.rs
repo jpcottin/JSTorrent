@@ -51,6 +51,10 @@ pub enum Operation {
         path: String,
     },
 
+    // Update operations
+    CheckForUpdates,
+    InstallUpdate,
+
     // KV storage operations
     KvGet {
         key: String,
@@ -116,6 +120,13 @@ pub enum ResponsePayload {
     DesktopAppRunning {
         tauri_pid: u32,
     },
+    UpdateCheck {
+        available: bool,
+        version: Option<String>,
+        #[serde(rename = "currentVersion")]
+        current_version: Option<String>,
+        body: Option<String>,
+    },
 }
 
 impl fmt::Display for Operation {
@@ -137,6 +148,8 @@ impl fmt::Display for Operation {
             Operation::RevealInFolder { root_key, path } => {
                 write!(f, "RevealInFolder {root_key}:{path}")
             }
+            Operation::CheckForUpdates => write!(f, "CheckForUpdates"),
+            Operation::InstallUpdate => write!(f, "InstallUpdate"),
             Operation::KvGet { key } => write!(f, "KvGet {key}"),
             Operation::KvGetMulti { keys } => write!(f, "KvGetMulti [{}]", keys.join(", ")),
             Operation::KvSet { key, value } => write!(f, "KvSet {key} ({} bytes)", value.len()),
@@ -179,6 +192,19 @@ impl fmt::Display for ResponsePayload {
             ResponsePayload::DesktopAppRunning { tauri_pid } => {
                 write!(f, "DesktopAppRunning pid={tauri_pid}")
             }
+            ResponsePayload::UpdateCheck {
+                available, version, ..
+            } => {
+                if *available {
+                    write!(
+                        f,
+                        "UpdateCheck available={}",
+                        version.as_deref().unwrap_or("?")
+                    )
+                } else {
+                    write!(f, "UpdateCheck up-to-date")
+                }
+            }
         }
     }
 }
@@ -197,5 +223,10 @@ pub enum Event {
         infohash: String,
         #[serde(rename = "contentsBase64")]
         contents_base64: String,
+    },
+    UpdateAvailable {
+        version: String,
+        #[serde(rename = "currentVersion")]
+        current_version: String,
     },
 }

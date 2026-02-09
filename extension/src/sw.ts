@@ -749,6 +749,22 @@ function handleMessage(
     return true
   }
 
+  // Check for desktop app updates
+  if (message.type === 'CHECK_FOR_UPDATES') {
+    bridge.checkForUpdates().then((result) => {
+      sendResponse(result)
+    })
+    return true
+  }
+
+  // Install desktop app update
+  if (message.type === 'INSTALL_UPDATE') {
+    bridge.installUpdate().then((result) => {
+      sendResponse(result)
+    })
+    return true
+  }
+
   // Retry connection
   if (message.type === 'RETRY_CONNECTION') {
     bridge.connect().then((success: boolean) => {

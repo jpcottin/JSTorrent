@@ -16,6 +16,7 @@ import type {
   DaemonStats,
   DaemonInfo,
   DownloadRoot,
+  UpdateCheckResult,
 } from './types'
 
 export interface HostChannel {
@@ -69,5 +70,6 @@ export interface HostChannel {
   setKeepAwake(enabled: boolean): void
 
   // --- Updates ---
-  checkForUpdates(): void
+  checkForUpdates(): Promise<UpdateCheckResult | null>
+  installUpdate(): Promise<boolean>
 }

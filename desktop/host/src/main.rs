@@ -8,6 +8,7 @@ mod path_safety;
 mod protocol;
 mod rpc;
 mod state;
+mod updater;
 #[cfg(target_os = "windows")]
 mod win_foreground;
 
@@ -370,7 +371,7 @@ async fn do_handshake(
 async fn handle_request(
     state: &State,
     req: Request,
-    _event_tx: mpsc::Sender<Event>,
+    event_tx: mpsc::Sender<Event>,
     daemon_manager: &mut daemon_manager::DaemonManager,
     system: &mut sysinfo::System,
 ) -> Response {
@@ -447,7 +448,46 @@ async fn handle_request(
                 extension_id,
                 install_id
             );
-            do_handshake(state, extension_id, install_id, daemon_manager).await
+            let result = do_handshake(state, extension_id, install_id, daemon_manager).await;
+
+            // Trigger background update check for extension-only users (Chrome launcher)
+            if result.is_ok() && state.launcher == "chrome" {
+                let should_check = {
+                    let kv = state.kv.lock().unwrap();
+                    updater::should_auto_check(&kv)
+                };
+                if should_check {
+                    let event_tx = event_tx.clone();
+                    let kv_state = state.kv.lock().unwrap();
+                    updater::record_check_time(&kv_state);
+                    drop(kv_state);
+                    tokio::spawn(async move {
+                        log!("Background update check starting");
+                        match updater::run_update_check(false).await {
+                            Ok(result) if result.available => {
+                                log!(
+                                    "Background update check: update available ({})",
+                                    result.version.as_deref().unwrap_or("?")
+                                );
+                                let _ = event_tx
+                                    .send(Event::UpdateAvailable {
+                                        version: result.version.unwrap_or_default(),
+                                        current_version: result.current_version.unwrap_or_default(),
+                                    })
+                                    .await;
+                            }
+                            Ok(_) => {
+                                log!("Background update check: up to date");
+                            }
+                            Err(e) => {
+                                log!("Background update check failed: {e}");
+                            }
+                        }
+                    });
+                }
+            }
+
+            result
         }
 
         Operation::TakeOver {
@@ -538,6 +578,57 @@ async fn handle_request(
                     }
                 }
                 None => Err(anyhow::anyhow!("Root not found: {root_key}")),
+            }
+        }
+
+        // Update operations
+        Operation::CheckForUpdates => {
+            // If Tauri app is running, it handles its own updates
+            if state.blocked_by_tauri.lock().unwrap().is_some() {
+                Ok(ResponsePayload::UpdateCheck {
+                    available: false,
+                    version: None,
+                    current_version: None,
+                    body: None,
+                })
+            } else {
+                match updater::run_update_check(false).await {
+                    Ok(result) => {
+                        if let Some(err) = &result.error {
+                            log!("Update check returned error: {err}");
+                        }
+                        Ok(ResponsePayload::UpdateCheck {
+                            available: result.available,
+                            version: result.version,
+                            current_version: result.current_version,
+                            body: result.body,
+                        })
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        }
+
+        Operation::InstallUpdate => {
+            if state.blocked_by_tauri.lock().unwrap().is_some() {
+                Err(anyhow::anyhow!(
+                    "Desktop app is running and handles updates automatically"
+                ))
+            } else {
+                match updater::run_update_check(true).await {
+                    Ok(result) => {
+                        if let Some(err) = &result.error {
+                            log!("Install update returned error: {err}");
+                        }
+                        Ok(ResponsePayload::UpdateCheck {
+                            available: result.available,
+                            version: result.version,
+                            current_version: result.current_version,
+                            body: result.body,
+                        })
+                    }
+                    Err(e) => Err(e),
+                }
             }
         }
 

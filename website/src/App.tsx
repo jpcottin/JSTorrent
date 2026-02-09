@@ -331,32 +331,54 @@ function App() {
           )}
 
           {selectedPlatform === 'linux' && (
-            <div className="btn-group">
-              <a
-                href={isArm64 ? tauri.linuxArm64DebUrl : tauri.linuxDebUrl}
-                className="btn btn-primary"
-              >
-                Download .deb — {isArm64 ? 'ARM64' : 'x86_64'} ({tauri.tag})
-              </a>
-              <a
-                href={isArm64 ? tauri.linuxArm64AppImageUrl : tauri.linuxAppImageUrl}
-                className="btn btn-secondary"
-              >
-                AppImage — {isArm64 ? 'ARM64' : 'x86_64'}
-              </a>
-              <a
-                href={isArm64 ? tauri.linuxDebUrl : tauri.linuxArm64DebUrl}
-                className="btn btn-secondary"
-              >
-                .deb — {isArm64 ? 'x86_64' : 'ARM64'}
-              </a>
-              <a
-                href={isArm64 ? tauri.linuxAppImageUrl : tauri.linuxArm64AppImageUrl}
-                className="btn btn-secondary"
-              >
-                AppImage — {isArm64 ? 'x86_64' : 'ARM64'}
-              </a>
-            </div>
+            <>
+              <p>Install via terminal (auto-detects .deb / .rpm / AppImage):</p>
+              <div className="command-box">
+                <code>curl -fsSL https://new.jstorrent.com/install.sh | bash</code>
+                <button
+                  className="copy-btn"
+                  onClick={copyToClipboard}
+                  aria-label="Copy to clipboard"
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    version="1.1"
+                    style={{ width: 16, height: 16, fill: 'currentColor' }}
+                  >
+                    <path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"></path>
+                    <path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"></path>
+                  </svg>
+                </button>
+                {copied && <div className="tooltip show">Copied!</div>}
+              </div>
+              <p style={{ marginTop: '1rem' }}>Or download directly:</p>
+              <div className="btn-group">
+                <a
+                  href={isArm64 ? tauri.linuxArm64DebUrl : tauri.linuxDebUrl}
+                  className="btn btn-secondary"
+                >
+                  .deb — {isArm64 ? 'ARM64' : 'x86_64'} ({tauri.tag})
+                </a>
+                <a
+                  href={isArm64 ? tauri.linuxArm64AppImageUrl : tauri.linuxAppImageUrl}
+                  className="btn btn-secondary"
+                >
+                  AppImage — {isArm64 ? 'ARM64' : 'x86_64'}
+                </a>
+                <a
+                  href={isArm64 ? tauri.linuxDebUrl : tauri.linuxArm64DebUrl}
+                  className="btn btn-secondary"
+                >
+                  .deb — {isArm64 ? 'x86_64' : 'ARM64'}
+                </a>
+                <a
+                  href={isArm64 ? tauri.linuxAppImageUrl : tauri.linuxArm64AppImageUrl}
+                  className="btn btn-secondary"
+                >
+                  AppImage — {isArm64 ? 'x86_64' : 'ARM64'}
+                </a>
+              </div>
+            </>
           )}
         </div>
       </section>
@@ -471,7 +493,7 @@ function App() {
 
           {selectedPlatform === 'linux' && (
             <>
-              <p>Run this command in your terminal:</p>
+              <p>Install the desktop app (includes native host):</p>
               <div className="command-box">
                 <code>curl -fsSL https://new.jstorrent.com/install.sh | bash</code>
                 <button

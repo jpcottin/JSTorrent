@@ -6,6 +6,8 @@ import { clearAllUISettings } from '@jstorrent/ui'
 import type { IEngineManager } from '../engine-manager/types'
 import { standaloneConfirm, standaloneAlert } from '../utils/dialogs'
 import { useHostChannel } from '../host/HostChannelContext'
+import type { HostChannel } from '../host/host-channel'
+import type { UpdateCheckResult } from '../host/types'
 
 /**
  * Build a config snapshot object from ConfigHub.
@@ -584,16 +586,107 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
             {channel.getVersion() ?? 'unknown'}
           </span>
         </div>
-        {isStandalone && (
+        {(isStandalone || channel.getState().platform === 'desktop') && (
           <div style={styles.fieldRow}>
             <span>Updates</span>
-            <button onClick={() => channel.checkForUpdates()} style={styles.checkUpdatesButton}>
-              Check for Updates
-            </button>
+            <UpdateCheckButton channel={channel} isStandalone={isStandalone} />
           </div>
         )}
       </Section>
     </div>
+  )
+}
+
+/** Button that checks for desktop app updates and offers install. */
+function UpdateCheckButton({
+  channel,
+  isStandalone,
+}: {
+  channel: HostChannel
+  isStandalone: boolean
+}) {
+  const [checking, setChecking] = useState(false)
+  const [installing, setInstalling] = useState(false)
+  const [result, setResult] = useState<UpdateCheckResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleCheck = async () => {
+    setChecking(true)
+    setResult(null)
+    setError(null)
+    try {
+      const r = await channel.checkForUpdates()
+      setResult(r)
+    } catch {
+      setError('Check failed')
+    }
+    setChecking(false)
+  }
+
+  const handleInstall = async () => {
+    setInstalling(true)
+    setError(null)
+    try {
+      const ok = await channel.installUpdate()
+      if (!ok) setError('Install failed')
+    } catch {
+      setError('Install failed')
+    }
+    setInstalling(false)
+  }
+
+  if (checking) {
+    return (
+      <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-base, 13px)' }}>
+        Checking...
+      </span>
+    )
+  }
+
+  if (installing) {
+    return (
+      <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-base, 13px)' }}>
+        Installing...
+      </span>
+    )
+  }
+
+  if (error) {
+    return (
+      <span style={{ color: 'var(--accent-error)', fontSize: 'var(--font-base, 13px)' }}>
+        {error}{' '}
+        <button onClick={handleCheck} style={styles.checkUpdatesButton}>
+          Retry
+        </button>
+      </span>
+    )
+  }
+
+  if (result?.available) {
+    return (
+      <span style={{ fontSize: 'var(--font-base, 13px)' }}>
+        v{result.version} available{' '}
+        {!isStandalone && (
+          <button onClick={handleInstall} style={styles.checkUpdatesButton}>
+            Install &amp; Restart
+          </button>
+        )}
+      </span>
+    )
+  }
+
+  if (result && !result.available) {
+    return (
+      <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-base, 13px)' }}>
+        Up to date
+      </span>
+    )
+  }
+
+  return (
+    <button onClick={handleCheck} style={styles.checkUpdatesButton}>
+      Check for Updates
+    </button>
   )
 }
 

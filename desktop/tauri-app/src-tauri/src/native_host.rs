@@ -8,6 +8,29 @@ const MANIFEST_FILENAME: &str = "com.jstorrent.native.json";
 pub fn register_native_messaging_hosts(app: &tauri::AppHandle) -> Result<usize, String> {
     let host_path = super::resolve_sidecar(app, "binaries/jstorrent-host")?;
 
+    // AppImage: the FUSE mount path is temporary, so copy the sidecar to a stable
+    // location that persists after the AppImage exits. This also refreshes the binary
+    // after auto-update (the Tauri updater replaces the .AppImage file, but the
+    // previously-extracted copy at ~/.local/lib/jstorrent/ would be stale).
+    #[cfg(target_os = "linux")]
+    let host_path = if std::env::var_os("APPDIR").is_some() {
+        match copy_sidecar_for_appimage(&host_path) {
+            Ok(stable_path) => {
+                eprintln!(
+                    "native-host: copied sidecar to stable path: {}",
+                    stable_path.display()
+                );
+                stable_path
+            }
+            Err(e) => {
+                eprintln!("native-host: failed to copy sidecar for AppImage: {e}");
+                host_path
+            }
+        }
+    } else {
+        host_path
+    };
+
     let manifest = serde_json::json!({
         "name": MANIFEST_NAME,
         "description": "JSTorrent Native Messaging Host",
@@ -150,4 +173,24 @@ fn register_windows_browsers(
     }
 
     Ok(count)
+}
+
+/// Copy the sidecar binary from the AppImage FUSE mount to `~/.local/lib/jstorrent/`.
+/// Returns the stable destination path.
+#[cfg(target_os = "linux")]
+fn copy_sidecar_for_appimage(fuse_path: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    let home = dirs::home_dir().ok_or("could not determine home directory")?;
+    let lib_dir = home.join(".local/lib/jstorrent");
+    std::fs::create_dir_all(&lib_dir).map_err(|e| format!("mkdir {}: {e}", lib_dir.display()))?;
+
+    let dest = lib_dir.join("jstorrent-host");
+    std::fs::copy(fuse_path, &dest)
+        .map_err(|e| format!("copy {} -> {}: {e}", fuse_path.display(), dest.display()))?;
+
+    // Ensure executable
+    use std::os::unix::fs::PermissionsExt;
+    let perms = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(&dest, perms).map_err(|e| format!("chmod {}: {e}", dest.display()))?;
+
+    Ok(dest)
 }

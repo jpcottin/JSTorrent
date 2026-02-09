@@ -1,0 +1,203 @@
+use anyhow::{Context, Result};
+use serde::Deserialize;
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use crate::kv_store::KvStore;
+
+const CHECK_TIMEOUT: Duration = Duration::from_secs(60);
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
+const AUTO_CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60; // 24 hours
+const KV_LAST_CHECK_KEY: &str = "update:lastCheckTime";
+const RESULT_FILENAME: &str = "update-check-result.json";
+
+/// Result read from the JSON file written by the headless Tauri updater.
+#[derive(Debug, Deserialize, Default)]
+pub struct UpdateCheckResult {
+    pub available: bool,
+    pub version: Option<String>,
+    #[serde(rename = "currentVersion")]
+    pub current_version: Option<String>,
+    pub body: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Run a headless update check by spawning the Tauri app with CLI flags.
+/// Returns the parsed result from the JSON file it writes.
+pub async fn run_update_check(auto_update: bool) -> Result<UpdateCheckResult> {
+    let app_path = find_tauri_app_path()?;
+    let flag = if auto_update {
+        "--auto-update"
+    } else {
+        "--check-update"
+    };
+    let timeout = if auto_update {
+        INSTALL_TIMEOUT
+    } else {
+        CHECK_TIMEOUT
+    };
+
+    crate::log!("Spawning Tauri updater: {} {}", app_path.display(), flag);
+
+    let child = spawn_tauri_app(&app_path, flag)?;
+    let exit_status = wait_with_timeout(child, timeout).await?;
+
+    crate::log!("Tauri updater exited with status: {:?}", exit_status);
+
+    // Read the result file
+    read_result_file()
+}
+
+/// Check if enough time has passed since the last auto-check.
+pub fn should_auto_check(kv: &KvStore) -> bool {
+    let last_check: u64 = kv
+        .get(KV_LAST_CHECK_KEY)
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    now.saturating_sub(last_check) >= AUTO_CHECK_INTERVAL_SECS
+}
+
+/// Record the current time as the last auto-check time.
+pub fn record_check_time(kv: &KvStore) {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let _ = kv.set(KV_LAST_CHECK_KEY, &now.to_string());
+}
+
+/// Find the Tauri app binary path.
+///
+/// On macOS: The Tauri app is installed as a .app bundle (typically /Applications/JSTorrent.app).
+/// On Windows: Same directory as the native host binary (JSTorrent.exe).
+/// On Linux: Same directory as the native host binary (`JSTorrent` or `jstorrent`).
+fn find_tauri_app_path() -> Result<PathBuf> {
+    let exe_path = std::env::current_exe()?;
+    let exe_dir = exe_path
+        .parent()
+        .context("Failed to get executable directory")?;
+
+    #[cfg(target_os = "macos")]
+    {
+        // On macOS, the native host lives in its own .app bundle under ~/Library/Application Support/JSTorrent/
+        // but the Tauri app is at /Applications/JSTorrent.app or ~/Applications/JSTorrent.app.
+        let candidates = [
+            PathBuf::from("/Applications/JSTorrent.app"),
+            dirs::home_dir()
+                .map(|h| h.join("Applications/JSTorrent.app"))
+                .unwrap_or_default(),
+        ];
+
+        for candidate in &candidates {
+            if candidate.exists() {
+                return Ok(candidate.clone());
+            }
+        }
+
+        // Also check if we're a Tauri sidecar (host inside JSTorrent.app/Contents/MacOS/)
+        let exe_dir_str = exe_dir.to_string_lossy();
+        if exe_dir_str.contains("JSTorrent.app/Contents/MacOS") {
+            // Walk up to the .app bundle
+            if let Some(app_bundle) = exe_dir.parent().and_then(|p| p.parent()) {
+                if app_bundle.extension().is_some_and(|e| e == "app") {
+                    return Ok(app_bundle.to_path_buf());
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let ext = if cfg!(windows) { ".exe" } else { "" };
+        let mut candidates = vec![
+            exe_dir.join(format!("JSTorrent{ext}")),
+            exe_dir.join(format!("jstorrent{ext}")),
+        ];
+
+        // AppImage: the host binary lives at ~/.local/lib/jstorrent/ but the
+        // AppImage is at ~/.local/bin/JSTorrent.AppImage (installed by install.sh)
+        #[cfg(target_os = "linux")]
+        if let Some(home) = dirs::home_dir() {
+            candidates.push(home.join(".local/bin/JSTorrent.AppImage"));
+        }
+
+        for candidate in &candidates {
+            if candidate.exists() {
+                return Ok(candidate.clone());
+            }
+        }
+    }
+
+    anyhow::bail!("Tauri app not found. Host is at: {}", exe_path.display())
+}
+
+/// Spawn the Tauri app with the given flag.
+fn spawn_tauri_app(app_path: &std::path::Path, flag: &str) -> Result<tokio::process::Child> {
+    #[cfg(target_os = "macos")]
+    {
+        // Use `open -a` on macOS to respect Gatekeeper and launch the .app bundle properly
+        let child = tokio::process::Command::new("open")
+            .arg("-a")
+            .arg(app_path)
+            .arg("-W") // Wait for the app to exit
+            .arg("--args")
+            .arg(flag)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
+            .with_context(|| {
+                format!("Failed to spawn Tauri app via open: {}", app_path.display())
+            })?;
+        Ok(child)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let child = tokio::process::Command::new(app_path)
+            .arg(flag)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
+            .with_context(|| format!("Failed to spawn Tauri app: {}", app_path.display()))?;
+        Ok(child)
+    }
+}
+
+/// Wait for a child process with a timeout. Kills the child on timeout.
+async fn wait_with_timeout(
+    mut child: tokio::process::Child,
+    timeout: Duration,
+) -> Result<std::process::ExitStatus> {
+    match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(Ok(status)) => Ok(status),
+        Ok(Err(e)) => Err(anyhow::anyhow!("Failed to wait for Tauri updater: {e}")),
+        Err(_) => {
+            crate::log!("Tauri updater timed out after {:?}, killing", timeout);
+            let _ = child.kill().await;
+            anyhow::bail!("Tauri updater timed out after {timeout:?}")
+        }
+    }
+}
+
+/// Read the result file written by the headless Tauri updater.
+fn read_result_file() -> Result<UpdateCheckResult> {
+    let config_dir = jstorrent_common::get_config_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
+    let path = config_dir.join("jstorrent-native").join(RESULT_FILENAME);
+
+    let contents = std::fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read update result file: {}", path.display()))?;
+
+    serde_json::from_str(&contents)
+        .with_context(|| format!("Failed to parse update result file: {}", path.display()))
+}

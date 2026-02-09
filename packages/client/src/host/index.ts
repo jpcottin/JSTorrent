@@ -21,4 +21,5 @@ export type {
   DaemonInfo,
   DownloadRoot,
   DaemonCapabilities,
+  UpdateCheckResult,
 } from './types'

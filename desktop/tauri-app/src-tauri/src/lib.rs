@@ -13,6 +13,7 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::oneshot;
 
+mod headless_updater;
 mod native_host;
 
 const TARGET_TRIPLE: &str = env!("TARGET_TRIPLE");
@@ -450,6 +451,18 @@ fn show_notification(app: tauri::AppHandle, title: String, body: String) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Generate context once (the macro embeds static symbols, so it can't be called twice)
+    let context = tauri::generate_context!();
+
+    // Check for headless updater mode before building the full app
+    let args: Vec<String> = std::env::args().collect();
+    let check_update = args.iter().any(|a| a == "--check-update");
+    let auto_update = args.iter().any(|a| a == "--auto-update");
+    if check_update || auto_update {
+        headless_updater::run(auto_update, context);
+        return;
+    }
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Second instance launched (e.g., magnet link clicked on Windows/Linux).
@@ -688,9 +701,13 @@ pub fn run() {
                 app_handle.exit(0);
             });
 
+            // Show main window now that setup is complete
+            // (window starts hidden via tauri.conf.json visible:false to support headless mode)
+            show_main_window(app.handle());
+
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .unwrap_or_else(|e| fatal_error(&format!("Failed to start JSTorrent: {e}")));
 
     // Keep app alive when all windows are hidden (user closes window -> hide, not exit).

@@ -1,0 +1,65 @@
+#!/bin/bash
+# Postinstall script for JSTorrent Desktop .pkg installer
+# Registers native messaging host manifests for all Chromium browsers.
+
+APP_PATH="/Applications/JSTorrent.app"
+
+# Find the host sidecar binary (architecture-specific name)
+HOST_BIN=$(find "$APP_PATH/Contents/MacOS" -name "jstorrent-host-*" -not -name "*.dwarf" 2>/dev/null | head -1)
+
+if [ -z "$HOST_BIN" ]; then
+    echo "Warning: Could not find jstorrent-host sidecar binary in $APP_PATH"
+    exit 0
+fi
+
+# Determine the real user's home directory (this script runs as root)
+CONSOLE_USER=$(stat -f "%Su" /dev/console)
+USER_HOME=$(dscl . -read /Users/"$CONSOLE_USER" NFSHomeDirectory | awk '{print $2}')
+
+if [ -z "$USER_HOME" ] || [ ! -d "$USER_HOME" ]; then
+    echo "Warning: Could not determine user home directory"
+    exit 0
+fi
+
+# Build native messaging manifest (matches native_host.rs)
+MANIFEST=$(cat <<EOF
+{
+  "name": "com.jstorrent.native",
+  "description": "JSTorrent Native Messaging Host",
+  "path": "$HOST_BIN",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://dbokmlpefliilbjldladbimlcfgbolhk/",
+    "chrome-extension://opkmhecbhgngcbglpcdfmnomkffenapc/"
+  ]
+}
+EOF
+)
+
+# Register for all Chromium browsers (matches native_host.rs browser list)
+APP_SUPPORT="$USER_HOME/Library/Application Support"
+BROWSERS=(
+    "Google/Chrome"
+    "Google/Chrome Canary"
+    "Chromium"
+    "BraveSoftware/Brave-Browser"
+    "Microsoft Edge"
+    "Vivaldi"
+    "Arc/User Data"
+)
+
+for browser in "${BROWSERS[@]}"; do
+    BROWSER_DIR="$APP_SUPPORT/$browser"
+    if [ -d "$BROWSER_DIR" ]; then
+        HOSTS_DIR="$BROWSER_DIR/NativeMessagingHosts"
+        mkdir -p "$HOSTS_DIR"
+        echo "$MANIFEST" > "$HOSTS_DIR/com.jstorrent.native.json"
+        chmod 644 "$HOSTS_DIR/com.jstorrent.native.json"
+        echo "Registered native host for $browser"
+    fi
+done
+
+# Register with LaunchServices (magnet: URL handling, .torrent file association)
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_PATH" 2>/dev/null
+
+exit 0

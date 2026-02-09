@@ -562,6 +562,37 @@ export class DaemonBridge {
   }
 
   /**
+   * Check for desktop app updates via the native host.
+   * Spawns the Tauri app in headless mode to query the update endpoint.
+   * Desktop only.
+   */
+  async checkForUpdates(): Promise<{
+    ok: boolean
+    available?: boolean
+    version?: string
+    currentVersion?: string
+    body?: string
+    error?: string
+  }> {
+    if (this.state.platform !== 'desktop') {
+      return { ok: false, error: 'Updates only available for desktop' }
+    }
+    return this.sendNativeRequest('checkForUpdates', {})
+  }
+
+  /**
+   * Download and install a desktop app update via the native host.
+   * Spawns the Tauri app in headless mode to download, install, and restart.
+   * Desktop only.
+   */
+  async installUpdate(): Promise<{ ok: boolean; error?: string }> {
+    if (this.state.platform !== 'desktop') {
+      return { ok: false, error: 'Updates only available for desktop' }
+    }
+    return this.sendNativeRequest('installUpdate', {})
+  }
+
+  /**
    * Get stats from the daemon about socket and connection state.
    * Useful for debugging.
    */

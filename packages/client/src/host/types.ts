@@ -102,6 +102,16 @@ export interface NativeEvent {
   payload: unknown
 }
 
+// --- Updates ---
+
+/** Result of a desktop app update check. */
+export interface UpdateCheckResult {
+  available: boolean
+  version?: string
+  currentVersion?: string
+  body?: string
+}
+
 // --- Utility ---
 
 /** Unsubscribe function returned by event listeners. */

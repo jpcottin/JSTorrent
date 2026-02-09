@@ -22,6 +22,7 @@ import type {
   DaemonStats,
   DaemonInfo,
   DownloadRoot,
+  UpdateCheckResult,
 } from './types'
 
 // --- Tauri IPC helpers ---
@@ -407,8 +408,14 @@ export class TauriChannel implements HostChannel {
     this.updateNoSleep()
   }
 
-  checkForUpdates(): void {
+  async checkForUpdates(): Promise<UpdateCheckResult | null> {
     tauriEmit('check-for-updates')
+    return null // Tauri handles updates via its own JS-side dialog
+  }
+
+  async installUpdate(): Promise<boolean> {
+    // Tauri handles install via its own dialog triggered by checkForUpdates
+    return false
   }
 
   // --- Private helpers ---

@@ -213,6 +213,42 @@ jobs:
           echo ""
           echo "If this keeps failing, consider using '--bundles app,updater' to skip DMG creation for this target."
 
+      # --- macOS .pkg installer ---
+      - name: Build .pkg installer
+        if: matrix.platform == 'macos-latest' && startsWith(github.ref, 'refs/tags/tauri-app-v')
+        env:
+          INSTALLER_IDENTITY: 'Developer ID Installer: Kyle Graehl (VD7BYQ6ABM)'
+        run: |
+          VERSION="${GITHUB_REF_NAME#tauri-app-v}"
+          TARGET="${{ matrix.rust_target }}"
+          ARCH=$([[ "$TARGET" = "aarch64-apple-darwin" ]] && echo "aarch64" || echo "x64")
+          APP_PATH="desktop/tauri-app/src-tauri/target/$TARGET/release/bundle/macos/JSTorrent.app"
+          bash desktop/tauri-app/scripts/build-macos-pkg.sh "$APP_PATH" "$VERSION" "$ARCH"
+
+      - name: Notarize .pkg installer
+        if: matrix.platform == 'macos-latest' && startsWith(github.ref, 'refs/tags/tauri-app-v') && env.HAS_MACOS_NOTARIZATION == 'true'
+        run: |
+          VERSION="${GITHUB_REF_NAME#tauri-app-v}"
+          TARGET="${{ matrix.rust_target }}"
+          ARCH=$([[ "$TARGET" = "aarch64-apple-darwin" ]] && echo "aarch64" || echo "x64")
+          PKG="JSTorrent_${VERSION}_${ARCH}.pkg"
+          xcrun notarytool submit "$PKG" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "${{ secrets.ASC_API_KEY_ID }}" \
+            --issuer "${{ secrets.ASC_API_ISSUER_ID }}" \
+            --wait
+          xcrun stapler staple "$PKG"
+
+      - name: Upload .pkg to release
+        if: matrix.platform == 'macos-latest' && startsWith(github.ref, 'refs/tags/tauri-app-v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#tauri-app-v}"
+          TARGET="${{ matrix.rust_target }}"
+          ARCH=$([[ "$TARGET" = "aarch64-apple-darwin" ]] && echo "aarch64" || echo "x64")
+          gh release upload "tauri-app-v${VERSION}" "JSTorrent_${VERSION}_${ARCH}.pkg"
+
       # --- Cleanup ---
       - name: Clean up macOS keychain
         if: matrix.platform == 'macos-latest' && always()
@@ -257,7 +293,9 @@ jobs:
             echo "| Platform | Installer |"
             echo "|----------|-----------|"
             echo "| macOS (Apple Silicon) | [JSTorrent_${VERSION}_aarch64.dmg](${BASE}/JSTorrent_${VERSION}_aarch64.dmg) |"
+            echo "| macOS (Apple Silicon, installer) | [JSTorrent_${VERSION}_aarch64.pkg](${BASE}/JSTorrent_${VERSION}_aarch64.pkg) |"
             echo "| macOS (Intel) | [JSTorrent_${VERSION}_x64.dmg](${BASE}/JSTorrent_${VERSION}_x64.dmg) |"
+            echo "| macOS (Intel, installer) | [JSTorrent_${VERSION}_x64.pkg](${BASE}/JSTorrent_${VERSION}_x64.pkg) |"
             echo "| Windows (installer) | [JSTorrent_${VERSION}_x64-setup.exe](${BASE}/JSTorrent_${VERSION}_x64-setup.exe) |"
             echo "| Windows (MSI) | [JSTorrent_${VERSION}_x64_en-US.msi](${BASE}/JSTorrent_${VERSION}_x64_en-US.msi) |"
             echo "| Linux x86_64 (Debian/Ubuntu) | [JSTorrent_${VERSION}_amd64.deb](${BASE}/JSTorrent_${VERSION}_amd64.deb) |"

@@ -14,6 +14,7 @@ import {
   Torrent,
   toHex,
   getBatchWriteHistogram,
+  IndexedDbSessionStore,
   type ISocketFactory,
   type CredentialsGetter,
   type EngineLoggingConfig,
@@ -212,8 +213,11 @@ export class DaemonEngineManager implements IEngineManager {
     )
 
     // 4. Create session store (before registering roots so we can load default)
-    // Routes through host channel → sidecar → SQLite for both Tauri and extension
-    this.sessionStore = new HostChannelSessionStore(this.channel)
+    // Tauri: use IndexedDB directly (native binary, no base64 overhead)
+    // Chrome extension: delegate to host channel (chrome.storage.local via service worker)
+    this.sessionStore = isTauriContext()
+      ? new IndexedDbSessionStore()
+      : new HostChannelSessionStore(this.channel)
 
     // Register download roots from daemon
     if (roots.length > 0) {
