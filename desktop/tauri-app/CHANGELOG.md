@@ -2,6 +2,12 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.15]
+
+- Add tauri-plugin-nosleep to prevent system sleep during active downloads
+- Add nosleep:default capability
+- Fix eprint! crash on Windows when native messaging host has no stderr handle
+
 ## [0.1.14]
 
 - Consolidate logging to config dir (~/.config/jstorrent-native/) instead of exe dir
