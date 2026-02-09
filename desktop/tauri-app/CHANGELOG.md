@@ -2,6 +2,14 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.17]
+
+- Add desktop/extension mutual exclusion: Tauri kills incumbent Chrome native host on startup; extension shows TakeOver flow to quit desktop app
+- Add tauri-plugin-autostart with "Start at Login" tray menu toggle
+- Add "Run in Background" tray menu toggle (when disabled, closing window quits)
+- Tauri app exits when its sidecar dies to avoid lingering after TakeOver
+- Pass --launcher tauri arg when spawning system bridge sidecar
+
 ## [0.1.16]
 
 - Add SQLite busy timeout (5s) to prevent SQLITE_BUSY crashes from concurrent sidecar/native host access on Windows
