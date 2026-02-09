@@ -112,6 +112,12 @@ export class TauriChannel implements HostChannel {
 
   async connect(): Promise<void> {
     try {
+      let storedProfileId: string | null = null
+      try {
+        storedProfileId = localStorage.getItem('jstorrent:profileId')
+      } catch {
+        // localStorage may not be available
+      }
       const response = await tauriInvoke<{
         ok: boolean
         type?: string
@@ -128,7 +134,7 @@ export class TauriChannel implements HostChannel {
           started?: number
         }
         error?: string
-      }>('host_handshake')
+      }>('host_handshake', { profileId: storedProfileId })
 
       if (response.ok && response.type === 'DaemonInfo' && response.payload) {
         const { port, token, version, roots, profileId } = response.payload
@@ -383,9 +389,16 @@ export class TauriChannel implements HostChannel {
   }
 
   takeOver(): void {
+    let storedProfileId: string | null = null
+    try {
+      storedProfileId = localStorage.getItem('jstorrent:profileId')
+    } catch {
+      // localStorage may not be available
+    }
     hostMessage({
       op: 'takeOver',
       extensionId: 'tauri-desktop',
+      profileId: storedProfileId,
       clientType: 'tauri',
       clientVersion: this.getVersion() ?? undefined,
     })

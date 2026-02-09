@@ -314,15 +314,18 @@ fn run_stdout_reader(stdout: &mut ChildStdout, bridge: &HostBridge, app_handle: 
 #[tauri::command]
 async fn host_handshake(
     state: tauri::State<'_, Arc<HostBridge>>,
+    profile_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    state
-        .request(serde_json::json!({
-            "op": "handshake",
-            "extensionId": "tauri-desktop",
-            "clientType": "tauri",
-            "clientVersion": env!("CARGO_PKG_VERSION"),
-        }))
-        .await
+    let mut msg = serde_json::json!({
+        "op": "handshake",
+        "extensionId": "tauri-desktop",
+        "clientType": "tauri",
+        "clientVersion": env!("CARGO_PKG_VERSION"),
+    });
+    if let Some(pid) = profile_id {
+        msg["profileId"] = serde_json::Value::String(pid);
+    }
+    state.request(msg).await
 }
 
 #[tauri::command]
