@@ -36,6 +36,17 @@ export interface DaemonStats {
   uptime_secs: number
 }
 
+// --- Profile In Use ---
+
+/** Metadata about the client currently using a profile (returned on profile_in_use error). */
+export interface ProfileInUseInfo {
+  clientType?: string
+  clientVersion?: string
+  browserName?: string
+  pid?: number
+  started?: number
+}
+
 // --- Host State ---
 
 /** Host state — the unified state object for all host channel implementations. */
@@ -45,6 +56,8 @@ export interface HostState {
   daemonInfo: DaemonInfo | null
   roots: DownloadRoot[]
   lastError: string | null
+  /** Metadata about the client currently using the profile (set when lastError === 'profile_in_use') */
+  profileInUseInfo?: ProfileInUseInfo | null
 }
 
 /**

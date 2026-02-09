@@ -18,6 +18,7 @@ export type {
   PortStatus,
   DaemonStats,
   DaemonBridgeState,
+  ProfileInUseInfo,
   DaemonInfo,
   DownloadRoot,
   DaemonCapabilities,

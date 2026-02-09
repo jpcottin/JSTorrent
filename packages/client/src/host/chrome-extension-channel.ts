@@ -318,9 +318,9 @@ export class ChromeExtensionChannel implements HostChannel {
     }
   }
 
-  // --- Desktop mutual exclusion ---
+  // --- Profile mutual exclusion ---
 
-  async takeOverFromDesktop(): Promise<boolean> {
+  async takeOver(): Promise<boolean> {
     try {
       const response = await this.sendMessage<{ ok: boolean }>({
         type: 'TAKE_OVER_FROM_DESKTOP',

@@ -2,7 +2,13 @@ import type { RefObject } from 'react'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import type { DownloadRoot, DaemonStats, DaemonBridgeState } from '../host/types'
 
-export type { DaemonStats, DaemonBridgeState, ConnectionStatus, Platform } from '../host/types'
+export type {
+  DaemonStats,
+  DaemonBridgeState,
+  ConnectionStatus,
+  Platform,
+  ProfileInUseInfo,
+} from '../host/types'
 
 // Version status from io-bridge
 export type VersionStatus = 'compatible' | 'update_suggested' | 'update_required'
@@ -23,8 +29,8 @@ export interface SystemBridgePanelProps {
   onAddFolder: () => void
   onSetDefaultRoot: (key: string) => void
   onOpenSettings?: () => void
-  /** Callback to take over from desktop Tauri app (desktop only) */
-  onTakeOverFromDesktop?: () => void
+  /** Callback to take over from incumbent client using this profile */
+  onTakeOver?: () => void
   /** Ref to the anchor element (toggle button) - clicks on it won't trigger close */
   anchorRef?: RefObject<HTMLElement | null>
   /** App version (extension manifest or Tauri app version) */
@@ -48,7 +54,7 @@ export function SystemBridgePanel({
   onAddFolder,
   // onSetDefaultRoot - selection moved to Settings
   onOpenSettings,
-  onTakeOverFromDesktop,
+  onTakeOver,
   appVersion,
   anchorRef,
   onFetchStats,
@@ -233,11 +239,15 @@ export function SystemBridgePanel({
       case 'disconnected':
         // Different messages based on platform and whether we've connected before
         if (state.platform === 'desktop') {
-          if (state.lastError === 'desktop_app_running') {
+          if (state.lastError === 'profile_in_use') {
+            const info = state.profileInUseInfo
+            const description = info?.clientType
+              ? `This profile is in use by ${info.clientType}${info.clientVersion ? ` v${info.clientVersion}` : ''}.`
+              : 'This profile is currently in use by another client.'
             return (
               <div>
                 <div style={{ marginBottom: 'var(--spacing-md, 12px)', fontWeight: 500 }}>
-                  Desktop App Running
+                  Profile In Use
                 </div>
                 <div
                   style={{
@@ -246,8 +256,7 @@ export function SystemBridgePanel({
                     marginBottom: 'var(--spacing-lg, 16px)',
                   }}
                 >
-                  The JSTorrent desktop app is currently running. The extension and desktop app
-                  cannot run simultaneously.
+                  {description}
                 </div>
               </div>
             )
@@ -548,11 +557,11 @@ export function SystemBridgePanel({
 
       case 'disconnected':
         if (state.platform === 'desktop') {
-          // Desktop app is running — offer to take over
-          if (state.lastError === 'desktop_app_running' && onTakeOverFromDesktop) {
+          // Profile is in use — offer to take over
+          if (state.lastError === 'profile_in_use' && onTakeOver) {
             return (
               <button
-                onClick={onTakeOverFromDesktop}
+                onClick={onTakeOver}
                 style={{
                   padding: 'var(--spacing-xs, 6px) var(--spacing-md, 12px)',
                   background: 'var(--accent-primary)',
@@ -563,7 +572,7 @@ export function SystemBridgePanel({
                   cursor: 'pointer',
                 }}
               >
-                Quit Desktop App &amp; Use Extension
+                Take Over Profile
               </button>
             )
           }

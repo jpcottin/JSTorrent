@@ -34,12 +34,22 @@ export interface DaemonStats {
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
 
+export interface ProfileInUseInfo {
+  clientType?: string
+  clientVersion?: string
+  browserName?: string
+  pid?: number
+  started?: number
+}
+
 export interface DaemonBridgeState {
   status: ConnectionStatus
   platform: Platform
   daemonInfo: DaemonInfo | null
   roots: DownloadRoot[]
   lastError: string | null
+  /** Metadata about the client currently using the profile (set when lastError === 'profile_in_use') */
+  profileInUseInfo?: ProfileInUseInfo | null
 }
 
 export interface NativeEvent {
@@ -665,8 +675,8 @@ export class DaemonBridge {
   // ==========================================================================
 
   private async connectDesktop(): Promise<void> {
-    const telemetryId = await getOrCreateTelemetryId()
-    console.log('[DaemonBridge] connectDesktop() called, telemetryId:', telemetryId)
+    const stored = await chrome.storage.local.get('profileId')
+    console.log('[DaemonBridge] connectDesktop() called, profileId:', stored.profileId ?? 'none')
 
     return new Promise((resolve, reject) => {
       console.log('[DaemonBridge] Calling chrome.runtime.connectNative("com.jstorrent.native")')
@@ -699,13 +709,37 @@ export class DaemonBridge {
       port.onMessage.addListener((msg: unknown) => {
         console.log('[DaemonBridge] Received message from native host:', msg)
 
-        // Check for desktop_app_running block before DaemonInfo check
-        if (!resolved && this.isDesktopAppRunningMessage(msg)) {
+        // Check for profile_in_use block before DaemonInfo check
+        if (!resolved && this.isProfileInUseMessage(msg)) {
           resolved = true
           clearTimeout(timeout)
           // Keep port alive for potential TakeOver
           this.nativePort = port
-          reject(new Error('desktop_app_running'))
+
+          // Extract metadata from the response
+          const response = msg as {
+            payload?: {
+              profileId?: string
+              clientType?: string
+              clientVersion?: string
+              browserName?: string
+              pid?: number
+              started?: number
+            }
+          }
+          this.updateState({
+            profileInUseInfo: response.payload
+              ? {
+                  clientType: response.payload.clientType,
+                  clientVersion: response.payload.clientVersion,
+                  browserName: response.payload.browserName,
+                  pid: response.payload.pid,
+                  started: response.payload.started,
+                }
+              : null,
+          })
+
+          reject(new Error('profile_in_use'))
           return
         }
 
@@ -719,8 +753,16 @@ export class DaemonBridge {
             payload.version,
             'roots:',
             payload.roots?.length,
+            'profileId:',
+            payload.profileId,
           )
           this.nativePort = port
+
+          // Store profileId for future handshakes
+          if (payload.profileId) {
+            chrome.storage.local.set({ profileId: payload.profileId })
+          }
+
           this.updateState({
             status: 'connected',
             daemonInfo: {
@@ -729,8 +771,10 @@ export class DaemonBridge {
               version: payload.version ?? 'unknown',
               roots: payload.roots || [],
               host: DESKTOP_HOST,
+              profileId: payload.profileId,
             },
             roots: payload.roots || [],
+            profileInUseInfo: null,
           })
           this.startHealthCheck(DESKTOP_HOST, payload.port)
 
@@ -745,7 +789,9 @@ export class DaemonBridge {
       const handshakeMsg = {
         op: 'handshake',
         extensionId: chrome.runtime.id,
-        installId: telemetryId,
+        profileId: (stored.profileId as string) ?? null,
+        clientType: 'extension',
+        clientVersion: chrome.runtime.getManifest().version,
         id: crypto.randomUUID(),
       }
       console.log('[DaemonBridge] Sending handshake:', handshakeMsg)
@@ -1345,14 +1391,14 @@ export class DaemonBridge {
     )
   }
 
-  private isDesktopAppRunningMessage(msg: unknown): boolean {
+  private isProfileInUseMessage(msg: unknown): boolean {
     return (
       typeof msg === 'object' &&
       msg !== null &&
       'ok' in msg &&
       (msg as { ok: boolean }).ok === false &&
       'error' in msg &&
-      (msg as { error: string }).error === 'desktop_app_running'
+      (msg as { error: string }).error === 'profile_in_use'
     )
   }
 
@@ -1364,13 +1410,13 @@ export class DaemonBridge {
   async takeOver(): Promise<boolean> {
     if (!this.nativePort) return false
 
-    const telemetryId = await getOrCreateTelemetryId()
+    const stored = await chrome.storage.local.get('profileId')
 
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this.nativePort?.onMessage.removeListener(handler)
         resolve(false)
-      }, 15000) // 15s — needs time for Tauri to die + daemon to start
+      }, 15000) // 15s — needs time for incumbent to die + daemon to start
 
       const handler = (msg: unknown) => {
         if (this.isDaemonInfoMessage(msg)) {
@@ -1378,6 +1424,12 @@ export class DaemonBridge {
           this.nativePort?.onMessage.removeListener(handler)
           const payload = (msg as { payload: DaemonInfo }).payload
           console.log('[DaemonBridge] TakeOver succeeded, version:', payload.version)
+
+          // Store profileId for future handshakes
+          if (payload.profileId) {
+            chrome.storage.local.set({ profileId: payload.profileId })
+          }
+
           this.updateState({
             status: 'connected',
             daemonInfo: {
@@ -1386,9 +1438,11 @@ export class DaemonBridge {
               version: payload.version ?? 'unknown',
               roots: payload.roots || [],
               host: DESKTOP_HOST,
+              profileId: payload.profileId,
             },
             roots: payload.roots || [],
             lastError: null,
+            profileInUseInfo: null,
           })
           this.startHealthCheck(DESKTOP_HOST, payload.port)
           resolve(true)
@@ -1399,7 +1453,9 @@ export class DaemonBridge {
       this.nativePort!.postMessage({
         op: 'takeOver',
         extensionId: chrome.runtime.id,
-        installId: telemetryId,
+        profileId: (stored.profileId as string) ?? null,
+        clientType: 'extension',
+        clientVersion: chrome.runtime.getManifest().version,
         id: crypto.randomUUID(),
       })
     })
@@ -1414,7 +1470,7 @@ export class DaemonBridge {
     })
     // On desktop, auto-reconnect once to detect if Tauri took over.
     // A new native host will check for a live Tauri incumbent and
-    // return desktop_app_running, giving the UI the right state.
+    // return profile_in_use, giving the UI the right state.
     if (wasConnected && this.state.platform === 'desktop') {
       setTimeout(() => {
         if (this.state.status === 'disconnected') {

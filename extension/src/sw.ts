@@ -278,11 +278,8 @@ chrome.runtime.onStartup.addListener(() => {
   console.log(`[SW] onStartup fired at ${new Date().toISOString()} (SW loaded at ${SW_START_TIME})`)
 })
 
-chrome.runtime.onInstalled.addListener(async (details) => {
+chrome.runtime.onInstalled.addListener((details) => {
   console.log(`[SW] onInstalled fired at ${new Date().toISOString()} - reason: ${details.reason}`)
-  // Just ensure install ID exists - connection happens via IOBridgeService when UI opens
-  const telemetryId = await getOrCreateTelemetryId()
-  console.log('Generated/Retrieved Telemetry ID:', telemetryId)
 })
 
 // ============================================================================
@@ -387,7 +384,7 @@ const CONFIG_KEY_PREFIX = 'config:'
 function isExtensionLocalKey(key: string | undefined): boolean {
   if (!key) return false
   // Auth/pairing keys — needed before/outside companion connection
-  if (key === 'telemetryId' || key.startsWith('android:')) return true
+  if (key === 'telemetryId' || key === 'profileId' || key.startsWith('android:')) return true
   // extensionOnly config keys — read directly by the SW, meaningless on companion
   if (key.startsWith(CONFIG_KEY_PREFIX)) {
     const configKey = key.slice(CONFIG_KEY_PREFIX.length)

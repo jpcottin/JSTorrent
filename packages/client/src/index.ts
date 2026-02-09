@@ -27,4 +27,5 @@ export type {
   VersionStatus,
   ConnectionStatus,
   Platform,
+  ProfileInUseInfo,
 } from './components/SystemBridgePanel'

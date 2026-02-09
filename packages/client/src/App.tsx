@@ -140,7 +140,7 @@ function App() {
     retry,
     launch,
     cancel,
-    takeOverFromDesktop,
+    takeOver,
     getStats,
     chromeosBootstrapState,
     chromeosHasEverConnected,
@@ -322,7 +322,7 @@ function App() {
                   onRetry={retry}
                   onLaunch={launch}
                   onCancel={cancel}
-                  onTakeOverFromDesktop={takeOverFromDesktop}
+                  onTakeOver={takeOver}
                   onAddFolder={async () => {
                     const existingRoots = engineManager.getRoots().length
                     const root = await engineManager.pickDownloadFolder()
@@ -431,9 +431,9 @@ function App() {
           )}
         </div>
 
-        {/* Desktop app running overlay */}
+        {/* Profile in use overlay */}
         {ioBridgeState.status === 'disconnected' &&
-          ioBridgeState.lastError === 'desktop_app_running' && (
+          ioBridgeState.lastError === 'profile_in_use' && (
             <div
               style={{
                 position: 'fixed',
@@ -467,7 +467,7 @@ function App() {
                     marginBottom: '12px',
                   }}
                 >
-                  Desktop App Running
+                  Profile In Use
                 </div>
                 <div
                   style={{
@@ -476,11 +476,12 @@ function App() {
                     lineHeight: 1.5,
                   }}
                 >
-                  The JSTorrent desktop app is currently running. The extension and desktop app
-                  cannot run simultaneously.
+                  {ioBridgeState.profileInUseInfo?.clientType
+                    ? `This profile is in use by ${ioBridgeState.profileInUseInfo.clientType}${ioBridgeState.profileInUseInfo.clientVersion ? ` v${ioBridgeState.profileInUseInfo.clientVersion}` : ''}.`
+                    : 'This profile is currently in use by another client.'}
                 </div>
                 <button
-                  onClick={takeOverFromDesktop}
+                  onClick={takeOver}
                   style={{
                     padding: '10px 20px',
                     background: 'var(--accent-primary)',
@@ -492,7 +493,7 @@ function App() {
                     fontWeight: 500,
                   }}
                 >
-                  Quit Desktop App & Use Extension
+                  Take Over Profile
                 </button>
               </div>
             </div>

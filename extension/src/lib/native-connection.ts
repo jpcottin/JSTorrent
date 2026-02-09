@@ -27,6 +27,8 @@ export interface DaemonInfo {
   ioPort?: number
   /** Separate port for streaming batch writes. Uses memory-efficient streaming instead of buffering entire request. */
   streamingPort?: number
+  /** Profile ID assigned by the native host */
+  profileId?: string
 }
 
 // Response types from native host
