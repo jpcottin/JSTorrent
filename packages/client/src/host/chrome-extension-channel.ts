@@ -9,6 +9,7 @@
  */
 
 import type { BootstrapState } from '../../../../extension/src/lib/chromeos-bootstrap'
+import { detectPlatform } from '../../../../extension/src/lib/platform'
 import type { HostChannel } from './host-channel'
 import type {
   HostState,
@@ -32,7 +33,7 @@ export class ChromeExtensionChannel implements HostChannel {
   private chromeosBootstrapListeners = new Set<(state: BootstrapState) => void>()
   private currentState: HostState = {
     status: 'connecting',
-    platform: 'desktop',
+    platform: detectPlatform(),
     daemonInfo: null,
     roots: [],
     lastError: null,

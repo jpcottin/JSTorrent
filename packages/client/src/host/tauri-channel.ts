@@ -302,19 +302,27 @@ export class TauriChannel implements HostChannel {
   // --- File operations ---
 
   async pickDownloadFolder(): Promise<DownloadRoot | null> {
-    const response = await tauriInvoke<{
-      ok: boolean
-      type?: string
-      payload?: { root: DownloadRoot }
-    }>('host_message', {
-      message: { op: 'pickDownloadDirectory' },
-    })
-    if (response.ok && response.payload?.root) {
-      const newRoots = [...this.currentState.roots, response.payload.root]
-      this.updateState({ ...this.currentState, roots: newRoots })
-      return response.payload.root
+    try {
+      // Use Tauri's native dialog (properly parented to the app window)
+      const startDir =
+        this.currentState.roots.length > 0
+          ? this.currentState.roots[this.currentState.roots.length - 1].path
+          : undefined
+
+      const response = await tauriInvoke<HostResponse>('pick_download_folder', { startDir })
+
+      if (response.ok && response.payload?.root) {
+        const root = response.payload.root as DownloadRoot
+        const exists = this.currentState.roots.some((r) => r.key === root.key)
+        const newRoots = exists ? this.currentState.roots : [...this.currentState.roots, root]
+        this.updateState({ ...this.currentState, roots: newRoots })
+        return root
+      }
+      return null
+    } catch {
+      // User cancelled or dialog error
+      return null
     }
-    return null
   }
 
   async removeDownloadRoot(key: string): Promise<void> {

@@ -337,6 +337,50 @@ async fn host_message(
 }
 
 #[tauri::command]
+async fn pick_download_folder(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    bridge: tauri::State<'_, Arc<HostBridge>>,
+    start_dir: Option<String>,
+) -> Result<serde_json::Value, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = oneshot::channel();
+
+    let mut builder = app
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .set_title("Select Download Directory");
+
+    if let Some(ref dir) = start_dir {
+        builder = builder.set_directory(dir);
+    }
+
+    builder.pick_folder(move |path| {
+        let _ = tx.send(path);
+    });
+
+    let path = rx.await.map_err(|_| "Dialog channel closed".to_string())?;
+    let Some(path) = path else {
+        return Err("User cancelled".to_string());
+    };
+
+    let path_str = path
+        .into_path()
+        .map_err(|e| format!("Invalid path: {e}"))?
+        .to_string_lossy()
+        .to_string();
+
+    bridge
+        .request(serde_json::json!({
+            "op": "registerDownloadRoot",
+            "path": path_str,
+        }))
+        .await
+}
+
+#[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn restart_app(app: tauri::AppHandle) {
     app.restart();
@@ -430,13 +474,52 @@ fn update_tray_stats(app: tauri::AppHandle, stats: serde_json::Value) {
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn show_notification(app: tauri::AppHandle, title: String, body: String) {
-    use tauri_plugin_notification::NotificationExt;
-    let _ = app
-        .notification()
-        .builder()
-        .title(&title)
-        .body(&body)
+    std::thread::spawn(move || {
+        show_notification_native(&app, &title, &body);
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn show_notification_native(app: &tauri::AppHandle, title: &str, body: &str) {
+    let bundle_id = &app.config().identifier;
+    let _ = mac_notification_sys::set_application(bundle_id);
+
+    let response = mac_notification_sys::Notification::new()
+        .title(title)
+        .message(body)
+        .wait_for_click(true)
+        .send();
+
+    if let Ok(mac_notification_sys::NotificationResponse::Click) = response {
+        show_main_window(app);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn show_notification_native(app: &tauri::AppHandle, title: &str, body: &str) {
+    let result = notify_rust::Notification::new()
+        .summary(title)
+        .body(body)
+        .action("default", "Open")
         .show();
+
+    if let Ok(handle) = result {
+        let app = app.clone();
+        handle.wait_for_action(move |action| {
+            if action == "default" || action == "__closed" {
+                // "__closed" means user clicked the notification body on some DEs
+            }
+            if action == "default" {
+                show_main_window(&app);
+            }
+        });
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn show_notification_native(app: &tauri::AppHandle, title: &str, body: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app.notification().builder().title(title).body(body).show();
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -468,6 +551,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_nosleep::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
@@ -477,6 +561,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             host_handshake,
             host_message,
+            pick_download_folder,
             get_pending_deep_links,
             update_tray_stats,
             show_notification,

@@ -88,60 +88,72 @@ async fn pick_folder_platform(start_dir: Option<PathBuf>) -> Option<PathBuf> {
     result
 }
 
+/// Create a `DownloadRoot` from a directory path.
+/// Shared by `pick_download_directory` (interactive) and `register_download_root` (external dialog).
+fn create_download_root(path: &std::path::Path) -> DownloadRoot {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let path_str = canonical.to_string_lossy().to_string();
+
+    let display_name = path
+        .file_name()
+        .map_or_else(|| path_str.clone(), |n| n.to_string_lossy().to_string());
+
+    let mut hasher = Sha256::new();
+    hasher.update(path_str.as_bytes());
+    let hash = hasher.finalize();
+    let key = hex::encode(&hash[..8]);
+
+    DownloadRoot {
+        key,
+        path: path_str,
+        display_name,
+        removable: false,
+        last_stat_ok: true,
+        last_checked: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64,
+        disk_id: jstorrent_common::get_disk_id(&canonical),
+    }
+}
+
+/// Add a root to `rpc_info` state, deduplicating by path.
+fn add_root_to_state(state: &State, root: &DownloadRoot) {
+    if let Ok(mut info_guard) = state.rpc_info.lock() {
+        if let Some(ref mut info) = *info_guard {
+            let roots = info.download_roots.get_or_insert_with(Vec::new);
+            let exists = roots.iter().any(|r| r.path == root.path);
+            if !exists {
+                roots.push(root.clone());
+            }
+        }
+    }
+}
+
 pub async fn pick_download_directory(state: &State) -> Result<ResponsePayload> {
     let start_dir = get_starting_directory(state);
     let path_opt = pick_folder_platform(start_dir).await;
 
     match path_opt {
         Some(path) => {
-            let canonical = path.canonicalize().unwrap_or(path.clone());
-            let path_str = canonical.to_string_lossy().to_string();
-
-            // Generate display name from folder name
-            let display_name = path
-                .file_name()
-                .map_or_else(|| path_str.clone(), |n| n.to_string_lossy().to_string());
-
-            // Generate stable key: sha256(path)
-            let mut hasher = Sha256::new();
-            hasher.update(path_str.as_bytes());
-            let hash = hasher.finalize();
-            // Use first 16 hex chars (64 bits) for consistency with Android
-            let key = hex::encode(&hash[..8]);
-
-            // Create new root with unique key
-            let new_root = DownloadRoot {
-                key,
-                path: path_str.clone(),
-                display_name,
-                removable: false,
-                last_stat_ok: true,
-                last_checked: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64,
-                disk_id: jstorrent_common::get_disk_id(&canonical),
-            };
-
-            // Add to rpc_info.download_roots
-            if let Ok(mut info_guard) = state.rpc_info.lock() {
-                if let Some(ref mut info) = *info_guard {
-                    // Ensure roots vec exists
-                    let roots = info.download_roots.get_or_insert_with(Vec::new);
-                    // Check if path already exists
-                    let exists = roots.iter().any(|r| r.path == path_str);
-                    if !exists {
-                        roots.push(new_root.clone());
-                    }
-                    // Note: if exists, return the new_root which has the same key/path
-                }
-            }
-
-            // Note: The caller (main.rs) calls daemon_manager.refresh_config()
-            // which should persist changes. If not, we need to save rpc_info here.
-
+            let new_root = create_download_root(&path);
+            add_root_to_state(state, &new_root);
             Ok(ResponsePayload::RootAdded { root: new_root })
         }
         None => Err(anyhow!("User cancelled folder selection")),
     }
+}
+
+/// Register a download root from an externally-picked path (e.g. Tauri dialog).
+pub fn register_download_root(state: &State, path_str: &str) -> Result<ResponsePayload> {
+    let path = PathBuf::from(path_str);
+    if !path.exists() || !path.is_dir() {
+        return Err(anyhow!(
+            "Path does not exist or is not a directory: {path_str}"
+        ));
+    }
+
+    let new_root = create_download_root(&path);
+    add_root_to_state(state, &new_root);
+    Ok(ResponsePayload::RootAdded { root: new_root })
 }

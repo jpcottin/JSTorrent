@@ -15,6 +15,11 @@ pub enum Operation {
     // Folder Picker
     PickDownloadDirectory,
 
+    // Register a download root from an externally-picked path (e.g. Tauri dialog)
+    RegisterDownloadRoot {
+        path: String,
+    },
+
     // Delete Download Root
     DeleteDownloadRoot {
         key: String,
@@ -185,6 +190,9 @@ impl fmt::Display for Operation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Operation::PickDownloadDirectory => write!(f, "PickDownloadDirectory"),
+            Operation::RegisterDownloadRoot { path } => {
+                write!(f, "RegisterDownloadRoot {path}")
+            }
             Operation::DeleteDownloadRoot { key } => write!(f, "DeleteDownloadRoot {key}"),
             Operation::Handshake {
                 extension_id,

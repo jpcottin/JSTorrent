@@ -392,6 +392,24 @@ async fn handle_request(
             res
         }
 
+        Operation::RegisterDownloadRoot { path } => {
+            let res = folder_picker::register_download_root(state, &path);
+            if res.is_ok() {
+                if let Ok(info_guard) = state.rpc_info.lock() {
+                    if let Some(info) = info_guard.as_ref() {
+                        if let Err(e) = crate::rpc::write_discovery_file(info.clone()) {
+                            log!("Failed to persist rpc-info after registering root: {}", e);
+                        }
+                    }
+                }
+
+                if let Err(e) = daemon_manager.refresh_config().await {
+                    log!("Failed to refresh daemon config: {}", e);
+                }
+            }
+            res
+        }
+
         Operation::DeleteDownloadRoot { key } => {
             log!("Handling DeleteDownloadRoot for key: {}", key);
 

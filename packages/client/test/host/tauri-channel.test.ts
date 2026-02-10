@@ -548,7 +548,7 @@ describe('TauriChannel', () => {
         last_checked: 0,
       }
 
-      invokeHandler = vi.fn(async (cmd, args) => {
+      invokeHandler = vi.fn(async (cmd) => {
         if (cmd === 'host_handshake') {
           return {
             ok: true,
@@ -556,11 +556,8 @@ describe('TauriChannel', () => {
             payload: { port: 1234, token: 'tok', roots: [] },
           }
         }
-        if (cmd === 'host_message') {
-          const msg = args?.message as Record<string, unknown>
-          if (msg?.op === 'pickDownloadDirectory') {
-            return { ok: true, type: 'RootAdded', payload: { root } }
-          }
+        if (cmd === 'pick_download_folder') {
+          return { ok: true, type: 'RootAdded', payload: { root } }
         }
         return {}
       })
