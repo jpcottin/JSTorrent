@@ -1,3 +1,4 @@
+use jstorrent_common::{get_config_dir, RpcInfo};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -118,12 +119,23 @@ struct DeepLinkState {
     pending: Mutex<Vec<serde_json::Value>>,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+enum MagnetHandler {
+    Desktop,
+    Extension,
+    #[default]
+    Auto,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct Settings {
     #[serde(default)]
     autostart: bool,
     #[serde(default = "default_true")]
     run_in_background: bool,
+    #[serde(default)]
+    magnet_handler: MagnetHandler,
 }
 
 fn default_true() -> bool {
@@ -135,6 +147,7 @@ impl Default for Settings {
         Self {
             autostart: false,
             run_in_background: true,
+            magnet_handler: MagnetHandler::Auto,
         }
     }
 }
@@ -214,6 +227,155 @@ fn show_main_window(app: &tauri::AppHandle) {
         .title("JSTorrent")
         .inner_size(1024.0, 700.0)
         .build();
+    }
+}
+
+/// Read rpc-info.json from the standard config location.
+fn read_rpc_info() -> RpcInfo {
+    let Some(config_dir) = get_config_dir() else {
+        return RpcInfo {
+            version: 1,
+            add_token: None,
+            profiles: Vec::new(),
+        };
+    };
+    let rpc_file = config_dir.join("jstorrent-native").join("rpc-info.json");
+    std::fs::read_to_string(&rpc_file)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or(RpcInfo {
+            version: 1,
+            add_token: None,
+            profiles: Vec::new(),
+        })
+}
+
+/// Get the launch URL, checking env file override first.
+fn get_launch_url() -> String {
+    jstorrent_common::read_env_value("LAUNCH_URL")
+        .unwrap_or_else(|| "https://new.jstorrent.com/launch".to_string())
+}
+
+/// Determine whether a deep link should be routed to the browser extension.
+/// Pure function for easy unit testing. The caller must additionally check
+/// window visibility for Auto mode (visible window -> desktop) before calling.
+fn should_route_to_extension(rpc_info: &RpcInfo, settings: &Settings) -> bool {
+    match settings.magnet_handler {
+        MagnetHandler::Desktop => false,
+        MagnetHandler::Extension => true,
+        MagnetHandler::Auto => auto_route_decision(rpc_info),
+    }
+}
+
+/// Auto-mode routing heuristic. Returns true = route to extension.
+fn auto_route_decision(rpc_info: &RpcInfo) -> bool {
+    let profiles = &rpc_info.profiles;
+
+    if profiles.is_empty() {
+        return false;
+    }
+
+    let any_desktop = profiles.iter().any(|p| p.desktop_ever_used);
+    let any_extension = profiles
+        .iter()
+        .any(|p| p.client_types_used.iter().any(|ct| ct == "extension"));
+
+    if any_extension && !any_desktop {
+        return true;
+    }
+
+    if any_desktop && !any_extension {
+        return false;
+    }
+
+    // Both have evidence — most recently used profile wins
+    if any_desktop && any_extension {
+        let mut active: Vec<_> = profiles
+            .iter()
+            .filter(|p| !p.download_roots.is_empty())
+            .collect();
+        if active.is_empty() {
+            active = profiles.iter().collect();
+        }
+        active.sort_by(|a, b| b.last_used.cmp(&a.last_used));
+        if let Some(most_recent) = active.first() {
+            if let Some(ct) = &most_recent.client_type {
+                return ct == "extension";
+            }
+        }
+    }
+
+    false
+}
+
+enum RouteResult {
+    Desktop,
+    Extension,
+    NotRecognized,
+}
+
+/// Route a magnet link to the browser extension via launch URL.
+fn route_magnet_to_extension(app: &tauri::AppHandle, magnet: &str, add_token: Option<&str>) {
+    let base = get_launch_url();
+    let encoded = urlencoding::encode(magnet);
+    let url = match add_token {
+        Some(token) => format!("{base}#magnet={encoded}&token={token}"),
+        None => format!("{base}#magnet={encoded}"),
+    };
+    let _ = app.opener().open_url(&url, None::<&str>);
+}
+
+/// Route a .torrent file to the browser extension via launch URL.
+fn route_torrent_to_extension(app: &tauri::AppHandle, path: &str, add_token: Option<&str>) {
+    let base = get_launch_url();
+    let encoded = urlencoding::encode(path);
+    let url = match add_token {
+        Some(token) => format!("{base}#torrent={encoded}&token={token}"),
+        None => format!("{base}#torrent={encoded}"),
+    };
+    let _ = app.opener().open_url(&url, None::<&str>);
+}
+
+/// Handle a deep link URL with routing logic.
+/// Decides whether to route to desktop or extension, then dispatches.
+fn handle_deep_link_routed(app: &tauri::AppHandle, url_str: &str) -> RouteResult {
+    let is_magnet = url_str.starts_with("magnet:");
+    let is_torrent = url_str.to_lowercase().ends_with(".torrent");
+    if !is_magnet && !is_torrent {
+        return RouteResult::NotRecognized;
+    }
+
+    let settings = app.state::<Mutex<Settings>>();
+    let settings = settings.lock().unwrap().clone();
+
+    let window_visible = app
+        .get_webview_window("main")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+
+    let rpc_info = read_rpc_info();
+
+    let route_to_ext = if window_visible && settings.magnet_handler == MagnetHandler::Auto {
+        false
+    } else {
+        should_route_to_extension(&rpc_info, &settings)
+    };
+
+    if route_to_ext {
+        let add_token = rpc_info.add_token.as_deref();
+        if is_magnet {
+            route_magnet_to_extension(app, url_str, add_token);
+        } else {
+            let path = url_str.strip_prefix("file://").unwrap_or(url_str);
+            route_torrent_to_extension(app, path, add_token);
+        }
+        RouteResult::Extension
+    } else {
+        if let Some(event) = deep_link_event(url_str) {
+            let _ = app.emit("host-event", &event);
+        }
+        show_main_window(app);
+        RouteResult::Desktop
     }
 }
 
@@ -386,6 +548,40 @@ fn restart_app(app: tauri::AppHandle) {
     app.restart();
 }
 
+/// Mark the current desktop profile as having been used for torrents.
+/// Called by the frontend when the user adds their first torrent via the desktop UI.
+#[tauri::command]
+fn mark_desktop_activated() -> Result<(), String> {
+    let config_dir = get_config_dir().ok_or("No config directory")?;
+    let app_dir = config_dir.join("jstorrent-native");
+    let rpc_file = app_dir.join("rpc-info.json");
+
+    let mut rpc_info: RpcInfo = std::fs::read_to_string(&rpc_file)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .ok_or("Could not read rpc-info.json")?;
+
+    let mut changed = false;
+    for profile in &mut rpc_info.profiles {
+        if profile.client_type.as_deref() == Some("tauri") && !profile.desktop_ever_used {
+            profile.desktop_ever_used = true;
+            changed = true;
+        }
+    }
+
+    if !changed {
+        return Ok(());
+    }
+
+    let temp = tempfile::NamedTempFile::new_in(&app_dir).map_err(|e| e.to_string())?;
+    serde_json::to_writer(&temp, &rpc_info).map_err(|e| e.to_string())?;
+    temp.as_file().sync_all().map_err(|e| e.to_string())?;
+    temp.persist(&rpc_file)
+        .map_err(|e| format!("Failed to persist: {}", e.error))?;
+
+    Ok(())
+}
+
 /// Return and clear any deep link events that arrived before the frontend was ready.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
@@ -539,13 +735,19 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Second instance launched (e.g., magnet link clicked on Windows/Linux).
-            // Forward any deep link URLs to the running instance.
+            // Route deep link URLs through the routing logic.
+            let mut any_deep_link = false;
             for arg in &args {
-                if let Some(event) = deep_link_event(arg) {
-                    let _ = app.emit("host-event", &event);
+                match handle_deep_link_routed(app, arg) {
+                    RouteResult::Extension | RouteResult::Desktop => {
+                        any_deep_link = true;
+                    }
+                    RouteResult::NotRecognized => {}
                 }
             }
-            show_main_window(app);
+            if !any_deep_link {
+                show_main_window(app);
+            }
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
@@ -566,6 +768,7 @@ pub fn run() {
             update_tray_stats,
             show_notification,
             restart_app,
+            mark_desktop_activated,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -615,9 +818,39 @@ pub fn run() {
                 settings.run_in_background,
                 None::<&str>,
             )?;
+            let magnet_desktop_i = CheckMenuItem::with_id(
+                app,
+                "magnet-desktop",
+                "Desktop App",
+                true,
+                settings.magnet_handler == MagnetHandler::Desktop,
+                None::<&str>,
+            )?;
+            let magnet_extension_i = CheckMenuItem::with_id(
+                app,
+                "magnet-extension",
+                "Browser Extension",
+                true,
+                settings.magnet_handler == MagnetHandler::Extension,
+                None::<&str>,
+            )?;
+            let magnet_auto_i = CheckMenuItem::with_id(
+                app,
+                "magnet-auto",
+                "Auto",
+                true,
+                settings.magnet_handler == MagnetHandler::Auto,
+                None::<&str>,
+            )?;
+            let magnet_menu = SubmenuBuilder::new(app, "Handle Magnets")
+                .item(&magnet_desktop_i)
+                .item(&magnet_extension_i)
+                .item(&magnet_auto_i)
+                .build()?;
             let settings_menu = SubmenuBuilder::new(app, "Settings")
                 .item(&autostart_i)
                 .item(&background_i)
+                .item(&magnet_menu)
                 .build()?;
             let sep1 = PredefinedMenuItem::separator(app)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
@@ -635,12 +868,16 @@ pub fn run() {
                 ],
             )?;
 
+            let magnet_desktop_clone = magnet_desktop_i.clone();
+            let magnet_extension_clone = magnet_extension_i.clone();
+            let magnet_auto_clone = magnet_auto_i.clone();
+
             TrayIconBuilder::with_id("tray")
                 .tooltip("JSTorrent")
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .show_menu_on_left_click(cfg!(target_os = "macos"))
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => {
                         show_main_window(app);
                     }
@@ -670,6 +907,21 @@ pub fn run() {
                         s.run_in_background = !s.run_in_background;
                         save_settings(app, &s);
                     }
+                    "magnet-desktop" | "magnet-extension" | "magnet-auto" => {
+                        let handler = match event.id.as_ref() {
+                            "magnet-desktop" => MagnetHandler::Desktop,
+                            "magnet-extension" => MagnetHandler::Extension,
+                            _ => MagnetHandler::Auto,
+                        };
+                        let _ = magnet_desktop_clone.set_checked(handler == MagnetHandler::Desktop);
+                        let _ =
+                            magnet_extension_clone.set_checked(handler == MagnetHandler::Extension);
+                        let _ = magnet_auto_clone.set_checked(handler == MagnetHandler::Auto);
+                        let state = app.state::<Mutex<Settings>>();
+                        let mut s = state.lock().unwrap();
+                        s.magnet_handler = handler;
+                        save_settings(app, &s);
+                    }
                     "quit" => {
                         app.exit(0);
                     }
@@ -696,13 +948,37 @@ pub fn run() {
                 pending: Mutex::new(Vec::new()),
             };
 
+            // Track whether startup deep links were routed to extension
+            // (used to decide whether to show the window at end of setup).
+            let mut startup_routed_to_extension = false;
+
             // Collect any URLs that launched the app (startup deep links).
-            // These are stored as pending events for the frontend to retrieve
-            // after it connects (via get_pending_deep_links command).
+            // Route to extension or queue as pending for the frontend.
             if let Ok(Some(urls)) = app.deep_link().get_current() {
-                if let Ok(mut pending) = deep_link_state.pending.lock() {
-                    for url in urls {
-                        if let Some(event) = deep_link_event(url.as_ref()) {
+                let settings_state = app.state::<Mutex<Settings>>();
+                let settings = settings_state.lock().unwrap().clone();
+                let rpc_info = read_rpc_info();
+
+                for url in urls {
+                    let url_str: &str = url.as_ref();
+                    let is_magnet = url_str.starts_with("magnet:");
+                    let is_torrent = url_str.to_lowercase().ends_with(".torrent");
+
+                    if !is_magnet && !is_torrent {
+                        continue;
+                    }
+
+                    if should_route_to_extension(&rpc_info, &settings) {
+                        let add_token = rpc_info.add_token.as_deref();
+                        if is_magnet {
+                            route_magnet_to_extension(app.handle(), url_str, add_token);
+                        } else {
+                            let path = url_str.strip_prefix("file://").unwrap_or(url_str);
+                            route_torrent_to_extension(app.handle(), path, add_token);
+                        }
+                        startup_routed_to_extension = true;
+                    } else if let Ok(mut pending) = deep_link_state.pending.lock() {
+                        if let Some(event) = deep_link_event(url_str) {
                             pending.push(event);
                         }
                     }
@@ -717,12 +993,18 @@ pub fn run() {
             // the second instance's args to this instance and exits the duplicate.
             let deep_link_handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
+                let mut any_deep_link = false;
                 for url in event.urls() {
-                    if let Some(evt) = deep_link_event(url.as_ref()) {
-                        let _ = deep_link_handle.emit("host-event", &evt);
+                    match handle_deep_link_routed(&deep_link_handle, url.as_ref()) {
+                        RouteResult::Extension | RouteResult::Desktop => {
+                            any_deep_link = true;
+                        }
+                        RouteResult::NotRecognized => {}
                     }
                 }
-                show_main_window(&deep_link_handle);
+                if !any_deep_link {
+                    show_main_window(&deep_link_handle);
+                }
             });
 
             // Register URL scheme handlers at runtime (Windows/Linux only).
@@ -777,9 +1059,11 @@ pub fn run() {
                 app_handle.exit(0);
             });
 
-            // Show main window now that setup is complete
-            // (window starts hidden via tauri.conf.json visible:false to support headless mode)
-            show_main_window(app.handle());
+            // Show main window now that setup is complete, unless startup deep links
+            // were routed to the extension (no need to show desktop UI).
+            if !startup_routed_to_extension {
+                show_main_window(app.handle());
+            }
 
             Ok(())
         })
@@ -802,4 +1086,188 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jstorrent_common::{BrowserInfo, DownloadRoot, ProfileEntry};
+
+    fn make_profile(
+        client_type: Option<&str>,
+        desktop_ever_used: bool,
+        client_types_used: &[&str],
+        last_used: u64,
+        has_roots: bool,
+    ) -> ProfileEntry {
+        ProfileEntry {
+            extension_id: None,
+            profile_id: format!("p-{last_used}"),
+            display_name: String::new(),
+            created: 1000,
+            client_type: client_type.map(String::from),
+            client_version: None,
+            pid: 0,
+            port: 0,
+            token: String::new(),
+            started: 1000,
+            last_used,
+            browser: BrowserInfo {
+                name: String::new(),
+                binary: String::new(),
+                extension_id: None,
+            },
+            download_roots: if has_roots {
+                vec![DownloadRoot {
+                    key: "k".into(),
+                    path: "/tmp".into(),
+                    display_name: "Test".into(),
+                    removable: false,
+                    last_stat_ok: true,
+                    last_checked: 0,
+                    disk_id: String::new(),
+                }]
+            } else {
+                vec![]
+            },
+            launcher: None,
+            desktop_ever_used,
+            client_types_used: client_types_used.iter().map(|s| (*s).to_string()).collect(),
+        }
+    }
+
+    fn rpc(profiles: Vec<ProfileEntry>) -> RpcInfo {
+        RpcInfo {
+            version: 1,
+            add_token: Some("test-token".into()),
+            profiles,
+        }
+    }
+
+    fn settings(handler: MagnetHandler) -> Settings {
+        Settings {
+            magnet_handler: handler,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn test_routing_desktop_mode() {
+        let r = rpc(vec![make_profile(
+            Some("extension"),
+            false,
+            &["extension"],
+            2000,
+            true,
+        )]);
+        assert!(!should_route_to_extension(
+            &r,
+            &settings(MagnetHandler::Desktop)
+        ));
+    }
+
+    #[test]
+    fn test_routing_extension_mode() {
+        let r = rpc(vec![]);
+        assert!(should_route_to_extension(
+            &r,
+            &settings(MagnetHandler::Extension)
+        ));
+    }
+
+    #[test]
+    fn test_routing_auto_fresh_install() {
+        let r = rpc(vec![]);
+        assert!(!should_route_to_extension(
+            &r,
+            &settings(MagnetHandler::Auto)
+        ));
+    }
+
+    #[test]
+    fn test_routing_auto_extension_only() {
+        let r = rpc(vec![make_profile(
+            Some("extension"),
+            false,
+            &["extension"],
+            2000,
+            true,
+        )]);
+        assert!(should_route_to_extension(
+            &r,
+            &settings(MagnetHandler::Auto)
+        ));
+    }
+
+    #[test]
+    fn test_routing_auto_desktop_used() {
+        let r = rpc(vec![make_profile(
+            Some("tauri"),
+            true,
+            &["tauri"],
+            2000,
+            true,
+        )]);
+        assert!(!should_route_to_extension(
+            &r,
+            &settings(MagnetHandler::Auto)
+        ));
+    }
+
+    #[test]
+    fn test_routing_auto_most_recent_extension_wins() {
+        let r = rpc(vec![
+            make_profile(Some("tauri"), true, &["tauri"], 1000, true),
+            make_profile(Some("extension"), false, &["extension"], 2000, true),
+        ]);
+        assert!(should_route_to_extension(
+            &r,
+            &settings(MagnetHandler::Auto)
+        ));
+    }
+
+    #[test]
+    fn test_routing_auto_most_recent_desktop_wins() {
+        let r = rpc(vec![
+            make_profile(Some("extension"), false, &["extension"], 1000, true),
+            make_profile(Some("tauri"), true, &["tauri"], 2000, true),
+        ]);
+        assert!(!should_route_to_extension(
+            &r,
+            &settings(MagnetHandler::Auto)
+        ));
+    }
+
+    #[test]
+    fn test_routing_auto_extension_no_roots() {
+        let r = rpc(vec![make_profile(
+            Some("extension"),
+            false,
+            &["extension"],
+            2000,
+            false,
+        )]);
+        assert!(should_route_to_extension(
+            &r,
+            &settings(MagnetHandler::Auto)
+        ));
+    }
+
+    #[test]
+    fn test_settings_serde_backward_compat() {
+        let json = r#"{"autostart": false, "run_in_background": true}"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.magnet_handler, MagnetHandler::Auto);
+    }
+
+    #[test]
+    fn test_settings_serde_roundtrip() {
+        let s = Settings {
+            magnet_handler: MagnetHandler::Extension,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        let parsed: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.magnet_handler, MagnetHandler::Extension);
+    }
 }

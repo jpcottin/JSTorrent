@@ -2431,6 +2431,7 @@ version = "0.1.19"
 dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",
+ "jstorrent-common",
  "mac-notification-sys",
  "notify-rust",
  "serde",
@@ -2447,7 +2448,9 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
  "tokio",
+ "urlencoding",
  "uuid",
  "winreg 0.52.0",
 ]
