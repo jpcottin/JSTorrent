@@ -308,6 +308,33 @@ fn auto_route_decision(rpc_info: &RpcInfo) -> bool {
     false
 }
 
+/// What to do when the app starts up (after deep link processing).
+#[derive(Debug, PartialEq)]
+enum StartupAction {
+    /// Show the desktop window.
+    ShowDesktop,
+    /// Open the extension via launch URL (don't show desktop window).
+    OpenExtension,
+    /// Deep links were already routed to extension; do nothing.
+    AlreadyRouted,
+}
+
+/// Pure function: decide the startup action based on whether deep links were
+/// already routed and the routing heuristic for bare launches.
+fn determine_startup_action(
+    startup_routed_to_extension: bool,
+    rpc_info: &RpcInfo,
+    settings: &Settings,
+) -> StartupAction {
+    if startup_routed_to_extension {
+        StartupAction::AlreadyRouted
+    } else if should_route_to_extension(rpc_info, settings) {
+        StartupAction::OpenExtension
+    } else {
+        StartupAction::ShowDesktop
+    }
+}
+
 enum RouteResult {
     Desktop,
     Extension,
@@ -987,6 +1014,33 @@ pub fn run() {
 
             app.manage(deep_link_state);
 
+            // --- Early exit: route to extension and quit ---
+            // If the routing heuristic says extension, open the launch URL and
+            // exit immediately. No sidecar, no tray, no event loop needed —
+            // the extension launches its own native host.
+            let startup_settings = app.state::<Mutex<Settings>>().lock().unwrap().clone();
+            let startup_action = determine_startup_action(
+                startup_routed_to_extension,
+                &read_rpc_info(),
+                &startup_settings,
+            );
+            if !matches!(startup_action, StartupAction::ShowDesktop) {
+                // Register native messaging manifests so the extension can find
+                // the native host binary (important on first install).
+                native_host::register_native_messaging_hosts(app.handle()).ok();
+
+                if matches!(startup_action, StartupAction::OpenExtension) {
+                    let url = get_launch_url();
+                    let _ = app.opener().open_url(&url, None::<&str>);
+                }
+                // AlreadyRouted: deep links were sent to extension above.
+
+                eprintln!("Routed to extension, exiting Tauri app");
+                std::process::exit(0);
+            }
+
+            // --- Desktop path: full app setup ---
+
             // Handle deep links received while the app is already running.
             // On macOS, the OS routes URLs to the running process via this handler.
             // On Windows/Linux, the single-instance plugin (registered above) forwards
@@ -1059,11 +1113,7 @@ pub fn run() {
                 app_handle.exit(0);
             });
 
-            // Show main window now that setup is complete, unless startup deep links
-            // were routed to the extension (no need to show desktop UI).
-            if !startup_routed_to_extension {
-                show_main_window(app.handle());
-            }
+            show_main_window(app.handle());
 
             Ok(())
         })
@@ -1252,6 +1302,83 @@ mod tests {
             &settings(MagnetHandler::Auto)
         ));
     }
+
+    // -- Startup action scenarios (bare app launch, no deep link) --
+
+    #[test]
+    fn test_startup_fresh_install_shows_desktop() {
+        let r = rpc(vec![]);
+        assert_eq!(
+            determine_startup_action(false, &r, &settings(MagnetHandler::Auto)),
+            StartupAction::ShowDesktop
+        );
+    }
+
+    #[test]
+    fn test_startup_extension_only_user_opens_extension() {
+        let r = rpc(vec![make_profile(
+            Some("extension"),
+            false,
+            &["extension"],
+            2000,
+            true,
+        )]);
+        assert_eq!(
+            determine_startup_action(false, &r, &settings(MagnetHandler::Auto)),
+            StartupAction::OpenExtension
+        );
+    }
+
+    #[test]
+    fn test_startup_desktop_user_shows_desktop() {
+        let r = rpc(vec![make_profile(
+            Some("tauri"),
+            true,
+            &["tauri"],
+            2000,
+            true,
+        )]);
+        assert_eq!(
+            determine_startup_action(false, &r, &settings(MagnetHandler::Auto)),
+            StartupAction::ShowDesktop
+        );
+    }
+
+    #[test]
+    fn test_startup_explicit_extension_mode_opens_extension() {
+        let r = rpc(vec![]);
+        assert_eq!(
+            determine_startup_action(false, &r, &settings(MagnetHandler::Extension)),
+            StartupAction::OpenExtension
+        );
+    }
+
+    #[test]
+    fn test_startup_explicit_desktop_mode_shows_desktop() {
+        // Even with extension-only profile, explicit Desktop mode wins.
+        let r = rpc(vec![make_profile(
+            Some("extension"),
+            false,
+            &["extension"],
+            2000,
+            true,
+        )]);
+        assert_eq!(
+            determine_startup_action(false, &r, &settings(MagnetHandler::Desktop)),
+            StartupAction::ShowDesktop
+        );
+    }
+
+    #[test]
+    fn test_startup_deep_links_already_routed() {
+        let r = rpc(vec![]);
+        assert_eq!(
+            determine_startup_action(true, &r, &settings(MagnetHandler::Auto)),
+            StartupAction::AlreadyRouted
+        );
+    }
+
+    // -- Settings serde --
 
     #[test]
     fn test_settings_serde_backward_compat() {
