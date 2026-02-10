@@ -336,6 +336,12 @@ async fn host_message(
     state.request(message).await
 }
 
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 /// Return and clear any deep link events that arrived before the frontend was ready.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
@@ -474,6 +480,7 @@ pub fn run() {
             get_pending_deep_links,
             update_tray_stats,
             show_notification,
+            restart_app,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

@@ -116,9 +116,9 @@ function App() {
   }, [engine, statsRevision])
 
   // Settings tab state (settings themselves come from context)
-  const [settingsTab, setSettingsTab] = useState<'general' | 'interface' | 'network' | 'advanced'>(
-    'general',
-  )
+  const [settingsTab, setSettingsTab] = useState<
+    'general' | 'interface' | 'network' | 'advanced' | 'profiles'
+  >('general')
 
   // Handle native events from SW port
   // Always forward to engineManager - it queues events if engine not ready yet

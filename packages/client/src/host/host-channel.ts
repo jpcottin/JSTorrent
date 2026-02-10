@@ -17,6 +17,7 @@ import type {
   DaemonInfo,
   DownloadRoot,
   UpdateCheckResult,
+  ProfileListEntry,
 } from './types'
 
 export interface HostChannel {
@@ -74,4 +75,9 @@ export interface HostChannel {
   // --- Updates ---
   checkForUpdates(): Promise<UpdateCheckResult | null>
   installUpdate(): Promise<boolean>
+
+  // --- Profile management ---
+  listProfiles(): Promise<ProfileListEntry[]>
+  renameProfile(profileId: string, displayName: string): Promise<boolean>
+  switchProfile(profileId: string | null): Promise<void>
 }

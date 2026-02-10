@@ -115,6 +115,19 @@ export interface NativeEvent {
   payload: unknown
 }
 
+// --- Profiles ---
+
+/** Entry in the profile list returned by listProfiles(). */
+export interface ProfileListEntry {
+  profileId: string
+  displayName: string
+  created: number
+  lastUsed: number
+  clientType?: string
+  clientVersion?: string
+  live: boolean
+}
+
 // --- Updates ---
 
 /** Result of a desktop app update check. */

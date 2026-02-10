@@ -2,7 +2,9 @@
 # Postinstall script for JSTorrent Desktop .pkg installer
 # Registers native messaging host manifests for all Chromium browsers.
 
-APP_PATH="/Applications/JSTorrent.app"
+# $2 is the install location: "/" for system-domain, user home for user-domain
+INSTALL_BASE="${2:-/}"
+APP_PATH="$INSTALL_BASE/Applications/JSTorrent.app"
 
 # Find the host sidecar binary (architecture-specific name)
 HOST_BIN=$(find "$APP_PATH/Contents/MacOS" -name "jstorrent-host-*" -not -name "*.dwarf" 2>/dev/null | head -1)
@@ -12,9 +14,14 @@ if [ -z "$HOST_BIN" ]; then
     exit 0
 fi
 
-# Determine the real user's home directory (this script runs as root)
-CONSOLE_USER=$(stat -f "%Su" /dev/console)
-USER_HOME=$(dscl . -read /Users/"$CONSOLE_USER" NFSHomeDirectory | awk '{print $2}')
+# Determine the real user's home directory
+# For user-domain installs, $2 is already the home dir; for system-domain, look it up
+if [ "$INSTALL_BASE" != "/" ]; then
+    USER_HOME="$INSTALL_BASE"
+else
+    CONSOLE_USER=$(stat -f "%Su" /dev/console)
+    USER_HOME=$(dscl . -read /Users/"$CONSOLE_USER" NFSHomeDirectory | awk '{print $2}')
+fi
 
 if [ -z "$USER_HOME" ] || [ ! -d "$USER_HOME" ]; then
     echo "Warning: Could not determine user home directory"

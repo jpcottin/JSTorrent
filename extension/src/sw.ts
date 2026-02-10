@@ -640,6 +640,8 @@ function handleMessage(
     prefix?: string
     rootKey?: string
     path?: string
+    profileId?: string | null
+    displayName?: string
   },
   sendResponse: SendResponse,
 ): boolean {
@@ -759,6 +761,60 @@ function handleMessage(
     bridge.installUpdate().then((result) => {
       sendResponse(result)
     })
+    return true
+  }
+
+  // List profiles (desktop only, no handshake required)
+  if (message.type === 'LIST_PROFILES') {
+    bridge
+      .listProfiles()
+      .then((profiles) => sendResponse({ ok: true, profiles }))
+      .catch((e: unknown) => sendResponse({ ok: false, error: String(e) }))
+    return true
+  }
+
+  // Rename profile (desktop only, no handshake required)
+  if (message.type === 'RENAME_PROFILE') {
+    const profileId = message.profileId as string | undefined
+    const displayName = message.displayName as string | undefined
+    if (!profileId || !displayName) {
+      sendResponse({ ok: false, error: 'Missing profileId or displayName' })
+      return true
+    }
+    bridge
+      .renameProfile(profileId, displayName)
+      .then((ok) => sendResponse({ ok }))
+      .catch((e: unknown) => sendResponse({ ok: false, error: String(e) }))
+    return true
+  }
+
+  // Switch profile: store new profileId, disconnect+reconnect bridge
+  if (message.type === 'SWITCH_PROFILE') {
+    const switchProfileId = message.profileId
+    ;(async () => {
+      try {
+        // 1. Write profileId to chrome.storage.local
+        if (switchProfileId != null) {
+          await chrome.storage.local.set({ profileId: switchProfileId })
+        } else {
+          await chrome.storage.local.remove('profileId')
+        }
+
+        // 2. Clear pending events to prevent stale events from old profile
+        await chrome.storage.session.remove(PENDING_EVENT_KEY)
+
+        // 3. Disconnect (kills native host process)
+        bridge.disconnect()
+
+        // 4. Reconnect (spawns new native host, handshakes with new profileId)
+        await bridge.connect()
+
+        // 5. Send ok regardless — UI handles ProfileInUse after reload
+        sendResponse({ ok: true })
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e) })
+      }
+    })()
     return true
   }
 

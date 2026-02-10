@@ -629,6 +629,43 @@ async fn handle_request(
             Err(e) => Err(e),
         },
 
+        // Profile management (no handshake required)
+        Operation::ListProfiles => {
+            let unified = rpc::read_discovery_file();
+            let mut profiles = Vec::with_capacity(unified.profiles.len());
+            for p in &unified.profiles {
+                let live = rpc::check_profile_liveness(p.port, &p.token).await;
+                profiles.push(protocol::ProfileListEntry {
+                    profile_id: p.profile_id.clone(),
+                    display_name: p.display_name.clone(),
+                    created: p.created,
+                    last_used: p.last_used,
+                    client_type: p.client_type.clone(),
+                    client_version: p.client_version.clone(),
+                    live,
+                });
+            }
+            Ok(ResponsePayload::ProfileList { profiles })
+        }
+
+        Operation::RenameProfile {
+            profile_id,
+            display_name,
+        } => match rpc::rename_profile(&profile_id, &display_name) {
+            Ok(()) => {
+                // Also update in-memory state if this is our current profile
+                if let Ok(mut info_guard) = state.rpc_info.lock() {
+                    if let Some(info) = info_guard.as_mut() {
+                        if info.profile_id == profile_id {
+                            info.display_name.clone_from(&display_name);
+                        }
+                    }
+                }
+                Ok(ResponsePayload::Empty)
+            }
+            Err(e) => Err(anyhow::anyhow!("Failed to rename profile: {e}")),
+        },
+
         // KV storage operations — require handshake first
         Operation::KvGet { key } => {
             let kv = state.kv.lock().unwrap();

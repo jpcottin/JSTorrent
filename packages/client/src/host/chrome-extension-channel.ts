@@ -21,6 +21,7 @@ import type {
   DaemonInfo,
   DownloadRoot,
   UpdateCheckResult,
+  ProfileListEntry,
 } from './types'
 
 export class ChromeExtensionChannel implements HostChannel {
@@ -329,6 +330,43 @@ export class ChromeExtensionChannel implements HostChannel {
     } catch {
       return false
     }
+  }
+
+  // --- Profile management ---
+
+  async listProfiles(): Promise<ProfileListEntry[]> {
+    try {
+      const response = await this.sendMessage<{ ok: boolean; profiles?: ProfileListEntry[] }>({
+        type: 'LIST_PROFILES',
+      })
+      return response.ok && response.profiles ? response.profiles : []
+    } catch {
+      return []
+    }
+  }
+
+  async renameProfile(profileId: string, displayName: string): Promise<boolean> {
+    try {
+      const response = await this.sendMessage<{ ok: boolean }>({
+        type: 'RENAME_PROFILE',
+        profileId,
+        displayName,
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
+  async switchProfile(profileId: string | null): Promise<void> {
+    const response = await this.sendMessage<{ ok: boolean; error?: string }>({
+      type: 'SWITCH_PROFILE',
+      profileId,
+    })
+    if (!response.ok) {
+      throw new Error(response.error ?? 'Profile switch failed')
+    }
+    window.location.reload()
   }
 
   // --- ChromeOS-specific methods (not on HostChannel interface) ---

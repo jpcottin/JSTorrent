@@ -7,7 +7,7 @@ import type { IEngineManager } from '../engine-manager/types'
 import { standaloneConfirm, standaloneAlert } from '../utils/dialogs'
 import { useHostChannel } from '../host/HostChannelContext'
 import type { HostChannel } from '../host/host-channel'
-import type { UpdateCheckResult } from '../host/types'
+import type { UpdateCheckResult, ProfileListEntry } from '../host/types'
 
 /**
  * Build a config snapshot object from ConfigHub.
@@ -106,7 +106,7 @@ function useConfigSnapshot(config: ConfigHub) {
 
 type ConfigSnapshot = ReturnType<typeof useConfigSnapshot>
 
-type SettingsTab = 'general' | 'interface' | 'network' | 'advanced'
+type SettingsTab = 'general' | 'interface' | 'network' | 'advanced' | 'profiles'
 type Theme = 'system' | 'dark' | 'light'
 type ProgressBarStyle = 'text' | 'bar'
 type UiScale = 'small' | 'default' | 'large' | 'larger'
@@ -145,10 +145,11 @@ interface SettingsOverlayProps {
   setActiveTab: (tab: SettingsTab) => void
 }
 
-const TABS: { id: SettingsTab; label: string }[] = [
+const TABS: { id: SettingsTab; label: string; platforms?: string[] }[] = [
   { id: 'general', label: 'General' },
   { id: 'interface', label: 'Interface' },
   { id: 'network', label: 'Network' },
+  { id: 'profiles', label: 'Profiles', platforms: ['desktop', 'tauri'] },
   { id: 'advanced', label: 'Advanced' },
 ]
 
@@ -337,7 +338,9 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
         <div style={styles.content}>
           {/* Left sidebar with tabs */}
           <div style={styles.sidebar}>
-            {TABS.map((tab) => (
+            {TABS.filter(
+              (tab) => !tab.platforms || tab.platforms.includes(channel.getState().platform),
+            ).map((tab) => (
               <button
                 key={tab.id}
                 style={{
@@ -379,6 +382,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
             {activeTab === 'network' && (
               <NetworkTab settings={settings} config={config} engineManager={engineManager} />
             )}
+            {activeTab === 'profiles' && <ProfilesTab activeTab={activeTab} />}
             {activeTab === 'advanced' && (
               <AdvancedTab
                 settings={settings}
@@ -1127,6 +1131,177 @@ const AdvancedTab: React.FC<AdvancedTabProps> = ({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ============ Profiles Tab ============
+
+function formatRelativeTime(epochSecs: number): string {
+  const now = Date.now() / 1000
+  const diff = now - epochSecs
+  if (diff < 60) return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
+}
+
+const ProfilesTab: React.FC<{ activeTab: SettingsTab }> = ({ activeTab }) => {
+  const channel = useHostChannel()
+  const [profiles, setProfiles] = useState<ProfileListEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+
+  const currentProfileId = channel.getState().daemonInfo?.profileId
+
+  // Load on tab activation, poll every 5s while active
+  useEffect(() => {
+    if (activeTab !== 'profiles') return
+    let active = true
+    async function fetchProfiles() {
+      const list = await channel.listProfiles()
+      if (active) {
+        setProfiles(list)
+        setLoading(false)
+      }
+    }
+    fetchProfiles()
+    const interval = setInterval(fetchProfiles, 5000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [activeTab, channel])
+
+  const handleRename = async (profileId: string) => {
+    const trimmed = editName.trim()
+    if (!trimmed) {
+      setEditingId(null)
+      return
+    }
+    const ok = await channel.renameProfile(profileId, trimmed)
+    if (ok) {
+      setProfiles((prev) =>
+        prev.map((p) => (p.profileId === profileId ? { ...p, displayName: trimmed } : p)),
+      )
+    }
+    setEditingId(null)
+  }
+
+  const handleSwitch = async (profileId: string) => {
+    try {
+      await channel.switchProfile(profileId)
+    } catch (e) {
+      standaloneAlert(`Failed to switch profile: ${e}`)
+    }
+  }
+
+  const handleCreateNew = async () => {
+    try {
+      await channel.switchProfile(null)
+    } catch (e) {
+      standaloneAlert(`Failed to create profile: ${e}`)
+    }
+  }
+
+  return (
+    <div>
+      <Section title="Profiles">
+        {loading ? (
+          <div style={{ color: 'var(--text-secondary)' }}>Loading...</div>
+        ) : profiles.length === 0 ? (
+          <div style={{ color: 'var(--text-secondary)' }}>No profiles found.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs, 4px)' }}>
+            {profiles.map((profile) => {
+              const isCurrent = profile.profileId === currentProfileId
+              const isEditing = editingId === profile.profileId
+              return (
+                <div key={profile.profileId} style={styles.rootItem}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onBlur={() => handleRename(profile.profileId)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRename(profile.profileId)
+                            if (e.key === 'Escape') setEditingId(null)
+                          }}
+                          autoFocus
+                          style={styles.numberInput}
+                        />
+                      ) : (
+                        <span>{profile.displayName || profile.profileId}</span>
+                      )}
+                      {isCurrent && (
+                        <span
+                          style={{
+                            padding: '1px 6px',
+                            background: 'var(--accent-primary)',
+                            color: 'white',
+                            borderRadius: '4px',
+                            fontSize: 'var(--font-xs, 12px)',
+                          }}
+                        >
+                          Current
+                        </span>
+                      )}
+                      {profile.live && (
+                        <span
+                          style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            background: 'var(--accent-success, #22c55e)',
+                            display: 'inline-block',
+                          }}
+                          title="Active"
+                        />
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 'var(--font-xs, 12px)',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      Last used {formatRelativeTime(profile.lastUsed)}
+                      {profile.clientType ? ` \u00b7 ${profile.clientType}` : ''}
+                    </div>
+                  </div>
+                  {!isEditing && (
+                    <button
+                      style={styles.iconButton}
+                      onClick={() => {
+                        setEditingId(profile.profileId)
+                        setEditName(profile.displayName)
+                      }}
+                      title="Rename"
+                    >
+                      ✎
+                    </button>
+                  )}
+                  {!isCurrent && (
+                    <button
+                      onClick={() => handleSwitch(profile.profileId)}
+                      style={styles.checkUpdatesButton}
+                    >
+                      Switch
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <button onClick={handleCreateNew} style={styles.addButton}>
+          + Create New Profile
+        </button>
+      </Section>
     </div>
   )
 }

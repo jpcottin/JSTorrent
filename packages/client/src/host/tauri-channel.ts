@@ -23,6 +23,7 @@ import type {
   DaemonInfo,
   DownloadRoot,
   UpdateCheckResult,
+  ProfileListEntry,
 } from './types'
 
 // --- Tauri IPC helpers ---
@@ -497,6 +498,46 @@ export class TauriChannel implements HostChannel {
   async installUpdate(): Promise<boolean> {
     // Tauri handles install via its own dialog triggered by checkForUpdates
     return false
+  }
+
+  // --- Profile management ---
+
+  async listProfiles(): Promise<ProfileListEntry[]> {
+    try {
+      const resp = await hostMessage({ op: 'listProfiles' })
+      if (resp.ok && resp.type === 'ProfileList' && resp.payload) {
+        return (resp.payload as { profiles?: ProfileListEntry[] }).profiles ?? []
+      }
+      return []
+    } catch {
+      return []
+    }
+  }
+
+  async renameProfile(profileId: string, displayName: string): Promise<boolean> {
+    try {
+      const resp = await hostMessage({ op: 'renameProfile', profileId, displayName })
+      return resp.ok
+    } catch {
+      return false
+    }
+  }
+
+  async switchProfile(profileId: string | null): Promise<void> {
+    if (profileId != null) {
+      try {
+        localStorage.setItem('jstorrent:profileId', profileId)
+      } catch {
+        // localStorage may not be available
+      }
+    } else {
+      try {
+        localStorage.removeItem('jstorrent:profileId')
+      } catch {
+        // localStorage may not be available
+      }
+    }
+    await tauriInvoke('restart_app')
   }
 
   // --- Private helpers ---

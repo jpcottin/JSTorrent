@@ -3,19 +3,27 @@ set -euo pipefail
 
 # Build a .pkg installer wrapping the Tauri-built JSTorrent.app.
 #
-# Usage: build-macos-pkg.sh <APP_PATH> <VERSION> <ARCH>
-#   APP_PATH  Path to the signed JSTorrent.app from Tauri build
-#   VERSION   Version string (e.g., 0.1.17)
-#   ARCH      Architecture label (aarch64 or x64)
+# Usage: build-macos-pkg.sh [--user-domain] <APP_PATH> <VERSION> <ARCH>
+#   --user-domain  Install to ~/Applications (no admin required) instead of /Applications
+#   APP_PATH       Path to the signed JSTorrent.app from Tauri build
+#   VERSION        Version string (e.g., 0.1.17)
+#   ARCH           Architecture label (aarch64 or x64)
 #
 # Environment variables:
 #   INSTALLER_IDENTITY  (optional) Developer ID Installer identity for productsign
 
+USER_DOMAIN=false
+if [ "${1:-}" = "--user-domain" ]; then
+    USER_DOMAIN=true
+    shift
+fi
+
 if [ $# -ne 3 ]; then
-    echo "Usage: $0 <APP_PATH> <VERSION> <ARCH>"
-    echo "  APP_PATH  Path to JSTorrent.app from Tauri build"
-    echo "  VERSION   Version string (e.g., 0.1.17)"
-    echo "  ARCH      Architecture label (aarch64 or x64)"
+    echo "Usage: $0 [--user-domain] <APP_PATH> <VERSION> <ARCH>"
+    echo "  --user-domain  Install to ~/Applications (no admin required)"
+    echo "  APP_PATH       Path to JSTorrent.app from Tauri build"
+    echo "  VERSION        Version string (e.g., 0.1.17)"
+    echo "  ARCH           Architecture label (aarch64 or x64)"
     exit 1
 fi
 
@@ -60,11 +68,17 @@ pkgbuild --root "$PKGROOT" \
          "$COMPONENT_PKG"
 
 # Create distribution.xml
+if $USER_DOMAIN; then
+    DOMAINS='<domains enable_localSystem="false" enable_currentUserHome="true"/>'
+else
+    DOMAINS=""
+fi
 cat > "$WORK_DIR/distribution.xml" << EOF
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
     <title>JSTorrent</title>
     <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+    $DOMAINS
     <choices-outline>
         <line choice="default"/>
     </choices-outline>

@@ -603,6 +603,50 @@ export class DaemonBridge {
   }
 
   /**
+   * List all profiles from the native host discovery file.
+   * Desktop only — returns empty array on ChromeOS.
+   */
+  async listProfiles(): Promise<
+    Array<{
+      profileId: string
+      displayName: string
+      created: number
+      lastUsed: number
+      clientType?: string
+      clientVersion?: string
+      live: boolean
+    }>
+  > {
+    if (this.state.platform !== 'desktop') return []
+    const response = await this.sendNativeKvRequest('listProfiles', {})
+    if (response.ok && response.type === 'ProfileList') {
+      const payload = response.payload as {
+        profiles?: Array<{
+          profileId: string
+          displayName: string
+          created: number
+          lastUsed: number
+          clientType?: string
+          clientVersion?: string
+          live: boolean
+        }>
+      }
+      return payload?.profiles ?? []
+    }
+    return []
+  }
+
+  /**
+   * Rename a profile's display name.
+   * Desktop only — no-op on ChromeOS.
+   */
+  async renameProfile(profileId: string, displayName: string): Promise<boolean> {
+    if (this.state.platform !== 'desktop') return false
+    const response = await this.sendNativeKvRequest('renameProfile', { profileId, displayName })
+    return (response.ok as boolean) ?? false
+  }
+
+  /**
    * Get stats from the daemon about socket and connection state.
    * Useful for debugging.
    */

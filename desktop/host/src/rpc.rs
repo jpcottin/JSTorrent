@@ -309,13 +309,47 @@ pub fn write_discovery_file(info: RpcWriteInfo) -> anyhow::Result<Vec<DownloadRo
 pub async fn check_profile_liveness(port: u16, token: &str) -> bool {
     let url = format!("http://127.0.0.1:{port}/health?token={token}");
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(2))
+        .timeout(std::time::Duration::from_millis(100))
         .build();
     let Ok(client) = client else { return false };
     match client.get(&url).send().await {
         Ok(resp) => resp.status().is_success(),
         Err(_) => false,
     }
+}
+
+/// Rename a profile's display name in rpc-info.json.
+/// Targeted read-modify-write that only touches `display_name` for one profile entry.
+pub fn rename_profile(profile_id: &str, display_name: &str) -> anyhow::Result<()> {
+    let config_dir =
+        get_config_dir().ok_or_else(|| anyhow::anyhow!("Could not find config directory"))?;
+    let app_dir = config_dir.join("jstorrent-native");
+    let rpc_file = app_dir.join("rpc-info.json");
+
+    let mut rpc_info: RpcInfo = if rpc_file.exists() {
+        let file = fs::File::open(&rpc_file)?;
+        serde_json::from_reader(file).unwrap_or_else(|_| RpcInfo {
+            version: 1,
+            profiles: Vec::new(),
+        })
+    } else {
+        return Err(anyhow::anyhow!("Profile not found: {profile_id}"));
+    };
+
+    let entry = rpc_info
+        .profiles
+        .iter_mut()
+        .find(|p| p.profile_id == profile_id)
+        .ok_or_else(|| anyhow::anyhow!("Profile not found: {profile_id}"))?;
+    entry.display_name = display_name.to_string();
+
+    // Atomic write via tempfile + rename
+    let temp_file = tempfile::NamedTempFile::new_in(&app_dir)?;
+    serde_json::to_writer(&temp_file, &rpc_info)?;
+    temp_file.as_file().sync_all()?;
+    temp_file.persist(&rpc_file).map_err(|e| e.error)?;
+
+    Ok(())
 }
 
 #[cfg(test)]

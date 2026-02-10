@@ -88,6 +88,15 @@ pub enum Operation {
     KvClear {
         prefix: Option<String>,
     },
+
+    // Profile management (no handshake required)
+    ListProfiles,
+    RenameProfile {
+        #[serde(rename = "profileId")]
+        profile_id: String,
+        #[serde(rename = "displayName")]
+        display_name: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -101,6 +110,22 @@ pub struct Response {
 }
 
 use jstorrent_common::DownloadRoot;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProfileListEntry {
+    #[serde(rename = "profileId")]
+    pub profile_id: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    pub created: u64,
+    #[serde(rename = "lastUsed")]
+    pub last_used: u64,
+    #[serde(rename = "clientType")]
+    pub client_type: Option<String>,
+    #[serde(rename = "clientVersion")]
+    pub client_version: Option<String>,
+    pub live: bool,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
@@ -151,6 +176,9 @@ pub enum ResponsePayload {
         current_version: Option<String>,
         body: Option<String>,
     },
+    ProfileList {
+        profiles: Vec<ProfileListEntry>,
+    },
 }
 
 impl fmt::Display for Operation {
@@ -194,6 +222,11 @@ impl fmt::Display for Operation {
             Operation::KvClear { prefix } => {
                 write!(f, "KvClear {}", prefix.as_deref().unwrap_or("(all)"))
             }
+            Operation::ListProfiles => write!(f, "ListProfiles"),
+            Operation::RenameProfile {
+                profile_id,
+                display_name,
+            } => write!(f, "RenameProfile {profile_id} -> {display_name}"),
         }
     }
 }
@@ -241,6 +274,9 @@ impl fmt::Display for ResponsePayload {
                 } else {
                     write!(f, "UpdateCheck up-to-date")
                 }
+            }
+            ResponsePayload::ProfileList { profiles } => {
+                write!(f, "ProfileList {} profiles", profiles.len())
             }
         }
     }
