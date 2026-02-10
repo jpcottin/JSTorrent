@@ -180,7 +180,7 @@ describe('TauriChannel', () => {
       const channel = new TauriChannel()
       await channel.connect()
 
-      expect(tauriMock.invoke).toHaveBeenCalledWith('host_handshake', undefined)
+      expect(tauriMock.invoke).toHaveBeenCalledWith('host_handshake', { profileId: null })
       expect(channel.getState().status).toBe('connected')
       expect(channel.getState().platform).toBe('tauri')
       expect(channel.getState().daemonInfo).toEqual({
