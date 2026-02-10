@@ -2,6 +2,12 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.19]
+
+- Add profile picker UI: list, rename, and switch profiles from Settings > Profiles tab
+- Add restart_app Tauri command for profile switching
+- Support user-domain macOS .pkg installs (~/Applications, no admin required)
+
 ## [0.1.18]
 
 - Add profile system: per-profile KV isolation, liveness checks, profile_id identity
