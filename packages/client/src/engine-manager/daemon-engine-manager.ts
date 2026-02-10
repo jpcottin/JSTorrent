@@ -21,6 +21,7 @@ import {
   type StorageRoot as EngineStorageRoot,
 } from '@jstorrent/engine'
 import type { HostChannel } from '../host/host-channel'
+import { markDesktopActivated } from '../host/tauri-channel'
 import type { ProgressStats } from '../host/types'
 import { HostChannelSessionStore } from '../host/host-channel-session-store'
 import { HostChannelConfigHub } from '../host/host-channel-config-hub'
@@ -691,6 +692,7 @@ export class DaemonEngineManager implements IEngineManager {
       try {
         const bytes = Uint8Array.from(atob(p.contentsBase64), (c) => c.charCodeAt(0))
         await this.engine.addTorrent(bytes)
+        markDesktopActivated()
       } catch (e) {
         console.error('[DaemonEngineManager] Failed to add torrent:', e)
       }
@@ -699,6 +701,7 @@ export class DaemonEngineManager implements IEngineManager {
       console.log('[DaemonEngineManager] Adding magnet:', p.link)
       try {
         await this.engine.addTorrent(p.link)
+        markDesktopActivated()
       } catch (e) {
         console.error('[DaemonEngineManager] Failed to add magnet:', e)
       }

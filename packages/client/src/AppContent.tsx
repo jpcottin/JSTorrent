@@ -30,6 +30,7 @@ import {
   TEST_1GB_MAGNET,
   WEBTORRENT_MAGNETS,
 } from './utils/test-magnets'
+import { markDesktopActivated } from './host/tauri-channel'
 
 interface ContextMenuState {
   x: number
@@ -125,6 +126,7 @@ export function AppContent({
     try {
       const buffer = await file.arrayBuffer()
       const result = await adapter.addTorrent(new Uint8Array(buffer))
+      if (!result.isDuplicate) markDesktopActivated()
 
       if (result.isDuplicate && result.torrent) {
         onDuplicateTorrent?.(result.torrent.name || 'Torrent')
@@ -143,6 +145,7 @@ export function AppContent({
     try {
       const result = await adapter.addTorrent(magnetInput)
       setMagnetInput('')
+      if (!result.isDuplicate) markDesktopActivated()
 
       if (result.isDuplicate && result.torrent) {
         onDuplicateTorrent?.(result.torrent.name || 'Torrent')
@@ -329,6 +332,7 @@ export function AppContent({
   const handleAddTestTorrent = async (magnet: string) => {
     try {
       const result = await adapter.addTorrent(magnet)
+      if (!result.isDuplicate) markDesktopActivated()
       if (result.isDuplicate && result.torrent) {
         onDuplicateTorrent?.(result.torrent.name || 'Torrent')
       }

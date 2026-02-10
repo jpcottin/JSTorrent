@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { TauriChannel } from '../../src/host/tauri-channel'
+import {
+  TauriChannel,
+  markDesktopActivated,
+  _resetDesktopActivation,
+} from '../../src/host/tauri-channel'
 import type { HostState, NativeEvent } from '../../src/host/types'
 
 // --- Tauri internals mock ---
@@ -916,6 +920,42 @@ describe('TauriChannel', () => {
         'plugin:event|unlisten',
         expect.objectContaining({ event: 'host-event' }),
       )
+    })
+  })
+
+  describe('markDesktopActivated()', () => {
+    afterEach(() => {
+      _resetDesktopActivation()
+    })
+
+    it('invokes mark_desktop_activated command in Tauri context', async () => {
+      invokeHandler = vi.fn(async () => ({}))
+
+      markDesktopActivated()
+      await new Promise((r) => setTimeout(r, 0))
+
+      expect(tauriMock.invoke).toHaveBeenCalledWith('mark_desktop_activated', undefined)
+    })
+
+    it('only invokes once per session', async () => {
+      invokeHandler = vi.fn(async () => ({}))
+
+      markDesktopActivated()
+      markDesktopActivated()
+      markDesktopActivated()
+      await new Promise((r) => setTimeout(r, 0))
+
+      const calls = tauriMock.invoke.mock.calls.filter(
+        ([cmd]: [string]) => cmd === 'mark_desktop_activated',
+      )
+      expect(calls).toHaveLength(1)
+    })
+
+    it('is a no-op without Tauri context', () => {
+      teardownTauriMock()
+      markDesktopActivated()
+      // No error thrown, no invoke called
+      setupTauriMock()
     })
   })
 })

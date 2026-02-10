@@ -89,6 +89,29 @@ async function hostMessage(message: Record<string, unknown>): Promise<HostRespon
   return tauriInvoke<HostResponse>('host_message', { message })
 }
 
+// --- Desktop activation marker ---
+
+let desktopActivationMarked = false
+
+/**
+ * Mark the current desktop profile as having been used for torrents.
+ * Called when the user adds a torrent via the desktop UI.
+ * No-op outside of Tauri context. Only calls the Tauri command once per session.
+ */
+export function markDesktopActivated(): void {
+  if (desktopActivationMarked) return
+  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+  desktopActivationMarked = true
+  tauriInvoke('mark_desktop_activated').catch(() => {
+    desktopActivationMarked = false
+  })
+}
+
+/** @internal Reset for testing only. */
+export function _resetDesktopActivation(): void {
+  desktopActivationMarked = false
+}
+
 // --- TauriChannel ---
 
 export class TauriChannel implements HostChannel {
