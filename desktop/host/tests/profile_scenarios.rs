@@ -138,6 +138,15 @@ fn handshake(
     extension_id: &str,
     profile_id: Option<&str>,
 ) -> serde_json::Value {
+    handshake_with_client_type(host, extension_id, profile_id, None)
+}
+
+fn handshake_with_client_type(
+    host: &mut HostProcess,
+    extension_id: &str,
+    profile_id: Option<&str>,
+    client_type: Option<&str>,
+) -> serde_json::Value {
     let mut msg = serde_json::json!({
         "id": next_id(),
         "op": "handshake",
@@ -146,6 +155,19 @@ fn handshake(
     if let Some(pid) = profile_id {
         msg["profileId"] = serde_json::Value::String(pid.to_string());
     }
+    if let Some(ct) = client_type {
+        msg["clientType"] = serde_json::Value::String(ct.to_string());
+    }
+    write_native_message(host.stdin.as_mut().unwrap(), &msg);
+    read_native_message(&mut host.stdout)
+}
+
+fn read_torrent_file(host: &mut HostProcess, path: &str) -> serde_json::Value {
+    let msg = serde_json::json!({
+        "id": next_id(),
+        "op": "readTorrentFile",
+        "path": path,
+    });
     write_native_message(host.stdin.as_mut().unwrap(), &msg);
     read_native_message(&mut host.stdout)
 }
@@ -591,4 +613,319 @@ fn test_per_profile_kv_isolation() {
     );
 
     shutdown_host(host_c);
+}
+
+// ===========================================================================
+// Magnet/Torrent Routing — Phase 1 Tests
+// ===========================================================================
+
+/// Fresh config dir → handshake → rpc-info.json has non-empty add_token.
+/// Restart host → same add_token persisted.
+#[test]
+fn test_add_token_generated() {
+    assert_daemon_binary_exists();
+    let config_dir = tempfile::tempdir().unwrap();
+
+    // Host A: create profile → should generate add_token
+    let mut host_a = spawn_host(config_dir.path());
+    let response_a = handshake(&mut host_a, "ext-token-test", None);
+    assert_daemon_info(&response_a);
+
+    let rpc_info = read_rpc_info(config_dir.path());
+    let add_token = rpc_info["add_token"]
+        .as_str()
+        .expect("add_token should be present");
+    assert!(
+        !add_token.is_empty(),
+        "add_token should be a non-empty string"
+    );
+
+    shutdown_host(host_a);
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Host B: reconnect → same add_token persisted
+    let mut host_b = spawn_host(config_dir.path());
+    let response_b = handshake(&mut host_b, "ext-token-test-2", None);
+    assert_daemon_info(&response_b);
+
+    let rpc_info2 = read_rpc_info(config_dir.path());
+    let add_token2 = rpc_info2["add_token"]
+        .as_str()
+        .expect("add_token should still be present");
+    assert_eq!(
+        add_token, add_token2,
+        "add_token should be stable across restarts"
+    );
+
+    shutdown_host(host_b);
+}
+
+/// Two hosts with different profiles in same config dir → both see same add_token.
+#[test]
+fn test_add_token_stable_across_profiles() {
+    assert_daemon_binary_exists();
+    let config_dir = tempfile::tempdir().unwrap();
+
+    let mut host_a = spawn_host(config_dir.path());
+    let response_a = handshake(&mut host_a, "ext-token-a", None);
+    assert_daemon_info(&response_a);
+
+    let rpc_info1 = read_rpc_info(config_dir.path());
+    let token1 = rpc_info1["add_token"]
+        .as_str()
+        .expect("add_token from host A")
+        .to_string();
+
+    shutdown_host(host_a);
+    std::thread::sleep(Duration::from_millis(500));
+
+    let mut host_b = spawn_host(config_dir.path());
+    let response_b = handshake(&mut host_b, "ext-token-b", None);
+    assert_daemon_info(&response_b);
+
+    let rpc_info2 = read_rpc_info(config_dir.path());
+    let token2 = rpc_info2["add_token"]
+        .as_str()
+        .expect("add_token from host B");
+
+    assert_eq!(
+        token1, token2,
+        "add_token should be the same across different profiles"
+    );
+
+    shutdown_host(host_b);
+}
+
+/// Handshake with client_type: "extension" → profile has client_types_used: ["extension"].
+/// Reconnect with client_type: "tauri" → ["extension", "tauri"]. No dupes on re-handshake.
+#[test]
+fn test_client_types_used_accumulated() {
+    assert_daemon_binary_exists();
+    let config_dir = tempfile::tempdir().unwrap();
+
+    // Host A: handshake with client_type = "extension"
+    let mut host_a = spawn_host(config_dir.path());
+    let response_a =
+        handshake_with_client_type(&mut host_a, "ext-ctu-test", None, Some("extension"));
+    let (profile_id, _, _) = assert_daemon_info(&response_a);
+
+    let rpc_info = read_rpc_info(config_dir.path());
+    let profile = rpc_info["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["profile_id"].as_str() == Some(&profile_id))
+        .expect("should find profile");
+    let ctu: Vec<&str> = profile["client_types_used"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ctu,
+        vec!["extension"],
+        "should have extension after first handshake"
+    );
+
+    shutdown_host(host_a);
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Host B: reconnect same profile with client_type = "tauri"
+    let mut host_b = spawn_host(config_dir.path());
+    let response_b = handshake_with_client_type(
+        &mut host_b,
+        "ext-ctu-test",
+        Some(&profile_id),
+        Some("tauri"),
+    );
+    assert_daemon_info(&response_b);
+
+    let rpc_info2 = read_rpc_info(config_dir.path());
+    let profile2 = rpc_info2["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["profile_id"].as_str() == Some(&profile_id))
+        .expect("should find profile");
+    let ctu2: Vec<&str> = profile2["client_types_used"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ctu2,
+        vec!["extension", "tauri"],
+        "should accumulate both client types"
+    );
+
+    shutdown_host(host_b);
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Host C: reconnect same profile with client_type = "extension" again → no duplicate
+    let mut host_c = spawn_host(config_dir.path());
+    let response_c = handshake_with_client_type(
+        &mut host_c,
+        "ext-ctu-test",
+        Some(&profile_id),
+        Some("extension"),
+    );
+    assert_daemon_info(&response_c);
+
+    let rpc_info3 = read_rpc_info(config_dir.path());
+    let profile3 = rpc_info3["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["profile_id"].as_str() == Some(&profile_id))
+        .expect("should find profile");
+    let ctu3: Vec<&str> = profile3["client_types_used"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ctu3,
+        vec!["extension", "tauri"],
+        "should not duplicate 'extension'"
+    );
+
+    shutdown_host(host_c);
+}
+
+/// Manually set desktop_ever_used: true in rpc-info.json for a profile →
+/// handshake with that profile_id → field still true after handshake updates.
+#[test]
+fn test_desktop_ever_used_preserved() {
+    assert_daemon_binary_exists();
+    let config_dir = tempfile::tempdir().unwrap();
+
+    // Host A: create profile
+    let mut host_a = spawn_host(config_dir.path());
+    let response_a = handshake(&mut host_a, "ext-deu-test", None);
+    let (profile_id, _, _) = assert_daemon_info(&response_a);
+
+    // Verify desktop_ever_used starts as false
+    let rpc_info = read_rpc_info(config_dir.path());
+    let profile = rpc_info["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["profile_id"].as_str() == Some(&profile_id))
+        .expect("should find profile");
+    assert_eq!(
+        profile["desktop_ever_used"].as_bool().unwrap_or(false),
+        false,
+        "desktop_ever_used should start as false"
+    );
+
+    shutdown_host(host_a);
+
+    // Manually set desktop_ever_used: true in rpc-info.json
+    let rpc_file = config_dir
+        .path()
+        .join("jstorrent-native")
+        .join("rpc-info.json");
+    let mut rpc_data: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&rpc_file).unwrap()).unwrap();
+    for p in rpc_data["profiles"].as_array_mut().unwrap() {
+        if p["profile_id"].as_str() == Some(&profile_id) {
+            p["desktop_ever_used"] = serde_json::Value::Bool(true);
+        }
+    }
+    std::fs::write(&rpc_file, serde_json::to_string(&rpc_data).unwrap()).unwrap();
+
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Host B: reconnect to same profile → desktop_ever_used should still be true
+    let mut host_b = spawn_host(config_dir.path());
+    let response_b = handshake(&mut host_b, "ext-deu-test", Some(&profile_id));
+    assert_daemon_info(&response_b);
+
+    let rpc_info2 = read_rpc_info(config_dir.path());
+    let profile2 = rpc_info2["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["profile_id"].as_str() == Some(&profile_id))
+        .expect("should find profile after reconnect");
+    assert_eq!(
+        profile2["desktop_ever_used"].as_bool().unwrap_or(false),
+        true,
+        "desktop_ever_used should be preserved across handshakes"
+    );
+
+    shutdown_host(host_b);
+}
+
+/// Write a test .torrent file → send ReadTorrentFile → get back TorrentFileContents.
+/// Also test rejection for non-.torrent paths.
+#[test]
+fn test_read_torrent_file() {
+    assert_daemon_binary_exists();
+    let config_dir = tempfile::tempdir().unwrap();
+
+    let mut host = spawn_host(config_dir.path());
+    let response = handshake(&mut host, "ext-rtf-test", None);
+    assert_daemon_info(&response);
+
+    // Create a test .torrent file
+    let torrent_dir = tempfile::tempdir().unwrap();
+    let torrent_path = torrent_dir.path().join("test.torrent");
+    let torrent_contents = b"d8:announce35:http://tracker.example.com/announcee";
+    std::fs::write(&torrent_path, torrent_contents).unwrap();
+
+    // Read it via the protocol
+    let resp = read_torrent_file(&mut host, torrent_path.to_str().unwrap());
+    assert_eq!(resp["ok"], true, "ReadTorrentFile should succeed: {resp}");
+    assert_eq!(resp["type"], "TorrentFileContents");
+
+    let payload = &resp["payload"];
+    assert_eq!(payload["name"].as_str().unwrap(), "test.torrent");
+
+    // Verify base64 roundtrips
+    use base64::Engine;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(payload["contentsBase64"].as_str().unwrap())
+        .expect("should be valid base64");
+    assert_eq!(decoded, torrent_contents);
+
+    // Test rejection of non-.torrent path
+    let txt_path = torrent_dir.path().join("readme.txt");
+    std::fs::write(&txt_path, "hello").unwrap();
+    let resp2 = read_torrent_file(&mut host, txt_path.to_str().unwrap());
+    assert_eq!(
+        resp2["ok"], false,
+        "non-.torrent path should be rejected: {resp2}"
+    );
+    let error = resp2["error"].as_str().unwrap();
+    assert!(
+        error.contains(".torrent"),
+        "error should mention .torrent: {error}"
+    );
+
+    shutdown_host(host);
+}
+
+/// Send ReadTorrentFile for a nonexistent path → error response.
+#[test]
+fn test_read_torrent_file_not_found() {
+    assert_daemon_binary_exists();
+    let config_dir = tempfile::tempdir().unwrap();
+
+    let mut host = spawn_host(config_dir.path());
+    let response = handshake(&mut host, "ext-rtf-404", None);
+    assert_daemon_info(&response);
+
+    let resp = read_torrent_file(&mut host, "/tmp/nonexistent-12345.torrent");
+    assert_eq!(resp["ok"], false, "nonexistent file should fail: {resp}");
+    let error = resp["error"].as_str().unwrap();
+    assert!(
+        error.contains("Failed to read") || error.contains("No such file"),
+        "error should mention read failure: {error}"
+    );
+
+    shutdown_host(host);
 }

@@ -40,6 +40,7 @@ windows-sys = { version = "0.52", features = [
 
 [dev-dependencies]
 serial_test = "3"
+base64 = { workspace = true }
 
 [build-dependencies]
 winres = "0.1"

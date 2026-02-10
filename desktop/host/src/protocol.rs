@@ -94,6 +94,11 @@ pub enum Operation {
         prefix: Option<String>,
     },
 
+    // Read a .torrent file from disk
+    ReadTorrentFile {
+        path: String,
+    },
+
     // Profile management (no handshake required)
     ListProfiles,
     RenameProfile {
@@ -184,6 +189,11 @@ pub enum ResponsePayload {
     ProfileList {
         profiles: Vec<ProfileListEntry>,
     },
+    TorrentFileContents {
+        name: String,
+        #[serde(rename = "contentsBase64")]
+        contents_base64: String,
+    },
 }
 
 impl fmt::Display for Operation {
@@ -230,6 +240,7 @@ impl fmt::Display for Operation {
             Operation::KvClear { prefix } => {
                 write!(f, "KvClear {}", prefix.as_deref().unwrap_or("(all)"))
             }
+            Operation::ReadTorrentFile { path } => write!(f, "ReadTorrentFile {path}"),
             Operation::ListProfiles => write!(f, "ListProfiles"),
             Operation::RenameProfile {
                 profile_id,
@@ -285,6 +296,17 @@ impl fmt::Display for ResponsePayload {
             }
             ResponsePayload::ProfileList { profiles } => {
                 write!(f, "ProfileList {} profiles", profiles.len())
+            }
+            ResponsePayload::TorrentFileContents {
+                name,
+                contents_base64,
+            } => {
+                write!(
+                    f,
+                    "TorrentFileContents {} ({} bytes)",
+                    name,
+                    contents_base64.len()
+                )
             }
         }
     }

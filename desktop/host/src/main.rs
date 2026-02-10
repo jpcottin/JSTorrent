@@ -145,6 +145,7 @@ async fn main() -> Result<()> {
         client_type: None,
         client_version: None,
         launcher: Some(launcher),
+        client_types_used: Vec::new(),
     };
 
     if let Ok(mut info_guard) = state.rpc_info.lock() {
@@ -296,6 +297,11 @@ async fn do_handshake(
             info.client_type.clone_from(&client_type);
             info.client_version.clone_from(&client_version);
             info.last_used = now;
+            // Accumulate client_type into client_types_used
+            info.client_types_used = client_type
+                .as_deref()
+                .map(|ct| vec![ct.to_string()])
+                .unwrap_or_default();
             // Set to None to preserve existing roots in the file
             info.download_roots = None;
             match crate::rpc::write_discovery_file(info.clone()) {
@@ -613,6 +619,33 @@ async fn handle_request(
                     Err(e) => Err(e),
                 },
                 None => Err(anyhow::anyhow!("Root not found: {root_key}")),
+            }
+        }
+
+        Operation::ReadTorrentFile { path } => {
+            log!("Handling ReadTorrentFile: {}", path);
+
+            // Validate path ends with .torrent
+            if path.to_lowercase().ends_with(".torrent") {
+                match std::fs::read(&path) {
+                    Ok(contents) => {
+                        use base64::Engine;
+                        let encoded = base64::engine::general_purpose::STANDARD.encode(&contents);
+                        let name = std::path::Path::new(&path)
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        Ok(ResponsePayload::TorrentFileContents {
+                            name,
+                            contents_base64: encoded,
+                        })
+                    }
+                    Err(e) => Err(anyhow::anyhow!("Failed to read torrent file: {e}")),
+                }
+            } else {
+                Err(anyhow::anyhow!(
+                    "Invalid file type: path must end with .torrent"
+                ))
             }
         }
 

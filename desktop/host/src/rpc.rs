@@ -31,6 +31,9 @@ pub struct RpcWriteInfo {
     pub client_type: Option<String>,
     pub client_version: Option<String>,
     pub launcher: Option<String>,
+    /// Client types to accumulate (appended, not overwritten)
+    #[serde(default)]
+    pub client_types_used: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -179,6 +182,7 @@ pub fn read_discovery_file() -> RpcInfo {
     let Some(config_dir) = get_config_dir() else {
         return RpcInfo {
             version: 1,
+            add_token: None,
             profiles: Vec::new(),
         };
     };
@@ -189,11 +193,13 @@ pub fn read_discovery_file() -> RpcInfo {
             .and_then(|f| serde_json::from_reader(f).ok())
             .unwrap_or(RpcInfo {
                 version: 1,
+                add_token: None,
                 profiles: Vec::new(),
             })
     } else {
         RpcInfo {
             version: 1,
+            add_token: None,
             profiles: Vec::new(),
         }
     }
@@ -215,14 +221,21 @@ pub fn write_discovery_file(info: RpcWriteInfo) -> anyhow::Result<Vec<DownloadRo
         let file = fs::File::open(&rpc_file)?;
         serde_json::from_reader(file).unwrap_or_else(|_| RpcInfo {
             version: 1,
+            add_token: None,
             profiles: Vec::new(),
         })
     } else {
         RpcInfo {
             version: 1,
+            add_token: None,
             profiles: Vec::new(),
         }
     };
+
+    // Ensure add_token is generated if missing
+    if rpc_info.add_token.is_none() {
+        rpc_info.add_token = Some(Uuid::new_v4().to_string());
+    }
 
     // Find existing entry by profile_id
     let found_idx = rpc_info
@@ -266,6 +279,16 @@ pub fn write_discovery_file(info: RpcWriteInfo) -> anyhow::Result<Vec<DownloadRo
             entry.launcher.clone_from(&info.launcher);
         }
 
+        // Accumulate client_types_used (append new types, no duplicates)
+        for ct in &info.client_types_used {
+            if !entry.client_types_used.contains(ct) {
+                entry.client_types_used.push(ct.clone());
+            }
+        }
+
+        // desktop_ever_used is sticky — once true, stays true
+        // (only set externally via mark_desktop_activated, never cleared)
+
         // Only update roots if explicitly provided (Some)
         // None means "don't update" - preserves existing roots on startup
         if let Some(roots) = &info.download_roots {
@@ -291,6 +314,8 @@ pub fn write_discovery_file(info: RpcWriteInfo) -> anyhow::Result<Vec<DownloadRo
             browser: info.browser.clone(),
             download_roots: info.download_roots.clone().unwrap_or_default(),
             launcher: info.launcher.clone(),
+            desktop_ever_used: false,
+            client_types_used: info.client_types_used.clone(),
         };
         active_roots = new_entry.download_roots.clone();
         rpc_info.profiles.push(new_entry);
@@ -330,6 +355,7 @@ pub fn rename_profile(profile_id: &str, display_name: &str) -> anyhow::Result<()
         let file = fs::File::open(&rpc_file)?;
         serde_json::from_reader(file).unwrap_or_else(|_| RpcInfo {
             version: 1,
+            add_token: None,
             profiles: Vec::new(),
         })
     } else {
@@ -390,6 +416,7 @@ mod tests {
             client_type: None,
             client_version: None,
             launcher: None,
+            client_types_used: Vec::new(),
         }
     }
 

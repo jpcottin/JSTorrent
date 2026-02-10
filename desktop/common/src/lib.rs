@@ -4,6 +4,8 @@ use std::path::PathBuf;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RpcInfo {
     pub version: u32,
+    #[serde(default)]
+    pub add_token: Option<String>,
     pub profiles: Vec<ProfileEntry>,
 }
 
@@ -28,6 +30,10 @@ pub struct ProfileEntry {
     pub download_roots: Vec<DownloadRoot>,
     #[serde(default)]
     pub launcher: Option<String>,
+    #[serde(default)]
+    pub desktop_ever_used: bool,
+    #[serde(default)]
+    pub client_types_used: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
