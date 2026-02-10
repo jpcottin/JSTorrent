@@ -2,6 +2,13 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.16] - 2026-02-10
+
+### Changed
+- Reduced log verbosity (tracker, tick, maintenance, and backpressure diagnostics moved to debug level)
+- Config storage simplified to local-only
+- Notifications and keep-awake settings now available on all platforms
+
 ## [1.0.15] - 2026-02-08
 
 ### Added
