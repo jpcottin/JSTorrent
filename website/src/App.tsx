@@ -5,6 +5,7 @@ const chromeApi = (globalThis as any).chrome as any
 
 const EXTENSION_ID = 'dbokmlpefliilbjldladbimlcfgbolhk'
 const WEBSTORE_URL = `https://chromewebstore.google.com/detail/jstorrent/${EXTENSION_ID}`
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.jstorrent.app'
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/kzahel/jstorrent/releases?per_page=100'
 
 // Build-time values from CI, fall back to hardcoded versions
@@ -157,6 +158,7 @@ interface StatusResponse {
   platform: 'desktop' | 'chromeos'
   nativeHostConnected: boolean
   nativeHostVersion?: string
+  desktopVersion?: string
   hasEverConnected: boolean
   lastConnectedTime?: number
   installId: string
@@ -256,6 +258,19 @@ function App() {
       <section className="section">
         <h2>Desktop App</h2>
         <p>Standalone desktop client with built-in UI. No browser extension needed.</p>
+        {status?.desktopVersion && (
+          <div
+            className={`status-row ${compareVersions(status.desktopVersion, tauri.tag) >= 0 ? 'success' : ''}`}
+          >
+            <span
+              className={`status-indicator ${compareVersions(status.desktopVersion, tauri.tag) >= 0 ? 'success' : ''}`}
+            />
+            <span>Installed v{status.desktopVersion}</span>
+            {compareVersions(tauri.tag, status.desktopVersion) > 0 && (
+              <span className="text-muted">({tauri.tag} available)</span>
+            )}
+          </div>
+        )}
         <div className="tabs">
           <button
             className={`tab ${selectedPlatform === 'windows' ? 'active' : ''}`}
@@ -346,6 +361,22 @@ function App() {
             </>
           )}
         </div>
+      </section>
+
+      {/* Android & ChromeOS section */}
+      <section className="section">
+        <h2>Android & ChromeOS</h2>
+        <p>
+          Native Android app powered by a QuickJS engine. Also works as a companion app on ChromeOS.
+        </p>
+        <a
+          href={PLAY_STORE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn btn-primary"
+        >
+          Get it on Google Play
+        </a>
       </section>
 
       {/* Extension section */}

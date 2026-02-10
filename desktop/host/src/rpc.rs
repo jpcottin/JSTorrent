@@ -184,6 +184,7 @@ pub fn read_discovery_file() -> RpcInfo {
             version: 1,
             add_token: None,
             profiles: Vec::new(),
+            desktop_version: None,
         };
     };
     let rpc_file = config_dir.join("jstorrent-native").join("rpc-info.json");
@@ -195,12 +196,14 @@ pub fn read_discovery_file() -> RpcInfo {
                 version: 1,
                 add_token: None,
                 profiles: Vec::new(),
+                desktop_version: None,
             })
     } else {
         RpcInfo {
             version: 1,
             add_token: None,
             profiles: Vec::new(),
+            desktop_version: None,
         }
     }
 }
@@ -223,12 +226,14 @@ pub fn write_discovery_file(info: RpcWriteInfo) -> anyhow::Result<Vec<DownloadRo
             version: 1,
             add_token: None,
             profiles: Vec::new(),
+            desktop_version: None,
         })
     } else {
         RpcInfo {
             version: 1,
             add_token: None,
             profiles: Vec::new(),
+            desktop_version: None,
         }
     };
 
@@ -357,6 +362,7 @@ pub fn rename_profile(profile_id: &str, display_name: &str) -> anyhow::Result<()
             version: 1,
             add_token: None,
             profiles: Vec::new(),
+            desktop_version: None,
         })
     } else {
         return Err(anyhow::anyhow!("Profile not found: {profile_id}"));

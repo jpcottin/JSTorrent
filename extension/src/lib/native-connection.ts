@@ -31,6 +31,8 @@ export interface DaemonInfo {
   profileId?: string
   /** Token for validating magnet/torrent routing from Tauri launch page */
   addToken?: string
+  /** Version of the Tauri desktop app that last ran on this machine */
+  desktopVersion?: string
 }
 
 // Response types from native host

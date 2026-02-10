@@ -7,6 +7,8 @@ pub struct RpcInfo {
     #[serde(default)]
     pub add_token: Option<String>,
     pub profiles: Vec<ProfileEntry>,
+    #[serde(default)]
+    pub desktop_version: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

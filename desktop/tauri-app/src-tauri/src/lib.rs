@@ -237,6 +237,7 @@ fn read_rpc_info() -> RpcInfo {
             version: 1,
             add_token: None,
             profiles: Vec::new(),
+            desktop_version: None,
         };
     };
     let rpc_file = config_dir.join("jstorrent-native").join("rpc-info.json");
@@ -247,7 +248,37 @@ fn read_rpc_info() -> RpcInfo {
             version: 1,
             add_token: None,
             profiles: Vec::new(),
+            desktop_version: None,
         })
+}
+
+/// Stamp the Tauri desktop app version into rpc-info.json.
+/// Called on every Tauri launch so the extension's native host can report it.
+fn stamp_desktop_version() {
+    let Some(config_dir) = get_config_dir() else {
+        return;
+    };
+    let app_dir = config_dir.join("jstorrent-native");
+    if std::fs::create_dir_all(&app_dir).is_err() {
+        return;
+    }
+    let rpc_file = app_dir.join("rpc-info.json");
+    let mut rpc_info: RpcInfo = std::fs::read_to_string(&rpc_file)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or(RpcInfo {
+            version: 1,
+            add_token: None,
+            profiles: Vec::new(),
+            desktop_version: None,
+        });
+    rpc_info.desktop_version = Some(env!("CARGO_PKG_VERSION").to_string());
+    if let Ok(temp) = tempfile::NamedTempFile::new_in(&app_dir) {
+        if serde_json::to_writer(&temp, &rpc_info).is_ok() {
+            let _ = temp.as_file().sync_all();
+            let _ = temp.persist(&rpc_file);
+        }
+    }
 }
 
 /// Get the launch URL, checking env file override first.
@@ -975,6 +1006,10 @@ pub fn run() {
                 pending: Mutex::new(Vec::new()),
             };
 
+            // Stamp Tauri app version into rpc-info.json so the extension's
+            // native host can report it (even when the Tauri app isn't running).
+            stamp_desktop_version();
+
             // Track whether startup deep links were routed to extension
             // (used to decide whether to show the window at end of setup).
             let mut startup_routed_to_extension = false;
@@ -1191,6 +1226,7 @@ mod tests {
             version: 1,
             add_token: Some("test-token".into()),
             profiles,
+            desktop_version: None,
         }
     }
 

@@ -4,16 +4,16 @@
 
 A modern, full-featured BitTorrent client built on a shared TypeScript engine that runs everywhere.
 
-**[Chrome Web Store](https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk)** | **[Desktop App](https://github.com/kzahel/JSTorrent/releases)** | **[new.jstorrent.com](https://new.jstorrent.com)**
+**[Google Play](https://play.google.com/store/apps/details?id=com.jstorrent.app)** | **[Desktop App](https://new.jstorrent.com)** | **[Chrome Web Store](https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk)** | **[Website](https://new.jstorrent.com)**
 
 ## Platforms
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| **Desktop App** | 🚧 Coming soon | Standalone app for macOS, Windows, and Linux (Tauri) |
+| **Desktop App** | ✅ Available | Standalone app for macOS, Windows, and Linux ([download](https://new.jstorrent.com)) |
 | **Chrome Extension** | ✅ Available | Chrome, Edge, Brave, and other Chromium browsers |
-| **Android** | ✅ Available | Native app with QuickJS engine |
-| **ChromeOS** | ✅ Available | Extension + Android companion app |
+| **Android** | ✅ Available | [Google Play](https://play.google.com/store/apps/details?id=com.jstorrent.app) — native app with QuickJS engine |
+| **ChromeOS** | ✅ Available | Extension + [Android companion app](https://play.google.com/store/apps/details?id=com.jstorrent.app) |
 | **iOS** | 🚧 Planned | Sideload only |
 
 ## Architecture

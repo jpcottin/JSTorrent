@@ -970,6 +970,7 @@ interface StatusResponse {
   platform: 'desktop' | 'chromeos'
   nativeHostConnected: boolean
   nativeHostVersion?: string
+  desktopVersion?: string
   hasEverConnected: boolean
   lastConnectedTime?: number
   telemetryId: string
@@ -1006,6 +1007,7 @@ async function handleStatusRequest(
       ...baseResponse,
       nativeHostConnected: true,
       nativeHostVersion: currentState.daemonInfo.version,
+      desktopVersion: currentState.daemonInfo.desktopVersion,
     })
     return
   }
@@ -1063,6 +1065,7 @@ async function handleStatusRequest(
         ...baseResponse,
         nativeHostConnected: true,
         nativeHostVersion: state.daemonInfo?.version ?? 'unknown',
+        desktopVersion: state.daemonInfo?.desktopVersion,
         // Re-fetch these since connection just succeeded
         hasEverConnected: true,
         lastConnectedTime: Date.now(),

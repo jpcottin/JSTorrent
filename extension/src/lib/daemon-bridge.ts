@@ -875,12 +875,10 @@ export class DaemonBridge {
           this.updateState({
             status: 'connected',
             daemonInfo: {
-              port: payload.port,
-              token: payload.token,
+              ...payload,
               version: payload.version ?? 'unknown',
               roots: payload.roots || [],
               host: DESKTOP_HOST,
-              profileId: payload.profileId,
             },
             roots: payload.roots || [],
             profileInUseInfo: null,
@@ -1542,12 +1540,10 @@ export class DaemonBridge {
           this.updateState({
             status: 'connected',
             daemonInfo: {
-              port: payload.port,
-              token: payload.token,
+              ...payload,
               version: payload.version ?? 'unknown',
               roots: payload.roots || [],
               host: DESKTOP_HOST,
-              profileId: payload.profileId,
             },
             roots: payload.roots || [],
             lastError: null,
