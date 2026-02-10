@@ -10,9 +10,9 @@ use tauri::{
     Emitter, Manager,
 };
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
-use tauri_plugin_window_state::WindowExt as WindowStateExt;
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_window_state::WindowExt as WindowStateExt;
 use tokio::sync::oneshot;
 
 mod headless_updater;
@@ -225,14 +225,11 @@ fn show_main_window(app: &tauri::AppHandle) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
-    } else if let Ok(window) = tauri::WebviewWindowBuilder::new(
-        app,
-        "main",
-        tauri::WebviewUrl::App("index.html".into()),
-    )
-    .title("JSTorrent")
-    .inner_size(1024.0, 700.0)
-    .build()
+    } else if let Ok(window) =
+        tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+            .title("JSTorrent")
+            .inner_size(1024.0, 700.0)
+            .build()
     {
         let _ = window.restore_state(tauri_plugin_window_state::StateFlags::all());
     }
