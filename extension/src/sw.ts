@@ -760,6 +760,14 @@ function handleMessage(
     return true
   }
 
+  // Launch desktop app
+  if (message.type === 'LAUNCH_DESKTOP') {
+    bridge.launchDesktop().then((ok: boolean) => {
+      sendResponse({ ok })
+    })
+    return true
+  }
+
   // Install desktop app update
   if (message.type === 'INSTALL_UPDATE') {
     bridge.installUpdate().then((result) => {

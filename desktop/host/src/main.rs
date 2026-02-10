@@ -653,6 +653,15 @@ async fn handle_request(
             }
         }
 
+        // Launch desktop app
+        Operation::LaunchDesktop => {
+            let profile_id = state.profile_id.lock().unwrap().clone();
+            match updater::launch_desktop_app(profile_id.as_deref()) {
+                Ok(()) => Ok(ResponsePayload::Empty),
+                Err(e) => Err(e),
+            }
+        }
+
         // Update operations
         Operation::CheckForUpdates => match updater::run_update_check(false).await {
             Ok(result) => {

@@ -320,6 +320,19 @@ export class ChromeExtensionChannel implements HostChannel {
     }
   }
 
+  // --- Desktop app ---
+
+  async launchDesktop(): Promise<boolean> {
+    try {
+      const response = await this.sendMessage<{ ok: boolean }>({
+        type: 'LAUNCH_DESKTOP',
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
   // --- Profile mutual exclusion ---
 
   async takeOver(): Promise<boolean> {

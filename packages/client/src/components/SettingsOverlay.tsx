@@ -698,91 +698,137 @@ interface InterfaceTabProps extends TabProps {
   isStandalone: boolean
 }
 
-const InterfaceTab: React.FC<InterfaceTabProps> = ({ settings, config, isStandalone }) => (
-  <div>
-    <Section title="Appearance">
-      <div style={styles.fieldRow}>
-        <span>Theme</span>
-        <div style={styles.radioGroup}>
-          {(['system', 'dark', 'light'] as Theme[]).map((theme) => (
-            <label key={theme} style={styles.radioLabel}>
-              <input
-                type="radio"
-                name="theme"
-                checked={settings.theme === theme}
-                onChange={() => config.set('theme', theme)}
-              />
-              {theme.charAt(0).toUpperCase() + theme.slice(1)}
-            </label>
-          ))}
-        </div>
-      </div>
-      <div style={styles.fieldRow}>
-        <span>Progress Bar Style</span>
-        <select
-          value={settings.progressBarStyle}
-          onChange={(e) => config.set('progressBarStyle', e.target.value as ProgressBarStyle)}
-          style={styles.select}
-        >
-          {PROGRESS_BAR_STYLES.map(({ value, label }) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div style={styles.fieldRow}>
-        <span>UI Scale</span>
-        <select
-          value={settings.uiScale}
-          onChange={(e) => config.set('uiScale', e.target.value as UiScale)}
-          style={styles.select}
-        >
-          {UI_SCALES.map(({ value, label }) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-      {!isStandalone && (
+const InterfaceTab: React.FC<InterfaceTabProps> = ({ settings, config, isStandalone }) => {
+  const channel = useHostChannel()
+  const state = channel.getState()
+  const platform = state.platform
+  const desktopVersion = state.daemonInfo?.desktopVersion
+
+  return (
+    <div>
+      <Section title="Appearance">
         <div style={styles.fieldRow}>
-          <div style={{ flex: 1 }}>
-            <div>Window Mode</div>
-            <div style={{ fontSize: 'var(--font-xs, 12px)', color: 'var(--text-secondary)' }}>
-              Popup opens in a standalone window without browser chrome
-            </div>
+          <span>Theme</span>
+          <div style={styles.radioGroup}>
+            {(['system', 'dark', 'light'] as Theme[]).map((theme) => (
+              <label key={theme} style={styles.radioLabel}>
+                <input
+                  type="radio"
+                  name="theme"
+                  checked={settings.theme === theme}
+                  onChange={() => config.set('theme', theme)}
+                />
+                {theme.charAt(0).toUpperCase() + theme.slice(1)}
+              </label>
+            ))}
           </div>
+        </div>
+        <div style={styles.fieldRow}>
+          <span>Progress Bar Style</span>
           <select
-            value={settings.windowMode}
-            onChange={(e) => config.set('windowMode', e.target.value as WindowMode)}
+            value={settings.progressBarStyle}
+            onChange={(e) => config.set('progressBarStyle', e.target.value as ProgressBarStyle)}
             style={styles.select}
           >
-            <option value="popup">Popup Window</option>
-            <option value="tab">Browser Tab</option>
+            {PROGRESS_BAR_STYLES.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
         </div>
-      )}
-    </Section>
+        <div style={styles.fieldRow}>
+          <span>UI Scale</span>
+          <select
+            value={settings.uiScale}
+            onChange={(e) => config.set('uiScale', e.target.value as UiScale)}
+            style={styles.select}
+          >
+            {UI_SCALES.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+        {!isStandalone && (
+          <div style={styles.fieldRow}>
+            <div style={{ flex: 1 }}>
+              <div>Window Mode</div>
+              <div style={{ fontSize: 'var(--font-xs, 12px)', color: 'var(--text-secondary)' }}>
+                Popup opens in a standalone window without browser chrome
+              </div>
+            </div>
+            <select
+              value={settings.windowMode}
+              onChange={(e) => config.set('windowMode', e.target.value as WindowMode)}
+              style={styles.select}
+            >
+              <option value="popup">Popup Window</option>
+              <option value="tab">Browser Tab</option>
+            </select>
+          </div>
+        )}
+      </Section>
 
-    <Section title="Performance">
+      <Section title="Performance">
+        <div style={styles.fieldRow}>
+          <span>Max FPS</span>
+          <select
+            value={settings.maxFps}
+            onChange={(e) => config.set('maxFps', Number(e.target.value))}
+            style={styles.select}
+          >
+            {FPS_OPTIONS.map((fps) => (
+              <option key={fps} value={fps}>
+                {fps === 0 ? 'Match refresh rate' : fps}
+              </option>
+            ))}
+          </select>
+        </div>
+      </Section>
+
+      {platform === 'desktop' && !isStandalone && desktopVersion && (
+        <DesktopAppSection desktopVersion={desktopVersion} channel={channel} />
+      )}
+    </div>
+  )
+}
+
+/** "Desktop App" section shown in Interface tab when extension is connected to desktop host. */
+function DesktopAppSection({
+  desktopVersion,
+  channel,
+}: {
+  desktopVersion: string
+  channel: HostChannel
+}) {
+  const [launching, setLaunching] = useState(false)
+
+  const handleLaunch = async () => {
+    setLaunching(true)
+    try {
+      await channel.launchDesktop()
+    } catch {
+      // Ignore — bridge will disconnect when native host is killed
+    }
+    // Don't reset launching — the extension will disconnect shortly
+  }
+
+  return (
+    <Section title="Desktop App">
+      <div style={{ color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md, 12px)' }}>
+        You can also use JSTorrent as a standalone desktop app.
+      </div>
       <div style={styles.fieldRow}>
-        <span>Max FPS</span>
-        <select
-          value={settings.maxFps}
-          onChange={(e) => config.set('maxFps', Number(e.target.value))}
-          style={styles.select}
-        >
-          {FPS_OPTIONS.map((fps) => (
-            <option key={fps} value={fps}>
-              {fps === 0 ? 'Match refresh rate' : fps}
-            </option>
-          ))}
-        </select>
+        <span style={{ flex: 1 }}>v{desktopVersion} installed</span>
+        <button onClick={handleLaunch} disabled={launching} style={styles.checkUpdatesButton}>
+          {launching ? 'Opening...' : 'Open Desktop App'}
+        </button>
       </div>
     </Section>
-  </div>
-)
+  )
+}
 
 interface NetworkTabProps extends TabProps {
   engineManager: IEngineManager

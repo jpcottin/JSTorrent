@@ -79,7 +79,7 @@ pub fn record_check_time(kv: &KvStore) {
 /// On macOS: The Tauri app is installed as a .app bundle (typically /Applications/JSTorrent.app).
 /// On Windows: Same directory as the native host binary (JSTorrent.exe).
 /// On Linux: Same directory as the native host binary (`JSTorrent` or `jstorrent`).
-fn find_tauri_app_path() -> Result<PathBuf> {
+pub(crate) fn find_tauri_app_path() -> Result<PathBuf> {
     let exe_path = std::env::current_exe()?;
     let exe_dir = exe_path
         .parent()
@@ -187,6 +187,57 @@ async fn wait_with_timeout(
             anyhow::bail!("Tauri updater timed out after {timeout:?}")
         }
     }
+}
+
+/// Launch the Tauri desktop app with --force-desktop and optional --profile.
+/// Fire-and-forget: spawns the process detached and returns immediately.
+pub(crate) fn launch_desktop_app(profile_id: Option<&str>) -> Result<()> {
+    let app_path = find_tauri_app_path()?;
+    crate::log!(
+        "Launching Tauri desktop app: {} (profile: {:?})",
+        app_path.display(),
+        profile_id
+    );
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = std::process::Command::new("open");
+        cmd.arg("-a")
+            .arg(&app_path)
+            .arg("--args")
+            .arg("--force-desktop");
+        if let Some(pid) = profile_id {
+            cmd.arg("--profile").arg(pid);
+        }
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .with_context(|| {
+                format!(
+                    "Failed to launch Tauri desktop app via open: {}",
+                    app_path.display()
+                )
+            })?;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mut cmd = std::process::Command::new(&app_path);
+        cmd.arg("--force-desktop");
+        if let Some(pid) = profile_id {
+            cmd.arg("--profile").arg(pid);
+        }
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .with_context(|| {
+                format!("Failed to launch Tauri desktop app: {}", app_path.display())
+            })?;
+    }
+
+    Ok(())
 }
 
 /// Read the result file written by the headless Tauri updater.

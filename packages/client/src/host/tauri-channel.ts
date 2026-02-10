@@ -531,6 +531,12 @@ export class TauriChannel implements HostChannel {
     return false
   }
 
+  // --- Desktop app ---
+
+  async launchDesktop(): Promise<boolean> {
+    return false // Already in the desktop app
+  }
+
   // --- Profile management ---
 
   async listProfiles(): Promise<ProfileListEntry[]> {

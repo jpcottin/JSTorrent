@@ -99,6 +99,9 @@ pub enum Operation {
         path: String,
     },
 
+    // Launch the Tauri desktop app
+    LaunchDesktop,
+
     // Profile management (no handshake required)
     ListProfiles,
     RenameProfile {
@@ -245,6 +248,7 @@ impl fmt::Display for Operation {
                 write!(f, "KvClear {}", prefix.as_deref().unwrap_or("(all)"))
             }
             Operation::ReadTorrentFile { path } => write!(f, "ReadTorrentFile {path}"),
+            Operation::LaunchDesktop => write!(f, "LaunchDesktop"),
             Operation::ListProfiles => write!(f, "ListProfiles"),
             Operation::RenameProfile {
                 profile_id,

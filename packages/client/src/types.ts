@@ -31,6 +31,8 @@ export interface DaemonInfo {
   streamingPort?: number
   /** Profile ID assigned by the native host */
   profileId?: string
+  /** Tauri desktop app version (if installed), reported by native host */
+  desktopVersion?: string
 }
 
 export interface DownloadRoot {

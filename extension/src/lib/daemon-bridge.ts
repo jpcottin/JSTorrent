@@ -629,6 +629,16 @@ export class DaemonBridge {
   }
 
   /**
+   * Launch the Tauri desktop app via the native host.
+   * Desktop only — returns false on ChromeOS.
+   */
+  async launchDesktop(): Promise<boolean> {
+    if (this.state.platform !== 'desktop') return false
+    const response = await this.sendNativeRequest('launchDesktop', {})
+    return response.ok
+  }
+
+  /**
    * List all profiles from the native host discovery file.
    * Desktop only — returns empty array on ChromeOS.
    */

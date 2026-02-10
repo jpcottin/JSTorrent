@@ -76,6 +76,10 @@ export interface HostChannel {
   checkForUpdates(): Promise<UpdateCheckResult | null>
   installUpdate(): Promise<boolean>
 
+  // --- Desktop app ---
+  /** Launch the Tauri desktop app from the extension. Desktop only. */
+  launchDesktop(): Promise<boolean>
+
   // --- Profile management ---
   listProfiles(): Promise<ProfileListEntry[]>
   renameProfile(profileId: string, displayName: string): Promise<boolean>

@@ -73,6 +73,12 @@ fn fatal_error(message: &str) -> ! {
     std::process::exit(1);
 }
 
+/// CLI launch args parsed at startup for --force-desktop / --profile.
+struct LaunchArgs {
+    force_desktop: bool,
+    profile_id: Option<String>,
+}
+
 struct HostBridge {
     stdin: Mutex<ChildStdin>,
     pending: Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>,
@@ -534,18 +540,45 @@ fn run_stdout_reader(stdout: &mut ChildStdout, bridge: &HostBridge, app_handle: 
 #[tauri::command]
 async fn host_handshake(
     state: tauri::State<'_, Arc<HostBridge>>,
+    launch_args: tauri::State<'_, LaunchArgs>,
     profile_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    // CLI --profile overrides frontend-provided profileId
+    let effective_profile = launch_args.profile_id.clone().or(profile_id);
+
     let mut msg = serde_json::json!({
         "op": "handshake",
         "extensionId": "tauri-desktop",
         "clientType": "tauri",
         "clientVersion": env!("CARGO_PKG_VERSION"),
     });
-    if let Some(pid) = profile_id {
-        msg["profileId"] = serde_json::Value::String(pid);
+    if let Some(pid) = &effective_profile {
+        msg["profileId"] = serde_json::Value::String(pid.clone());
     }
-    state.request(msg).await
+    let response = state.request(msg).await?;
+
+    // If --force-desktop and profile is in use, auto-send takeOver
+    if launch_args.force_desktop {
+        let is_in_use = response
+            .get("error")
+            .and_then(|e| e.as_str())
+            .is_some_and(|e| e == "profile_in_use");
+        if is_in_use {
+            eprintln!("--force-desktop: profile in use, sending takeOver");
+            let mut takeover_msg = serde_json::json!({
+                "op": "takeOver",
+                "extensionId": "tauri-desktop",
+                "clientType": "tauri",
+                "clientVersion": env!("CARGO_PKG_VERSION"),
+            });
+            if let Some(pid) = &effective_profile {
+                takeover_msg["profileId"] = serde_json::Value::String(pid.clone());
+            }
+            return state.request(takeover_msg).await;
+        }
+    }
+
+    Ok(response)
 }
 
 #[tauri::command]
@@ -790,6 +823,13 @@ pub fn run() {
         return;
     }
 
+    // Parse --force-desktop and --profile <id>
+    let force_desktop = args.iter().any(|a| a == "--force-desktop");
+    let cli_profile_id = args
+        .iter()
+        .position(|a| a == "--profile")
+        .and_then(|i| args.get(i + 1).cloned());
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Second instance launched (e.g., magnet link clicked on Windows/Linux).
@@ -839,11 +879,17 @@ pub fn run() {
                 // else: let window destroy (stops downloads), tray stays
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
             // Auto-updater
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
+
+            // Store CLI launch args
+            app.manage(LaunchArgs {
+                force_desktop,
+                profile_id: cli_profile_id,
+            });
 
             // Settings
             let settings = load_settings(app.handle());
@@ -1053,12 +1099,19 @@ pub fn run() {
             // If the routing heuristic says extension, open the launch URL and
             // exit immediately. No sidecar, no tray, no event loop needed —
             // the extension launches its own native host.
+            // Skip this entirely when --force-desktop is set (launched from extension).
+            let launch_args = app.state::<LaunchArgs>();
+            let skip_extension_routing = launch_args.force_desktop;
             let startup_settings = app.state::<Mutex<Settings>>().lock().unwrap().clone();
-            let startup_action = determine_startup_action(
-                startup_routed_to_extension,
-                &read_rpc_info(),
-                &startup_settings,
-            );
+            let startup_action = if skip_extension_routing {
+                StartupAction::ShowDesktop
+            } else {
+                determine_startup_action(
+                    startup_routed_to_extension,
+                    &read_rpc_info(),
+                    &startup_settings,
+                )
+            };
             if !matches!(startup_action, StartupAction::ShowDesktop) {
                 // Register native messaging manifests so the extension can find
                 // the native host binary (important on first install).
