@@ -424,6 +424,87 @@ tasks.named("preBuild") {
 
 ---
 
+## Distribution Strategy
+
+### The "No Storefront" Problem
+
+The Chrome extension has a natural trust anchor (Chrome Web Store) with reviews, ratings, and Google's approval. The Tauri desktop app lacks this — it's distributed via GitHub Releases with no centralized discovery or social proof.
+
+### Package Managers (Trust + Discovery)
+
+| Platform | Package Manager | Notes |
+|----------|----------------|-------|
+| macOS | Homebrew cask | High trust in developer community. Submit formula via PR, automate updates with `brew bump-cask-pr` in release CI. |
+| Windows | winget | Ships with Windows 10/11. Submit manifest via PR to `microsoft/winget-pkgs`, automate with `komac` in CI. |
+| Linux | Flatpak / Snap / Homebrew | Broader reach. Flatpak for sandboxed desktop apps. |
+
+CI automation: after release artifacts are published, a final job submits PRs to update the cask/winget manifest (version + SHA256). Initial submission is manual; version bumps are automated.
+
+### Microsoft Store (Paid Support Channel)
+
+Win32 apps can be packaged as MSIX and submitted to the Microsoft Store with minimal sandboxing restrictions. Torrent clients are allowed.
+
+- 15% revenue share
+- Use as a "support the author" paid listing — identical to the free version
+- Store-managed auto-updates as a minor perk
+- Lower friction than Mac App Store — no sandboxing concerns for networking
+
+### Remote Control & App Store Strategy
+
+#### Built-in Remote Control (All Platforms)
+
+Every JSTorrent instance (desktop, Android, headless) exposes a remote control API. This is a first-class feature, not a workaround for store policies.
+
+```
+┌─────────────────┐         ┌───────────────────┐         ┌─────────────────┐
+│  Remote Control │         │   SRP Relay        │         │  JSTorrent      │
+│  App            │◄───────►│   (WebSocket)      │◄───────►│  Instance       │
+│  (Mac/iOS/web)  │  E2E    │                    │  E2E    │  (any platform) │
+└─────────────────┘  enc.   └───────────────────┘  enc.   └─────────────────┘
+```
+
+**Protocol:**
+- WebSocket transport via SRP relay (NAT traversal, no port forwarding)
+- SRP-6a authentication (zero-knowledge password proof — relay never sees credentials)
+- E2E encryption (TweetNaCl — relay is a dumb pipe, cannot read traffic)
+- HTTP-like request/response multiplexed over the encrypted channel
+- Auto-detects local instances and connects directly (skips relay)
+
+**Relay infrastructure:** Existing `yepanywhere` relay server (Node.js, `ws`, `better-sqlite3`). Can self-host or use a hosted relay.
+
+#### Mac App Store
+
+Apple does not allow torrent clients — only remote control apps. Because remote control is a genuine feature of every JSTorrent instance, a **native SwiftUI remote control app** is defensible:
+
+- Connects to any JSTorrent instance (local or remote) via the same SRP relay protocol
+- Auto-discovers local running instance, connects directly without relay
+- Manages multiple instances (home desktop, headless server, Android phone)
+- Works standalone for library management / torrent metadata browsing
+- "For full download capability, install JSTorrent from jstorrent.com" — links to website are fine
+- Desktop daemon also installable via `brew install jstorrent`
+- Free listing for discovery, or paid as a "support the author" purchase
+- 30% cut (15% under Small Business Program < $1M/year)
+
+**Why this stands out:** Most torrent remote-control apps in the Mac App Store are for controlling seedboxes. JSTorrent's remote control talks to locally-installed instances too — making it the closest thing to a native torrent client on the Mac App Store.
+
+#### iOS App Store
+
+Same app, same justification. A SwiftUI remote control app for iPhone/iPad that controls any JSTorrent instance via the relay. Useful for monitoring downloads, adding torrents on the go, managing a headless instance.
+
+#### Microsoft Store
+
+Win32 apps can be packaged as MSIX with minimal sandboxing restrictions. Torrent clients are allowed directly.
+
+- 15% revenue share
+- Use as a "support the author" paid listing — identical to the free version
+- Store-managed auto-updates as a minor perk
+
+### Chrome Extension
+
+The extension has the strongest distribution story: Chrome Web Store provides discovery, reviews, and Google's trust anchor. The desktop app offers browser independence and background downloads without Chrome running. Different users will prefer different form factors.
+
+---
+
 ## References
 
 - [QuickJS](https://bellard.org/quickjs/) - Fabrice Bellard's lightweight JS engine
