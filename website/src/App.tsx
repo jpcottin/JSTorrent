@@ -381,7 +381,6 @@ function App() {
           <p className="text-muted">Checking...</p>
         )}
       </section>
-
     </div>
   )
 }
