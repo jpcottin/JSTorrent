@@ -1102,7 +1102,7 @@ async function handleLaunchPing(
     console.log('[SW] launch-ping: adding magnet')
     const event: NativeEvent = {
       event: 'MagnetAdded',
-      payload: { magnet: message.magnet },
+      payload: { link: message.magnet },
     }
     await sendToUI(event)
     incrementTorrentsAdded().catch((e) => console.error('[SW] Failed to track torrent added:', e))
