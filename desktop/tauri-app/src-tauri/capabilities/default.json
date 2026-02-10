@@ -17,6 +17,7 @@
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
-    "dialog:default"
+    "dialog:default",
+    "window-state:default"
   ]
 }
