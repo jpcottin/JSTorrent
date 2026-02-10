@@ -46,20 +46,6 @@ jobs:
       - name: Install Dependencies
         run: pnpm install
 
-      - name: Fetch latest system-bridge release
-        id: bridge-release
-        run: |
-          TAG=$(gh release list --json tagName -q '[.[] | select(.tagName | startswith("system-bridge-v"))][0].tagName // empty')
-          if [ -n "$TAG" ]; then
-            echo "tag=${TAG#system-bridge-}" >> $GITHUB_OUTPUT
-            echo "Found latest system-bridge release: $TAG"
-          else
-            echo "tag=v0.1.12" >> $GITHUB_OUTPUT
-            echo "No system-bridge release found, using fallback"
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Fetch latest tauri-app release
         id: tauri-release
         run: |
@@ -79,7 +65,6 @@ jobs:
           cd website
           pnpm run build
         env:
-          VITE_SYSTEM_BRIDGE_TAG: ${{ steps.bridge-release.outputs.tag }}
           VITE_TAURI_APP_TAG: ${{ steps.tauri-release.outputs.tag }}
 
       - name: Upload artifact
