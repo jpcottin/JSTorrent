@@ -206,7 +206,7 @@ bridge.onEvent(async (event: NativeEvent) => {
   }
 })
 
-// Forward state changes to UI
+// Forward state changes to UI + handle pending torrent file reads
 bridge.subscribe((state: DaemonBridgeState) => {
   if (primaryUIPort) {
     console.log('[SW] Forwarding state change to UI:', state.status)
@@ -217,6 +217,10 @@ bridge.subscribe((state: DaemonBridgeState) => {
         hasEverConnected: hasConnected,
       })
     })
+  }
+  // When bridge becomes connected, check for pending torrent file paths
+  if (state.status === 'connected') {
+    readPendingTorrentFile()
   }
 })
 
@@ -1072,6 +1076,87 @@ async function handleStatusRequest(
 }
 
 // ============================================================================
+// Launch Ping Handler (magnet/torrent routing from Tauri via launch page)
+// ============================================================================
+
+const PENDING_TORRENT_PATH_KEY = 'pending:torrentFilePath'
+
+async function handleLaunchPing(
+  message: { token?: string; magnet?: string; torrentPath?: string },
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response: unknown) => void,
+): Promise<void> {
+  // Validate token if provided
+  if (message.token) {
+    const expectedToken = bridge.getAddToken()
+    if (expectedToken && message.token !== expectedToken) {
+      console.warn('[SW] launch-ping: invalid token')
+      sendResponse({ ok: false, error: 'invalid_token' })
+      return
+    }
+  }
+  // No token: accepted (launch.html already showed confirmation prompt)
+
+  // Handle magnet link
+  if (message.magnet) {
+    console.log('[SW] launch-ping: adding magnet')
+    const event: NativeEvent = {
+      event: 'MagnetAdded',
+      payload: { magnet: message.magnet },
+    }
+    await sendToUI(event)
+    incrementTorrentsAdded().catch((e) => console.error('[SW] Failed to track torrent added:', e))
+  }
+
+  // Handle torrent file path — store for bridge pickup
+  if (message.torrentPath) {
+    console.log('[SW] launch-ping: storing torrent path for bridge pickup:', message.torrentPath)
+    await chrome.storage.session.set({ [PENDING_TORRENT_PATH_KEY]: message.torrentPath })
+  }
+
+  // Open UI tab, then close the launch tab
+  await openUiTab()
+  sendResponse({ ok: true })
+
+  if (sender.tab?.id) {
+    chrome.tabs.remove(sender.tab.id).catch((err) => {
+      console.log('Could not close launch tab:', err)
+    })
+  }
+
+  // If we have a pending torrent path and bridge is connected, read it now
+  if (message.torrentPath && bridge.getState().status === 'connected') {
+    readPendingTorrentFile()
+  }
+}
+
+async function readPendingTorrentFile(): Promise<void> {
+  const stored = await chrome.storage.session.get(PENDING_TORRENT_PATH_KEY)
+  const path = stored[PENDING_TORRENT_PATH_KEY] as string | undefined
+  if (!path) return
+
+  console.log('[SW] Reading pending torrent file:', path)
+  const result = await bridge.readTorrentFile(path)
+  if (result.ok && result.contentsBase64) {
+    // Clear the pending path
+    await chrome.storage.session.remove(PENDING_TORRENT_PATH_KEY)
+
+    const event: NativeEvent = {
+      event: 'TorrentAdded',
+      payload: {
+        name: result.name,
+        contentsBase64: result.contentsBase64,
+      },
+    }
+    await sendToUI(event)
+    incrementTorrentsAdded().catch((e) => console.error('[SW] Failed to track torrent added:', e))
+    openUiTab()
+  } else {
+    console.error('[SW] Failed to read torrent file:', result.error)
+  }
+}
+
+// ============================================================================
 // External messages (from jstorrent.com launch page or localhost dev server)
 // ============================================================================
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
@@ -1089,17 +1174,9 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     return true // async response
   }
 
-  // Launch ping from website
+  // Launch ping from website (with optional magnet/torrent routing)
   if (message.type === 'launch-ping') {
-    openUiTab().then(() => {
-      sendResponse({ ok: true })
-      // Close the launch page tab if we have access to it
-      if (sender.tab?.id) {
-        chrome.tabs.remove(sender.tab.id).catch((err) => {
-          console.log('Could not close launch tab:', err)
-        })
-      }
-    })
+    handleLaunchPing(message, sender, sendResponse)
     return true
   }
 

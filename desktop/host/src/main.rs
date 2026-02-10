@@ -360,12 +360,15 @@ async fn do_handshake(
             .and_then(|info| info.download_roots.clone())
             .unwrap_or_default();
 
+        let add_token = crate::rpc::read_discovery_file().add_token;
+
         Ok(ResponsePayload::DaemonInfo {
             profile_id: resolved_profile_id,
             port,
             token,
             version: env!("CARGO_PKG_VERSION").to_string(),
             roots,
+            add_token,
         })
     } else {
         Err(anyhow::anyhow!("Daemon not running"))

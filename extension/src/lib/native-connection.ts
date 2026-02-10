@@ -29,6 +29,8 @@ export interface DaemonInfo {
   streamingPort?: number
   /** Profile ID assigned by the native host */
   profileId?: string
+  /** Token for validating magnet/torrent routing from Tauri launch page */
+  addToken?: string
 }
 
 // Response types from native host

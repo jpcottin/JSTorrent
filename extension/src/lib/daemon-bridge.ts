@@ -228,6 +228,32 @@ export class DaemonBridge {
   }
 
   /**
+   * Get the add_token for validating launch page requests.
+   * Returns the token from the native host handshake, or null if not connected.
+   */
+  getAddToken(): string | null {
+    return this.state.daemonInfo?.addToken ?? null
+  }
+
+  /**
+   * Read a .torrent file via the native host.
+   * Desktop only — returns error on ChromeOS.
+   */
+  async readTorrentFile(
+    path: string,
+  ): Promise<{ ok: boolean; name?: string; contentsBase64?: string; error?: string }> {
+    if (this.state.platform !== 'desktop') {
+      return { ok: false, error: 'readTorrentFile only available on desktop' }
+    }
+    const response = await this.sendNativeRequestFull('readTorrentFile', { path })
+    if (response.ok && response.type === 'TorrentFileContents') {
+      const payload = response.payload as { name?: string; contentsBase64?: string }
+      return { ok: true, name: payload?.name, contentsBase64: payload?.contentsBase64 }
+    }
+    return { ok: false, error: (response.error as string) ?? 'Unknown error' }
+  }
+
+  /**
    * Trigger Android app launch (ChromeOS only).
    * Opens launch intent then polls for daemon and initiates pairing.
    */
@@ -707,6 +733,45 @@ export class DaemonBridge {
         resolved = true
         clearTimeout(timeout)
         resolve({ ok: response.ok ?? false, error: response.error })
+      }
+
+      this.nativePort!.onMessage.addListener(handler)
+      this.nativePort!.postMessage({ op, ...params, id: requestId })
+    })
+  }
+
+  /**
+   * Helper to send a request to the native host and return the full response object.
+   */
+  private async sendNativeRequestFull(
+    op: string,
+    params: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (!this.nativePort) {
+      return { ok: false, error: 'Not connected' }
+    }
+
+    return new Promise((resolve) => {
+      const requestId = crypto.randomUUID()
+      let resolved = false
+
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true
+          resolve({ ok: false, error: 'Request timed out' })
+        }
+      }, 10000)
+
+      const handler = (msg: unknown) => {
+        if (resolved) return
+        if (typeof msg !== 'object' || msg === null) return
+        const response = msg as Record<string, unknown>
+
+        if (response.id !== requestId) return
+
+        resolved = true
+        clearTimeout(timeout)
+        resolve(response)
       }
 
       this.nativePort!.onMessage.addListener(handler)

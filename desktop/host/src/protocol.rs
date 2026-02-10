@@ -148,6 +148,8 @@ pub enum ResponsePayload {
         token: String,
         version: String,
         roots: Vec<DownloadRoot>,
+        #[serde(rename = "addToken", skip_serializing_if = "Option::is_none")]
+        add_token: Option<String>,
     },
     Path {
         path: String,
