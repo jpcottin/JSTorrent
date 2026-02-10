@@ -2,6 +2,15 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.20]
+
+- Add magnet/torrent routing: tray menu with routing options, desktop activation marking, launch page token routing
+- Launch desktop app from extension settings
+- Report desktop app version through extension to website
+- Add native Tauri folder picker dialog and platform-specific notifications
+- Fix default startup action
+- Fix magnet link handling
+
 ## [0.1.19]
 
 - Add profile picker UI: list, rename, and switch profiles from Settings > Profiles tab
