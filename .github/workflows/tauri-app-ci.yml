@@ -222,7 +222,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#tauri-app-v}"
           TARGET="${{ matrix.rust_target }}"
           ARCH=$([[ "$TARGET" = "aarch64-apple-darwin" ]] && echo "aarch64" || echo "x64")
-          APP_PATH="desktop/tauri-app/src-tauri/target/$TARGET/release/bundle/macos/JSTorrent.app"
+          APP_PATH="desktop/target/$TARGET/release/bundle/macos/JSTorrent.app"
           bash desktop/tauri-app/scripts/build-macos-pkg.sh "$APP_PATH" "$VERSION" "$ARCH"
 
       - name: Notarize .pkg installer
