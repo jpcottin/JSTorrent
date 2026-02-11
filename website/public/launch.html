@@ -226,7 +226,12 @@
 
       console.log('Launch page loaded at', new Date().toISOString())
 
-      if (window.chrome && window.chrome.runtime) {
+      // ?desktop=true — redirect straight to desktop app deep link
+      if (new URLSearchParams(window.location.search).get('desktop') === 'true') {
+        document.querySelector('h1').textContent = 'Opening Desktop App...'
+        updateStatus('Redirecting to JSTorrent desktop app...', 'success')
+        window.location.href = getDesktopLaunchUrl()
+      } else if (window.chrome && window.chrome.runtime) {
         const params = parseHashParams()
         const hasMagnet = !!params.magnet
         const hasTorrent = !!params.torrent

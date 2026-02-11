@@ -3,7 +3,13 @@
   "name": "JSTorrent",
   "version": "1.0.2",
   "description": "BitTorrent client for Chrome. Download torrents directly from your browser.",
-  "permissions": ["nativeMessaging", "storage", "notifications", "unlimitedStorage"],
+  "permissions": [
+    "nativeMessaging",
+    "storage",
+    "notifications",
+    "unlimitedStorage",
+    "contextMenus"
+  ],
   "optional_permissions": ["power"],
   "background": {
     "service_worker": "sw.js",

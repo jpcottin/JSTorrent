@@ -284,6 +284,11 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.runtime.onInstalled.addListener((details) => {
   console.log(`[SW] onInstalled fired at ${new Date().toISOString()} - reason: ${details.reason}`)
+  chrome.contextMenus.create({
+    id: 'open-in-desktop',
+    title: 'Open in desktop app',
+    contexts: ['action'],
+  })
 })
 
 // ============================================================================
@@ -314,6 +319,13 @@ async function openUiTab() {
 // Handle extension icon click
 chrome.action.onClicked.addListener(() => {
   openUiTab()
+})
+
+// Handle right-click context menu on extension icon
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId === 'open-in-desktop') {
+    chrome.tabs.create({ url: 'https://new.jstorrent.com/launch?desktop=true' })
+  }
 })
 
 // ============================================================================
