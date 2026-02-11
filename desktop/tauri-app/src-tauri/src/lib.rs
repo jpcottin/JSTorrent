@@ -143,6 +143,9 @@ struct Settings {
     run_in_background: bool,
     #[serde(default)]
     magnet_handler: MagnetHandler,
+    /// Show tray icon in macOS menu bar. Ignored on other platforms.
+    #[serde(default = "default_true")]
+    show_in_menu_bar: bool,
 }
 
 fn default_true() -> bool {
@@ -155,6 +158,7 @@ impl Default for Settings {
             autostart: false,
             run_in_background: true,
             magnet_handler: MagnetHandler::Auto,
+            show_in_menu_bar: true,
         }
     }
 }
@@ -698,6 +702,76 @@ fn format_bytes(bytes: f64) -> String {
     }
 }
 
+fn handle_menu_event(
+    app: &tauri::AppHandle,
+    event_id: &str,
+    magnet_desktop: &CheckMenuItem<tauri::Wry>,
+    magnet_extension: &CheckMenuItem<tauri::Wry>,
+    magnet_auto: &CheckMenuItem<tauri::Wry>,
+) {
+    match event_id {
+        "show" => {
+            show_main_window(app);
+        }
+        "open-extension" => {
+            let _ = app
+                .opener()
+                .open_url("https://new.jstorrent.com/launch", None::<&str>);
+        }
+        "check-updates" => {
+            show_main_window(app);
+            let _ = app.emit("check-for-updates", ());
+        }
+        "autostart" => {
+            let state = app.state::<Mutex<Settings>>();
+            let mut s = state.lock().unwrap();
+            s.autostart = !s.autostart;
+            if s.autostart {
+                let _ = app.autolaunch().enable();
+            } else {
+                let _ = app.autolaunch().disable();
+            }
+            save_settings(app, &s);
+        }
+        "run-in-background" => {
+            let state = app.state::<Mutex<Settings>>();
+            let mut s = state.lock().unwrap();
+            s.run_in_background = !s.run_in_background;
+            save_settings(app, &s);
+        }
+        "magnet-desktop" | "magnet-extension" | "magnet-auto" => {
+            let handler = match event_id {
+                "magnet-desktop" => MagnetHandler::Desktop,
+                "magnet-extension" => MagnetHandler::Extension,
+                _ => MagnetHandler::Auto,
+            };
+            let _ = magnet_desktop.set_checked(handler == MagnetHandler::Desktop);
+            let _ = magnet_extension.set_checked(handler == MagnetHandler::Extension);
+            let _ = magnet_auto.set_checked(handler == MagnetHandler::Auto);
+            let state = app.state::<Mutex<Settings>>();
+            let mut s = state.lock().unwrap();
+            s.magnet_handler = handler;
+            save_settings(app, &s);
+        }
+        #[cfg(target_os = "macos")]
+        "show-in-menu-bar" => {
+            let state = app.state::<Mutex<Settings>>();
+            let mut s = state.lock().unwrap();
+            s.show_in_menu_bar = !s.show_in_menu_bar;
+            let visible = s.show_in_menu_bar;
+            save_settings(app, &s);
+            drop(s);
+            if let Some(tray) = app.tray_by_id("tray") {
+                let _ = tray.set_visible(visible);
+            }
+        }
+        "quit" => {
+            app.exit(0);
+        }
+        _ => {}
+    }
+}
+
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn update_tray_stats(app: tauri::AppHandle, stats: serde_json::Value) {
@@ -895,145 +969,195 @@ pub fn run() {
             let settings = load_settings(app.handle());
             app.manage(Mutex::new(settings.clone()));
 
-            // System tray
-            let show_i = MenuItem::with_id(app, "show", "Show App", true, None::<&str>)?;
-            let open_ext_i =
-                MenuItem::with_id(app, "open-extension", "Open Extension", true, None::<&str>)?;
-            let update_i = MenuItem::with_id(
-                app,
-                "check-updates",
-                "Check for Updates",
-                true,
-                None::<&str>,
-            )?;
-            let autostart_i = CheckMenuItem::with_id(
-                app,
-                "autostart",
-                "Start at Login",
-                true,
-                settings.autostart,
-                None::<&str>,
-            )?;
-            let background_i = CheckMenuItem::with_id(
-                app,
-                "run-in-background",
-                "Run in Background",
-                true,
-                settings.run_in_background,
-                None::<&str>,
-            )?;
-            let magnet_desktop_i = CheckMenuItem::with_id(
-                app,
-                "magnet-desktop",
-                "Desktop App",
-                true,
-                settings.magnet_handler == MagnetHandler::Desktop,
-                None::<&str>,
-            )?;
-            let magnet_extension_i = CheckMenuItem::with_id(
-                app,
-                "magnet-extension",
-                "Browser Extension",
-                true,
-                settings.magnet_handler == MagnetHandler::Extension,
-                None::<&str>,
-            )?;
-            let magnet_auto_i = CheckMenuItem::with_id(
-                app,
-                "magnet-auto",
-                "Auto",
-                true,
-                settings.magnet_handler == MagnetHandler::Auto,
-                None::<&str>,
-            )?;
-            let magnet_menu = SubmenuBuilder::new(app, "Handle Magnets")
-                .item(&magnet_desktop_i)
-                .item(&magnet_extension_i)
-                .item(&magnet_auto_i)
-                .build()?;
-            let settings_menu = SubmenuBuilder::new(app, "Settings")
-                .item(&autostart_i)
-                .item(&background_i)
-                .item(&magnet_menu)
-                .build()?;
-            let sep1 = PredefinedMenuItem::separator(app)?;
-            let sep2 = PredefinedMenuItem::separator(app)?;
-            let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(
-                app,
-                &[
-                    &show_i,
-                    &open_ext_i,
-                    &update_i,
-                    &sep1,
-                    &settings_menu,
-                    &sep2,
-                    &quit_i,
-                ],
-            )?;
+            // Helper: build the settings submenu items for a menu.
+            // Each menu needs its own item instances (macOS NSMenuItem can only
+            // have one parent), so we create fresh items per menu.
+            type SettingsMenuResult = Result<
+                (
+                    tauri::menu::Submenu<tauri::Wry>,
+                    CheckMenuItem<tauri::Wry>,
+                    CheckMenuItem<tauri::Wry>,
+                    CheckMenuItem<tauri::Wry>,
+                ),
+                Box<dyn std::error::Error>,
+            >;
+            let build_settings_menu =
+                |app: &tauri::App, settings: &Settings| -> SettingsMenuResult {
+                    let autostart_i = CheckMenuItem::with_id(
+                        app,
+                        "autostart",
+                        "Start at Login",
+                        true,
+                        settings.autostart,
+                        None::<&str>,
+                    )?;
+                    let background_i = CheckMenuItem::with_id(
+                        app,
+                        "run-in-background",
+                        "Run in Background",
+                        true,
+                        settings.run_in_background,
+                        None::<&str>,
+                    )?;
+                    let md = CheckMenuItem::with_id(
+                        app,
+                        "magnet-desktop",
+                        "Desktop App",
+                        true,
+                        settings.magnet_handler == MagnetHandler::Desktop,
+                        None::<&str>,
+                    )?;
+                    let me = CheckMenuItem::with_id(
+                        app,
+                        "magnet-extension",
+                        "Browser Extension",
+                        true,
+                        settings.magnet_handler == MagnetHandler::Extension,
+                        None::<&str>,
+                    )?;
+                    let ma = CheckMenuItem::with_id(
+                        app,
+                        "magnet-auto",
+                        "Auto",
+                        true,
+                        settings.magnet_handler == MagnetHandler::Auto,
+                        None::<&str>,
+                    )?;
+                    let magnet_menu = SubmenuBuilder::new(app, "Handle Magnets")
+                        .item(&md)
+                        .item(&me)
+                        .item(&ma)
+                        .build()?;
+                    let sub = SubmenuBuilder::new(app, "Settings")
+                        .item(&autostart_i)
+                        .item(&background_i)
+                        .item(&magnet_menu)
+                        .build()?;
+                    Ok((sub, md, me, ma))
+                };
 
-            let magnet_desktop_clone = magnet_desktop_i.clone();
-            let magnet_extension_clone = magnet_extension_i.clone();
-            let magnet_auto_clone = magnet_auto_i.clone();
+            // macOS native app menu bar (built first, before tray, so items
+            // don't get stolen from the tray menu by AppKit reparenting)
+            #[cfg(target_os = "macos")]
+            {
+                let (app_settings_menu, md, me, ma) = build_settings_menu(app, &settings)?;
+                let show_in_menu_bar_i = CheckMenuItem::with_id(
+                    app,
+                    "show-in-menu-bar",
+                    "Show in Menu Bar",
+                    true,
+                    settings.show_in_menu_bar,
+                    None::<&str>,
+                )?;
+                let app_submenu = SubmenuBuilder::new(app, "JSTorrent")
+                    .about(Some(tauri::menu::AboutMetadata {
+                        name: Some("JSTorrent".to_string()),
+                        version: Some(app.config().version.clone().unwrap_or_default()),
+                        website: Some("https://jstorrent.com".to_string()),
+                        ..Default::default()
+                    }))
+                    .separator()
+                    .items(&[
+                        &MenuItem::with_id(
+                            app,
+                            "check-updates",
+                            "Check for Updates",
+                            true,
+                            None::<&str>,
+                        )?,
+                        &MenuItem::with_id(
+                            app,
+                            "open-extension",
+                            "Open Extension",
+                            true,
+                            None::<&str>,
+                        )?,
+                    ])
+                    .separator()
+                    .item(&app_settings_menu)
+                    .item(&show_in_menu_bar_i)
+                    .separator()
+                    .hide()
+                    .hide_others()
+                    .show_all()
+                    .separator()
+                    .quit()
+                    .build()?;
+
+                let app_menu = Menu::with_items(app, &[&app_submenu])?;
+                app.on_menu_event(move |app, event| {
+                    handle_menu_event(app, event.id.as_ref(), &md, &me, &ma);
+                });
+                app.set_menu(app_menu)?;
+            }
+
+            // System tray (separate item instances — no sharing with app menu)
+            let (tray_settings_menu, tray_md, tray_me, tray_ma) =
+                build_settings_menu(app, &settings)?;
+            let tray_menu = {
+                let show_i = MenuItem::with_id(app, "show", "Show App", true, None::<&str>)?;
+                let open_ext_i =
+                    MenuItem::with_id(app, "open-extension", "Open Extension", true, None::<&str>)?;
+                let update_i = MenuItem::with_id(
+                    app,
+                    "check-updates",
+                    "Check for Updates",
+                    true,
+                    None::<&str>,
+                )?;
+                let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+                let sep1 = PredefinedMenuItem::separator(app)?;
+                let sep2 = PredefinedMenuItem::separator(app)?;
+
+                #[cfg(target_os = "macos")]
+                {
+                    let show_in_menu_bar_i = CheckMenuItem::with_id(
+                        app,
+                        "show-in-menu-bar",
+                        "Show in Menu Bar",
+                        true,
+                        settings.show_in_menu_bar,
+                        None::<&str>,
+                    )?;
+                    Menu::with_items(
+                        app,
+                        &[
+                            &show_i,
+                            &open_ext_i,
+                            &update_i,
+                            &sep1,
+                            &tray_settings_menu,
+                            &show_in_menu_bar_i,
+                            &sep2,
+                            &quit_i,
+                        ],
+                    )?
+                }
+
+                #[cfg(not(target_os = "macos"))]
+                Menu::with_items(
+                    app,
+                    &[
+                        &show_i,
+                        &open_ext_i,
+                        &update_i,
+                        &sep1,
+                        &tray_settings_menu,
+                        &sep2,
+                        &quit_i,
+                    ],
+                )?
+            };
 
             TrayIconBuilder::with_id("tray")
                 .tooltip("JSTorrent")
                 .icon(app.default_window_icon().unwrap().clone())
-                .menu(&menu)
+                .menu(&tray_menu)
                 .show_menu_on_left_click(cfg!(target_os = "macos"))
-                .on_menu_event(move |app, event| match event.id.as_ref() {
-                    "show" => {
-                        show_main_window(app);
-                    }
-                    "open-extension" => {
-                        let _ = app
-                            .opener()
-                            .open_url("https://new.jstorrent.com/launch", None::<&str>);
-                    }
-                    "check-updates" => {
-                        show_main_window(app);
-                        let _ = app.emit("check-for-updates", ());
-                    }
-                    "autostart" => {
-                        let state = app.state::<Mutex<Settings>>();
-                        let mut s = state.lock().unwrap();
-                        s.autostart = !s.autostart;
-                        if s.autostart {
-                            let _ = app.autolaunch().enable();
-                        } else {
-                            let _ = app.autolaunch().disable();
-                        }
-                        save_settings(app, &s);
-                    }
-                    "run-in-background" => {
-                        let state = app.state::<Mutex<Settings>>();
-                        let mut s = state.lock().unwrap();
-                        s.run_in_background = !s.run_in_background;
-                        save_settings(app, &s);
-                    }
-                    "magnet-desktop" | "magnet-extension" | "magnet-auto" => {
-                        let handler = match event.id.as_ref() {
-                            "magnet-desktop" => MagnetHandler::Desktop,
-                            "magnet-extension" => MagnetHandler::Extension,
-                            _ => MagnetHandler::Auto,
-                        };
-                        let _ = magnet_desktop_clone.set_checked(handler == MagnetHandler::Desktop);
-                        let _ =
-                            magnet_extension_clone.set_checked(handler == MagnetHandler::Extension);
-                        let _ = magnet_auto_clone.set_checked(handler == MagnetHandler::Auto);
-                        let state = app.state::<Mutex<Settings>>();
-                        let mut s = state.lock().unwrap();
-                        s.magnet_handler = handler;
-                        save_settings(app, &s);
-                    }
-                    "quit" => {
-                        app.exit(0);
-                    }
-                    _ => {}
+                .on_menu_event(move |app, event| {
+                    handle_menu_event(app, event.id.as_ref(), &tray_md, &tray_me, &tray_ma);
                 })
                 .on_tray_icon_event(|tray, event| {
-                    // On macOS, left-click opens the menu (standard menu bar behavior).
-                    // On Windows/Linux, left-click shows the window directly.
                     if !cfg!(target_os = "macos") {
                         if let TrayIconEvent::Click {
                             button: MouseButton::Left,
@@ -1046,6 +1170,14 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Hide tray icon if user disabled "Show in Menu Bar" (macOS only)
+            #[cfg(target_os = "macos")]
+            if !settings.show_in_menu_bar {
+                if let Some(tray) = app.tray_by_id("tray") {
+                    let _ = tray.set_visible(false);
+                }
+            }
 
             // Deep links
             let deep_link_state = DeepLinkState {
