@@ -731,19 +731,14 @@ fn handle_menu_event(app: &tauri::AppHandle, event_id: &str) {
             save_settings(app, &s);
         }
         "show-in-menu-bar" => {
-            eprintln!("handle_menu_event: show-in-menu-bar fired");
             let state = app.state::<Mutex<Settings>>();
             let mut s = state.lock().unwrap();
             s.show_in_menu_bar = !s.show_in_menu_bar;
             let visible = s.show_in_menu_bar;
-            eprintln!("handle_menu_event: show_in_menu_bar toggled to {visible}");
             save_settings(app, &s);
             drop(s);
             if let Some(tray) = app.tray_by_id("tray") {
-                let result = tray.set_visible(visible);
-                eprintln!("handle_menu_event: set_visible({visible}) = {result:?}");
-            } else {
-                eprintln!("handle_menu_event: tray not found!");
+                let _ = tray.set_visible(visible);
             }
         }
         "quit" => {
@@ -991,7 +986,7 @@ pub fn run() {
                 let show_in_menu_bar_i = CheckMenuItem::with_id(
                     app,
                     "show-in-menu-bar",
-                    "Show in Menu Bar",
+                    "Show Icon in Menu Bar",
                     true,
                     settings.show_in_menu_bar,
                     None::<&str>,
@@ -1032,9 +1027,6 @@ pub fn run() {
                     .build()?;
 
                 let app_menu = Menu::with_items(app, &[&app_submenu])?;
-                app.on_menu_event(move |app, event| {
-                    handle_menu_event(app, event.id.as_ref());
-                });
                 app.set_menu(app_menu)?;
             }
 
@@ -1060,7 +1052,7 @@ pub fn run() {
                     let show_in_menu_bar_i = CheckMenuItem::with_id(
                         app,
                         "show-in-menu-bar",
-                        "Show in Menu Bar",
+                        "Show Icon in Menu Bar",
                         true,
                         settings.show_in_menu_bar,
                         None::<&str>,
@@ -1095,14 +1087,19 @@ pub fn run() {
                 )?
             };
 
+            // Register a single global menu handler for both app-menu and
+            // tray-menu events.  Previously each menu had its own handler,
+            // which caused tray items to fire twice on macOS (once from
+            // app.on_menu_event, once from the tray's on_menu_event).
+            app.on_menu_event(move |app, event| {
+                handle_menu_event(app, event.id.as_ref());
+            });
+
             TrayIconBuilder::with_id("tray")
                 .tooltip("JSTorrent")
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&tray_menu)
                 .show_menu_on_left_click(cfg!(target_os = "macos"))
-                .on_menu_event(move |app, event| {
-                    handle_menu_event(app, event.id.as_ref());
-                })
                 .on_tray_icon_event(|tray, event| {
                     if !cfg!(target_os = "macos") {
                         if let TrayIconEvent::Click {
@@ -1117,7 +1114,7 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Hide tray icon if user disabled "Show in Menu Bar" (macOS only)
+            // Hide tray icon if user disabled "Show Icon in Menu Bar" (macOS only)
             #[cfg(target_os = "macos")]
             if !settings.show_in_menu_bar {
                 if let Some(tray) = app.tray_by_id("tray") {
