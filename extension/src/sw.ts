@@ -284,6 +284,8 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.runtime.onInstalled.addListener((details) => {
   console.log(`[SW] onInstalled fired at ${new Date().toISOString()} - reason: ${details.reason}`)
+  chrome.contextMenus.create({ id: 'open-in-tab', title: 'Open in tab', contexts: ['action'] })
+  chrome.contextMenus.create({ id: 'open-in-popup', title: 'Open in popup', contexts: ['action'] })
   chrome.contextMenus.create({
     id: 'open-in-desktop',
     title: 'Open in desktop app',
@@ -321,10 +323,38 @@ chrome.action.onClicked.addListener(() => {
   openUiTab()
 })
 
+// Close the extension UI tab/popup if open, returning whether one was found.
+async function closeUiTab(): Promise<boolean> {
+  const url = chrome.runtime.getURL('src/ui/app.html')
+  const contexts = await chrome.runtime.getContexts({})
+  const existing = contexts.find((c) => c.documentUrl === url)
+  if (existing?.tabId && existing.tabId !== -1) {
+    await chrome.tabs.remove(existing.tabId)
+    return true
+  }
+  return false
+}
+
 // Handle right-click context menu on extension icon
-chrome.contextMenus.onClicked.addListener((info) => {
-  if (info.menuItemId === 'open-in-desktop') {
-    chrome.tabs.create({ url: 'https://new.jstorrent.com/launch?desktop=true' })
+chrome.contextMenus.onClicked.addListener(async (info) => {
+  const url = chrome.runtime.getURL('src/ui/app.html')
+  if (info.menuItemId === 'open-in-tab') {
+    await closeUiTab()
+    await chrome.tabs.create({ url })
+  } else if (info.menuItemId === 'open-in-popup') {
+    await closeUiTab()
+    await chrome.windows.create({ url, type: 'popup', width: 1024, height: 768 })
+  } else if (info.menuItemId === 'open-in-desktop') {
+    await closeUiTab()
+    chrome.runtime.sendNativeMessage(
+      'com.jstorrent.native',
+      { id: 'launch-desktop', op: 'launchDesktop' },
+      () => {
+        if (chrome.runtime.lastError) {
+          console.error('[SW] LaunchDesktop failed:', chrome.runtime.lastError.message)
+        }
+      },
+    )
   }
 })
 
