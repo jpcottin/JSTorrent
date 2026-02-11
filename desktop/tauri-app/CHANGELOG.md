@@ -2,6 +2,10 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.21]
+
+- Remember window position across restarts
+
 ## [0.1.20]
 
 - Add magnet/torrent routing: tray menu with routing options, desktop activation marking, launch page token routing
