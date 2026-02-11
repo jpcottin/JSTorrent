@@ -736,9 +736,7 @@ fn handle_menu_event(app: &tauri::AppHandle, event_id: &str) {
             let mut s = state.lock().unwrap();
             s.show_in_menu_bar = !s.show_in_menu_bar;
             let visible = s.show_in_menu_bar;
-            eprintln!(
-                "handle_menu_event: show_in_menu_bar toggled to {visible}"
-            );
+            eprintln!("handle_menu_event: show_in_menu_bar toggled to {visible}");
             save_settings(app, &s);
             drop(s);
             if let Some(tray) = app.tray_by_id("tray") {
@@ -958,9 +956,11 @@ pub fn run() {
             // Each menu needs its own item instances (macOS NSMenuItem can only
             // have one parent), so we create fresh items per menu.
             let build_settings_menu = |app: &tauri::App,
-                                      settings: &Settings|
-             -> Result<tauri::menu::Submenu<tauri::Wry>, Box<dyn std::error::Error>>
-            {
+                                       settings: &Settings|
+             -> Result<
+                tauri::menu::Submenu<tauri::Wry>,
+                Box<dyn std::error::Error>,
+            > {
                 let autostart_i = CheckMenuItem::with_id(
                     app,
                     "autostart",
@@ -1514,7 +1514,8 @@ mod tests {
     #[test]
     fn test_settings_serde_backward_compat() {
         // Old settings with magnet_handler field should still deserialize
-        let json = r#"{"autostart": false, "run_in_background": true, "magnet_handler": "desktop"}"#;
+        let json =
+            r#"{"autostart": false, "run_in_background": true, "magnet_handler": "desktop"}"#;
         let s: Settings = serde_json::from_str(json).unwrap();
         assert!(!s.autostart);
         assert!(s.run_in_background);

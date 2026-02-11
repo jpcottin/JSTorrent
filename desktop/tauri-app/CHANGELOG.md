@@ -2,6 +2,10 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.23]
+
+- Fix formatting (cargo fmt)
+
 ## [0.1.22]
 
 - Add jstorrent:// deep link protocol as fallback from web launch page to desktop app
