@@ -119,6 +119,38 @@
         statusDiv.className = 'status ' + type
       }
 
+      function getDesktopLaunchUrl() {
+        const params = parseHashParams()
+        if (params.magnet) {
+          return 'jstorrent://launch?magnet=' + encodeURIComponent(params.magnet)
+        }
+        return 'jstorrent://launch'
+      }
+
+      function showExtensionUnavailable() {
+        statusDiv.className = 'status error'
+        statusDiv.innerHTML = ''
+
+        const msg = document.createElement('div')
+        msg.textContent = 'Could not connect to JSTorrent extension.'
+        msg.style.marginBottom = '0.75rem'
+        statusDiv.appendChild(msg)
+
+        const desktopBtn = document.createElement('button')
+        desktopBtn.textContent = 'Open in Desktop App'
+        desktopBtn.onclick = function () {
+          window.location.href = getDesktopLaunchUrl()
+        }
+        statusDiv.appendChild(desktopBtn)
+
+        const installLink = document.createElement('div')
+        installLink.style.marginTop = '0.75rem'
+        installLink.style.fontSize = '0.9em'
+        installLink.innerHTML =
+          'Or <a href="' + WEBSTORE_URL + '" target="_blank">install the extension</a>'
+        statusDiv.appendChild(installLink)
+      }
+
       // Parse hash params: #magnet=ENCODED&token=TOKEN or #torrent=ENCODED&token=TOKEN
       function parseHashParams() {
         const hash = window.location.hash.slice(1) // remove #
@@ -139,12 +171,7 @@
           console.log('Got response at', new Date().toISOString())
           if (chrome.runtime.lastError) {
             console.error('Extension error:', chrome.runtime.lastError)
-            statusDiv.innerHTML =
-              'Failed to connect to extension. Is it installed? ' +
-              '<a href="' +
-              WEBSTORE_URL +
-              '" target="_blank">Install from Chrome Web Store</a>'
-            statusDiv.className = 'status error'
+            showExtensionUnavailable()
           } else if (response && response.error) {
             updateStatus('Extension rejected the request: ' + response.error, 'error')
           } else {
@@ -220,12 +247,7 @@
           sendLaunchPing({ type: 'launch-ping' })
         }
       } else {
-        statusDiv.innerHTML =
-          'JSTorrent extension not detected. ' +
-          '<a href="' +
-          WEBSTORE_URL +
-          '" target="_blank">Install from Chrome Web Store</a>'
-        statusDiv.className = 'status error'
+        showExtensionUnavailable()
       }
     </script>
   </body>

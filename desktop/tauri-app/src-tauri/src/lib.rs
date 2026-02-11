@@ -126,23 +126,12 @@ struct DeepLinkState {
     pending: Mutex<Vec<serde_json::Value>>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, Debug, Default)]
-#[serde(rename_all = "lowercase")]
-enum MagnetHandler {
-    Desktop,
-    Extension,
-    #[default]
-    Auto,
-}
-
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct Settings {
     #[serde(default)]
     autostart: bool,
     #[serde(default = "default_true")]
     run_in_background: bool,
-    #[serde(default)]
-    magnet_handler: MagnetHandler,
     /// Show tray icon in macOS menu bar. Ignored on other platforms.
     #[serde(default = "default_true")]
     show_in_menu_bar: bool,
@@ -157,7 +146,6 @@ impl Default for Settings {
         Self {
             autostart: false,
             run_in_background: true,
-            magnet_handler: MagnetHandler::Auto,
             show_in_menu_bar: true,
         }
     }
@@ -183,6 +171,21 @@ fn save_settings(app: &tauri::AppHandle, settings: &Settings) {
 
 /// Create a host-event JSON value from a deep link URL string or file path.
 /// Returns None if the input isn't a recognized deep link type.
+/// Extract a magnet URI from a `jstorrent://` deep link query string.
+/// e.g. `jstorrent://launch?magnet=magnet%3A%3Fxt%3D...` -> `magnet:?xt=...`
+fn extract_magnet_from_jstorrent_url(url_str: &str) -> Option<String> {
+    let query = url_str.split('?').nth(1)?;
+    for param in query.split('&') {
+        if let Some(value) = param.strip_prefix("magnet=") {
+            let decoded = urlencoding::decode(value).ok()?;
+            if decoded.starts_with("magnet:") {
+                return Some(decoded.into_owned());
+            }
+        }
+    }
+    None
+}
+
 fn deep_link_event(url_str: &str) -> Option<serde_json::Value> {
     if url_str.starts_with("magnet:") {
         Some(serde_json::json!({
@@ -297,14 +300,9 @@ fn get_launch_url() -> String {
 }
 
 /// Determine whether a deep link should be routed to the browser extension.
-/// Pure function for easy unit testing. The caller must additionally check
-/// window visibility for Auto mode (visible window -> desktop) before calling.
-fn should_route_to_extension(rpc_info: &RpcInfo, settings: &Settings) -> bool {
-    match settings.magnet_handler {
-        MagnetHandler::Desktop => false,
-        MagnetHandler::Extension => true,
-        MagnetHandler::Auto => auto_route_decision(rpc_info),
-    }
+/// Auto-routing: should we route to extension based on profile history?
+fn should_route_to_extension(rpc_info: &RpcInfo) -> bool {
+    auto_route_decision(rpc_info)
 }
 
 /// Auto-mode routing heuristic. Returns true = route to extension.
@@ -315,7 +313,9 @@ fn auto_route_decision(rpc_info: &RpcInfo) -> bool {
         return false;
     }
 
-    let any_desktop = profiles.iter().any(|p| p.desktop_ever_used);
+    let any_desktop = profiles
+        .iter()
+        .any(|p| p.desktop_ever_used || p.client_types_used.iter().any(|ct| ct == "tauri"));
     let any_extension = profiles
         .iter()
         .any(|p| p.client_types_used.iter().any(|ct| ct == "extension"));
@@ -364,11 +364,10 @@ enum StartupAction {
 fn determine_startup_action(
     startup_routed_to_extension: bool,
     rpc_info: &RpcInfo,
-    settings: &Settings,
 ) -> StartupAction {
     if startup_routed_to_extension {
         StartupAction::AlreadyRouted
-    } else if should_route_to_extension(rpc_info, settings) {
+    } else if should_route_to_extension(rpc_info) {
         StartupAction::OpenExtension
     } else {
         StartupAction::ShowDesktop
@@ -412,9 +411,6 @@ fn handle_deep_link_routed(app: &tauri::AppHandle, url_str: &str) -> RouteResult
         return RouteResult::NotRecognized;
     }
 
-    let settings = app.state::<Mutex<Settings>>();
-    let settings = settings.lock().unwrap().clone();
-
     let window_visible = app
         .get_webview_window("main")
         .and_then(|w| w.is_visible().ok())
@@ -422,10 +418,11 @@ fn handle_deep_link_routed(app: &tauri::AppHandle, url_str: &str) -> RouteResult
 
     let rpc_info = read_rpc_info();
 
-    let route_to_ext = if window_visible && settings.magnet_handler == MagnetHandler::Auto {
+    // If desktop window is visible, always handle locally
+    let route_to_ext = if window_visible {
         false
     } else {
-        should_route_to_extension(&rpc_info, &settings)
+        should_route_to_extension(&rpc_info)
     };
 
     if route_to_ext {
@@ -702,13 +699,7 @@ fn format_bytes(bytes: f64) -> String {
     }
 }
 
-fn handle_menu_event(
-    app: &tauri::AppHandle,
-    event_id: &str,
-    magnet_desktop: &CheckMenuItem<tauri::Wry>,
-    magnet_extension: &CheckMenuItem<tauri::Wry>,
-    magnet_auto: &CheckMenuItem<tauri::Wry>,
-) {
+fn handle_menu_event(app: &tauri::AppHandle, event_id: &str) {
     match event_id {
         "show" => {
             show_main_window(app);
@@ -739,36 +730,30 @@ fn handle_menu_event(
             s.run_in_background = !s.run_in_background;
             save_settings(app, &s);
         }
-        "magnet-desktop" | "magnet-extension" | "magnet-auto" => {
-            let handler = match event_id {
-                "magnet-desktop" => MagnetHandler::Desktop,
-                "magnet-extension" => MagnetHandler::Extension,
-                _ => MagnetHandler::Auto,
-            };
-            let _ = magnet_desktop.set_checked(handler == MagnetHandler::Desktop);
-            let _ = magnet_extension.set_checked(handler == MagnetHandler::Extension);
-            let _ = magnet_auto.set_checked(handler == MagnetHandler::Auto);
-            let state = app.state::<Mutex<Settings>>();
-            let mut s = state.lock().unwrap();
-            s.magnet_handler = handler;
-            save_settings(app, &s);
-        }
-        #[cfg(target_os = "macos")]
         "show-in-menu-bar" => {
+            eprintln!("handle_menu_event: show-in-menu-bar fired");
             let state = app.state::<Mutex<Settings>>();
             let mut s = state.lock().unwrap();
             s.show_in_menu_bar = !s.show_in_menu_bar;
             let visible = s.show_in_menu_bar;
+            eprintln!(
+                "handle_menu_event: show_in_menu_bar toggled to {visible}"
+            );
             save_settings(app, &s);
             drop(s);
             if let Some(tray) = app.tray_by_id("tray") {
-                let _ = tray.set_visible(visible);
+                let result = tray.set_visible(visible);
+                eprintln!("handle_menu_event: set_visible({visible}) = {result:?}");
+            } else {
+                eprintln!("handle_menu_event: tray not found!");
             }
         }
         "quit" => {
             app.exit(0);
         }
-        _ => {}
+        _ => {
+            eprintln!("handle_menu_event: unhandled event: {event_id}");
+        }
     }
 }
 
@@ -972,75 +957,37 @@ pub fn run() {
             // Helper: build the settings submenu items for a menu.
             // Each menu needs its own item instances (macOS NSMenuItem can only
             // have one parent), so we create fresh items per menu.
-            type SettingsMenuResult = Result<
-                (
-                    tauri::menu::Submenu<tauri::Wry>,
-                    CheckMenuItem<tauri::Wry>,
-                    CheckMenuItem<tauri::Wry>,
-                    CheckMenuItem<tauri::Wry>,
-                ),
-                Box<dyn std::error::Error>,
-            >;
-            let build_settings_menu =
-                |app: &tauri::App, settings: &Settings| -> SettingsMenuResult {
-                    let autostart_i = CheckMenuItem::with_id(
-                        app,
-                        "autostart",
-                        "Start at Login",
-                        true,
-                        settings.autostart,
-                        None::<&str>,
-                    )?;
-                    let background_i = CheckMenuItem::with_id(
-                        app,
-                        "run-in-background",
-                        "Run in Background",
-                        true,
-                        settings.run_in_background,
-                        None::<&str>,
-                    )?;
-                    let md = CheckMenuItem::with_id(
-                        app,
-                        "magnet-desktop",
-                        "Desktop App",
-                        true,
-                        settings.magnet_handler == MagnetHandler::Desktop,
-                        None::<&str>,
-                    )?;
-                    let me = CheckMenuItem::with_id(
-                        app,
-                        "magnet-extension",
-                        "Browser Extension",
-                        true,
-                        settings.magnet_handler == MagnetHandler::Extension,
-                        None::<&str>,
-                    )?;
-                    let ma = CheckMenuItem::with_id(
-                        app,
-                        "magnet-auto",
-                        "Auto",
-                        true,
-                        settings.magnet_handler == MagnetHandler::Auto,
-                        None::<&str>,
-                    )?;
-                    let magnet_menu = SubmenuBuilder::new(app, "Handle Magnets")
-                        .item(&md)
-                        .item(&me)
-                        .item(&ma)
-                        .build()?;
-                    let sub = SubmenuBuilder::new(app, "Settings")
-                        .item(&autostart_i)
-                        .item(&background_i)
-                        .item(&magnet_menu)
-                        .build()?;
-                    Ok((sub, md, me, ma))
-                };
+            let build_settings_menu = |app: &tauri::App,
+                                      settings: &Settings|
+             -> Result<tauri::menu::Submenu<tauri::Wry>, Box<dyn std::error::Error>>
+            {
+                let autostart_i = CheckMenuItem::with_id(
+                    app,
+                    "autostart",
+                    "Start at Login",
+                    true,
+                    settings.autostart,
+                    None::<&str>,
+                )?;
+                let background_i = CheckMenuItem::with_id(
+                    app,
+                    "run-in-background",
+                    "Run in Background",
+                    true,
+                    settings.run_in_background,
+                    None::<&str>,
+                )?;
+                Ok(SubmenuBuilder::new(app, "Settings")
+                    .item(&autostart_i)
+                    .item(&background_i)
+                    .build()?)
+            };
 
             // macOS native app menu bar (built first, before tray, so items
             // don't get stolen from the tray menu by AppKit reparenting)
             #[cfg(target_os = "macos")]
             {
-                let (app_settings_menu, md, me, ma) = build_settings_menu(app, &settings)?;
+                let app_settings_menu = build_settings_menu(app, &settings)?;
                 let show_in_menu_bar_i = CheckMenuItem::with_id(
                     app,
                     "show-in-menu-bar",
@@ -1086,14 +1033,13 @@ pub fn run() {
 
                 let app_menu = Menu::with_items(app, &[&app_submenu])?;
                 app.on_menu_event(move |app, event| {
-                    handle_menu_event(app, event.id.as_ref(), &md, &me, &ma);
+                    handle_menu_event(app, event.id.as_ref());
                 });
                 app.set_menu(app_menu)?;
             }
 
             // System tray (separate item instances — no sharing with app menu)
-            let (tray_settings_menu, tray_md, tray_me, tray_ma) =
-                build_settings_menu(app, &settings)?;
+            let tray_settings_menu = build_settings_menu(app, &settings)?;
             let tray_menu = {
                 let show_i = MenuItem::with_id(app, "show", "Show App", true, None::<&str>)?;
                 let open_ext_i =
@@ -1155,7 +1101,7 @@ pub fn run() {
                 .menu(&tray_menu)
                 .show_menu_on_left_click(cfg!(target_os = "macos"))
                 .on_menu_event(move |app, event| {
-                    handle_menu_event(app, event.id.as_ref(), &tray_md, &tray_me, &tray_ma);
+                    handle_menu_event(app, event.id.as_ref());
                 })
                 .on_tray_icon_event(|tray, event| {
                     if !cfg!(target_os = "macos") {
@@ -1191,16 +1137,31 @@ pub fn run() {
             // Track whether startup deep links were routed to extension
             // (used to decide whether to show the window at end of setup).
             let mut startup_routed_to_extension = false;
+            // jstorrent:// deep links force desktop mode (launched from launch page fallback)
+            let mut force_desktop_from_deep_link = false;
 
             // Collect any URLs that launched the app (startup deep links).
             // Route to extension or queue as pending for the frontend.
             if let Ok(Some(urls)) = app.deep_link().get_current() {
-                let settings_state = app.state::<Mutex<Settings>>();
-                let settings = settings_state.lock().unwrap().clone();
                 let rpc_info = read_rpc_info();
 
                 for url in urls {
                     let url_str: &str = url.as_ref();
+
+                    // jstorrent:// links always force desktop (launch page fallback).
+                    // They may carry a magnet in the query string.
+                    if url_str.starts_with("jstorrent:") {
+                        force_desktop_from_deep_link = true;
+                        if let Some(magnet) = extract_magnet_from_jstorrent_url(url_str) {
+                            if let Ok(mut pending) = deep_link_state.pending.lock() {
+                                if let Some(event) = deep_link_event(&magnet) {
+                                    pending.push(event);
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
                     let is_magnet = url_str.starts_with("magnet:");
                     let is_torrent = url_str.to_lowercase().ends_with(".torrent");
 
@@ -1208,7 +1169,7 @@ pub fn run() {
                         continue;
                     }
 
-                    if should_route_to_extension(&rpc_info, &settings) {
+                    if should_route_to_extension(&rpc_info) {
                         let add_token = rpc_info.add_token.as_deref();
                         if is_magnet {
                             route_magnet_to_extension(app.handle(), url_str, add_token);
@@ -1233,16 +1194,11 @@ pub fn run() {
             // the extension launches its own native host.
             // Skip this entirely when --force-desktop is set (launched from extension).
             let launch_args = app.state::<LaunchArgs>();
-            let skip_extension_routing = launch_args.force_desktop;
-            let startup_settings = app.state::<Mutex<Settings>>().lock().unwrap().clone();
+            let skip_extension_routing = launch_args.force_desktop || force_desktop_from_deep_link;
             let startup_action = if skip_extension_routing {
                 StartupAction::ShowDesktop
             } else {
-                determine_startup_action(
-                    startup_routed_to_extension,
-                    &read_rpc_info(),
-                    &startup_settings,
-                )
+                determine_startup_action(startup_routed_to_extension, &read_rpc_info())
             };
             if !matches!(startup_action, StartupAction::ShowDesktop) {
                 // Register native messaging manifests so the extension can find
@@ -1269,7 +1225,19 @@ pub fn run() {
             app.deep_link().on_open_url(move |event| {
                 let mut any_deep_link = false;
                 for url in event.urls() {
-                    match handle_deep_link_routed(&deep_link_handle, url.as_ref()) {
+                    let url_str: &str = url.as_ref();
+                    // jstorrent:// links always show desktop (launch page fallback)
+                    if url_str.starts_with("jstorrent:") {
+                        if let Some(magnet) = extract_magnet_from_jstorrent_url(url_str) {
+                            if let Some(event) = deep_link_event(&magnet) {
+                                let _ = deep_link_handle.emit("host-event", &event);
+                            }
+                        }
+                        show_main_window(&deep_link_handle);
+                        any_deep_link = true;
+                        continue;
+                    }
+                    match handle_deep_link_routed(&deep_link_handle, url_str) {
                         RouteResult::Extension | RouteResult::Desktop => {
                             any_deep_link = true;
                         }
@@ -1415,15 +1383,14 @@ mod tests {
         }
     }
 
-    fn settings(handler: MagnetHandler) -> Settings {
-        Settings {
-            magnet_handler: handler,
-            ..Settings::default()
-        }
+    #[test]
+    fn test_routing_fresh_install() {
+        let r = rpc(vec![]);
+        assert!(!should_route_to_extension(&r));
     }
 
     #[test]
-    fn test_routing_desktop_mode() {
+    fn test_routing_extension_only() {
         let r = rpc(vec![make_profile(
             Some("extension"),
             false,
@@ -1431,47 +1398,11 @@ mod tests {
             2000,
             true,
         )]);
-        assert!(!should_route_to_extension(
-            &r,
-            &settings(MagnetHandler::Desktop)
-        ));
+        assert!(should_route_to_extension(&r));
     }
 
     #[test]
-    fn test_routing_extension_mode() {
-        let r = rpc(vec![]);
-        assert!(should_route_to_extension(
-            &r,
-            &settings(MagnetHandler::Extension)
-        ));
-    }
-
-    #[test]
-    fn test_routing_auto_fresh_install() {
-        let r = rpc(vec![]);
-        assert!(!should_route_to_extension(
-            &r,
-            &settings(MagnetHandler::Auto)
-        ));
-    }
-
-    #[test]
-    fn test_routing_auto_extension_only() {
-        let r = rpc(vec![make_profile(
-            Some("extension"),
-            false,
-            &["extension"],
-            2000,
-            true,
-        )]);
-        assert!(should_route_to_extension(
-            &r,
-            &settings(MagnetHandler::Auto)
-        ));
-    }
-
-    #[test]
-    fn test_routing_auto_desktop_used() {
+    fn test_routing_desktop_used() {
         let r = rpc(vec![make_profile(
             Some("tauri"),
             true,
@@ -1479,38 +1410,45 @@ mod tests {
             2000,
             true,
         )]);
-        assert!(!should_route_to_extension(
-            &r,
-            &settings(MagnetHandler::Auto)
-        ));
+        assert!(!should_route_to_extension(&r));
     }
 
     #[test]
-    fn test_routing_auto_most_recent_extension_wins() {
+    fn test_routing_most_recent_extension_wins() {
         let r = rpc(vec![
             make_profile(Some("tauri"), true, &["tauri"], 1000, true),
             make_profile(Some("extension"), false, &["extension"], 2000, true),
         ]);
-        assert!(should_route_to_extension(
-            &r,
-            &settings(MagnetHandler::Auto)
-        ));
+        assert!(should_route_to_extension(&r));
     }
 
     #[test]
-    fn test_routing_auto_most_recent_desktop_wins() {
+    fn test_routing_most_recent_desktop_wins() {
         let r = rpc(vec![
             make_profile(Some("extension"), false, &["extension"], 1000, true),
             make_profile(Some("tauri"), true, &["tauri"], 2000, true),
         ]);
-        assert!(!should_route_to_extension(
-            &r,
-            &settings(MagnetHandler::Auto)
-        ));
+        assert!(!should_route_to_extension(&r));
     }
 
     #[test]
-    fn test_routing_auto_extension_no_roots() {
+    fn test_routing_desktop_handshake_without_activation() {
+        // Scenario: extension used first, then desktop opened via "Open in Desktop".
+        // desktop_ever_used is still false (user hasn't added a torrent yet),
+        // but client_types_used includes "tauri" from the handshake.
+        // The most-recent heuristic should still pick desktop.
+        let r = rpc(vec![make_profile(
+            Some("tauri"),
+            false,
+            &["extension", "tauri"],
+            2000,
+            true,
+        )]);
+        assert!(!should_route_to_extension(&r));
+    }
+
+    #[test]
+    fn test_routing_extension_no_roots() {
         let r = rpc(vec![make_profile(
             Some("extension"),
             false,
@@ -1518,10 +1456,7 @@ mod tests {
             2000,
             false,
         )]);
-        assert!(should_route_to_extension(
-            &r,
-            &settings(MagnetHandler::Auto)
-        ));
+        assert!(should_route_to_extension(&r));
     }
 
     // -- Startup action scenarios (bare app launch, no deep link) --
@@ -1530,7 +1465,7 @@ mod tests {
     fn test_startup_fresh_install_shows_desktop() {
         let r = rpc(vec![]);
         assert_eq!(
-            determine_startup_action(false, &r, &settings(MagnetHandler::Auto)),
+            determine_startup_action(false, &r),
             StartupAction::ShowDesktop
         );
     }
@@ -1545,7 +1480,7 @@ mod tests {
             true,
         )]);
         assert_eq!(
-            determine_startup_action(false, &r, &settings(MagnetHandler::Auto)),
+            determine_startup_action(false, &r),
             StartupAction::OpenExtension
         );
     }
@@ -1560,32 +1495,7 @@ mod tests {
             true,
         )]);
         assert_eq!(
-            determine_startup_action(false, &r, &settings(MagnetHandler::Auto)),
-            StartupAction::ShowDesktop
-        );
-    }
-
-    #[test]
-    fn test_startup_explicit_extension_mode_opens_extension() {
-        let r = rpc(vec![]);
-        assert_eq!(
-            determine_startup_action(false, &r, &settings(MagnetHandler::Extension)),
-            StartupAction::OpenExtension
-        );
-    }
-
-    #[test]
-    fn test_startup_explicit_desktop_mode_shows_desktop() {
-        // Even with extension-only profile, explicit Desktop mode wins.
-        let r = rpc(vec![make_profile(
-            Some("extension"),
-            false,
-            &["extension"],
-            2000,
-            true,
-        )]);
-        assert_eq!(
-            determine_startup_action(false, &r, &settings(MagnetHandler::Desktop)),
+            determine_startup_action(false, &r),
             StartupAction::ShowDesktop
         );
     }
@@ -1594,7 +1504,7 @@ mod tests {
     fn test_startup_deep_links_already_routed() {
         let r = rpc(vec![]);
         assert_eq!(
-            determine_startup_action(true, &r, &settings(MagnetHandler::Auto)),
+            determine_startup_action(true, &r),
             StartupAction::AlreadyRouted
         );
     }
@@ -1603,19 +1513,37 @@ mod tests {
 
     #[test]
     fn test_settings_serde_backward_compat() {
-        let json = r#"{"autostart": false, "run_in_background": true}"#;
+        // Old settings with magnet_handler field should still deserialize
+        let json = r#"{"autostart": false, "run_in_background": true, "magnet_handler": "desktop"}"#;
         let s: Settings = serde_json::from_str(json).unwrap();
-        assert_eq!(s.magnet_handler, MagnetHandler::Auto);
+        assert!(!s.autostart);
+        assert!(s.run_in_background);
     }
 
     #[test]
     fn test_settings_serde_roundtrip() {
-        let s = Settings {
-            magnet_handler: MagnetHandler::Extension,
-            ..Settings::default()
-        };
+        let s = Settings::default();
         let json = serde_json::to_string(&s).unwrap();
         let parsed: Settings = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.magnet_handler, MagnetHandler::Extension);
+        assert_eq!(parsed.autostart, s.autostart);
+        assert_eq!(parsed.run_in_background, s.run_in_background);
+    }
+
+    // -- jstorrent:// URL parsing --
+
+    #[test]
+    fn test_extract_magnet_from_jstorrent_url() {
+        assert_eq!(
+            extract_magnet_from_jstorrent_url("jstorrent://launch?magnet=magnet%3A%3Fxt%3Durn"),
+            Some("magnet:?xt=urn".to_string())
+        );
+        assert_eq!(
+            extract_magnet_from_jstorrent_url("jstorrent://launch"),
+            None
+        );
+        assert_eq!(
+            extract_magnet_from_jstorrent_url("jstorrent://launch?other=value"),
+            None
+        );
     }
 }

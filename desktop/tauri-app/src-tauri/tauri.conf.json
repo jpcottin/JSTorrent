@@ -60,7 +60,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["magnet"]
+        "schemes": ["magnet", "jstorrent"]
       }
     },
     "updater": {
