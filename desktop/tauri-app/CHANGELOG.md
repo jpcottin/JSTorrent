@@ -2,6 +2,12 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.22]
+
+- Add jstorrent:// deep link protocol as fallback from web launch page to desktop app
+- Remove manual magnet handler setting (Desktop/Extension/Auto) — routing is now always auto-mode
+- Show "Open in Desktop App" button on launch page when extension is unavailable
+
 ## [0.1.21]
 
 - Remember window position across restarts
