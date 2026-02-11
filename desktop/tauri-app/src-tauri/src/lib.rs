@@ -216,13 +216,25 @@ fn deep_link_event(url_str: &str) -> Option<serde_json::Value> {
     }
 }
 
+/// Convert a `file://` URL or raw path to a filesystem path string.
+/// Strips the `file://` prefix and URL-decodes percent-encoded characters
+/// (e.g. `%20` → space). Raw paths (no `file://` prefix) are returned as-is.
+fn file_url_to_path(url_or_path: &str) -> String {
+    match url_or_path.strip_prefix("file://") {
+        Some(encoded) => urlencoding::decode(encoded)
+            .unwrap_or(std::borrow::Cow::Borrowed(encoded))
+            .into_owned(),
+        None => url_or_path.to_string(),
+    }
+}
+
 /// Read a .torrent file from a file:// URL or raw path and create a `TorrentAdded` event.
 fn torrent_file_event(file_url: &str) -> Option<serde_json::Value> {
     use base64::Engine;
 
     // Accept both file:// URLs and raw file paths (Windows file associations).
-    let path_str = file_url.strip_prefix("file://").unwrap_or(file_url);
-    let path = std::path::Path::new(path_str);
+    let path_str = file_url_to_path(file_url);
+    let path = std::path::Path::new(&path_str);
 
     let contents = std::fs::read(path).ok()?;
     let encoded = base64::engine::general_purpose::STANDARD.encode(&contents);
@@ -445,8 +457,8 @@ fn handle_deep_link_routed(app: &tauri::AppHandle, url_str: &str) -> RouteResult
         if is_magnet {
             route_magnet_to_extension(app, url_str, add_token);
         } else {
-            let path = url_str.strip_prefix("file://").unwrap_or(url_str);
-            route_torrent_to_extension(app, path, add_token);
+            let path = file_url_to_path(url_str);
+            route_torrent_to_extension(app, &path, add_token);
         }
         RouteResult::Extension
     } else {
@@ -997,10 +1009,22 @@ pub fn run() {
                     settings.run_in_background,
                     None::<&str>,
                 )?;
-                Ok(SubmenuBuilder::new(app, "Settings")
+                let mut builder = SubmenuBuilder::new(app, "Settings")
                     .item(&autostart_i)
-                    .item(&background_i)
-                    .build()?)
+                    .item(&background_i);
+                #[cfg(target_os = "macos")]
+                {
+                    let show_in_menu_bar_i = CheckMenuItem::with_id(
+                        app,
+                        "show-in-menu-bar",
+                        "Show Icon in Menu Bar",
+                        true,
+                        settings.show_in_menu_bar,
+                        None::<&str>,
+                    )?;
+                    builder = builder.item(&show_in_menu_bar_i);
+                }
+                Ok(builder.build()?)
             };
 
             // macOS native app menu bar (built first, before tray, so items
@@ -1008,14 +1032,6 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 let app_settings_menu = build_settings_menu(app, &settings)?;
-                let show_in_menu_bar_i = CheckMenuItem::with_id(
-                    app,
-                    "show-in-menu-bar",
-                    "Show Icon in Menu Bar",
-                    true,
-                    settings.show_in_menu_bar,
-                    None::<&str>,
-                )?;
                 let app_submenu = SubmenuBuilder::new(app, "JSTorrent")
                     .about(Some(tauri::menu::AboutMetadata {
                         name: Some("JSTorrent".to_string()),
@@ -1042,7 +1058,6 @@ pub fn run() {
                     ])
                     .separator()
                     .item(&app_settings_menu)
-                    .item(&show_in_menu_bar_i)
                     .separator()
                     .hide()
                     .hide_others()
@@ -1072,32 +1087,6 @@ pub fn run() {
                 let sep1 = PredefinedMenuItem::separator(app)?;
                 let sep2 = PredefinedMenuItem::separator(app)?;
 
-                #[cfg(target_os = "macos")]
-                {
-                    let show_in_menu_bar_i = CheckMenuItem::with_id(
-                        app,
-                        "show-in-menu-bar",
-                        "Show Icon in Menu Bar",
-                        true,
-                        settings.show_in_menu_bar,
-                        None::<&str>,
-                    )?;
-                    Menu::with_items(
-                        app,
-                        &[
-                            &show_i,
-                            &open_ext_i,
-                            &update_i,
-                            &sep1,
-                            &tray_settings_menu,
-                            &show_in_menu_bar_i,
-                            &sep2,
-                            &quit_i,
-                        ],
-                    )?
-                }
-
-                #[cfg(not(target_os = "macos"))]
                 Menu::with_items(
                     app,
                     &[
@@ -1116,35 +1105,27 @@ pub fn run() {
             // and tray menu so we can keep their checked state in sync.
             #[cfg(target_os = "macos")]
             {
-                let mut sync_map: HashMap<String, Vec<CheckMenuItem<tauri::Wry>>> =
-                    HashMap::new();
-                let mut collect = |items: Vec<MenuItemKind<tauri::Wry>>| {
+                let mut sync_map: HashMap<String, Vec<CheckMenuItem<tauri::Wry>>> = HashMap::new();
+                fn collect_checks(
+                    items: Vec<MenuItemKind<tauri::Wry>>,
+                    map: &mut HashMap<String, Vec<CheckMenuItem<tauri::Wry>>>,
+                ) {
                     for item in items {
                         match item {
                             MenuItemKind::Check(c) => {
-                                sync_map
-                                    .entry(c.id().as_ref().to_string())
-                                    .or_default()
-                                    .push(c);
+                                map.entry(c.id().as_ref().to_string()).or_default().push(c);
                             }
                             MenuItemKind::Submenu(sub) => {
-                                for sub_item in sub.items().unwrap_or_default() {
-                                    if let MenuItemKind::Check(c) = sub_item {
-                                        sync_map
-                                            .entry(c.id().as_ref().to_string())
-                                            .or_default()
-                                            .push(c);
-                                    }
-                                }
+                                collect_checks(sub.items().unwrap_or_default(), map);
                             }
                             _ => {}
                         }
                     }
-                };
-                if let Some(app_menu) = app.menu() {
-                    collect(app_menu.items().unwrap_or_default());
                 }
-                collect(tray_menu.items().unwrap_or_default());
+                if let Some(app_menu) = app.menu() {
+                    collect_checks(app_menu.items().unwrap_or_default(), &mut sync_map);
+                }
+                collect_checks(tray_menu.items().unwrap_or_default(), &mut sync_map);
                 app.manage(CheckItemSync(sync_map));
             }
 
@@ -1232,8 +1213,8 @@ pub fn run() {
                         if is_magnet {
                             route_magnet_to_extension(app.handle(), url_str, add_token);
                         } else {
-                            let path = url_str.strip_prefix("file://").unwrap_or(url_str);
-                            route_torrent_to_extension(app.handle(), path, add_token);
+                            let path = file_url_to_path(url_str);
+                            route_torrent_to_extension(app.handle(), &path, add_token);
                         }
                         startup_routed_to_extension = true;
                     } else if let Ok(mut pending) = deep_link_state.pending.lock() {
