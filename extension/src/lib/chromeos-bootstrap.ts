@@ -291,10 +291,14 @@ export class ChromeOSBootstrap {
         phase: 'pairing',
         port,
         problem: 'token_invalid',
-        message: 'Token expired, re-pairing...',
+        message: 'Token invalid, re-pairing...',
       })
-      // Clear token and re-pair
+      // Clear token, generate a new one, and request re-pairing.
+      // Without calling requestPairing, we'd loop forever: the app is paired
+      // (so !status.paired is false) but our token doesn't match.
       await chrome.storage.local.remove([STORAGE_KEY_TOKEN])
+      const newToken = await this.getOrCreateToken()
+      await this.requestPairing(port, newToken)
       return null
     }
 
