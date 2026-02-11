@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::{ChildStdin, ChildStdout};
 use std::sync::{Arc, Mutex};
 use tauri::{
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, SubmenuBuilder},
+    menu::{CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
 };
@@ -147,6 +147,21 @@ impl Default for Settings {
             autostart: false,
             run_in_background: true,
             show_in_menu_bar: true,
+        }
+    }
+}
+
+/// On macOS, check menu items appear in both the app menu and the tray menu.
+/// This holds all instances so we can keep their checked state in sync.
+#[cfg(target_os = "macos")]
+struct CheckItemSync(HashMap<String, Vec<CheckMenuItem<tauri::Wry>>>);
+
+#[cfg(target_os = "macos")]
+fn sync_check_items(app: &tauri::AppHandle, id: &str, checked: bool) {
+    let state = app.state::<CheckItemSync>();
+    if let Some(items) = state.0.get(id) {
+        for item in items {
+            let _ = item.set_checked(checked);
         }
     }
 }
@@ -717,18 +732,26 @@ fn handle_menu_event(app: &tauri::AppHandle, event_id: &str) {
             let state = app.state::<Mutex<Settings>>();
             let mut s = state.lock().unwrap();
             s.autostart = !s.autostart;
-            if s.autostart {
+            let checked = s.autostart;
+            if checked {
                 let _ = app.autolaunch().enable();
             } else {
                 let _ = app.autolaunch().disable();
             }
             save_settings(app, &s);
+            drop(s);
+            #[cfg(target_os = "macos")]
+            sync_check_items(app, "autostart", checked);
         }
         "run-in-background" => {
             let state = app.state::<Mutex<Settings>>();
             let mut s = state.lock().unwrap();
             s.run_in_background = !s.run_in_background;
+            let checked = s.run_in_background;
             save_settings(app, &s);
+            drop(s);
+            #[cfg(target_os = "macos")]
+            sync_check_items(app, "run-in-background", checked);
         }
         "show-in-menu-bar" => {
             let state = app.state::<Mutex<Settings>>();
@@ -740,6 +763,8 @@ fn handle_menu_event(app: &tauri::AppHandle, event_id: &str) {
             if let Some(tray) = app.tray_by_id("tray") {
                 let _ = tray.set_visible(visible);
             }
+            #[cfg(target_os = "macos")]
+            sync_check_items(app, "show-in-menu-bar", visible);
         }
         "quit" => {
             app.exit(0);
@@ -1086,6 +1111,42 @@ pub fn run() {
                     ],
                 )?
             };
+
+            // On macOS, collect all CheckMenuItems from both the app menu
+            // and tray menu so we can keep their checked state in sync.
+            #[cfg(target_os = "macos")]
+            {
+                let mut sync_map: HashMap<String, Vec<CheckMenuItem<tauri::Wry>>> =
+                    HashMap::new();
+                let mut collect = |items: Vec<MenuItemKind<tauri::Wry>>| {
+                    for item in items {
+                        match item {
+                            MenuItemKind::Check(c) => {
+                                sync_map
+                                    .entry(c.id().as_ref().to_string())
+                                    .or_default()
+                                    .push(c);
+                            }
+                            MenuItemKind::Submenu(sub) => {
+                                for sub_item in sub.items().unwrap_or_default() {
+                                    if let MenuItemKind::Check(c) = sub_item {
+                                        sync_map
+                                            .entry(c.id().as_ref().to_string())
+                                            .or_default()
+                                            .push(c);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                };
+                if let Some(app_menu) = app.menu() {
+                    collect(app_menu.items().unwrap_or_default());
+                }
+                collect(tray_menu.items().unwrap_or_default());
+                app.manage(CheckItemSync(sync_map));
+            }
 
             // Register a single global menu handler for both app-menu and
             // tray-menu events.  Previously each menu had its own handler,
