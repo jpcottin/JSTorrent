@@ -1,12 +1,25 @@
 import * as http from 'node:http'
 import { config } from './config.js'
 import { Cache } from './cache.js'
-import { fetchLatestRelease, findPlatformUpdate } from './github.js'
+import { NotesStore } from './notes-store.js'
+import { fetchReleases, findPlatformUpdate, aggregateNotes } from './github.js'
 import type { LatestJson } from './github.js'
 import { AnalyticsLogger } from './analytics.js'
 import { compareVersions } from './version.js'
 
-const cache = new Cache<LatestJson>(fetchLatestRelease, config.cacheTtlMs)
+const notesStore = new NotesStore(config.notesCacheFile)
+
+const cache = new Cache<LatestJson>(
+  async () => {
+    const result = await fetchReleases()
+    if (!result) return null
+    notesStore.merge(result.freshNotes)
+    return result.latest
+  },
+  config.cacheTtlMs,
+  config.latestCacheFile,
+)
+
 const analytics = new AnalyticsLogger(config.logDir)
 
 function getClientIp(req: http.IncomingMessage): string {
@@ -35,7 +48,8 @@ async function handleUpdateCheck(
     return
   }
 
-  const platform = findPlatformUpdate(latest, target, arch)
+  const notes = aggregateNotes(notesStore.getAll(), currentVersion)
+  const platform = findPlatformUpdate(latest, target, arch, notes)
   const updateAvailable = !!platform && compareVersions(latest.version, currentVersion) > 0
 
   analytics.log({
@@ -93,4 +107,4 @@ server.listen(config.port, () => {
   console.log(`Update server listening on port ${config.port}`)
 })
 
-export { server, cache, analytics }
+export { server, cache, notesStore, analytics }

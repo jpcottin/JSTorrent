@@ -1,25 +1,36 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest'
 import * as http from 'node:http'
-import type { LatestJson } from '../src/github.js'
+import type { FetchResult } from '../src/github.js'
 
-const MOCK_LATEST: LatestJson = {
-  version: '0.1.21',
-  notes: '- Remember window position across restarts',
-  pub_date: '2026-02-11T07:33:31.665Z',
-  platforms: {
-    'darwin-aarch64': {
-      signature: 'sig-darwin-aarch64',
-      url: 'https://github.com/kzahel/JSTorrent/releases/download/tauri-app-v0.1.21/JSTorrent_aarch64.app.tar.gz',
-    },
-    'windows-x86_64': {
-      signature: 'sig-windows-x86_64',
-      url: 'https://github.com/kzahel/JSTorrent/releases/download/tauri-app-v0.1.21/JSTorrent_0.1.21_x64_en-US.msi',
-    },
-    'linux-x86_64': {
-      signature: 'sig-linux-x86_64',
-      url: 'https://github.com/kzahel/JSTorrent/releases/download/tauri-app-v0.1.21/JSTorrent_0.1.21_amd64.AppImage',
+const MOCK_FETCH_RESULT: FetchResult = {
+  latest: {
+    version: '0.1.21',
+    notes: '- Remember window position across restarts',
+    pub_date: '2026-02-11T07:33:31.665Z',
+    platforms: {
+      'darwin-aarch64': {
+        signature: 'sig-darwin-aarch64',
+        url: 'https://github.com/kzahel/JSTorrent/releases/download/tauri-app-v0.1.21/JSTorrent_aarch64.app.tar.gz',
+      },
+      'windows-x86_64': {
+        signature: 'sig-windows-x86_64',
+        url: 'https://github.com/kzahel/JSTorrent/releases/download/tauri-app-v0.1.21/JSTorrent_0.1.21_x64_en-US.msi',
+      },
+      'linux-x86_64': {
+        signature: 'sig-linux-x86_64',
+        url: 'https://github.com/kzahel/JSTorrent/releases/download/tauri-app-v0.1.21/JSTorrent_0.1.21_amd64.AppImage',
+      },
     },
   },
+  freshNotes: [
+    { version: '0.1.21', notes: '- Remember window position across restarts' },
+    {
+      version: '0.1.20',
+      notes: '- Add magnet/torrent routing\n- Launch desktop app from extension',
+    },
+    { version: '0.1.19', notes: '- Add profile picker UI' },
+    { version: '0.1.18', notes: '- Add profile system' },
+  ],
 }
 
 // Mock the github module before importing server
@@ -27,9 +38,11 @@ vi.mock('../src/github.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/github.js')>()
   return {
     ...actual,
-    fetchLatestRelease: vi.fn().mockResolvedValue(MOCK_LATEST),
+    fetchReleases: vi.fn().mockResolvedValue(MOCK_FETCH_RESULT),
   }
 })
+
+const testDir = '/tmp/jstorrent-update-server-test-' + Date.now()
 
 // Mock config to use random port and temp log dir
 vi.mock('../src/config.js', () => ({
@@ -38,7 +51,9 @@ vi.mock('../src/config.js', () => ({
     githubRepo: 'kzahel/JSTorrent',
     tagPrefix: 'tauri-app-v',
     cacheTtlMs: 60_000,
-    logDir: '/tmp/jstorrent-update-server-test-' + Date.now(),
+    logDir: testDir,
+    latestCacheFile: testDir + '/latest-cache.json',
+    notesCacheFile: testDir + '/notes-cache.json',
     githubToken: '',
   },
 }))
@@ -125,6 +140,34 @@ describe('GET /tauri/:target/:arch/:version', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.url).toContain('amd64.AppImage')
+  })
+
+  it('returns only latest notes when upgrading from previous version', async () => {
+    const res = await fetch(`${baseUrl}/tauri/darwin/aarch64/0.1.20`)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    // Only one version newer — should return notes without version header
+    expect(body.notes).toBe('- Remember window position across restarts')
+  })
+
+  it('returns aggregated notes when skipping multiple versions', async () => {
+    const res = await fetch(`${baseUrl}/tauri/darwin/aarch64/0.1.18`)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    // Should include notes for 0.1.21, 0.1.20, 0.1.19 (all > 0.1.18)
+    expect(body.notes).toContain('## 0.1.21')
+    expect(body.notes).toContain('## 0.1.20')
+    expect(body.notes).toContain('## 0.1.19')
+    expect(body.notes).not.toContain('## 0.1.18')
+  })
+
+  it('returns all notes when upgrading from very old version', async () => {
+    const res = await fetch(`${baseUrl}/tauri/darwin/aarch64/0.1.0`)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    // Should include all 4 versions
+    expect(body.notes).toContain('## 0.1.21')
+    expect(body.notes).toContain('## 0.1.18')
   })
 })
 

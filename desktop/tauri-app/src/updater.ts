@@ -144,7 +144,7 @@ function createOverlay(): HTMLElement {
       }
       .jst-updater-dialog p { margin: 0 0 16px; font-size: 14px; line-height: 1.5; }
       .jst-updater-notes {
-        max-height: 120px;
+        max-height: 300px;
         overflow-y: auto;
         background: #181825;
         border-radius: 4px;
