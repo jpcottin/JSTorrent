@@ -277,6 +277,7 @@ private class NettyHttpHandler(
                 path.startsWith("/ops/exists") && method == HttpMethod.GET -> handleOpsExists(ctx, request)
                 path == "/ops/delete" && method == HttpMethod.POST -> handleOpsDelete(ctx, request)
                 path.startsWith("/ops/stat") && method == HttpMethod.GET -> handleOpsStat(ctx, request)
+                path.startsWith("/ops/list_tree") && method == HttpMethod.GET -> handleOpsListTree(ctx, request)
                 path.startsWith("/ops/list") && method == HttpMethod.GET -> handleOpsList(ctx, request)
                 path == "/files/ensure_dir" && method == HttpMethod.POST -> handleEnsureDir(ctx, request)
 
@@ -832,6 +833,48 @@ private class NettyHttpHandler(
 
         val entries = fileManager.readdir(rootUri, relativePath)
         val jsonArray = entries.joinToString(",") { "\"${it.replace("\"", "\\\"")}\"" }
+        sendJsonResponse(ctx, request, HttpResponseStatus.OK, "[$jsonArray]")
+    }
+
+    /**
+     * Recursively list all files under a directory with sizes.
+     * GET /ops/list_tree?path=...&root_key=...
+     * Returns JSON array: [{"path":"relative/path","size":123}, ...]
+     */
+    private fun handleOpsListTree(ctx: ChannelHandlerContext, request: FullHttpRequest) {
+        if (getExtensionHeaders(request) == null && !isStandaloneAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing extension headers")
+            return
+        }
+        if (!validateAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.UNAUTHORIZED, "Invalid token")
+            return
+        }
+
+        val query = QueryStringDecoder(request.uri())
+        val rootKey = query.parameters()["root_key"]?.firstOrNull()
+        val relativePath = query.parameters()["path"]?.firstOrNull()
+
+        if (rootKey == null || relativePath == null) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing root_key or path parameter")
+            return
+        }
+
+        if (relativePath.contains("..")) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid path")
+            return
+        }
+
+        val rootUri = deps.rootStore.resolveKey(rootKey)
+        if (rootUri == null) {
+            sendError(ctx, request, HttpResponseStatus.FORBIDDEN, "Invalid root key")
+            return
+        }
+
+        val entries = fileManager.listTree(rootUri, relativePath)
+        val jsonArray = entries.joinToString(",") { entry ->
+            """{"path":"${entry.path.replace("\"", "\\\"")}","size":${entry.size}}"""
+        }
         sendJsonResponse(ctx, request, HttpResponseStatus.OK, "[$jsonArray]")
     }
 

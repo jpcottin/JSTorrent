@@ -130,4 +130,20 @@ export class InMemoryFileSystem implements IFileSystem {
   async delete(path: string): Promise<void> {
     this.files.delete(path)
   }
+
+  async listTree(dirPath: string): Promise<Array<{ path: string; size: number }>> {
+    const results: Array<{ path: string; size: number }> = []
+    const prefix = dirPath.endsWith('/') ? dirPath : `${dirPath}/`
+
+    for (const [filePath, data] of this.files) {
+      if (filePath.startsWith(prefix)) {
+        results.push({
+          path: filePath.slice(prefix.length),
+          size: data.length,
+        })
+      }
+    }
+
+    return results
+  }
 }

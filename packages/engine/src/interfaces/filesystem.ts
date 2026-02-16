@@ -77,4 +77,11 @@ export interface IFileSystem {
    * Delete a file or directory.
    */
   delete(path: string): Promise<void>
+
+  /**
+   * Recursively list all files under a directory with their sizes.
+   * Returns paths relative to the given path.
+   * Returns empty array if path doesn't exist.
+   */
+  listTree(path: string): Promise<Array<{ path: string; size: number }>>
 }

@@ -28,4 +28,8 @@ export class ScopedNodeFileSystem extends NodeFileSystem {
   async exists(filePath: string) {
     return super.exists(this.resolve(filePath))
   }
+
+  async listTree(dirPath: string) {
+    return super.listTree(this.resolve(dirPath))
+  }
 }

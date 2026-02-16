@@ -66,4 +66,15 @@ export class DaemonFileSystem implements IFileSystem {
       root_key: this.rootKey,
     })
   }
+
+  async listTree(path: string): Promise<Array<{ path: string; size: number }>> {
+    return this.connection.request<Array<{ path: string; size: number }>>(
+      'GET',
+      '/ops/list_tree',
+      {
+        path,
+        root_key: this.rootKey,
+      },
+    )
+  }
 }

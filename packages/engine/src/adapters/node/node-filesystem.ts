@@ -95,4 +95,32 @@ export class NodeFileSystem implements IFileSystem {
   async delete(filePath: string): Promise<void> {
     await fs.rm(filePath, { recursive: true, force: true })
   }
+
+  async listTree(dirPath: string): Promise<Array<{ path: string; size: number }>> {
+    const results: Array<{ path: string; size: number }> = []
+    const walk = async (dir: string, prefix: string): Promise<void> => {
+      let entries: string[]
+      try {
+        entries = await fs.readdir(dir)
+      } catch {
+        return
+      }
+      for (const name of entries) {
+        const fullPath = path.join(dir, name)
+        const relative = prefix ? `${prefix}/${name}` : name
+        try {
+          const stats = await fs.stat(fullPath)
+          if (stats.isDirectory()) {
+            await walk(fullPath, relative)
+          } else if (stats.isFile()) {
+            results.push({ path: relative, size: stats.size })
+          }
+        } catch {
+          // Skip entries that can't be stat'd
+        }
+      }
+    }
+    await walk(dirPath, '')
+    return results
+  }
 }

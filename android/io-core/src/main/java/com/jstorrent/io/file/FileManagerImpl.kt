@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
+import android.provider.DocumentsContract
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -314,6 +315,13 @@ class FileManagerImpl(
         val doc = resolvePath(rootUri, relativePath) ?: return emptyList()
         if (!doc.isDirectory) return emptyList()
         return doc.listFiles().mapNotNull { it.name }
+    }
+
+    override fun listTree(rootUri: Uri, relativePath: String): List<FileTreeEntry> {
+        if (isFileUri(rootUri)) {
+            return listTreeNative(rootUri, relativePath)
+        }
+        return listTreeSaf(rootUri, relativePath)
     }
 
     override fun delete(rootUri: Uri, relativePath: String): Boolean {
@@ -848,6 +856,78 @@ class FileManagerImpl(
             file.deleteRecursively()
         } else {
             file.delete()
+        }
+    }
+
+    private fun listTreeNative(rootUri: Uri, relativePath: String): List<FileTreeEntry> {
+        val dir = resolveNativeFile(rootUri, relativePath)
+        if (!dir.isDirectory) return emptyList()
+        val results = mutableListOf<FileTreeEntry>()
+        walkNativeTree(dir, "", results)
+        return results
+    }
+
+    private fun walkNativeTree(dir: File, prefix: String, results: MutableList<FileTreeEntry>) {
+        val children = dir.listFiles() ?: return
+        for (child in children) {
+            val relative = if (prefix.isEmpty()) child.name else "$prefix/${child.name}"
+            if (child.isDirectory) {
+                walkNativeTree(child, relative, results)
+            } else if (child.isFile) {
+                results.add(FileTreeEntry(relative, child.length()))
+            }
+        }
+    }
+
+    private fun listTreeSaf(rootUri: Uri, relativePath: String): List<FileTreeEntry> {
+        val startDocId = if (relativePath.isEmpty() || relativePath == "/") {
+            DocumentsContract.getTreeDocumentId(rootUri)
+        } else {
+            val doc = resolvePath(rootUri, relativePath) ?: return emptyList()
+            if (!doc.isDirectory) return emptyList()
+            DocumentsContract.getDocumentId(doc.uri)
+        }
+
+        val results = mutableListOf<FileTreeEntry>()
+        walkSafTree(rootUri, startDocId, "", results)
+        return results
+    }
+
+    private fun walkSafTree(
+        treeUri: Uri,
+        parentDocId: String,
+        prefix: String,
+        results: MutableList<FileTreeEntry>
+    ) {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
+        context.contentResolver.query(
+            childrenUri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_SIZE,
+                DocumentsContract.Document.COLUMN_MIME_TYPE
+            ),
+            null, null, null
+        )?.use { cursor ->
+            val idIdx = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameIdx = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val sizeIdx = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+            val mimeIdx = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+
+            while (cursor.moveToNext()) {
+                val docId = cursor.getString(idIdx) ?: continue
+                val name = cursor.getString(nameIdx) ?: continue
+                val size = cursor.getLong(sizeIdx)
+                val mimeType = cursor.getString(mimeIdx)
+                val relative = if (prefix.isEmpty()) name else "$prefix/$name"
+
+                if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    walkSafTree(treeUri, docId, relative, results)
+                } else {
+                    results.add(FileTreeEntry(relative, size))
+                }
+            }
         }
     }
 }

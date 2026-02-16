@@ -14,6 +14,14 @@ data class FileStat(
 )
 
 /**
+ * Entry in a recursive file listing returned by [FileManager.listTree].
+ */
+data class FileTreeEntry(
+    val path: String,
+    val size: Long,
+)
+
+/**
  * Manages file read/write operations using Android's Storage Access Framework (SAF).
  *
  * This interface abstracts file I/O operations, allowing different implementations
@@ -126,4 +134,19 @@ interface FileManager {
      * @return true if deleted successfully, false if doesn't exist or deletion failed
      */
     fun delete(rootUri: Uri, relativePath: String): Boolean
+
+    /**
+     * Recursively list all files under a directory with their sizes.
+     *
+     * Returns paths relative to the given path. Returns empty list if
+     * path doesn't exist or isn't a directory.
+     *
+     * For SAF URIs, uses ContentResolver.query() for efficient batch listing
+     * instead of DocumentFile.listFiles() which is O(n) queries per directory.
+     *
+     * @param rootUri SAF tree URI for the root
+     * @param relativePath Path relative to root
+     * @return List of files with relative paths and sizes
+     */
+    fun listTree(rootUri: Uri, relativePath: String): List<FileTreeEntry>
 }

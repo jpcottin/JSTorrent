@@ -63,4 +63,8 @@ export class NullFileSystem implements IFileSystem {
   async delete(path: string): Promise<void> {
     this.sizes.delete(path)
   }
+
+  async listTree(_path: string): Promise<Array<{ path: string; size: number }>> {
+    return []
+  }
 }
