@@ -2,7 +2,7 @@
 
 All notable changes to the Android app are documented here.
 
-## [1.0.17] - 2026-02-16
+## [1.0.18] - 2026-02-16
 
 ### Added
 - `listTree` API for recursive file listing, used in resume/recheck for batched file existence checks
