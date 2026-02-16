@@ -4,6 +4,16 @@ All notable changes to the Chrome extension are documented here.
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-02-16
+
+### Added
+- Context menu options on extension icon: open as tab, popup, or desktop app
+- Batch piece hash verification (verifyChunks API)
+- Recursive file listing (listTree) for faster resume and recheck
+
+### Changed
+- Minimum backend versions: Tauri App v0.1.24, Android v1.0.18
+
 ## [1.0.2] - 2026-02-11
 
 ### Added
