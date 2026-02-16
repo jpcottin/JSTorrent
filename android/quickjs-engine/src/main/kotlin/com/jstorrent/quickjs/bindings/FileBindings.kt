@@ -650,6 +650,29 @@ class FileBindings(
                 "false"
             }
         }
+
+        // __jstorrent_file_list_tree(rootKey: string, path: string): string (JSON array)
+        ctx.setGlobalFunction("__jstorrent_file_list_tree") { args ->
+            val rootKey = args.getOrNull(0) ?: ""
+            val path = args.getOrNull(1) ?: ""
+
+            val rootUri = resolveRoot(rootKey) ?: return@setGlobalFunction "[]"
+
+            try {
+                val entries = fileManager.listTree(rootUri, path)
+                val arr = JSONArray()
+                for (entry in entries) {
+                    arr.put(JSONObject().apply {
+                        put("path", entry.path)
+                        put("size", entry.size)
+                    })
+                }
+                arr.toString()
+            } catch (e: Exception) {
+                Log.e(TAG, "ListTree failed: $path", e)
+                "[]"
+            }
+        }
     }
 
     /**

@@ -223,6 +223,13 @@ declare global {
   function __jstorrent_file_delete(rootKey: string, path: string): boolean
 
   /**
+   * Recursively list all files under a directory with their sizes.
+   * Returns JSON array string: [{"path":"...","size":123}, ...]
+   * Returns "[]" if path doesn't exist or on error.
+   */
+  function __jstorrent_file_list_tree(rootKey: string, path: string): string
+
+  /**
    * Async verified write: hash data, compare to expected, write if match.
    * Runs on background thread to avoid blocking JS. Result delivered via callback.
    *

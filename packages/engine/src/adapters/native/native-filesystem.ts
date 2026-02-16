@@ -88,34 +88,10 @@ export class NativeFileSystem implements IFileSystem {
 
   /**
    * Recursively list all files under a directory with their sizes.
-   * Fallback implementation using readdir + stat. Phase 2 replaces this
-   * with a dedicated __jstorrent_file_list_tree JNI call.
+   * Uses dedicated __jstorrent_file_list_tree JNI call for efficiency.
    */
   async listTree(dirPath: string): Promise<Array<{ path: string; size: number }>> {
-    const results: Array<{ path: string; size: number }> = []
-    const walk = async (currentPath: string, prefix: string): Promise<void> => {
-      let entries: string[]
-      try {
-        entries = await this.readdir(currentPath)
-      } catch {
-        return
-      }
-      for (const name of entries) {
-        const fullPath = currentPath ? `${currentPath}/${name}` : name
-        const relative = prefix ? `${prefix}/${name}` : name
-        try {
-          const stat = await this.stat(fullPath)
-          if (stat.isDirectory) {
-            await walk(fullPath, relative)
-          } else if (stat.isFile) {
-            results.push({ path: relative, size: stat.size })
-          }
-        } catch {
-          // Skip entries that can't be stat'd
-        }
-      }
-    }
-    await walk(dirPath, '')
-    return results
+    const result = __jstorrent_file_list_tree(this.rootKey, dirPath)
+    return JSON.parse(result) as Array<{ path: string; size: number }>
   }
 }
