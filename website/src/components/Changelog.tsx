@@ -1,0 +1,114 @@
+export function Changelog() {
+  return (
+    <section id="news" className="section section-alt">
+      <div className="container">
+        <h2>Recent Changes</h2>
+
+        <article className="changelog-entry">
+          <h3>
+            Extension v1.0.3 <span className="date">February 16, 2026</span>
+          </h3>
+          <ul>
+            <li>Context menu options on extension icon: open as tab, popup, or desktop app</li>
+            <li>Batch piece hash verification for faster resume</li>
+            <li>Recursive file listing for faster recheck</li>
+          </ul>
+        </article>
+
+        <article className="changelog-entry">
+          <h3>
+            Android v1.0.18 <span className="date">February 16, 2026</span>
+          </h3>
+          <ul>
+            <li>Recursive file listing for faster resume and recheck</li>
+            <li>Batch piece hash verification</li>
+            <li>Fix torrent data always being deleted on removal in standalone mode</li>
+          </ul>
+        </article>
+
+        <article className="changelog-entry">
+          <h3>
+            Desktop App v0.1.24 <span className="date">February 2026</span>
+          </h3>
+          <ul>
+            <li>Recursive file listing and batch hash verification</li>
+            <li>Fix .torrent file open for filenames with spaces</li>
+            <li>Aggregated changelogs across skipped versions in auto-updater</li>
+          </ul>
+        </article>
+
+        <article className="changelog-entry">
+          <h3>
+            Extension v1.0.2 <span className="date">February 11, 2026</span>{' '}
+            <span className="badge">Major Update</span>
+          </h3>
+          <ul>
+            <li>Desktop app launch from extension settings</li>
+            <li>Profile picker UI and multi-profile support</li>
+            <li>Torrent queue management with active download/seed limits</li>
+            <li>Log viewer and completion notifications</li>
+            <li>Improved peer management: RTT-based snubbing, adaptive timeouts, peer caching</li>
+          </ul>
+        </article>
+
+        <article className="changelog-entry">
+          <h3>
+            Android v1.0.15 <span className="date">February 8, 2026</span>
+          </h3>
+          <ul>
+            <li>Queue management UI and settings</li>
+            <li>Log viewer, file opening, and completion notifications</li>
+            <li>Seed rotation and reset command</li>
+          </ul>
+        </article>
+
+        <article className="changelog-entry">
+          <h3>
+            Extension v1.0.0 <span className="date">February 4, 2026</span>{' '}
+            <span className="badge">Initial Release</span>
+          </h3>
+          <ul>
+            <li>Full rewrite of the engine in TypeScript</li>
+            <li>Multi-platform support: Windows, Mac, Linux, ChromeOS, Android</li>
+            <li>SOCKS5 proxy support with UDP for tracker announces</li>
+            <li>ETA display, torrent recheck, file truncation</li>
+          </ul>
+        </article>
+
+        <article className="changelog-entry">
+          <h3>
+            Android v1.0.10 <span className="date">February 3, 2026</span>
+          </h3>
+          <ul>
+            <li>83% smaller APK (~9.5 MB vs ~55 MB) via R8 minification</li>
+            <li>16KB memory page size support for Android 15+ devices</li>
+          </ul>
+        </article>
+
+        <article className="changelog-entry">
+          <h3>
+            Android v1.0.3 <span className="badge">Initial Release</span>
+          </h3>
+          <ul>
+            <li>Native Android app with QuickJS engine</li>
+            <li>BitTorrent v1 and v2 support</li>
+            <li>Magnet link handling, DHT, PEX, and tracker support</li>
+            <li>Standalone and ChromeOS companion modes</li>
+          </ul>
+        </article>
+
+        <article className="changelog-entry">
+          <h3>
+            Desktop App v0.1.0 <span className="badge">Initial Release</span>
+          </h3>
+          <ul>
+            <li>Tauri 2 app for Windows, Mac, and Linux</li>
+            <li>Deep link handling for magnet URIs and .torrent files</li>
+            <li>System tray with close-to-tray behavior</li>
+            <li>Auto-updater with signed and notarized builds</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  )
+}
