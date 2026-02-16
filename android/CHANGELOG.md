@@ -2,6 +2,16 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.17] - 2026-02-16
+
+### Added
+- `listTree` API for recursive file listing, used in resume/recheck for batched file existence checks
+- `verifyChunks` API for batch piece hash verification
+
+### Fixed
+- Android standalone always deleting torrent data on removal
+- QuickJS FFI boolean coercion bugs in native filesystem
+
 ## [1.0.16] - 2026-02-10
 
 ### Changed
