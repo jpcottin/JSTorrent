@@ -28,7 +28,7 @@ const DEFAULT_CONFIG: ActivePieceConfig = {
   // android standalone goes OOM near the end of a download (e.g. when in endgame) if maxActivePieces is too high.
   maxActivePieces: isNativeRuntime ? 128 : 10000,
 
-  maxBufferedBytes: isNativeRuntime ? 128 * 1024 * 1024 : 256 * 1024 * 1024,
+  maxBufferedBytes: isNativeRuntime ? 64 * 1024 * 1024 : 256 * 1024 * 1024,
 }
 
 /**
@@ -82,12 +82,14 @@ export class ActivePieceManager extends EngineComponent {
 
     // Initialize buffer pool if standard piece length is configured
     if (this.config.standardPieceLength) {
-      this.bufferPool = new PieceBufferPool(
-        this.config.standardPieceLength,
-        this.config.maxPoolSize ?? 64,
-      )
+      // Cap pool memory at 16MB total — scale pool size inversely with piece length
+      const MAX_POOL_BYTES = 16 * 1024 * 1024
+      const poolSize =
+        this.config.maxPoolSize ??
+        Math.max(2, Math.floor(MAX_POOL_BYTES / this.config.standardPieceLength))
+      this.bufferPool = new PieceBufferPool(this.config.standardPieceLength, poolSize)
       this.logger.debug(
-        `Buffer pool initialized for ${this.config.standardPieceLength} byte pieces`,
+        `Buffer pool initialized for ${this.config.standardPieceLength} byte pieces (poolSize=${poolSize})`,
       )
     }
 

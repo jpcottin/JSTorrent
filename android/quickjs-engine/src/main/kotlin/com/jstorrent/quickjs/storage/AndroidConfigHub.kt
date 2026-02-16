@@ -378,8 +378,8 @@ class AndroidConfigHub(
     }
 
     companion object {
-        /** Default max pipeline depth - must match DEFAULT_MAX_PIPELINE_DEPTH in config-schema.ts */
-        const val DEFAULT_MAX_PIPELINE_DEPTH = 500
+        /** Default max pipeline depth for Android standalone (lower than extension's 500 to reduce memory pressure) */
+        const val DEFAULT_MAX_PIPELINE_DEPTH = 250
         /** Default max active downloads - must match config-schema.ts */
         const val DEFAULT_ACTIVE_DOWNLOADS = 5
         /** Default max active seeds - must match config-schema.ts */

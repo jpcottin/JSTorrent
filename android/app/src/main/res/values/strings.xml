@@ -169,9 +169,6 @@
     <string name="settings_speed_active_downloads_description">Simultaneous downloading torrents</string>
     <string name="settings_speed_active_seeds_label">Max active seeds</string>
     <string name="settings_speed_active_seeds_description">Simultaneous seeding torrents</string>
-    <string name="settings_speed_advanced_section">Advanced</string>
-    <string name="settings_speed_pipeline_depth_label">Pipeline depth</string>
-    <string name="settings_speed_pipeline_depth_description">Outstanding block requests per peer. Higher values improve speed on high-latency connections but use more memory.</string>
 
     <!-- StorageSettingsScreen -->
     <string name="settings_storage_download_folders_section">Download Folders</string>

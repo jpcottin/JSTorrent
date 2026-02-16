@@ -29,8 +29,14 @@ export interface EndgameConfig {
   maxDuplicateRequests: number
 }
 
+// Detect if running in native/QuickJS environment (Android/iOS)
+const isNativeRuntime =
+  typeof globalThis !== 'undefined' &&
+  typeof (globalThis as Record<string, unknown>).__jstorrent_tcp_connect === 'function'
+
 const DEFAULT_CONFIG: EndgameConfig = {
-  maxDuplicateRequests: 3,
+  // Native runtime has tighter memory constraints; limit to 2 (1 original + 1 duplicate)
+  maxDuplicateRequests: isNativeRuntime ? 2 : 3,
 }
 
 /**

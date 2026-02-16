@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -86,15 +85,6 @@ private val activeDownloadsPresets = listOf(
 
 
 
-private val maxPipelineDepthPresets = listOf(
-    ConnectionLimitPreset(10, "10 (low)"),
-    ConnectionLimitPreset(25, "25"),
-    ConnectionLimitPreset(50, "50 (conservative)"),
-    ConnectionLimitPreset(100, "100"),
-    ConnectionLimitPreset(250, "250"),
-    ConnectionLimitPreset(500, "500 (default)"),
-    ConnectionLimitPreset(750, "750 (aggressive)")
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -166,11 +156,9 @@ fun SpeedConnectionLimitsSettingsScreen(
                     maxPeersPerTorrent = uiState.maxPeersPerTorrent,
                     maxGlobalPeers = uiState.maxGlobalPeers,
                     maxUploadSlots = uiState.maxUploadSlots,
-                    maxPipelineDepth = uiState.maxPipelineDepth,
                     onMaxPeersPerTorrentChange = { viewModel.setMaxPeersPerTorrent(it) },
                     onMaxGlobalPeersChange = { viewModel.setMaxGlobalPeers(it) },
-                    onMaxUploadSlotsChange = { viewModel.setMaxUploadSlots(it) },
-                    onMaxPipelineDepthChange = { viewModel.setMaxPipelineDepth(it) }
+                    onMaxUploadSlotsChange = { viewModel.setMaxUploadSlots(it) }
                 )
             }
         }
@@ -301,11 +289,9 @@ private fun ConnectionLimitsSection(
     maxPeersPerTorrent: Int,
     maxGlobalPeers: Int,
     maxUploadSlots: Int,
-    maxPipelineDepth: Int,
     onMaxPeersPerTorrentChange: (Int) -> Unit,
     onMaxGlobalPeersChange: (Int) -> Unit,
     onMaxUploadSlotsChange: (Int) -> Unit,
-    onMaxPipelineDepthChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -335,22 +321,6 @@ private fun ConnectionLimitsSection(
             currentValue = maxUploadSlots,
             presets = maxUploadSlotsPresets,
             onValueChange = onMaxUploadSlotsChange
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        HorizontalDivider()
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = stringResource(R.string.settings_speed_advanced_section),
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        ConnectionLimitRow(
-            label = stringResource(R.string.settings_speed_pipeline_depth_label),
-            description = stringResource(R.string.settings_speed_pipeline_depth_description),
-            currentValue = maxPipelineDepth,
-            presets = maxPipelineDepthPresets,
-            onValueChange = onMaxPipelineDepthChange
         )
     }
 }
