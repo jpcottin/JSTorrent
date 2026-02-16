@@ -1,7 +1,8 @@
 use crate::AppState;
 use axum::{
     extract::{DefaultBodyLimit, Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
@@ -36,6 +37,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/ops/delete", post(delete_file))
         .route("/ops/truncate", post(truncate_file))
         .route("/ops/list_tree", get(list_tree_dir))
+        .route("/ops/verify_chunks", post(verify_chunks))
         .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
 }
 
@@ -555,15 +557,241 @@ pub fn validate_path(
     Ok(root_path.join(clean_path))
 }
 
+#[derive(Deserialize)]
+struct VerifyChunksRequest {
+    root_key: String,
+    files: Vec<VerifyChunkFile>,
+    chunk_size: u64,
+    hashes: String, // base64-encoded concatenated 20-byte SHA1 hashes
+    start_chunk: u64,
+    chunk_count: u64,
+}
+
+#[derive(Deserialize)]
+struct VerifyChunkFile {
+    path: String,
+    length: u64,
+}
+
+const VERIFY_MATCH: u8 = 0;
+const VERIFY_MISMATCH: u8 = 1;
+const VERIFY_IO_ERROR: u8 = 2;
+
+/// Core verify-chunks logic: reads resolved files as a concatenated byte stream,
+/// hashes each chunk with SHA1, and compares against expected hashes.
+///
+/// `resolved_files`: Vec of (path, length) — already validated.
+/// `hashes_bytes`: raw concatenated 20-byte SHA1 hashes for each chunk.
+/// Returns one byte per chunk: 0=MATCH, 1=MISMATCH, `2=IO_ERROR`.
+async fn verify_chunks_core(
+    resolved_files: &[(PathBuf, u64)],
+    chunk_size: u64,
+    hashes_bytes: &[u8],
+    start_chunk: u64,
+    chunk_count: usize,
+) -> Vec<u8> {
+    let total_length: u64 = resolved_files.iter().map(|(_, len)| len).sum();
+
+    // Cumulative end offsets for each file in the concatenated stream
+    let mut file_ends: Vec<u64> = Vec::with_capacity(resolved_files.len());
+    {
+        let mut cum = 0u64;
+        for (_, len) in resolved_files {
+            cum += len;
+            file_ends.push(cum);
+        }
+    }
+
+    let mut results = Vec::with_capacity(chunk_count);
+
+    // Sequential read state
+    let mut cur_file_idx: usize = 0;
+    let mut cur_file: Option<File> = None;
+    let mut cur_file_read_pos: u64 = 0;
+
+    // Advance to the starting file
+    let mut stream_pos = start_chunk * chunk_size;
+    while cur_file_idx < resolved_files.len() && stream_pos >= file_ends[cur_file_idx] {
+        cur_file_idx += 1;
+    }
+
+    let buf_size = std::cmp::min(chunk_size as usize, 256 * 1024);
+    let mut read_buf = vec![0u8; buf_size];
+
+    for chunk_i in 0..chunk_count {
+        let chunk_len = std::cmp::min(chunk_size, total_length.saturating_sub(stream_pos));
+
+        if chunk_len == 0 {
+            results.push(VERIFY_IO_ERROR);
+            stream_pos += chunk_size;
+            continue;
+        }
+
+        let mut hasher = Sha1::new();
+        let mut bytes_hashed: u64 = 0;
+        let mut io_error = false;
+
+        while bytes_hashed < chunk_len && !io_error {
+            if cur_file_idx >= resolved_files.len() {
+                io_error = true;
+                break;
+            }
+
+            // Open file if needed
+            if cur_file.is_none() {
+                if let Ok(mut f) = File::open(&resolved_files[cur_file_idx].0).await {
+                    let file_start = if cur_file_idx > 0 {
+                        file_ends[cur_file_idx - 1]
+                    } else {
+                        0
+                    };
+                    let pos_in_file = stream_pos + bytes_hashed - file_start;
+                    if pos_in_file > 0 && f.seek(SeekFrom::Start(pos_in_file)).await.is_err() {
+                        io_error = true;
+                        break;
+                    }
+                    cur_file_read_pos = pos_in_file;
+                    cur_file = Some(f);
+                } else {
+                    io_error = true;
+                    break;
+                }
+            }
+
+            let file = cur_file.as_mut().unwrap();
+            let file_remaining = resolved_files[cur_file_idx].1 - cur_file_read_pos;
+            let chunk_remaining = chunk_len - bytes_hashed;
+            let to_read = std::cmp::min(
+                std::cmp::min(file_remaining, chunk_remaining) as usize,
+                read_buf.len(),
+            );
+
+            if to_read == 0 {
+                // Exhausted this file, move to next
+                cur_file = None;
+                cur_file_idx += 1;
+                continue;
+            }
+
+            match file.read_exact(&mut read_buf[..to_read]).await {
+                Ok(_) => {
+                    hasher.update(&read_buf[..to_read]);
+                    bytes_hashed += to_read as u64;
+                    cur_file_read_pos += to_read as u64;
+
+                    if cur_file_read_pos >= resolved_files[cur_file_idx].1 {
+                        cur_file = None;
+                        cur_file_idx += 1;
+                    }
+                }
+                Err(_) => {
+                    io_error = true;
+                }
+            }
+        }
+
+        if io_error {
+            results.push(VERIFY_IO_ERROR);
+            // Reset file state for next chunk
+            cur_file = None;
+            stream_pos += chunk_size;
+            cur_file_idx = 0;
+            while cur_file_idx < resolved_files.len() && stream_pos >= file_ends[cur_file_idx] {
+                cur_file_idx += 1;
+            }
+        } else {
+            let actual_hash = hasher.finalize();
+            let expected_hash = &hashes_bytes[chunk_i * 20..(chunk_i + 1) * 20];
+            results.push(if actual_hash.as_slice() == expected_hash {
+                VERIFY_MATCH
+            } else {
+                VERIFY_MISMATCH
+            });
+            stream_pos += chunk_size;
+        }
+    }
+
+    results
+}
+
+/// Verify chunks by reading files as a concatenated byte stream, hashing each
+/// chunk with SHA1, and comparing against expected hashes.
+///
+/// POST /`ops/verify_chunks`
+/// Body: JSON `VerifyChunksRequest`
+/// Response: `application/octet-stream` — one byte per chunk (0=match, 1=mismatch, `2=io_error`)
+async fn verify_chunks(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<VerifyChunksRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let hashes_bytes = BASE64.decode(&req.hashes).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid base64 hashes: {e}"),
+        )
+    })?;
+
+    let chunk_count = req.chunk_count as usize;
+    if hashes_bytes.len() != chunk_count * 20 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "Hash length mismatch: {} bytes for {} chunks",
+                hashes_bytes.len(),
+                chunk_count,
+            ),
+        ));
+    }
+
+    // Resolve all file paths upfront
+    let mut resolved_files: Vec<(PathBuf, u64)> = Vec::with_capacity(req.files.len());
+    for f in &req.files {
+        let path = validate_path(&state, &req.root_key, &f.path)?;
+        resolved_files.push((path, f.length));
+    }
+
+    let results = verify_chunks_core(
+        &resolved_files,
+        req.chunk_size,
+        &hashes_bytes,
+        req.start_chunk,
+        chunk_count,
+    )
+    .await;
+
+    Ok((
+        [(header::CONTENT_TYPE, "application/octet-stream")],
+        results,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     use sha1::{Digest, Sha1};
+    use std::path::PathBuf;
 
     /// Test helper: compute SHA1 hash the same way as write_file_v2
     fn compute_sha1_hex(data: &[u8]) -> String {
         let mut hasher = Sha1::new();
         hasher.update(data);
         hex::encode(hasher.finalize())
+    }
+
+    /// Test helper: compute raw SHA1 hash bytes
+    fn sha1_bytes(data: &[u8]) -> Vec<u8> {
+        let mut hasher = Sha1::new();
+        hasher.update(data);
+        hasher.finalize().to_vec()
+    }
+
+    /// Test helper: concatenate multiple SHA1 hashes
+    fn concat_hashes(hashes: &[Vec<u8>]) -> Vec<u8> {
+        let mut result = Vec::with_capacity(hashes.len() * 20);
+        for h in hashes {
+            result.extend_from_slice(h);
+        }
+        result
     }
 
     #[test]
@@ -597,5 +825,143 @@ mod tests {
         assert_eq!(hash, hash.to_lowercase());
         // Verify uppercase would NOT match (this is intentional behavior)
         assert_ne!(hash, hash.to_uppercase());
+    }
+
+    #[tokio::test]
+    async fn test_verify_chunks_single_file_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("file.bin");
+        let data = vec![1u8, 2, 3, 4, 5];
+        tokio::fs::write(&file_path, &data).await.unwrap();
+
+        let hashes = concat_hashes(&[sha1_bytes(&data)]);
+        let files = vec![(file_path, 5u64)];
+
+        let results = verify_chunks_core(&files, 5, &hashes, 0, 1).await;
+        assert_eq!(results, vec![VERIFY_MATCH]);
+    }
+
+    #[tokio::test]
+    async fn test_verify_chunks_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("file.bin");
+        tokio::fs::write(&file_path, &[0u8, 0, 0, 0, 0])
+            .await
+            .unwrap();
+
+        // Hash for different data
+        let hashes = concat_hashes(&[sha1_bytes(&[1, 2, 3, 4, 5])]);
+        let files = vec![(file_path, 5u64)];
+
+        let results = verify_chunks_core(&files, 5, &hashes, 0, 1).await;
+        assert_eq!(results, vec![VERIFY_MISMATCH]);
+    }
+
+    #[tokio::test]
+    async fn test_verify_chunks_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.bin");
+
+        let hashes = concat_hashes(&[sha1_bytes(&[0; 5])]);
+        let files = vec![(missing, 5u64)];
+
+        let results = verify_chunks_core(&files, 5, &hashes, 0, 1).await;
+        assert_eq!(results, vec![VERIFY_IO_ERROR]);
+    }
+
+    #[tokio::test]
+    async fn test_verify_chunks_multiple_chunks_last_shorter() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("file.bin");
+        // 10 bytes, chunk_size=4 → chunks: [4, 4, 2]
+        let data: Vec<u8> = (1..=10).collect();
+        tokio::fs::write(&file_path, &data).await.unwrap();
+
+        let chunk0 = &data[0..4];
+        let chunk1 = &data[4..8];
+        let chunk2 = &data[8..10];
+        let hashes = concat_hashes(&[sha1_bytes(chunk0), sha1_bytes(chunk1), sha1_bytes(chunk2)]);
+        let files = vec![(file_path, 10u64)];
+
+        let results = verify_chunks_core(&files, 4, &hashes, 0, 3).await;
+        assert_eq!(results, vec![VERIFY_MATCH, VERIFY_MATCH, VERIFY_MATCH]);
+    }
+
+    #[tokio::test]
+    async fn test_verify_chunks_spanning_two_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let f1_path = dir.path().join("f1.bin");
+        let f2_path = dir.path().join("f2.bin");
+        // f1: [1,2,3], f2: [4,5,6,7,8] → concat [1..8], chunk_size=4
+        // chunk0: [1,2,3,4] spans both files, chunk1: [5,6,7,8]
+        tokio::fs::write(&f1_path, &[1u8, 2, 3]).await.unwrap();
+        tokio::fs::write(&f2_path, &[4u8, 5, 6, 7, 8])
+            .await
+            .unwrap();
+
+        let hashes = concat_hashes(&[sha1_bytes(&[1, 2, 3, 4]), sha1_bytes(&[5, 6, 7, 8])]);
+        let files = vec![(f1_path, 3u64), (f2_path, 5u64)];
+
+        let results = verify_chunks_core(&files, 4, &hashes, 0, 2).await;
+        assert_eq!(results, vec![VERIFY_MATCH, VERIFY_MATCH]);
+    }
+
+    #[tokio::test]
+    async fn test_verify_chunks_start_chunk_offset() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("file.bin");
+        let data: Vec<u8> = (0..12).collect();
+        tokio::fs::write(&file_path, &data).await.unwrap();
+
+        // 3 chunks of 4 bytes, only verify chunk 1
+        let chunk1 = &data[4..8];
+        let hashes = concat_hashes(&[sha1_bytes(chunk1)]);
+        let files = vec![(file_path, 12u64)];
+
+        let results = verify_chunks_core(&files, 4, &hashes, 1, 1).await;
+        assert_eq!(results, vec![VERIFY_MATCH]);
+    }
+
+    #[tokio::test]
+    async fn test_verify_chunks_corrupted_middle_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let f1 = dir.path().join("f1.bin");
+        let f2 = dir.path().join("f2.bin");
+        let f3 = dir.path().join("f3.bin");
+
+        let d1 = [1u8, 2, 3, 4];
+        let d2_correct = [5u8, 6, 7, 8];
+        let d3 = [9u8, 10, 11, 12];
+
+        tokio::fs::write(&f1, &d1).await.unwrap();
+        tokio::fs::write(&f2, &[0u8, 0, 0, 0]).await.unwrap(); // corrupted
+        tokio::fs::write(&f3, &d3).await.unwrap();
+
+        let hashes = concat_hashes(&[sha1_bytes(&d1), sha1_bytes(&d2_correct), sha1_bytes(&d3)]);
+        let files = vec![(f1, 4u64), (f2, 4u64), (f3, 4u64)];
+
+        let results = verify_chunks_core(&files, 4, &hashes, 0, 3).await;
+        assert_eq!(results, vec![VERIFY_MATCH, VERIFY_MISMATCH, VERIFY_MATCH]);
+    }
+
+    #[tokio::test]
+    async fn test_verify_chunks_missing_middle_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let f1 = dir.path().join("f1.bin");
+        let f2_missing = dir.path().join("f2.bin");
+        let f3 = dir.path().join("f3.bin");
+
+        let d1 = [1u8, 2, 3, 4];
+        let d3 = [9u8, 10, 11, 12];
+
+        tokio::fs::write(&f1, &d1).await.unwrap();
+        // f2 not created — missing
+        tokio::fs::write(&f3, &d3).await.unwrap();
+
+        let hashes = concat_hashes(&[sha1_bytes(&d1), sha1_bytes(&[5, 6, 7, 8]), sha1_bytes(&d3)]);
+        let files: Vec<(PathBuf, u64)> = vec![(f1, 4), (f2_missing, 4), (f3, 4)];
+
+        let results = verify_chunks_core(&files, 4, &hashes, 0, 3).await;
+        assert_eq!(results, vec![VERIFY_MATCH, VERIFY_IO_ERROR, VERIFY_MATCH]);
     }
 }

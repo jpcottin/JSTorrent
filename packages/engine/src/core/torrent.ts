@@ -53,6 +53,8 @@ import { FilePriorityManager, PieceClassification } from './file-priority-manage
 import { PieceAvailability } from './piece-availability'
 import { TorrentPieceRequester, PieceRequesterDeps } from './piece-requester'
 import { WriteError, classifyError, getRetryDelay } from './write-error'
+import { VerifyChunkResult } from '../interfaces/filesystem'
+import type { VerifyChunksRequest, IFileSystem } from '../interfaces/filesystem'
 
 /**
  * Maximum ratio of peer slots that incoming connections can occupy.
@@ -3415,42 +3417,24 @@ export class Torrent extends EngineComponent {
       if (pieceHasFile.indexOf(1) === -1 && !hasPartsData) {
         this.logger.info('Data check: no files on disk and no .parts data, skipping verification')
       } else {
+        // Phase 1: Verify .parts boundary pieces individually (data is in memory)
         for (let i = 0; i < this.piecesCount; i++) {
+          const isBoundary = this.pieceClassification[i] === 'boundary'
+          const inParts = isBoundary && this._partsFile?.hasPiece(i)
+          if (!inParts) continue
           try {
-            // Check if this is a boundary piece that might be in .parts
-            const isBoundary = this.pieceClassification[i] === 'boundary'
-            const inParts = isBoundary && this._partsFile?.hasPiece(i)
-
-            // Skip pieces that only span missing files and aren't in .parts
-            if (!pieceHasFile[i] && !inParts) {
-              this._checkingProgress = (i + 1) / this.piecesCount
-              continue
-            }
-
-            let isValid = false
-
-            if (inParts) {
-              // Try to verify from .parts file
-              isValid = await this.verifyPieceFromParts(i)
-              if (isValid) {
-                this._partsFilePieces.add(i)
-              }
-            } else {
-              // Verify from regular files
-              isValid = await this.verifyPiece(i)
-            }
-
+            const isValid = await this.verifyPieceFromParts(i)
             if (isValid) {
+              this._partsFilePieces.add(i)
               this.markPieceVerified(i)
             }
           } catch (err) {
-            // Read error - piece remains unchecked
-            this.logger.debug(`Piece ${i} read error during recheck:`, { err })
+            this.logger.debug(`Piece ${i} .parts read error during recheck:`, { err })
           }
-
-          // Update progress
-          this._checkingProgress = (i + 1) / this.piecesCount
         }
+
+        // Phase 2: Batch verify regular pieces using verifyChunks
+        await this._batchVerifyPieces(pieceHasFile)
       }
     } finally {
       // Always clear checking state
@@ -3464,6 +3448,120 @@ export class Torrent extends EngineComponent {
 
     // Persist the verified bitfield
     this.btEngine.sessionPersistence.schedulePiecePersistence(this)
+  }
+
+  /**
+   * Batch verify regular (non-.parts) pieces using verifyChunks().
+   * Falls back to per-piece verifyPiece() if the backend doesn't support it.
+   */
+  private async _batchVerifyPieces(pieceHasFile: Uint8Array): Promise<void> {
+    if (!this.contentStorage) return
+
+    const fs = this.contentStorage.storage.getFileSystem()
+    const files = this.contentStorage.filesList
+    if (files.length === 0) return
+
+    // Build list of regular pieces that need verification from disk files.
+    // Exclude pieces already verified from .parts and pieces with no files.
+    const piecesToVerify: number[] = []
+    for (let i = 0; i < this.piecesCount; i++) {
+      if (this.hasPiece(i)) continue // already verified (e.g. from .parts)
+      if (!pieceHasFile[i]) continue // no files on disk for this piece
+      piecesToVerify.push(i)
+    }
+
+    if (piecesToVerify.length === 0) {
+      this._checkingProgress = 1
+      return
+    }
+
+    // Try batch verification first, fall back to per-piece on error
+    try {
+      await this._verifyChunksBatched(fs, files, piecesToVerify)
+    } catch (err) {
+      this.logger.info('verifyChunks not supported, falling back to per-piece verification', {
+        err,
+      })
+      await this._verifyPieceByPiece(piecesToVerify)
+    }
+  }
+
+  /**
+   * Use verifyChunks() to verify pieces in batches. Sends file layout + hashes
+   * to the backend which reads and hashes locally — no piece data crosses the boundary.
+   */
+  private async _verifyChunksBatched(
+    fs: IFileSystem,
+    files: { path: string; length: number; offset: number }[],
+    piecesToVerify: number[],
+  ): Promise<void> {
+    const BATCH_SIZE = 500
+
+    // Build the concatenated hashes for ALL pieces (verifyChunks operates on
+    // the virtual concatenated file stream, indexed by chunk position)
+    const allHashes = new Uint8Array(this.piecesCount * 20)
+    for (let i = 0; i < this.piecesCount; i++) {
+      const hash = this.getPieceHash(i)
+      if (hash) allHashes.set(hash, i * 20)
+    }
+
+    // File layout for verifyChunks: path + length (offset is implicit from order)
+    const fileLayout = files.map((f) => ({ path: f.path, length: f.length }))
+
+    // Process in contiguous ranges to minimize verifyChunks calls.
+    // Group piecesToVerify into contiguous runs, then batch those.
+    let verified = 0
+    const totalToVerify = piecesToVerify.length
+
+    // Process in batches of BATCH_SIZE pieces
+    for (let batchStart = 0; batchStart < totalToVerify; batchStart += BATCH_SIZE) {
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, totalToVerify)
+      const batchPieces = piecesToVerify.slice(batchStart, batchEnd)
+
+      // Find the range of chunk indices this batch spans
+      const startChunk = batchPieces[0]
+      const endChunk = batchPieces[batchPieces.length - 1]
+      const chunkCount = endChunk - startChunk + 1
+
+      const request: VerifyChunksRequest = {
+        files: fileLayout,
+        chunkSize: this.pieceLength,
+        hashes: allHashes,
+        startChunk,
+        chunkCount,
+      }
+
+      const results = await fs.verifyChunks(request)
+
+      // Map results back to piece indices
+      for (const pieceIndex of batchPieces) {
+        const resultIndex = pieceIndex - startChunk
+        if (resultIndex < results.length && results[resultIndex] === VerifyChunkResult.MATCH) {
+          this.markPieceVerified(pieceIndex)
+        }
+      }
+
+      verified += batchPieces.length
+      this._checkingProgress = verified / totalToVerify
+    }
+  }
+
+  /**
+   * Fallback: verify pieces one at a time when verifyChunks is not available.
+   */
+  private async _verifyPieceByPiece(piecesToVerify: number[]): Promise<void> {
+    for (let i = 0; i < piecesToVerify.length; i++) {
+      const pieceIndex = piecesToVerify[i]
+      try {
+        const isValid = await this.verifyPiece(pieceIndex)
+        if (isValid) {
+          this.markPieceVerified(pieceIndex)
+        }
+      } catch (err) {
+        this.logger.debug(`Piece ${pieceIndex} read error during recheck:`, { err })
+      }
+      this._checkingProgress = (i + 1) / piecesToVerify.length
+    }
   }
 
   /**

@@ -46,6 +46,26 @@ export interface IFileHandle {
   close(): Promise<void>
 }
 
+export interface VerifyChunksRequest {
+  /** Ordered list of files forming an implicitly concatenated byte stream. */
+  files: Array<{ path: string; length: number }>
+  /** Size of each chunk in bytes (piece length). */
+  chunkSize: number
+  /** Concatenated 20-byte SHA1 hashes, one per chunk. */
+  hashes: Uint8Array
+  /** First chunk index to verify (default 0). */
+  startChunk?: number
+  /** Number of chunks to verify (default: all remaining). */
+  chunkCount?: number
+}
+
+/** Result codes for verifyChunks */
+export const VerifyChunkResult = {
+  MATCH: 0,
+  MISMATCH: 1,
+  IO_ERROR: 2,
+} as const
+
 export interface IFileSystem {
   /**
    * Open a file.
@@ -84,4 +104,13 @@ export interface IFileSystem {
    * Returns empty array if path doesn't exist.
    */
   listTree(path: string): Promise<Array<{ path: string; size: number }>>
+
+  /**
+   * Verify chunks by reading file data and comparing SHA1 hashes on the backend.
+   * Files are treated as an ordered, implicitly concatenated byte stream.
+   * Backend reads sequentially, hashes each chunk, and returns result codes.
+   *
+   * @returns One byte per chunk: 0=MATCH, 1=MISMATCH, 2=IO_ERROR
+   */
+  verifyChunks(request: VerifyChunksRequest): Promise<Uint8Array>
 }

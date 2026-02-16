@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Log
 import com.jstorrent.io.file.FileManager
 import com.jstorrent.io.file.FileManagerException
+import com.jstorrent.io.file.VerifyChunksFile
 import com.jstorrent.io.hash.Hasher
 import com.jstorrent.quickjs.JsThread
 import com.jstorrent.quickjs.QuickJsContext
@@ -671,6 +672,37 @@ class FileBindings(
             } catch (e: Exception) {
                 Log.e(TAG, "ListTree failed: $path", e)
                 "[]"
+            }
+        }
+
+        // __jstorrent_file_verify_chunks(rootKey: string, requestJson: string): ArrayBuffer
+        ctx.setGlobalFunctionReturnsBinary("__jstorrent_file_verify_chunks") { args, _ ->
+            val rootKey = args.getOrNull(0) ?: ""
+            val requestJson = args.getOrNull(1) ?: ""
+
+            val rootUri = resolveRoot(rootKey)
+            if (rootUri == null) {
+                Log.w(TAG, "verify_chunks: unknown root key: $rootKey")
+                return@setGlobalFunctionReturnsBinary ByteArray(0)
+            }
+
+            try {
+                val json = JSONObject(requestJson)
+                val filesArr = json.getJSONArray("files")
+                val files = (0 until filesArr.length()).map { i ->
+                    val f = filesArr.getJSONObject(i)
+                    VerifyChunksFile(f.getString("path"), f.getLong("length"))
+                }
+                val chunkSize = json.getLong("chunkSize")
+                val hashesBase64 = json.getString("hashes")
+                val hashes = android.util.Base64.decode(hashesBase64, android.util.Base64.DEFAULT)
+                val startChunk = json.optLong("startChunk", 0)
+                val chunkCount = json.optLong("chunkCount", 0)
+
+                fileManager.verifyChunks(rootUri, files, chunkSize, hashes, startChunk, chunkCount)
+            } catch (e: Exception) {
+                Log.e(TAG, "verify_chunks failed", e)
+                ByteArray(0)
             }
         }
     }

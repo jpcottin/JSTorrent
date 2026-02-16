@@ -1,4 +1,9 @@
-import { IFileSystem, IFileHandle, IFileStat } from '../../interfaces/filesystem'
+import {
+  IFileSystem,
+  IFileHandle,
+  IFileStat,
+  VerifyChunksRequest,
+} from '../../interfaces/filesystem'
 import { DaemonConnection } from './daemon-connection'
 import { DaemonFileHandle } from './daemon-file-handle'
 
@@ -68,13 +73,44 @@ export class DaemonFileSystem implements IFileSystem {
   }
 
   async listTree(path: string): Promise<Array<{ path: string; size: number }>> {
-    return this.connection.request<Array<{ path: string; size: number }>>(
-      'GET',
-      '/ops/list_tree',
-      {
-        path,
-        root_key: this.rootKey,
-      },
+    return this.connection.request<Array<{ path: string; size: number }>>('GET', '/ops/list_tree', {
+      path,
+      root_key: this.rootKey,
+    })
+  }
+
+  async verifyChunks(request: VerifyChunksRequest): Promise<Uint8Array> {
+    // Encode hashes as base64 for JSON transport
+    let hashesBase64: string
+    if (typeof Buffer !== 'undefined') {
+      hashesBase64 = Buffer.from(request.hashes).toString('base64')
+    } else {
+      // Browser: manual base64
+      let binary = ''
+      for (let i = 0; i < request.hashes.length; i++) {
+        binary += String.fromCharCode(request.hashes[i])
+      }
+      hashesBase64 = btoa(binary)
+    }
+
+    const body = JSON.stringify({
+      root_key: this.rootKey,
+      files: request.files,
+      chunk_size: request.chunkSize,
+      hashes: hashesBase64,
+      start_chunk: request.startChunk ?? 0,
+      chunk_count:
+        request.chunkCount ??
+        Math.ceil(request.files.reduce((s, f) => s + f.length, 0) / request.chunkSize) -
+          (request.startChunk ?? 0),
+    })
+
+    return this.connection.requestBinary(
+      'POST',
+      '/ops/verify_chunks',
+      undefined,
+      new TextEncoder().encode(body),
+      { 'Content-Type': 'application/json' },
     )
   }
 }

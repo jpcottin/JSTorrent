@@ -4,6 +4,7 @@ import android.util.Base64
 import android.util.Log
 import com.jstorrent.io.file.FileManager
 import com.jstorrent.io.file.FileManagerException
+import com.jstorrent.io.file.VerifyChunksFile
 import com.jstorrent.io.hash.Hasher
 import io.netty.bootstrap.ServerBootstrap
 import kotlinx.coroutines.CoroutineScope
@@ -278,6 +279,7 @@ private class NettyHttpHandler(
                 path == "/ops/delete" && method == HttpMethod.POST -> handleOpsDelete(ctx, request)
                 path.startsWith("/ops/stat") && method == HttpMethod.GET -> handleOpsStat(ctx, request)
                 path.startsWith("/ops/list_tree") && method == HttpMethod.GET -> handleOpsListTree(ctx, request)
+                path == "/ops/verify_chunks" && method == HttpMethod.POST -> handleOpsVerifyChunks(ctx, request)
                 path.startsWith("/ops/list") && method == HttpMethod.GET -> handleOpsList(ctx, request)
                 path == "/files/ensure_dir" && method == HttpMethod.POST -> handleEnsureDir(ctx, request)
 
@@ -876,6 +878,70 @@ private class NettyHttpHandler(
             """{"path":"${entry.path.replace("\"", "\\\"")}","size":${entry.size}}"""
         }
         sendJsonResponse(ctx, request, HttpResponseStatus.OK, "[$jsonArray]")
+    }
+
+    /**
+     * Verify chunks by reading files as a concatenated stream and comparing SHA1 hashes.
+     * POST /ops/verify_chunks
+     * Body: JSON with root_key, files, chunk_size, hashes (base64), start_chunk, chunk_count
+     * Response: application/octet-stream — one byte per chunk (0=match, 1=mismatch, 2=io_error)
+     */
+    private fun handleOpsVerifyChunks(ctx: ChannelHandlerContext, request: FullHttpRequest) {
+        if (getExtensionHeaders(request) == null && !isStandaloneAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing extension headers")
+            return
+        }
+        if (!validateAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.UNAUTHORIZED, "Invalid token")
+            return
+        }
+
+        val body = request.content().toString(Charsets.UTF_8)
+        val json = try {
+            org.json.JSONObject(body)
+        } catch (e: Exception) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid JSON body")
+            return
+        }
+
+        val rootKey = if (json.has("root_key")) json.getString("root_key") else null
+        if (rootKey == null) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing root_key")
+            return
+        }
+
+        val rootUri = deps.rootStore.resolveKey(rootKey)
+        if (rootUri == null) {
+            sendError(ctx, request, HttpResponseStatus.FORBIDDEN, "Invalid root key")
+            return
+        }
+
+        try {
+            val filesArr = json.getJSONArray("files")
+            val files = (0 until filesArr.length()).map { i ->
+                val f = filesArr.getJSONObject(i)
+                VerifyChunksFile(f.getString("path"), f.getLong("length"))
+            }
+
+            for (f in files) {
+                if (f.path.contains("..")) {
+                    sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid path")
+                    return
+                }
+            }
+
+            val chunkSize = json.getLong("chunk_size")
+            val hashesBase64 = json.getString("hashes")
+            val hashes = android.util.Base64.decode(hashesBase64, android.util.Base64.DEFAULT)
+            val startChunk = json.optLong("start_chunk", 0)
+            val chunkCount = json.optLong("chunk_count", 0)
+
+            val results = fileManager.verifyChunks(rootUri, files, chunkSize, hashes, startChunk, chunkCount)
+            sendBinaryResponse(ctx, request, HttpResponseStatus.OK, results)
+        } catch (e: Exception) {
+            Log.e(TAG, "verify_chunks failed: ${e.message}", e)
+            sendError(ctx, request, HttpResponseStatus.INTERNAL_SERVER_ERROR, e.message ?: "Internal error")
+        }
     }
 
     /**

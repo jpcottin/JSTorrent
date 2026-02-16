@@ -1,5 +1,6 @@
 import { NodeFileSystem } from './node-filesystem'
 import * as path from 'path'
+import type { VerifyChunksRequest } from '../../interfaces/filesystem'
 
 export class ScopedNodeFileSystem extends NodeFileSystem {
   constructor(private root: string) {
@@ -31,5 +32,12 @@ export class ScopedNodeFileSystem extends NodeFileSystem {
 
   async listTree(dirPath: string) {
     return super.listTree(this.resolve(dirPath))
+  }
+
+  async verifyChunks(request: VerifyChunksRequest) {
+    return super.verifyChunks({
+      ...request,
+      files: request.files.map((f) => ({ ...f, path: this.resolve(f.path) })),
+    })
   }
 }

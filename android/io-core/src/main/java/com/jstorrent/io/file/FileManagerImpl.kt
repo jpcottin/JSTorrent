@@ -324,6 +324,102 @@ class FileManagerImpl(
         return listTreeSaf(rootUri, relativePath)
     }
 
+    override fun verifyChunks(
+        rootUri: Uri,
+        files: List<VerifyChunksFile>,
+        chunkSize: Long,
+        hashes: ByteArray,
+        startChunk: Long,
+        chunkCount: Long,
+    ): ByteArray {
+        val MATCH: Byte = 0
+        val MISMATCH: Byte = 1
+        val IO_ERROR: Byte = 2
+
+        val count = chunkCount.toInt()
+        val results = ByteArray(count)
+        val totalLength = files.sumOf { it.length }
+
+        // Cumulative end offsets
+        val fileEnds = LongArray(files.size)
+        var cum = 0L
+        for (i in files.indices) {
+            cum += files[i].length
+            fileEnds[i] = cum
+        }
+
+        val md = java.security.MessageDigest.getInstance("SHA-1")
+        val readBufSize = minOf(chunkSize, 256L * 1024L).toInt()
+
+        var streamPos = startChunk * chunkSize
+        var curFileIdx = 0
+
+        // Skip to starting file
+        while (curFileIdx < files.size && streamPos >= fileEnds[curFileIdx]) {
+            curFileIdx++
+        }
+
+        for (chunkI in 0 until count) {
+            val chunkLen = minOf(chunkSize, (totalLength - streamPos).coerceAtLeast(0))
+
+            if (chunkLen == 0L) {
+                results[chunkI] = IO_ERROR
+                streamPos += chunkSize
+                continue
+            }
+
+            md.reset()
+            var bytesHashed = 0L
+            var ioError = false
+
+            while (bytesHashed < chunkLen && !ioError) {
+                if (curFileIdx >= files.size) {
+                    ioError = true
+                    break
+                }
+
+                val fileStart = if (curFileIdx > 0) fileEnds[curFileIdx - 1] else 0L
+                val posInFile = streamPos + bytesHashed - fileStart
+                val fileRemaining = files[curFileIdx].length - posInFile
+                val chunkRemaining = chunkLen - bytesHashed
+                val toRead = minOf(fileRemaining, chunkRemaining, readBufSize.toLong()).toInt()
+
+                if (toRead == 0) {
+                    curFileIdx++
+                    continue
+                }
+
+                try {
+                    val data = read(rootUri, files[curFileIdx].path, posInFile, toRead)
+                    md.update(data, 0, data.size)
+                    bytesHashed += data.size
+
+                    if (posInFile + data.size >= files[curFileIdx].length) {
+                        curFileIdx++
+                    }
+                } catch (e: Exception) {
+                    ioError = true
+                }
+            }
+
+            if (ioError) {
+                results[chunkI] = IO_ERROR
+                streamPos += chunkSize
+                curFileIdx = 0
+                while (curFileIdx < files.size && streamPos >= fileEnds[curFileIdx]) {
+                    curFileIdx++
+                }
+            } else {
+                val actualHash = md.digest()
+                val expectedHash = hashes.copyOfRange(chunkI * 20, (chunkI + 1) * 20)
+                results[chunkI] = if (actualHash.contentEquals(expectedHash)) MATCH else MISMATCH
+                streamPos += chunkSize
+            }
+        }
+
+        return results
+    }
+
     override fun delete(rootUri: Uri, relativePath: String): Boolean {
         if (isFileUri(rootUri)) {
             return deleteNative(rootUri, relativePath)

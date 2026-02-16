@@ -5,7 +5,12 @@
  * Each instance is scoped to a specific storage root.
  */
 
-import type { IFileSystem, IFileHandle, IFileStat } from '../../interfaces/filesystem'
+import type {
+  IFileSystem,
+  IFileHandle,
+  IFileStat,
+  VerifyChunksRequest,
+} from '../../interfaces/filesystem'
 import { NativeFileHandle } from './native-file-handle'
 import './bindings.d.ts'
 
@@ -93,5 +98,33 @@ export class NativeFileSystem implements IFileSystem {
   async listTree(dirPath: string): Promise<Array<{ path: string; size: number }>> {
     const result = __jstorrent_file_list_tree(this.rootKey, dirPath)
     return JSON.parse(result) as Array<{ path: string; size: number }>
+  }
+
+  /**
+   * Verify chunks using native JNI call.
+   * Sends file layout + hashes, backend reads and hashes locally.
+   */
+  async verifyChunks(request: VerifyChunksRequest): Promise<Uint8Array> {
+    // Encode hashes as base64 for JSON transport
+    let hashesBase64: string
+    const bytes = request.hashes
+    let binary = ''
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    hashesBase64 = btoa(binary)
+
+    const requestJson = JSON.stringify({
+      files: request.files,
+      chunkSize: request.chunkSize,
+      hashes: hashesBase64,
+      startChunk: request.startChunk ?? 0,
+      chunkCount:
+        request.chunkCount ??
+        Math.ceil(request.files.reduce((s, f) => s + f.length, 0) / request.chunkSize) -
+          (request.startChunk ?? 0),
+    })
+    const result = __jstorrent_file_verify_chunks(this.rootKey, requestJson)
+    return new Uint8Array(result)
   }
 }

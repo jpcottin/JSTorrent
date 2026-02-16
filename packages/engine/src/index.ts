@@ -23,7 +23,13 @@ export type { TorrentUserState, TorrentActivityState } from './core/torrent-stat
 export { computeActivityState } from './core/torrent-state'
 
 // Interfaces
-export type { IFileSystem, IFileHandle, IFileStat } from './interfaces/filesystem'
+export type {
+  IFileSystem,
+  IFileHandle,
+  IFileStat,
+  VerifyChunksRequest,
+} from './interfaces/filesystem'
+export { VerifyChunkResult } from './interfaces/filesystem'
 export type { ISocketFactory, ITcpSocket, IUdpSocket } from './interfaces/socket'
 export type { ISessionStore } from './interfaces/session-store'
 export type { IHasher } from './interfaces/hasher'

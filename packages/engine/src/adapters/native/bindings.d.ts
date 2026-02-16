@@ -230,6 +230,17 @@ declare global {
   function __jstorrent_file_list_tree(rootKey: string, path: string): string
 
   /**
+   * Verify chunks by reading and hashing files on the native side.
+   * Files are treated as an implicitly concatenated byte stream.
+   * Returns ArrayBuffer with one byte per chunk: 0=match, 1=mismatch, 2=io_error.
+   *
+   * @param rootKey Storage root key
+   * @param requestJson JSON string with: files, chunkSize, hashes (base64), startChunk, chunkCount
+   * @returns ArrayBuffer of result codes, or empty ArrayBuffer on error
+   */
+  function __jstorrent_file_verify_chunks(rootKey: string, requestJson: string): ArrayBuffer
+
+  /**
    * Async verified write: hash data, compare to expected, write if match.
    * Runs on background thread to avoid blocking JS. Result delivered via callback.
    *

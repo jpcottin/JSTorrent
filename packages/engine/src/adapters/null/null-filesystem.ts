@@ -1,4 +1,9 @@
-import { IFileSystem, IFileHandle, IFileStat } from '../../interfaces/filesystem'
+import {
+  IFileSystem,
+  IFileHandle,
+  IFileStat,
+  VerifyChunksRequest,
+} from '../../interfaces/filesystem'
 
 class NullFileHandle implements IFileHandle {
   constructor(private size: number = 0) {}
@@ -66,5 +71,12 @@ export class NullFileSystem implements IFileSystem {
 
   async listTree(_path: string): Promise<Array<{ path: string; size: number }>> {
     return []
+  }
+
+  async verifyChunks(request: VerifyChunksRequest): Promise<Uint8Array> {
+    const totalLength = request.files.reduce((sum, f) => sum + f.length, 0)
+    const totalChunks = Math.ceil(totalLength / request.chunkSize)
+    const count = request.chunkCount ?? totalChunks - (request.startChunk ?? 0)
+    return new Uint8Array(count) // all 0 = MATCH
   }
 }

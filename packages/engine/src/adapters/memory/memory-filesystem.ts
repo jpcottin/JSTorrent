@@ -1,4 +1,10 @@
-import { IFileSystem, IFileHandle, IFileStat } from '../../interfaces/filesystem'
+import { createHash } from 'crypto'
+import {
+  IFileSystem,
+  IFileHandle,
+  IFileStat,
+  VerifyChunksRequest,
+} from '../../interfaces/filesystem'
 
 class MemoryFileHandle implements IFileHandle {
   constructor(
@@ -129,6 +135,100 @@ export class InMemoryFileSystem implements IFileSystem {
 
   async delete(path: string): Promise<void> {
     this.files.delete(path)
+  }
+
+  async verifyChunks(request: VerifyChunksRequest): Promise<Uint8Array> {
+    const { files, chunkSize, hashes } = request
+    const totalLength = files.reduce((sum, f) => sum + f.length, 0)
+    const totalChunks = Math.ceil(totalLength / chunkSize)
+    const startChunk = request.startChunk ?? 0
+    const chunkCount = request.chunkCount ?? totalChunks - startChunk
+
+    const results = new Uint8Array(chunkCount)
+
+    // Advance cursor to start position
+    let fileIdx = 0
+    let offsetInFile = 0
+    let globalOffset = 0
+    const startOffset = startChunk * chunkSize
+
+    while (fileIdx < files.length && globalOffset + files[fileIdx].length <= startOffset) {
+      globalOffset += files[fileIdx].length
+      fileIdx++
+    }
+    if (fileIdx < files.length) {
+      offsetInFile = startOffset - globalOffset
+      globalOffset = startOffset
+    }
+
+    for (let i = 0; i < chunkCount; i++) {
+      const thisChunkSize = Math.min(chunkSize, totalLength - globalOffset)
+      if (thisChunkSize <= 0) {
+        results[i] = 2
+        continue
+      }
+
+      const sha1 = createHash('sha1')
+      let remaining = thisChunkSize
+      let ioError = false
+
+      while (remaining > 0 && fileIdx < files.length) {
+        const file = files[fileIdx]
+        const data = this.files.get(file.path)
+        if (!data) {
+          ioError = true
+          const skip = Math.min(remaining, file.length - offsetInFile)
+          remaining -= skip
+          globalOffset += skip
+          fileIdx++
+          offsetInFile = 0
+          continue
+        }
+
+        const bytesAvailInFile = file.length - offsetInFile
+        const toRead = Math.min(remaining, bytesAvailInFile)
+        const end = Math.min(offsetInFile + toRead, data.length)
+        const bytesRead = end - offsetInFile
+
+        if (bytesRead > 0) {
+          sha1.update(data.subarray(offsetInFile, end))
+        }
+        if (bytesRead < toRead) {
+          ioError = true
+          break
+        }
+
+        remaining -= toRead
+        offsetInFile += toRead
+        globalOffset += toRead
+
+        if (offsetInFile >= file.length) {
+          fileIdx++
+          offsetInFile = 0
+        }
+      }
+
+      if (ioError) {
+        results[i] = 2
+        globalOffset += remaining
+        while (remaining > 0 && fileIdx < files.length) {
+          const skip = Math.min(remaining, files[fileIdx].length - offsetInFile)
+          remaining -= skip
+          offsetInFile += skip
+          if (offsetInFile >= files[fileIdx].length) {
+            fileIdx++
+            offsetInFile = 0
+          }
+        }
+      } else {
+        const hash = sha1.digest()
+        const hashIdx = (startChunk + i) * 20
+        const expected = hashes.subarray(hashIdx, hashIdx + 20)
+        results[i] = hash.every((b, j) => b === expected[j]) ? 0 : 1
+      }
+    }
+
+    return results
   }
 
   async listTree(dirPath: string): Promise<Array<{ path: string; size: number }>> {

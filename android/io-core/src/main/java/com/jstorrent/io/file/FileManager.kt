@@ -22,6 +22,15 @@ data class FileTreeEntry(
 )
 
 /**
+ * File entry for [FileManager.verifyChunks] — path and declared length
+ * in the concatenated byte stream.
+ */
+data class VerifyChunksFile(
+    val path: String,
+    val length: Long,
+)
+
+/**
  * Manages file read/write operations using Android's Storage Access Framework (SAF).
  *
  * This interface abstracts file I/O operations, allowing different implementations
@@ -149,4 +158,25 @@ interface FileManager {
      * @return List of files with relative paths and sizes
      */
     fun listTree(rootUri: Uri, relativePath: String): List<FileTreeEntry>
+
+    /**
+     * Verify chunks by reading files as a concatenated byte stream and comparing
+     * SHA1 hashes. Returns one byte per chunk: 0=match, 1=mismatch, 2=io_error.
+     *
+     * @param rootUri SAF tree URI for the root
+     * @param files Ordered list of files forming the concatenated stream
+     * @param chunkSize Size of each chunk in bytes
+     * @param hashes Concatenated 20-byte SHA1 hashes, one per chunk
+     * @param startChunk First chunk index to verify
+     * @param chunkCount Number of chunks to verify
+     * @return ByteArray with one result byte per chunk
+     */
+    fun verifyChunks(
+        rootUri: Uri,
+        files: List<VerifyChunksFile>,
+        chunkSize: Long,
+        hashes: ByteArray,
+        startChunk: Long,
+        chunkCount: Long,
+    ): ByteArray
 }

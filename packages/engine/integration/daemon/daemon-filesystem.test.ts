@@ -259,7 +259,7 @@ describe('DaemonFileSystem Integration', () => {
       expect.arrayContaining([
         { path: 'file1.txt', size: 4 },
         { path: 'sub/file2.bin', size: 1024 },
-      ])
+      ]),
     )
     expect(result).toHaveLength(2)
   })
@@ -280,6 +280,132 @@ describe('DaemonFileSystem Integration', () => {
 
     expect(r1).toHaveLength(1)
     expect(r2).toEqual([])
+  })
+
+  // ============================================================================
+  // verifyChunks tests
+  // ============================================================================
+
+  it('should verify chunks with correct data', async () => {
+    const data = new Uint8Array(12)
+    for (let i = 0; i < 12; i++) data[i] = i
+
+    // Write a single file
+    const handle = await fs1.open('verify_chunks/file.bin', 'w')
+    await handle.write(data, 0, data.length, 0)
+    await handle.close()
+
+    // Compute SHA1 hashes for 3 chunks of 4 bytes each
+    const chunk0Hash = new Uint8Array(
+      crypto.createHash('sha1').update(data.subarray(0, 4)).digest(),
+    )
+    const chunk1Hash = new Uint8Array(
+      crypto.createHash('sha1').update(data.subarray(4, 8)).digest(),
+    )
+    const chunk2Hash = new Uint8Array(
+      crypto.createHash('sha1').update(data.subarray(8, 12)).digest(),
+    )
+    const hashes = new Uint8Array(60)
+    hashes.set(chunk0Hash, 0)
+    hashes.set(chunk1Hash, 20)
+    hashes.set(chunk2Hash, 40)
+
+    const results = await fs1.verifyChunks({
+      files: [{ path: 'verify_chunks/file.bin', length: 12 }],
+      chunkSize: 4,
+      hashes,
+    })
+
+    expect(results).toHaveLength(3)
+    expect(results[0]).toBe(0) // MATCH
+    expect(results[1]).toBe(0) // MATCH
+    expect(results[2]).toBe(0) // MATCH
+  })
+
+  it('should detect mismatch via verifyChunks', async () => {
+    // Write data that won't match the hashes
+    const data = new Uint8Array([0, 0, 0, 0])
+    const handle = await fs1.open('verify_chunks/corrupt.bin', 'w')
+    await handle.write(data, 0, data.length, 0)
+    await handle.close()
+
+    // Hash for different data
+    const wrongHash = new Uint8Array(
+      crypto
+        .createHash('sha1')
+        .update(new Uint8Array([1, 2, 3, 4]))
+        .digest(),
+    )
+    const hashes = new Uint8Array(20)
+    hashes.set(wrongHash, 0)
+
+    const results = await fs1.verifyChunks({
+      files: [{ path: 'verify_chunks/corrupt.bin', length: 4 }],
+      chunkSize: 4,
+      hashes,
+    })
+
+    expect(results).toHaveLength(1)
+    expect(results[0]).toBe(1) // MISMATCH
+  })
+
+  it('should return IO_ERROR for missing file via verifyChunks', async () => {
+    const hash = new Uint8Array(crypto.createHash('sha1').update(new Uint8Array(4)).digest())
+    const hashes = new Uint8Array(20)
+    hashes.set(hash, 0)
+
+    const results = await fs1.verifyChunks({
+      files: [{ path: 'verify_chunks/nonexistent.bin', length: 4 }],
+      chunkSize: 4,
+      hashes,
+    })
+
+    expect(results).toHaveLength(1)
+    expect(results[0]).toBe(2) // IO_ERROR
+  })
+
+  it('should verify chunks spanning multiple files', async () => {
+    // f1: 3 bytes, f2: 5 bytes → 8 bytes total, chunkSize=4 → 2 chunks
+    const f1Data = new Uint8Array([1, 2, 3])
+    const f2Data = new Uint8Array([4, 5, 6, 7, 8])
+
+    const h1 = await fs1.open('verify_chunks/span/f1.bin', 'w')
+    await h1.write(f1Data, 0, f1Data.length, 0)
+    await h1.close()
+
+    const h2 = await fs1.open('verify_chunks/span/f2.bin', 'w')
+    await h2.write(f2Data, 0, f2Data.length, 0)
+    await h2.close()
+
+    // Chunk 0: [1,2,3,4], Chunk 1: [5,6,7,8]
+    const chunk0Hash = new Uint8Array(
+      crypto
+        .createHash('sha1')
+        .update(new Uint8Array([1, 2, 3, 4]))
+        .digest(),
+    )
+    const chunk1Hash = new Uint8Array(
+      crypto
+        .createHash('sha1')
+        .update(new Uint8Array([5, 6, 7, 8]))
+        .digest(),
+    )
+    const hashes = new Uint8Array(40)
+    hashes.set(chunk0Hash, 0)
+    hashes.set(chunk1Hash, 20)
+
+    const results = await fs1.verifyChunks({
+      files: [
+        { path: 'verify_chunks/span/f1.bin', length: 3 },
+        { path: 'verify_chunks/span/f2.bin', length: 5 },
+      ],
+      chunkSize: 4,
+      hashes,
+    })
+
+    expect(results).toHaveLength(2)
+    expect(results[0]).toBe(0) // MATCH
+    expect(results[1]).toBe(0) // MATCH
   })
 
   it('should consume pending hash after one write (v2 API)', async () => {
