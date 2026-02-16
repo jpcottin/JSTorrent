@@ -13,6 +13,129 @@ This loads PATH entries for:
 - Rust/Cargo
 - Other development tools
 
+## Product Deployments
+
+JSTorrent ships as multiple products that share the same TypeScript engine but run in different configurations depending on platform.
+
+### Deployment Matrix
+
+```
+┌──────────────────┬──────────────────┬───────────────┬───────────────┬──────────────┐
+│ Platform         │ Product(s)       │ Engine runs   │ I/O backend   │ UI           │
+│                  │                  │ in            │               │              │
+├──────────────────┼──────────────────┼───────────────┼───────────────┼──────────────┤
+│ Mac/Win/Linux    │ Extension +      │ Extension UI  │ Rust          │ Extension    │
+│ (with browser)   │ Desktop app *    │ page          │ io-daemon     │ (tab/popup)  │
+├──────────────────┼──────────────────┼───────────────┼───────────────┼──────────────┤
+│ Mac/Win/Linux    │ Desktop app      │ Tauri webview │ Rust          │ Extension    │
+│ (standalone)     │ alone            │               │ io-daemon     │ assets       │
+├──────────────────┼──────────────────┼───────────────┼───────────────┼──────────────┤
+│ ChromeOS         │ Extension +      │ Extension UI  │ Android       │ Extension    │
+│ (primary)        │ Android app **   │ page          │ companion     │ (tab/popup)  │
+├──────────────────┼──────────────────┼───────────────┼───────────────┼──────────────┤
+│ ChromeOS         │ Android app      │ QuickJS       │ Kotlin JNI    │ Native       │
+│ (standalone)     │ alone            │ (in-process)  │ (FileManager) │ Compose      │
+├──────────────────┼──────────────────┼───────────────┼───────────────┼──────────────┤
+│ ChromeOS Flex    │ Extension +      │ Extension UI  │ Rust io-daemon│ Extension    │
+│ (no ARC, adv.)   │ Crostini daemon  │ page          │ (in Crostini) │ (tab/popup)  │
+├──────────────────┼──────────────────┼───────────────┼───────────────┼──────────────┤
+│ Android phone    │ Android app      │ QuickJS       │ Kotlin JNI    │ Native       │
+│                  │                  │ (in-process)  │ (FileManager) │ Compose      │
+├──────────────────┼──────────────────┼───────────────┼───────────────┼──────────────┤
+│ Any (npm)        │ CLI              │ Node.js       │ Node fs       │ Terminal     │
+│                  │ @jstorrent/engine│               │               │              │
+└──────────────────┴──────────────────┴───────────────┴───────────────┴──────────────┘
+
+*  Extension requires desktop app. Desktop app installs a native messaging host
+   that auto-launches io-daemon — user doesn't need to interact with desktop app.
+** Requires one-time pairing between extension and Android companion.
+```
+
+### Product Details
+
+**Chrome Extension** (`extension/`): Opens as a tab or popup in Chrome. The engine runs in the foreground UI page (not the service worker). Requires either the desktop app (Mac/Win/Linux) or Android companion (ChromeOS) for I/O — it cannot function alone.
+
+**Tauri Desktop App** (`desktop/tauri-app/`): Bundles the same extension UI assets into a native desktop window. Can run standalone (without the browser extension) or headlessly as the I/O backend for the extension. Provides auto-updates. The io-daemon runs as a sidecar process.
+
+**System Bridge** (`desktop/installers/`, `desktop/link-handler/`): **Legacy** — the old packaging/installer and link-handler mechanism that predates Tauri. Replaced by the Tauri desktop app. Other components in `desktop/` (io-daemon, host, common) are **shared** between Tauri and the old system bridge and are NOT legacy.
+
+**Android App** (`android/`): Single APK, no build variants. Has its own native Compose UI. Runs a foreground service for background operation. Operates in two modes:
+- **Standalone mode**: Engine runs in QuickJS in-process, full native UI. Used on phones and optionally on ChromeOS.
+- **Companion mode**: Minimal UI (pair/unpair, mode switch). Runs the companion server (HTTP + WebSocket) so the Chrome extension can use it for I/O on ChromeOS.
+
+**Node CLI** (`packages/engine/`): Published to npm as `@jstorrent/engine`. Primarily for integration testing; the Node adapters are the test/reference implementation.
+
+### Pairing
+
+- **Desktop**: No pairing needed. Native messaging host auto-launches io-daemon with a known token.
+- **ChromeOS (extension + Android companion)**: One-time pairing flow required. Extension discovers companion, user confirms pairing dialog on Android side, tokens exchanged.
+
+## Engine Architecture & Backends
+
+The engine is a single TypeScript codebase (`packages/engine/`) that runs in three runtime modes, each with a different I/O backend. All backends implement the same `IFileSystem` / `IFileHandle` interfaces.
+
+### Runtime Modes
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        TypeScript Engine                               │
+│                     (packages/engine/src/)                             │
+├────────────┬──────────────────┬──────────────────┬────────────────────┤
+│  Preset:   │     node         │     daemon       │     native         │
+│  Runs in:  │  Node.js CLI     │  Browser/Tauri   │  Android app       │
+│            │                  │  (UI page)       │  (QuickJS via JNI) │
+├────────────┼──────────────────┼──────────────────┼────────────────────┤
+│ FileSystem │ ScopedNode       │ Daemon           │ Native             │
+│            │ (Node fs API)    │ (HTTP to daemon) │ (JNI to Kotlin)    │
+├────────────┼──────────────────┼──────────────────┼────────────────────┤
+│ Networking │ Node net/dgram   │ WebSocket mux    │ WebSocket mux      │
+│            │                  │ to io-daemon     │ to Kotlin bindings │
+├────────────┼──────────────────┼──────────────────┼────────────────────┤
+│ DiskQueue  │ TorrentDiskQueue │ TorrentDiskQueue │ Passthrough +      │
+│            │ (6 JS workers)   │ (adaptive batch) │ NativeBatchingDQ   │
+├────────────┼──────────────────┼──────────────────┼────────────────────┤
+│ I/O target │ Local filesystem │ Rust io-daemon   │ Android SAF /      │
+│            │                  │ OR Android       │ file:// I/O        │
+│            │                  │ companion server │                    │
+└────────────┴──────────────────┴──────────────────┴────────────────────┘
+```
+
+Additional test/benchmark adapters: `InMemoryFileSystem` (unit tests), `NullFileSystem` (benchmarks — discards writes).
+
+### Storage Layer Hierarchy
+
+```
+StorageRootManager                    Manages roots, assigns torrents to roots
+  ├─ roots: Map<key, StorageRoot>     Each root = {key, label, path, diskId?}
+  ├─ torrentRoots: Map<hash, key>     Which root a torrent uses
+  └─ fsCache: Map<key, IFileSystem>   One filesystem instance per root
+       │
+       ▼
+TorrentContentStorage                 Per-torrent: maps pieces → files
+  ├─ fileHandles: Map<path, IFileHandle>   Cached open handles
+  ├─ failedPaths: Set<string>              Skip files that failed to open
+  └─ diskQueue: IDiskQueue                 Concurrency control + batching
+       │
+       ▼
+IFileSystem / IFileHandle             Backend-specific I/O (see adapters below)
+```
+
+**rootKey** is the stable identifier for a storage location. For Node, it's derived from the path. For daemon/native backends, it's passed to every I/O call so the backend can resolve which physical storage to use (e.g., SAF volume URI on Android).
+
+For detailed backend implementation reference (IFileSystem interface, adapter table, HTTP endpoints, JNI bindings, Kotlin FileManager), see the Claude memory file `engine-backends.md`. That file may drift from the code — when in doubt, read the source directly.
+
+### Adding a New IFileSystem Method (Checklist)
+
+When adding a new method (e.g., `listTree`), implement in this order:
+
+1. **Interface**: `packages/engine/src/interfaces/filesystem.ts`
+2. **TS adapters** (6 total): `node/node-filesystem.ts`, `node/scoped-node-filesystem.ts`, `daemon/daemon-filesystem.ts`, `native/native-filesystem.ts` + `native/bindings.d.ts`, `memory/memory-filesystem.ts`, `null/null-filesystem.ts`
+3. **Android FileManager**: `android/io-core/.../FileManager.kt` + `FileManagerImpl.kt`
+4. **Android FileBindings**: `android/quickjs-engine/.../FileBindings.kt` (register JNI function)
+5. **Android companion HTTP**: `android/companion-server/.../NettyHttpServer.kt` (add endpoint)
+6. **Rust io-daemon**: `desktop/io-daemon/src/files.rs` (add endpoint + route in `main.rs`)
+7. **Verify**: `pnpm typecheck && pnpm test` (engine), `./gradlew :app:compileDebugKotlin` (android), `cargo clippy --workspace` (desktop)
+
 ## Git Commit Policy
 
 **Do NOT include `Co-Authored-By` lines referencing Claude, AI, or Anthropic in commit messages. Do NOT include "Generated with Claude Code" or similar AI attribution. Commits are authored solely by the user.**
@@ -148,6 +271,17 @@ All components follow the same release pattern:
 
 **Commit message format:** `Release {Component} v{VERSION}` (e.g., `Release Engine v1.0.1`)
 
+### Release Pipeline Summary
+
+| Component | Tag | CI builds | Publishing |
+|-----------|-----|-----------|------------|
+| **Engine (CLI)** | `engine-v{ver}` | npm package | CI auto-publishes to npm |
+| **Extension** | `extension-v{ver}` | ZIP | Manual upload to Chrome Web Store |
+| **Android** | `android-v{ver}` | Signed APK + AAB | Manual upload to Play Store |
+| **Tauri App** | `tauri-app-v{ver}` | Signed installers (Mac/Win/Linux) | Auto-updates via updater JSON |
+| **System Bridge** | `system-bridge-v{ver}` | Platform installers | GitHub Release (legacy) |
+| **Website** | `website-v{ver}` | N/A | Auto-deploys on push to main |
+
 ### Engine (CLI) Releases
 
 ```bash
@@ -168,6 +302,7 @@ All components follow the same release pattern:
 - Updates `extension/public/manifest.json`
 - Creates tag: `extension-v{version}`
 - CI creates GitHub Release with ZIP attachment
+- **Manual step:** Download ZIP from GitHub Release and upload to Chrome Web Store
 - Changelog: `extension/CHANGELOG.md`
 
 ### Android Releases
@@ -180,6 +315,8 @@ All components follow the same release pattern:
 - Creates tag: `android-v{version}`
 - CI creates GitHub Release with signed APK and AAB
 - Changelog: `android/CHANGELOG.md`
+
+**Manual step:** After CI completes, upload AAB to Play Store and publish.
 
 **Play Store bundle:** After CI completes, manually build with:
 ```bash
@@ -199,6 +336,7 @@ Requires upload keystore at `android/app/signing/upload.keystore`.
 - Creates tag: `tauri-app-v{version}`
 - CI builds signed/notarized installers for macOS (aarch64 + x86_64), Windows, and Linux
 - CI creates GitHub Release with updater JSON for auto-updates
+- **No manual step:** Existing installs auto-update via the updater JSON endpoint
 - Changelog: `desktop/tauri-app/CHANGELOG.md`
 
 ### System Bridge Releases
