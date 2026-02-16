@@ -118,10 +118,10 @@ describe('NodeFileSystem.verifyChunks', () => {
     for (let i = 0; i < 12; i++) data[i] = i
     await fs.writeFile(path.join(tmpDir, 'file.bin'), data)
 
-    const chunk0 = data.subarray(0, 4)
     const chunk1 = data.subarray(4, 8)
     const chunk2 = data.subarray(8, 12)
-    const hashes = concatHashes([sha1(chunk0), sha1(chunk1), sha1(chunk2)])
+    // Only send hashes for the chunks being verified (0-based within batch)
+    const hashes = concatHashes([sha1(chunk1), sha1(chunk2)])
 
     const results = await nodeFs.verifyChunks({
       files: [{ path: path.join(tmpDir, 'file.bin'), length: 12 }],

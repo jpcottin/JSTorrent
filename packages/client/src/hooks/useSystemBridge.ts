@@ -3,11 +3,24 @@ import type { DaemonBridgeState, VersionStatus } from '../components/SystemBridg
 import type { DownloadRoot } from '../types'
 import { copyTextToClipboard } from '../utils/clipboard'
 
+/** Which type of I/O backend the extension is connected to. */
+export type BackendType = 'desktop' | 'android' | 'self'
+
 /**
- * Minimum required native host version.
- * Update this when extension changes require native host updates.
+ * Per-backend minimum version requirements.
+ * Update these before releasing an extension that depends on new backend features.
+ *
+ * - desktop.minSupported: Minimum Tauri desktop app version (desktopVersion field).
+ * - android.minSupported: Minimum Android app version (version field from /status).
+ * - recommended: Version that includes all latest improvements (non-blocking).
  */
-export const MIN_NATIVE_VERSION = '0.1.11'
+export const VERSION_REQUIREMENTS: Record<
+  'desktop' | 'android',
+  { minSupported: string; recommended: string }
+> = {
+  desktop: { minSupported: '0.1.23', recommended: '0.1.23' },
+  android: { minSupported: '1.0.16', recommended: '1.0.16' },
+}
 
 export type IndicatorColor = 'green' | 'yellow' | 'red'
 
@@ -24,7 +37,6 @@ export interface ReadinessStatus {
 
 /**
  * Compute readiness status from component states.
- * This is a local implementation matching extension/src/lib/io-bridge/readiness.ts
  */
 function getReadiness(
   state: DaemonBridgeState,
@@ -104,16 +116,42 @@ function compareVersions(a: string, b: string): number {
   return 0
 }
 
-/**
- * Get version status from daemon version.
- * Version is a semver string like "0.1.11".
- */
-function getVersionStatus(daemonVersion: string | undefined): VersionStatus {
-  if (daemonVersion === undefined || daemonVersion === 'unknown') return 'compatible'
+/** Determine which backend type based on platform. */
+function getBackendType(state: DaemonBridgeState): BackendType {
+  if (state.platform === 'tauri') return 'self'
+  if (state.platform === 'chromeos') return 'android'
+  return 'desktop'
+}
 
-  const cmp = compareVersions(daemonVersion, MIN_NATIVE_VERSION)
-  if (cmp < 0) {
+/**
+ * Extract the relevant product version to check, based on backend type.
+ * - desktop: Tauri app version (desktopVersion). undefined for Crostini standalone.
+ * - android: Android app version (version from /status).
+ * - self: always undefined (no check needed — we ARE the app).
+ */
+function getRelevantVersion(
+  state: DaemonBridgeState,
+  backendType: BackendType,
+): string | undefined {
+  if (state.status !== 'connected' || !state.daemonInfo) return undefined
+  if (backendType === 'self') return undefined
+  if (backendType === 'desktop') return state.daemonInfo.desktopVersion ?? undefined
+  return state.daemonInfo.version ?? undefined
+}
+
+/**
+ * Get version compatibility status for a backend.
+ */
+function getVersionStatus(version: string | undefined, backendType: BackendType): VersionStatus {
+  if (backendType === 'self') return 'compatible'
+  if (version === undefined || version === 'unknown') return 'compatible'
+
+  const req = VERSION_REQUIREMENTS[backendType]
+  if (compareVersions(version, req.minSupported) < 0) {
     return 'update_required'
+  }
+  if (compareVersions(version, req.recommended) < 0) {
+    return 'update_suggested'
   }
   return 'compatible'
 }
@@ -150,7 +188,9 @@ export interface UseSystemBridgeResult {
   readiness: ReadinessStatus
   /** Version status */
   versionStatus: VersionStatus
-  /** Daemon version (if connected) */
+  /** Backend type (desktop, android, or self) */
+  backendType: BackendType
+  /** Product version of the connected backend (desktopVersion for desktop, version for android) */
   daemonVersion: string | undefined
   /** Copy debug info to clipboard */
   copyDebugInfo: () => Promise<void>
@@ -169,9 +209,12 @@ export function useSystemBridge(config: UseSystemBridgeConfig): UseSystemBridgeR
 
   const [panelOpen, setPanelOpen] = useState(false)
 
-  // Extract daemon version from connected state
-  const daemonVersion = state.status === 'connected' ? state.daemonInfo?.version : undefined
-  const versionStatus = useMemo(() => getVersionStatus(daemonVersion), [daemonVersion])
+  const backendType = getBackendType(state)
+  const daemonVersion = getRelevantVersion(state, backendType)
+  const versionStatus = useMemo(
+    () => getVersionStatus(daemonVersion, backendType),
+    [daemonVersion, backendType],
+  )
 
   // Compute readiness
   const readiness = useMemo(
@@ -189,6 +232,7 @@ export function useSystemBridge(config: UseSystemBridgeConfig): UseSystemBridgeR
     const info = {
       status: state.status,
       platform: state.platform,
+      backendType,
       version: daemonVersion,
       versionStatus,
       ready: readiness.ready,
@@ -198,7 +242,7 @@ export function useSystemBridge(config: UseSystemBridgeConfig): UseSystemBridgeR
     }
     const text = `JSTorrent Debug Info\n${JSON.stringify(info, null, 2)}`
     await copyTextToClipboard(text)
-  }, [state, daemonVersion, versionStatus, readiness, roots])
+  }, [state, backendType, daemonVersion, versionStatus, readiness, roots])
 
   // Generate bug report URL with pre-filled info
   const getBugReportUrl = useCallback(() => {
@@ -206,7 +250,7 @@ export function useSystemBridge(config: UseSystemBridgeConfig): UseSystemBridgeR
 
     const body = `**Environment:**
 - Extension: v${extVersion}
-- Daemon: v${daemonVersion ?? 'not connected'}
+- Companion: v${daemonVersion ?? 'not connected'} (${backendType})
 - Platform: ${state.platform}
 - Status: ${state.status}
 - User-Agent: ${navigator.userAgent}
@@ -229,7 +273,7 @@ ${state.lastError ? `- Last Error: ${state.lastError}` : ''}
     const url = new URL('https://github.com/kzahel/jstorrent/issues/new')
     url.searchParams.set('body', body)
     return url.toString()
-  }, [state, daemonVersion, extensionVersion])
+  }, [state, backendType, daemonVersion, extensionVersion])
 
   return {
     panelOpen,
@@ -238,6 +282,7 @@ ${state.lastError ? `- Last Error: ${state.lastError}` : ''}
     togglePanel,
     readiness,
     versionStatus,
+    backendType,
     daemonVersion,
     copyDebugInfo,
     getBugReportUrl,

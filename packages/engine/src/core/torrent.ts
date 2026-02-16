@@ -3523,15 +3523,26 @@ export class Torrent extends EngineComponent {
       const endChunk = batchPieces[batchPieces.length - 1]
       const chunkCount = endChunk - startChunk + 1
 
+      // Slice hashes to only include this batch — backends expect hashes
+      // indexed 0-based within the batch, not the full piece hash array
+      const batchHashes = allHashes.slice(startChunk * 20, (startChunk + chunkCount) * 20)
+
       const request: VerifyChunksRequest = {
         files: fileLayout,
         chunkSize: this.pieceLength,
-        hashes: allHashes,
+        hashes: batchHashes,
         startChunk,
         chunkCount,
       }
 
       const results = await fs.verifyChunks(request)
+
+      // Validate result — empty result means backend error (e.g. unknown rootKey, exception)
+      if (results.length === 0) {
+        throw new Error(
+          `verifyChunks returned empty result (expected ${chunkCount} results for batch startChunk=${startChunk})`,
+        )
+      }
 
       // Map results back to piece indices
       for (const pieceIndex of batchPieces) {

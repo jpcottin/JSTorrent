@@ -13,9 +13,14 @@ export type {
 // Version status from io-bridge
 export type VersionStatus = 'compatible' | 'update_suggested' | 'update_required'
 
+export type BackendType = 'desktop' | 'android' | 'self'
+
 export interface SystemBridgePanelProps {
   state: DaemonBridgeState
   versionStatus: VersionStatus
+  /** Backend type (desktop, android, or self) */
+  backendType: BackendType
+  /** Product version of the connected backend */
   daemonVersion: string | undefined
   roots: DownloadRoot[]
   defaultRootKey: string | null
@@ -42,6 +47,7 @@ export interface SystemBridgePanelProps {
 export function SystemBridgePanel({
   state,
   versionStatus,
+  backendType,
   daemonVersion,
   roots,
   defaultRootKey,
@@ -325,6 +331,7 @@ export function SystemBridgePanel({
 
     // Show update required prominently
     if (versionStatus === 'update_required') {
+      const isDesktop = backendType === 'desktop'
       return (
         <div>
           <div
@@ -351,8 +358,17 @@ export function SystemBridgePanel({
                 marginBottom: 'var(--spacing-md, 12px)',
               }}
             >
-              The companion app (v{daemonVersion ?? '?'}) is too old. Please download and install
-              the latest version.
+              {isDesktop ? (
+                <>
+                  The JSTorrent desktop app{daemonVersion ? ` (v${daemonVersion})` : ''} needs to be
+                  updated. It should update automatically &mdash; try restarting it.
+                </>
+              ) : (
+                <>
+                  The companion app{daemonVersion ? ` (v${daemonVersion})` : ''} is too old. Please
+                  download and install the latest version.
+                </>
+              )}
             </div>
             <a
               href="https://new.jstorrent.com"
@@ -368,7 +384,7 @@ export function SystemBridgePanel({
                 fontSize: 'var(--font-base, 13px)',
               }}
             >
-              Download Update
+              {isDesktop ? 'Download Latest' : 'Download Update'}
             </a>
           </div>
         </div>
@@ -380,7 +396,7 @@ export function SystemBridgePanel({
         {/* Connection info */}
         <div style={{ marginBottom: 'var(--spacing-lg, 16px)' }}>
           <div style={{ fontWeight: 500, marginBottom: 'var(--spacing-sm, 8px)' }}>
-            Companion App
+            {backendType === 'desktop' ? 'Desktop App' : 'Companion App'}
           </div>
           <div style={{ fontSize: 'var(--font-base, 13px)', color: 'var(--text-secondary)' }}>
             <div>&#x25CF; Connected &mdash; v{daemonVersion ?? '?'}</div>

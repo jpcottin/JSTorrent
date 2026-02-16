@@ -4,13 +4,15 @@ import type {
   BootstrapState,
   BootstrapProblem,
 } from '../../../../extension/src/lib/chromeos-bootstrap'
-import type { DaemonStats } from './SystemBridgePanel'
+import type { DaemonStats, VersionStatus } from './SystemBridgePanel'
 
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.jstorrent.app'
 
 export interface SystemBridgePanelChromeosProps {
   state: BootstrapState
   daemonVersion?: string
+  /** Version compatibility status for the Android companion */
+  versionStatus: VersionStatus
   roots: Array<{ key: string; display_name: string }>
   defaultRootKey: string | null
   hasEverConnected: boolean
@@ -122,6 +124,7 @@ function getStateDisplay(
 export function SystemBridgePanelChromeos({
   state,
   daemonVersion,
+  versionStatus,
   roots,
   defaultRootKey,
   hasEverConnected,
@@ -219,6 +222,7 @@ export function SystemBridgePanelChromeos({
           <ConnectedContent
             port={state.port!}
             daemonVersion={daemonVersion}
+            versionStatus={versionStatus}
             appVersion={appVersion}
             roots={roots}
             defaultRootKey={defaultRootKey}
@@ -329,6 +333,7 @@ function DisconnectedContent({
 function ConnectedContent({
   port,
   daemonVersion,
+  versionStatus,
   appVersion,
   roots,
   defaultRootKey,
@@ -339,6 +344,7 @@ function ConnectedContent({
 }: {
   port: number
   daemonVersion?: string
+  versionStatus: VersionStatus
   appVersion?: string | null
   roots: Array<{ key: string; display_name: string }>
   defaultRootKey: string | null
@@ -411,6 +417,59 @@ function ConnectedContent({
 
   return (
     <>
+      {versionStatus === 'update_required' && (
+        <div
+          style={{
+            padding: '12px',
+            background: 'var(--accent-error-bg, #fef2f2)',
+            borderRadius: '6px',
+            marginBottom: '16px',
+          }}
+        >
+          <div style={{ fontWeight: 500, color: 'var(--accent-error)', marginBottom: '4px' }}>
+            Update Required
+          </div>
+          <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+            The JSTorrent Android app{daemonVersion ? ` (v${daemonVersion})` : ''} needs to be
+            updated.
+          </div>
+          <a
+            href={PLAY_STORE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-block',
+              padding: '6px 12px',
+              background: 'var(--accent-primary)',
+              color: 'white',
+              textDecoration: 'none',
+              borderRadius: '4px',
+              fontSize: '13px',
+            }}
+          >
+            Update on Play Store
+          </a>
+        </div>
+      )}
+
+      {versionStatus === 'update_suggested' && (
+        <div
+          style={{
+            padding: '8px',
+            background: 'var(--accent-info-bg, #eff6ff)',
+            borderRadius: '4px',
+            fontSize: '13px',
+            marginBottom: '16px',
+          }}
+        >
+          A newer version of the Android app is available on the{' '}
+          <a href={PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">
+            Play Store
+          </a>
+          .
+        </div>
+      )}
+
       <div style={{ marginBottom: '16px' }}>
         <div style={{ fontWeight: 500, marginBottom: '8px' }}>Android App</div>
         <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>

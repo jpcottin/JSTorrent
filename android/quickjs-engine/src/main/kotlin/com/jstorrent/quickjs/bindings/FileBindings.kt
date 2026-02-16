@@ -683,7 +683,7 @@ class FileBindings(
             val rootUri = resolveRoot(rootKey)
             if (rootUri == null) {
                 Log.w(TAG, "verify_chunks: unknown root key: $rootKey")
-                return@setGlobalFunctionReturnsBinary ByteArray(0)
+                throw IllegalStateException("verify_chunks: unknown root key: $rootKey")
             }
 
             try {
@@ -702,7 +702,7 @@ class FileBindings(
                 fileManager.verifyChunks(rootUri, files, chunkSize, hashes, startChunk, chunkCount)
             } catch (e: Exception) {
                 Log.e(TAG, "verify_chunks failed", e)
-                ByteArray(0)
+                throw e
             }
         }
     }

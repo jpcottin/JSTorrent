@@ -23,6 +23,7 @@ export type { SystemIndicatorProps } from './components/SystemIndicator'
 export { SystemBridgePanel } from './components/SystemBridgePanel'
 export type {
   SystemBridgePanelProps,
+  BackendType,
   DaemonBridgeState,
   VersionStatus,
   ConnectionStatus,

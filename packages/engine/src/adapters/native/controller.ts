@@ -338,8 +338,10 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
    */
   ;(globalThis as Record<string, unknown>).__jstorrent_cmd_remove = async (
     infoHash: string,
-    deleteFiles: boolean,
+    deleteFilesArg: boolean | string,
   ): Promise<{ ok: boolean; queued?: boolean; error?: string }> => {
+    // QuickJS FFI passes all args as strings — "false" is truthy in JS!
+    const deleteFiles = deleteFilesArg === true || deleteFilesArg === 'true'
     // Queue if engine not ready - this handles the race condition where Kotlin
     // thinks engine is ready (controller exists) but JS engine.init() hasn't completed
     if (!isReady()) {

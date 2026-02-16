@@ -116,10 +116,9 @@ describe('InMemoryFileSystem.verifyChunks', () => {
     fs.files.set('file.bin', data)
 
     // 3 chunks of 4 bytes: [0..3], [4..7], [8..11]
-    const chunk0 = data.subarray(0, 4)
     const chunk1 = data.subarray(4, 8)
-    const chunk2 = data.subarray(8, 12)
-    const hashes = concatHashes([sha1(chunk0), sha1(chunk1), sha1(chunk2)])
+    // Only send hash for the chunk being verified (0-based within batch)
+    const hashes = concatHashes([sha1(chunk1)])
 
     // Only verify chunk 1
     const results = await fs.verifyChunks({

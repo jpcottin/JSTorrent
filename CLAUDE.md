@@ -243,11 +243,47 @@ After editing Kotlin/Java files in `android/`:
 2. `./gradlew testDebugUnitTest` - Run unit tests
 3. `./gradlew lint` - Run Android lint
 
-For larger changes, test on emulator:
+### Android Emulator Management
+
+**You CAN and SHOULD run instrumented tests on the emulator.** The emulator is easy to start and scripts handle everything automatically.
+
+**Preamble (required before any emulator/adb commands):**
+```bash
+source ~/.profile && source android/scripts/android-env.sh
+```
+
+**Check if an emulator is already running:**
+```bash
+adb devices 2>/dev/null | grep -q 'emulator-' && echo "Running" || echo "Not running"
+```
+
+**Start the emulator (idempotent — safe to call if already running):**
+```bash
+emu start
+```
+
+`emu start` runs `android/scripts/emu-start.sh` which:
+- Detects if an emulator is already running and exits early if so
+- Starts the `jstorrent-dev` AVD in the background (headless, no audio)
+- Waits for boot to complete (up to 120 seconds)
+- Sets up port forwarding (7800, 7805, 7814, 7827)
+
+**Other useful `emu` subcommands:**
+```bash
+emu status      # Show connected devices and port forwards
+emu stop        # Stop the emulator
+emu install     # Build and install the APK
+emu logs        # Filtered logcat (use --js for QuickJS logs only)
+emu reset       # Clear app data
+```
+
+### Running Instrumented Tests
+
+After ensuring the emulator is running:
 
 ```bash
-source android/scripts/android-env.sh   # Load emu/dev commands
-emu start                               # Start emulator
+source ~/.profile && source android/scripts/android-env.sh
+emu start   # No-op if already running
 
 # Instrumented tests (fast, no external deps)
 ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notPackage=com.jstorrent.app.e2e
@@ -255,6 +291,11 @@ emu start                               # Start emulator
 # E2E tests (requires Python seeder)
 pnpm seed-for-test &  # Auto-kills any existing seeder on port 6881
 ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.jstorrent.app.e2e
+
+# Or use the unified test runner:
+android/scripts/test.sh --integration   # Instrumented tests (requires emulator)
+android/scripts/test.sh --e2e           # E2E tests (requires emulator + seeder)
+android/scripts/test.sh --all           # All test suites
 
 # Manual E2E testing
 emu test-native                         # Install app, launch with test magnet
@@ -282,6 +323,25 @@ All components follow the same release pattern:
 | **System Bridge** | `system-bridge-v{ver}` | Platform installers | GitHub Release (legacy) |
 | **Website** | `website-v{ver}` | N/A | Auto-deploys on push to main |
 
+### Version Compatibility & Release Order
+
+The extension checks the connected backend's version against minimum requirements defined in `packages/client/src/hooks/useSystemBridge.ts` (`VERSION_REQUIREMENTS`). If the backend is too old, the extension shows "Update Required" and blocks downloads.
+
+**Safe release order** (backends before frontends):
+1. **Android** first (Play Store review takes time)
+2. **Tauri App** second (auto-updates, give it a day to propagate)
+3. **Extension** last (bump `VERSION_REQUIREMENTS` before releasing)
+
+**Before every extension release, ask the user:**
+- "Did this release cycle add new backend features (new endpoints, new IFileSystem methods, protocol changes) that the extension now depends on?"
+- If yes: "What are the minimum Android and Tauri app versions that include these features? I'll update `VERSION_REQUIREMENTS` before releasing."
+- Check that the required backend versions have already been released (git tags exist).
+
+**Version fields checked:**
+- Desktop: `desktopVersion` (Tauri app version from `tauri.conf.json`)
+- Android/ChromeOS: `version` (Android app `versionName` from `build.gradle.kts`)
+- Tauri (self-hosted): no check needed
+
 ### Engine (CLI) Releases
 
 ```bash
@@ -304,6 +364,7 @@ All components follow the same release pattern:
 - CI creates GitHub Release with ZIP attachment
 - **Manual step:** Download ZIP from GitHub Release and upload to Chrome Web Store
 - Changelog: `extension/CHANGELOG.md`
+- **Pre-release check:** Review `VERSION_REQUIREMENTS` in `packages/client/src/hooks/useSystemBridge.ts`. If new backend features are required, bump `minSupported` and ensure those backend versions are already released.
 
 ### Android Releases
 

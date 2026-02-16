@@ -222,8 +222,7 @@ export class InMemoryFileSystem implements IFileSystem {
         }
       } else {
         const hash = sha1.digest()
-        const hashIdx = (startChunk + i) * 20
-        const expected = hashes.subarray(hashIdx, hashIdx + 20)
+        const expected = hashes.subarray(i * 20, (i + 1) * 20)
         results[i] = hash.every((b, j) => b === expected[j]) ? 0 : 1
       }
     }
