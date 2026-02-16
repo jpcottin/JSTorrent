@@ -3234,6 +3234,8 @@ export class Torrent extends EngineComponent {
    * Fast resume verification: check file existence/sizes without hashing.
    * Sets _needsDataCheck = true if a full hash recheck is needed.
    *
+   * Uses listTree() for a single RPC call instead of per-file exists()/stat().
+   *
    * Mirrors libtorrent's verify_resume_data():
    * - If bitfield is non-empty (session restored): verify files haven't been deleted
    * - If bitfield is empty (no resume data): check if files exist from a previous download
@@ -3245,6 +3247,36 @@ export class Torrent extends EngineComponent {
     const files = this.contentStorage.filesList
     if (files.length === 0) return
 
+    // Determine the common root directory from file paths.
+    // Multi-file torrents: paths are "TorrentName/file.txt" → root is "TorrentName"
+    // Single-file torrents: path is "filename.ext" → no directory
+    const firstSlash = files[0].path.indexOf('/')
+    const rootDir = firstSlash >= 0 ? files[0].path.substring(0, firstSlash) : ''
+
+    // Build a map of existing files on disk.
+    // For multi-file torrents, use a single listTree call instead of per-file RPCs.
+    // For single-file torrents, fall back to stat (only 1 file, no benefit from listTree).
+    const diskFiles = new Map<string, number>()
+    if (rootDir) {
+      try {
+        const entries = await fs.listTree(rootDir)
+        for (const entry of entries) {
+          diskFiles.set(rootDir + '/' + entry.path, entry.size)
+        }
+      } catch {
+        // listTree failed (e.g., root dir doesn't exist) — no files on disk
+      }
+    } else {
+      for (const file of files) {
+        try {
+          const stat = await fs.stat(file.path)
+          diskFiles.set(file.path, stat.size)
+        } catch {
+          // File doesn't exist or not accessible
+        }
+      }
+    }
+
     const hasPieces = this._bitfield != null && this._bitfield.count() > 0
 
     if (hasPieces) {
@@ -3253,18 +3285,17 @@ export class Torrent extends EngineComponent {
         // Seed: all wanted files must exist with correct sizes
         for (let i = 0; i < files.length; i++) {
           if (this._filePriorityManager.filePriorities[i] === 1) continue // skipped
-          try {
-            const stat = await fs.stat(files[i].path)
-            if (stat.size < files[i].length) {
-              this.logger.info(
-                `Resume data check: file "${files[i].path}" size mismatch (${stat.size} < ${files[i].length}), need recheck`,
-              )
-              this._needsDataCheck = true
-              return
-            }
-          } catch {
+          const diskSize = diskFiles.get(files[i].path)
+          if (diskSize === undefined) {
             this.logger.info(
-              `Resume data check: file "${files[i].path}" not accessible, need recheck`,
+              `Resume data check: file "${files[i].path}" not found on disk, need recheck`,
+            )
+            this._needsDataCheck = true
+            return
+          }
+          if (diskSize < files[i].length) {
+            this.logger.info(
+              `Resume data check: file "${files[i].path}" size mismatch (${diskSize} < ${files[i].length}), need recheck`,
             )
             this._needsDataCheck = true
             return
@@ -3276,13 +3307,9 @@ export class Torrent extends EngineComponent {
         let anyExist = false
         for (let i = 0; i < files.length; i++) {
           if (this._filePriorityManager.filePriorities[i] === 1) continue
-          try {
-            if (await fs.exists(files[i].path)) {
-              anyExist = true
-              break
-            }
-          } catch {
-            // stat/exists errors are fine, just means file isn't accessible
+          if (diskFiles.has(files[i].path)) {
+            anyExist = true
+            break
           }
         }
         if (!anyExist) {
@@ -3295,14 +3322,10 @@ export class Torrent extends EngineComponent {
     } else {
       // No resume data — check if files exist from a previous download
       for (const file of files) {
-        try {
-          if (await fs.exists(file.path)) {
-            this.logger.info(`No resume data but file "${file.path}" exists on disk, need recheck`)
-            this._needsDataCheck = true
-            return
-          }
-        } catch {
-          // Ignore errors
+        if (diskFiles.has(file.path)) {
+          this.logger.info(`No resume data but file "${file.path}" exists on disk, need recheck`)
+          this._needsDataCheck = true
+          return
         }
       }
     }
@@ -3311,6 +3334,9 @@ export class Torrent extends EngineComponent {
   /**
    * Core piece-by-piece hash verification. Resets bitfield and verifies every piece
    * from disk. Used by both recheckData() (manual) and start() (auto on resume).
+   *
+   * Uses listTree() to pre-determine which files exist, skipping pieces that only
+   * span missing files to avoid unnecessary disk I/O.
    */
   private async _doCheckPieces(): Promise<void> {
     this._isChecking = true
@@ -3338,34 +3364,93 @@ export class Torrent extends EngineComponent {
       await this.contentStorage.close()
     }
 
-    try {
-      for (let i = 0; i < this.piecesCount; i++) {
+    // Build per-piece skip map using listTree to avoid unnecessary disk I/O.
+    // A piece can be skipped if all files it spans are missing and it's not in .parts.
+    // For multi-file torrents, use a single listTree call; for single-file, use exists.
+    const pieceHasFile = new Uint8Array(this.piecesCount) // 0 = no existing files
+    if (this.contentStorage) {
+      const fs = this.contentStorage.storage.getFileSystem()
+      const files = this.contentStorage.filesList
+      if (files.length > 0) {
+        const firstSlash = files[0].path.indexOf('/')
+        const rootDir = firstSlash >= 0 ? files[0].path.substring(0, firstSlash) : ''
         try {
-          // Check if this is a boundary piece that might be in .parts
-          const isBoundary = this.pieceClassification[i] === 'boundary'
-          let isValid = false
-
-          if (isBoundary && this._partsFile?.hasPiece(i)) {
-            // Try to verify from .parts file
-            isValid = await this.verifyPieceFromParts(i)
-            if (isValid) {
-              this._partsFilePieces.add(i)
+          const existingFiles = new Set<string>()
+          if (rootDir) {
+            const entries = await fs.listTree(rootDir)
+            for (const entry of entries) {
+              existingFiles.add(rootDir + '/' + entry.path)
             }
           } else {
-            // Verify from regular files
-            isValid = await this.verifyPiece(i)
+            for (const file of files) {
+              try {
+                if (await fs.exists(file.path)) {
+                  existingFiles.add(file.path)
+                }
+              } catch {
+                // File not accessible
+              }
+            }
           }
-
-          if (isValid) {
-            this.markPieceVerified(i)
+          // Mark pieces that have at least one existing file
+          for (const file of files) {
+            if (!existingFiles.has(file.path)) continue
+            const startPiece = Math.floor(file.offset / this.pieceLength)
+            const endPiece = Math.floor((file.offset + file.length - 1) / this.pieceLength)
+            for (let p = startPiece; p <= endPiece; p++) {
+              pieceHasFile[p] = 1
+            }
           }
-        } catch (err) {
-          // Read error - piece remains unchecked
-          this.logger.debug(`Piece ${i} read error during recheck:`, { err })
+        } catch {
+          // listTree/exists failed — conservatively mark all pieces as having files
+          pieceHasFile.fill(1)
         }
+      }
+    }
 
-        // Update progress
-        this._checkingProgress = (i + 1) / this.piecesCount
+    const hasPartsData = this._partsFile && this._partsFile.pieces.size > 0
+
+    try {
+      // If no files exist and no .parts data, skip piece loop entirely
+      if (pieceHasFile.indexOf(1) === -1 && !hasPartsData) {
+        this.logger.info('Data check: no files on disk and no .parts data, skipping verification')
+      } else {
+        for (let i = 0; i < this.piecesCount; i++) {
+          try {
+            // Check if this is a boundary piece that might be in .parts
+            const isBoundary = this.pieceClassification[i] === 'boundary'
+            const inParts = isBoundary && this._partsFile?.hasPiece(i)
+
+            // Skip pieces that only span missing files and aren't in .parts
+            if (!pieceHasFile[i] && !inParts) {
+              this._checkingProgress = (i + 1) / this.piecesCount
+              continue
+            }
+
+            let isValid = false
+
+            if (inParts) {
+              // Try to verify from .parts file
+              isValid = await this.verifyPieceFromParts(i)
+              if (isValid) {
+                this._partsFilePieces.add(i)
+              }
+            } else {
+              // Verify from regular files
+              isValid = await this.verifyPiece(i)
+            }
+
+            if (isValid) {
+              this.markPieceVerified(i)
+            }
+          } catch (err) {
+            // Read error - piece remains unchecked
+            this.logger.debug(`Piece ${i} read error during recheck:`, { err })
+          }
+
+          // Update progress
+          this._checkingProgress = (i + 1) / this.piecesCount
+        }
       }
     } finally {
       // Always clear checking state
