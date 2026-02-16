@@ -286,8 +286,8 @@ export function Downloads() {
         <div className="download-subsection">
           <h3>Desktop App</h3>
           <p>
-            Prefer a standalone app, or don't use a Chromium-based browser? Built with Rust — not
-            Electron, no bloat. No browser required.
+            Prefer a standalone app, or don&apos;t use a Chromium-based browser? Built with Rust —
+            not Electron, no bloat. No browser required.
           </p>
           {status?.desktopVersion && (
             <div
