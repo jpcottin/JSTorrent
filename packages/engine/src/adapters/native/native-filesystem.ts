@@ -110,13 +110,12 @@ export class NativeFileSystem implements IFileSystem {
    */
   async verifyChunks(request: VerifyChunksRequest): Promise<Uint8Array> {
     // Encode hashes as base64 for JSON transport
-    let hashesBase64: string
     const bytes = request.hashes
     let binary = ''
     for (let i = 0; i < bytes.length; i++) {
       binary += String.fromCharCode(bytes[i])
     }
-    hashesBase64 = btoa(binary)
+    const hashesBase64 = btoa(binary)
 
     const requestJson = JSON.stringify({
       files: request.files,

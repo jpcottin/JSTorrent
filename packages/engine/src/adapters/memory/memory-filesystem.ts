@@ -1,3 +1,4 @@
+// eslint-disable-next-line import/no-nodejs-modules
 import { createHash } from 'crypto'
 import {
   IFileSystem,
