@@ -1,6 +1,6 @@
 [package]
 name = "jstorrent-desktop"
-version = "0.1.23"
+version = "0.1.24"
 description = "JSTorrent Desktop App"
 authors = ["Kyle Graehl <kgraehl@gmail.com>"]
 edition = "2021"

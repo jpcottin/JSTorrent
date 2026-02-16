@@ -2,6 +2,15 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.24]
+
+- Add list_tree endpoint to io-daemon for recursive file listing
+- Add verifyChunks API for batch piece hash verification
+- Fix .torrent file open failing for filenames with spaces
+- Fix tray menu items firing twice on macOS
+- Sync check menu items between app menu and tray menu on macOS
+- Aggregate changelogs across skipped versions in update server
+
 ## [0.1.23]
 
 - Fix formatting (cargo fmt)
