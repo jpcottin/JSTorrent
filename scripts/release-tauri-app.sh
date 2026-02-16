@@ -15,6 +15,13 @@ if [[ ! "$VERSION" =~ ^[0-9] ]]; then
   exit 1
 fi
 
+# Fail if working tree is dirty (avoid releasing with uncommitted changes)
+if ! git diff-index --quiet HEAD --; then
+  echo "Error: Working tree has uncommitted changes. Please commit or stash first."
+  git diff --stat
+  exit 1
+fi
+
 TAG="tauri-app-v${VERSION}"
 CHANGELOG="$REPO_ROOT/desktop/tauri-app/CHANGELOG.md"
 
