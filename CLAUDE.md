@@ -136,6 +136,18 @@ When adding a new method (e.g., `listTree`), implement in this order:
 6. **Rust io-daemon**: `desktop/io-daemon/src/files.rs` (add endpoint + route in `main.rs`)
 7. **Verify**: `pnpm typecheck && pnpm test` (engine), `./gradlew :app:compileDebugKotlin` (android), `cargo clippy --workspace` (desktop)
 
+### QuickJS FFI: Boolean String Coercion Pitfall
+
+The QuickJS JNI bridge (`setGlobalFunction` in `QuickJsContext.kt`) only supports `String?` return types. When Kotlin returns `boolean.toString()`, it produces `"true"` or `"false"` — but in JavaScript, **both are truthy** (`if ("false")` is `true`).
+
+**Rules for the native adapter (`packages/engine/src/adapters/native/`):**
+- **NEVER** use truthiness checks (`if (result)` / `if (!result)`) on values from `__jstorrent_*` functions
+- **ALWAYS** use explicit comparison: `result === true || result === 'true'`
+- `bindings.d.ts` declares these as `string | boolean` to flag the ambiguity
+- The TCP/UDP callback dispatchers in `NativeBindings.kt` already handle this correctly with inline `=== 'true'` JS conversion
+
+See `bindings.d.ts` header comment for full explanation.
+
 ## Git Commit Policy
 
 **Do NOT include `Co-Authored-By` lines referencing Claude, AI, or Anthropic in commit messages. Do NOT include "Generated with Claude Code" or similar AI attribution. Commits are authored solely by the user.**

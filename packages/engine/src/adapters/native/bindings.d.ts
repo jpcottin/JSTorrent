@@ -6,6 +6,13 @@
  *
  * These functions enable the TypeScript engine to perform I/O operations
  * via QuickJS (Android) or JavaScriptCore (iOS).
+ *
+ * IMPORTANT — QuickJS FFI string coercion:
+ * The QuickJS JNI bridge (setGlobalFunction) only supports String return types.
+ * Kotlin's `boolean.toString()` produces "true"/"false" strings, but in JavaScript
+ * both are truthy — `if ("false")` evaluates to true. Functions that logically
+ * return booleans are typed as `string | boolean` here, and callers MUST compare
+ * with `=== 'true' || === true` (never use truthiness checks).
  */
 
 declare global {
@@ -201,14 +208,15 @@ declare global {
 
   /**
    * Create a directory.
-   * Returns true on success.
+   * Returns "true"/"false" string (QuickJS FFI limitation — see native-filesystem.ts).
    */
-  function __jstorrent_file_mkdir(rootKey: string, path: string): boolean
+  function __jstorrent_file_mkdir(rootKey: string, path: string): string | boolean
 
   /**
    * Check if a path exists.
+   * Returns "true"/"false" string (QuickJS FFI limitation — see native-filesystem.ts).
    */
-  function __jstorrent_file_exists(rootKey: string, path: string): boolean
+  function __jstorrent_file_exists(rootKey: string, path: string): string | boolean
 
   /**
    * Read directory contents.
@@ -218,9 +226,9 @@ declare global {
 
   /**
    * Delete a file or directory.
-   * Returns true on success.
+   * Returns "true"/"false" string (QuickJS FFI limitation — see native-filesystem.ts).
    */
-  function __jstorrent_file_delete(rootKey: string, path: string): boolean
+  function __jstorrent_file_delete(rootKey: string, path: string): string | boolean
 
   /**
    * Recursively list all files under a directory with their sizes.

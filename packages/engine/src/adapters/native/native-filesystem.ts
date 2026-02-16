@@ -57,9 +57,10 @@ export class NativeFileSystem implements IFileSystem {
    * Create a directory.
    */
   async mkdir(path: string): Promise<void> {
-    const success = __jstorrent_file_mkdir(this.rootKey, path)
+    // QuickJS FFI returns all values as strings — "false" is truthy in JS
+    const result = __jstorrent_file_mkdir(this.rootKey, path)
 
-    if (!success) {
+    if (result !== true && result !== 'true') {
       throw new Error(`Failed to create directory: ${path}`)
     }
   }
@@ -68,7 +69,9 @@ export class NativeFileSystem implements IFileSystem {
    * Check if a path exists.
    */
   async exists(path: string): Promise<boolean> {
-    return __jstorrent_file_exists(this.rootKey, path)
+    // QuickJS FFI returns all values as strings — "false" is truthy in JS
+    const result = __jstorrent_file_exists(this.rootKey, path)
+    return result === true || result === 'true'
   }
 
   /**
@@ -84,9 +87,10 @@ export class NativeFileSystem implements IFileSystem {
    * Delete a file or directory.
    */
   async delete(path: string): Promise<void> {
-    const success = __jstorrent_file_delete(this.rootKey, path)
+    // QuickJS FFI returns all values as strings — "false" is truthy in JS
+    const result = __jstorrent_file_delete(this.rootKey, path)
 
-    if (!success) {
+    if (result !== true && result !== 'true') {
       throw new Error(`Failed to delete: ${path}`)
     }
   }

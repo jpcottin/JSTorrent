@@ -591,7 +591,9 @@ class FileBindings(
             }
         }
 
-        // __jstorrent_file_mkdir(rootKey: string, path: string): boolean
+        // __jstorrent_file_mkdir(rootKey: string, path: string): string ("true"/"false")
+        // NOTE: setGlobalFunction returns String, so booleans arrive as "true"/"false" in JS.
+        // JS callers must use === 'true' comparison, NOT truthiness checks (see bindings.d.ts).
         ctx.setGlobalFunction("__jstorrent_file_mkdir") { args ->
             val rootKey = args.getOrNull(0) ?: ""
             val path = args.getOrNull(1) ?: ""
@@ -606,7 +608,7 @@ class FileBindings(
             }
         }
 
-        // __jstorrent_file_exists(rootKey: string, path: string): boolean
+        // __jstorrent_file_exists(rootKey: string, path: string): string ("true"/"false")
         ctx.setGlobalFunction("__jstorrent_file_exists") { args ->
             val rootKey = args.getOrNull(0) ?: ""
             val path = args.getOrNull(1) ?: ""
@@ -637,7 +639,7 @@ class FileBindings(
             }
         }
 
-        // __jstorrent_file_delete(rootKey: string, path: string): boolean
+        // __jstorrent_file_delete(rootKey: string, path: string): string ("true"/"false")
         ctx.setGlobalFunction("__jstorrent_file_delete") { args ->
             val rootKey = args.getOrNull(0) ?: ""
             val path = args.getOrNull(1) ?: ""
