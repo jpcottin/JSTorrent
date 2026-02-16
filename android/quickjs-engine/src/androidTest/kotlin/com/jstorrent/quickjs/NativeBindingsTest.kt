@@ -475,6 +475,43 @@ class NativeBindingsTest {
         assertEquals(null, result)
     }
 
+    // ========================================
+    // File listTree Binding Tests
+    // ========================================
+
+    @Test
+    fun fileListTreeReturnsFilesWithSizes() {
+        engine.evaluate("""
+            const d1 = __jstorrent_text_encode("AAAA");
+            __jstorrent_file_write("default", "tree_test/file1.txt", 0, d1);
+            const d2 = __jstorrent_text_encode("BBBBBB");
+            __jstorrent_file_write("default", "tree_test/sub/file2.bin", 0, d2);
+        """.trimIndent())
+
+        val result = engine.evaluate("""
+            const json = __jstorrent_file_list_tree("default", "tree_test");
+            const entries = JSON.parse(json);
+            entries.sort((a, b) => a.path.localeCompare(b.path));
+            JSON.stringify(entries);
+        """.trimIndent())
+
+        val entries = org.json.JSONArray(result as String)
+        assertEquals(2, entries.length())
+        assertEquals("file1.txt", entries.getJSONObject(0).getString("path"))
+        assertEquals(4, entries.getJSONObject(0).getInt("size"))
+        assertEquals("sub/file2.bin", entries.getJSONObject(1).getString("path"))
+        assertEquals(6, entries.getJSONObject(1).getInt("size"))
+    }
+
+    @Test
+    fun fileListTreeReturnsEmptyForNonexistent() {
+        val result = engine.evaluate("""
+            __jstorrent_file_list_tree("default", "nonexistent_tree_dir");
+        """.trimIndent())
+
+        assertEquals("[]", result)
+    }
+
     @Test
     fun storageKeysWithPrefix() {
         engine.evaluate("""

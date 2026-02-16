@@ -32,7 +32,7 @@ describe('DaemonFileSystem Integration', () => {
       ],
     })
 
-    connection = new DaemonConnection(harness.port, harness.token)
+    connection = new DaemonConnection(harness.port, '127.0.0.1', undefined, harness.token)
     fs1 = new DaemonFileSystem(connection, rootKey1)
     fs2 = new DaemonFileSystem(connection, rootKey2)
   })
@@ -236,6 +236,50 @@ describe('DaemonFileSystem Integration', () => {
     // Write should throw HashMismatchError
     await expect(handle.write(data, 0, data.length, 0)).rejects.toThrow(HashMismatchError)
     await handle.close()
+  })
+
+  // ============================================================================
+  // listTree tests
+  // ============================================================================
+
+  it('should list tree with nested files and sizes', async () => {
+    const h1 = await fs1.open('tree_test/file1.txt', 'w')
+    const data1 = new TextEncoder().encode('AAAA')
+    await h1.write(data1, 0, data1.length, 0)
+    await h1.close()
+
+    const h2 = await fs1.open('tree_test/sub/file2.bin', 'w')
+    const data2 = new Uint8Array(1024)
+    await h2.write(data2, 0, data2.length, 0)
+    await h2.close()
+
+    const result = await fs1.listTree('tree_test')
+
+    expect(result).toEqual(
+      expect.arrayContaining([
+        { path: 'file1.txt', size: 4 },
+        { path: 'sub/file2.bin', size: 1024 },
+      ])
+    )
+    expect(result).toHaveLength(2)
+  })
+
+  it('should return empty array for nonexistent tree path', async () => {
+    const result = await fs1.listTree('nonexistent_tree_dir')
+    expect(result).toEqual([])
+  })
+
+  it('should isolate listTree between roots', async () => {
+    const h = await fs1.open('isolated_tree/file.txt', 'w')
+    const data = new TextEncoder().encode('root1 only')
+    await h.write(data, 0, data.length, 0)
+    await h.close()
+
+    const r1 = await fs1.listTree('isolated_tree')
+    const r2 = await fs2.listTree('isolated_tree')
+
+    expect(r1).toHaveLength(1)
+    expect(r2).toEqual([])
   })
 
   it('should consume pending hash after one write (v2 API)', async () => {

@@ -185,4 +185,66 @@ class FileIOTest : CompanionTestBase() {
         // Invalid root key should return 403 (Forbidden) per FileRoutes.kt
         assertEquals("Should reject invalid root", 403, response.code)
     }
+
+    // =========================================================================
+    // listTree Tests
+    // =========================================================================
+
+    @Test
+    fun listTreeReturnsFilesWithSizes() {
+        // Write files at nested paths
+        val paths = listOf("tree_dir/file1.txt" to "AAAA", "tree_dir/sub/file2.bin" to "BBBBBB")
+        for ((filePath, content) in paths) {
+            val pathBase64 = Base64.encodeToString(filePath.toByteArray(), Base64.NO_WRAP)
+            postBytes("/write/$testRootKey", content.toByteArray(), extensionHeaders(token) + mapOf(
+                "X-Path-Base64" to pathBase64
+            ))
+        }
+
+        val response = get(
+            "/ops/list_tree?root_key=$testRootKey&path=tree_dir",
+            extensionHeaders(token)
+        )
+        assertEquals(200, response.code)
+
+        val body = response.body?.string() ?: ""
+        val entries = org.json.JSONArray(body)
+        assertEquals("Should find 2 files", 2, entries.length())
+
+        val found = mutableMapOf<String, Long>()
+        for (i in 0 until entries.length()) {
+            val obj = entries.getJSONObject(i)
+            found[obj.getString("path")] = obj.getLong("size")
+        }
+        assertEquals(4L, found["file1.txt"])
+        assertEquals(6L, found["sub/file2.bin"])
+    }
+
+    @Test
+    fun listTreeReturnsEmptyForNonexistent() {
+        val response = get(
+            "/ops/list_tree?root_key=$testRootKey&path=nonexistent_dir",
+            extensionHeaders(token)
+        )
+        assertEquals(200, response.code)
+        assertEquals("[]", response.body?.string()?.trim())
+    }
+
+    @Test
+    fun listTreeRejectsInvalidRootKey() {
+        val response = get(
+            "/ops/list_tree?root_key=invalid_key&path=somedir",
+            extensionHeaders(token)
+        )
+        assertEquals(403, response.code)
+    }
+
+    @Test
+    fun listTreeRejectsPathTraversal() {
+        val response = get(
+            "/ops/list_tree?root_key=$testRootKey&path=../../etc",
+            extensionHeaders(token)
+        )
+        assertEquals(400, response.code)
+    }
 }

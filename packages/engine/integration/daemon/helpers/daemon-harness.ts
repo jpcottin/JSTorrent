@@ -23,7 +23,7 @@ export interface DaemonConfig {
 
 const DAEMON_BIN = path.resolve(
   __dirname,
-  '../../../../../native-host/target/debug/jstorrent-io-daemon',
+  '../../../../../desktop/target/debug/jstorrent-io-daemon',
 )
 
 export async function startDaemon(config: DaemonConfig = {}): Promise<DaemonHarness> {
@@ -37,6 +37,7 @@ export async function startDaemon(config: DaemonConfig = {}): Promise<DaemonHarn
 
   const token = 'test-token-' + Math.random().toString(36).slice(2)
   const installId = 'test-install-' + Math.random().toString(36).slice(2)
+  const profileId = 'test-profile-' + Math.random().toString(36).slice(2)
 
   // Build download_roots from config
   const roots = config.roots ?? [{ key: 'default', path: dataDir, displayName: 'Test Data' }]
@@ -51,6 +52,7 @@ export async function startDaemon(config: DaemonConfig = {}): Promise<DaemonHarn
     version: 1,
     profiles: [
       {
+        profile_id: profileId,
         install_id: installId,
         extension_id: 'test-extension',
         salt: 'test-salt',
@@ -81,7 +83,7 @@ export async function startDaemon(config: DaemonConfig = {}): Promise<DaemonHarn
   const port = await new Promise<number>((resolve, reject) => {
     daemonProcess = spawn(
       DAEMON_BIN,
-      ['--port', '0', '--token', token, '--install-id', installId],
+      ['--port', '0', '--token', token, '--profile-id', profileId],
       {
         env: { ...process.env, JSTORRENT_CONFIG_DIR: configDir },
         stdio: ['ignore', 'pipe', 'pipe'],
