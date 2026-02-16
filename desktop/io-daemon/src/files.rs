@@ -35,6 +35,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/ops/list", get(list_dir))
         .route("/ops/delete", post(delete_file))
         .route("/ops/truncate", post(truncate_file))
+        .route("/ops/list_tree", get(list_tree_dir))
         .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
 }
 
@@ -418,6 +419,58 @@ async fn list_dir(
     }
 
     Ok(Json(filenames))
+}
+
+#[derive(Deserialize)]
+struct ListTreeParams {
+    path: String,
+    root_key: String,
+}
+
+#[derive(Serialize)]
+struct FileTreeEntry {
+    path: String,
+    size: u64,
+}
+
+async fn list_tree_dir(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(params): axum::extract::Query<ListTreeParams>,
+) -> Result<Json<Vec<FileTreeEntry>>, (StatusCode, String)> {
+    let base = validate_path(&state, &params.root_key, &params.path)?;
+
+    let mut entries = Vec::new();
+    let mut stack = Vec::new();
+
+    if base.is_dir() {
+        stack.push(base.clone());
+    }
+
+    while let Some(dir) = stack.pop() {
+        let mut read_dir = fs::read_dir(&dir)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        while let Ok(Some(entry)) = read_dir.next_entry().await {
+            let path = entry.path();
+            let Ok(metadata) = fs::metadata(&path).await else {
+                continue;
+            };
+            if metadata.is_file() {
+                if let Ok(rel) = path.strip_prefix(&base) {
+                    let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    entries.push(FileTreeEntry {
+                        path: rel_str,
+                        size: metadata.len(),
+                    });
+                }
+            } else if metadata.is_dir() {
+                stack.push(path);
+            }
+        }
+    }
+
+    Ok(Json(entries))
 }
 
 #[derive(Deserialize)]
