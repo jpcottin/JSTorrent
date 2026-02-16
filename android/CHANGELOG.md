@@ -2,6 +2,15 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.19] - 2026-02-16
+
+### Changed
+- Reduced memory pressure to prevent OOM crashes during endgame
+  - Max buffered bytes: 128MB → 64MB
+  - Endgame duplicate requests: 3 → 2
+  - Default pipeline depth: 500 → 250 (hidden from settings)
+  - Piece buffer pool now scales inversely with piece size (16MB cap)
+
 ## [1.0.18] - 2026-02-16
 
 ### Added
