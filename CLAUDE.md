@@ -1,5 +1,9 @@
 # Claude Instructions
 
+## Cross-Project Context
+
+For cross-project context (how this project relates to Transistor, QuickJitJS, Tilefun, etc.), see `~/code/dotfiles/projects/README.md`.
+
 ## Environment Setup
 
 Before running commands that require Java, Rust, or other development tools, source the shell profile:
