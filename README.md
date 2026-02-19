@@ -62,7 +62,7 @@ One TypeScript BitTorrent engine powers all platforms. Platform-specific native 
 
 ## About
 
-JSTorrent started as a Chrome App, was rebuilt as a Chrome Extension when Apps were deprecated, and has since expanded to Android and desktop platforms—all sharing the same TypeScript engine.
+JSTorrent started as a [Chrome App](https://github.com/kzahel/jstorrent-legacy-app), was rebuilt as a Chrome Extension when Apps were deprecated, and has since expanded to Android and desktop platforms—all sharing the same TypeScript engine.
 
 Written in TypeScript with comprehensive test coverage, including integration tests against libtorrent.
 
