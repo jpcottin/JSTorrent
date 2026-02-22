@@ -730,6 +730,14 @@ async fn handle_request(
             Err(e) => Err(anyhow::anyhow!("Failed to rename profile: {e}")),
         },
 
+        Operation::GetVersionInfo => {
+            let rpc = rpc::read_discovery_file();
+            Ok(ResponsePayload::VersionInfo {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                desktop_version: rpc.desktop_version,
+            })
+        }
+
         // KV storage operations — require handshake first
         Operation::KvGet { key } => {
             let kv = state.kv.lock().unwrap();

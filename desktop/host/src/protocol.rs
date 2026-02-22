@@ -110,6 +110,9 @@ pub enum Operation {
         #[serde(rename = "displayName")]
         display_name: String,
     },
+
+    // Lightweight version info refresh (no handshake side effects)
+    GetVersionInfo,
 }
 
 #[derive(Debug, Serialize)]
@@ -201,6 +204,11 @@ pub enum ResponsePayload {
         #[serde(rename = "contentsBase64")]
         contents_base64: String,
     },
+    VersionInfo {
+        version: String,
+        #[serde(rename = "desktopVersion", skip_serializing_if = "Option::is_none")]
+        desktop_version: Option<String>,
+    },
 }
 
 impl fmt::Display for Operation {
@@ -254,6 +262,7 @@ impl fmt::Display for Operation {
                 profile_id,
                 display_name,
             } => write!(f, "RenameProfile {profile_id} -> {display_name}"),
+            Operation::GetVersionInfo => write!(f, "GetVersionInfo"),
         }
     }
 }
@@ -316,6 +325,14 @@ impl fmt::Display for ResponsePayload {
                     contents_base64.len()
                 )
             }
+            ResponsePayload::VersionInfo {
+                version,
+                desktop_version,
+            } => write!(
+                f,
+                "VersionInfo v={version} desktop={}",
+                desktop_version.as_deref().unwrap_or("none")
+            ),
         }
     }
 }
