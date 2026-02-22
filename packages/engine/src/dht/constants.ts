@@ -31,8 +31,9 @@ export const NODE_ID_BITS = 160
 /**
  * Query timeout in milliseconds.
  * Time to wait for a response before considering the query failed.
+ * 10s allows for slow DNS resolution + UDP round-trip to distant nodes.
  */
-export const QUERY_TIMEOUT_MS = 5000
+export const QUERY_TIMEOUT_MS = 10_000
 
 /**
  * Bucket refresh interval in milliseconds (15 minutes).
@@ -88,6 +89,7 @@ export const BOOTSTRAP_NODES: ReadonlyArray<{ host: string; port: number }> = [
   { host: 'router.bittorrent.com', port: 6881 },
   { host: 'router.utorrent.com', port: 6881 },
   { host: 'dht.transmissionbt.com', port: 6881 },
+  { host: 'dht.libtorrent.org', port: 25401 },
 ]
 
 /**
@@ -101,6 +103,23 @@ export const BOOTSTRAP_CONCURRENCY = ALPHA
  * Should be enough to traverse the DHT depth.
  */
 export const BOOTSTRAP_MAX_ITERATIONS = 20
+
+/**
+ * Maximum consecutive failures before removing a node from the routing table.
+ * Matches libtorrent's default. High tolerance avoids premature eviction
+ * of nodes that may be temporarily unreachable.
+ */
+export const MAX_CONSECUTIVE_FAILURES = 20
+
+/**
+ * Maximum number of bootstrap retry attempts after total failure.
+ */
+export const BOOTSTRAP_MAX_RETRIES = 3
+
+/**
+ * Delays between bootstrap retries in milliseconds (exponential backoff).
+ */
+export const BOOTSTRAP_RETRY_DELAYS = [5_000, 15_000, 30_000]
 
 /**
  * Peer cleanup interval in milliseconds (10 minutes).

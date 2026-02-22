@@ -252,6 +252,7 @@ export class RoutingTable extends EventEmitter {
           id: nodeIdToHex(node.id),
           host: node.host,
           port: node.port,
+          lastSeen: node.lastSeen,
         })
       }
     }
@@ -276,6 +277,7 @@ export class RoutingTable extends EventEmitter {
           id: hexToNodeId(nodeData.id),
           host: nodeData.host,
           port: nodeData.port,
+          lastSeen: nodeData.lastSeen,
         })
       } catch {
         // Skip invalid nodes

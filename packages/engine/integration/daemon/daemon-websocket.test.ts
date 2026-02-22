@@ -8,7 +8,7 @@ describe('DaemonConnection WebSocket', () => {
 
   beforeAll(async () => {
     harness = await startDaemon()
-    connection = new DaemonConnection(harness.port, harness.token)
+    connection = new DaemonConnection(harness.port, '127.0.0.1', undefined, harness.token)
   })
 
   afterAll(async () => {

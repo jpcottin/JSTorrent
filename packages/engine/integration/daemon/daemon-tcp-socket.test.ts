@@ -14,7 +14,7 @@ describe('DaemonSocketFactory TCP', () => {
   beforeAll(async () => {
     // Start daemon
     harness = await startDaemon()
-    connection = new DaemonConnection(harness.port, harness.token)
+    connection = new DaemonConnection(harness.port, '127.0.0.1', undefined, harness.token)
     await connection.connectWebSocket()
     factory = new DaemonSocketFactory(connection)
 

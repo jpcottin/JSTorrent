@@ -922,9 +922,41 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                             if let Some(socket) =
                                 socket_manager.lock().await.udp_sockets.get(&socket_id)
                             {
-                                let addr = format!("{dest_addr}:{dest_port}");
-                                if socket.send_to(data, &addr).await.is_ok() {
-                                    stats.bytes_sent.fetch_add(data_len, Ordering::Relaxed);
+                                // Resolve address, preferring IPv4 to match our IPv4-bound socket.
+                                // tokio's send_to with a hostname uses getaddrinfo(AF_UNSPEC)
+                                // which may return IPv6 first, failing on our IPv4 socket.
+                                let resolved = if dest_addr.parse::<std::net::IpAddr>().is_ok() {
+                                    // Already an IP address, no resolution needed
+                                    Some(std::net::SocketAddr::new(
+                                        dest_addr.parse().unwrap(),
+                                        dest_port,
+                                    ))
+                                } else {
+                                    // Hostname: resolve and pick the first IPv4 address.
+                                    // tokio's send_to uses getaddrinfo(AF_UNSPEC) which may
+                                    // return IPv6 first, failing on our IPv4-bound socket.
+                                    let host_port = format!("{dest_addr}:{dest_port}");
+                                    match tokio::net::lookup_host(host_port).await {
+                                        Ok(mut addrs) => addrs.find(std::net::SocketAddr::is_ipv4),
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "UDP DNS resolution failed for {}: {}",
+                                                dest_addr,
+                                                e
+                                            );
+                                            None
+                                        }
+                                    }
+                                };
+                                if let Some(addr) = resolved {
+                                    match socket.send_to(data, addr).await {
+                                        Ok(_) => {
+                                            stats.bytes_sent.fetch_add(data_len, Ordering::Relaxed);
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!("UDP send_to {} failed: {}", addr, e);
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -386,6 +386,7 @@ describe('DHTNode Bootstrap', () => {
 
       const stats = await runBootstrap(dhtNode, {
         nodes: [deadNode1, deadNode2],
+        maxRetries: 0,
       })
 
       // Should have failures but not throw
@@ -705,7 +706,7 @@ describe('DHTNode Bootstrap', () => {
         createSimpleResponder(bootstrapNodeId, [selfNode]),
       )
 
-      const stats = await runBootstrap(dhtNode, { nodes: [bootstrapNode] })
+      const stats = await runBootstrap(dhtNode, { nodes: [bootstrapNode], maxRetries: 0 })
 
       // Should not get stuck in infinite loop
       expect(stats.queriedCount).toBe(1) // Only query once

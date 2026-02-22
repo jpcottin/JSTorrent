@@ -50,6 +50,8 @@ export interface RoutingTableState {
     id: string
     host: string
     port: number
+    /** Timestamp when we last received a valid response from this node */
+    lastSeen?: number
   }>
 }
 

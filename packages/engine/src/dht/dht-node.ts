@@ -40,6 +40,9 @@ import {
   BOOTSTRAP_NODES,
   BOOTSTRAP_CONCURRENCY,
   BOOTSTRAP_MAX_ITERATIONS,
+  BOOTSTRAP_MAX_RETRIES,
+  BOOTSTRAP_RETRY_DELAYS,
+  MAX_CONSECUTIVE_FAILURES,
   BUCKET_REFRESH_MS,
   PEER_CLEANUP_MS,
 } from './constants'
@@ -116,6 +119,12 @@ export interface BootstrapOptions {
    * Defaults to BOOTSTRAP_MAX_ITERATIONS (20).
    */
   maxIterations?: number
+
+  /**
+   * Maximum retry attempts after total bootstrap failure (0 responses).
+   * Defaults to BOOTSTRAP_MAX_RETRIES (3).
+   */
+  maxRetries?: number
 }
 
 /**
@@ -655,6 +664,47 @@ export class DHTNode extends EventEmitter {
       throw new Error('DHTNode not started')
     }
 
+    const stats = await this.bootstrapOnce(options)
+
+    // If bootstrap got zero responses, retry with backoff.
+    // Don't check routingTable.size() — persisted nodes from previous sessions
+    // make it non-zero even when no node is actually reachable.
+    const maxRetries = options.maxRetries ?? BOOTSTRAP_MAX_RETRIES
+    if (stats.responsesReceived === 0 && maxRetries > 0) {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        const delay = BOOTSTRAP_RETRY_DELAYS[attempt - 1] ?? BOOTSTRAP_RETRY_DELAYS.at(-1)!
+        this.logger?.warn(
+          `DHT bootstrap failed (0 responses), retrying in ${delay / 1000}s (attempt ${attempt}/${maxRetries})`,
+        )
+        await new Promise((resolve) => setTimeout(resolve, delay))
+
+        if (!this._ready) break // Stopped while waiting
+
+        const retryStats = await this.bootstrapOnce(options)
+        // Accumulate stats
+        stats.queriedCount += retryStats.queriedCount
+        stats.responsesReceived += retryStats.responsesReceived
+        stats.failures += retryStats.failures
+        stats.routingTableSize = retryStats.routingTableSize
+        stats.durationMs = Date.now() - (Date.now() - stats.durationMs) // Total elapsed
+
+        if (retryStats.responsesReceived > 0 || this.routingTable.size() > 0) {
+          this.logger?.info(`DHT bootstrap retry ${attempt} succeeded`)
+          break
+        }
+      }
+    }
+
+    stats.routingTableSize = this.routingTable.size()
+    this._bootstrapped = true
+    this.emit('test:bootstrapped', stats)
+    return stats
+  }
+
+  /**
+   * Single bootstrap attempt (no retry logic).
+   */
+  private async bootstrapOnce(options: BootstrapOptions = {}): Promise<BootstrapStats> {
     this.logger?.info('Starting DHT bootstrap...')
     const startTime = Date.now()
     const bootstrapNodes = options.nodes ?? BOOTSTRAP_NODES
@@ -677,9 +727,6 @@ export class DHTNode extends EventEmitter {
     ]
 
     // Helper to query a single node
-    // Note: We use KRPC socket directly instead of findNode() because findNode()
-    // catches errors and returns []. We need to distinguish success from failure
-    // for accurate statistics.
     const queryNode = async (node: {
       host: string
       port: number
@@ -691,6 +738,7 @@ export class DHTNode extends EventEmitter {
       }
       queried.add(key)
       queriedCount++
+      this._findNodesSent++
 
       const transactionId = this.krpcSocket.generateTransactionId()
       const queryData = encodeFindNodeQuery(transactionId, this.nodeId, this.nodeId)
@@ -716,9 +764,13 @@ export class DHTNode extends EventEmitter {
         }
 
         responsesReceived++
+        this._findNodesSucceeded++
+        this.recordQueryResult(true)
         return getResponseNodes(response)
       } catch {
         failures++
+        this._timeouts++
+        this.recordQueryResult(false)
         return []
       }
     }
@@ -731,12 +783,14 @@ export class DHTNode extends EventEmitter {
       iteration++
       foundCloserNodes = false
 
-      // Get up to `concurrency` unqueried candidates
+      // Get unqueried candidates. First iteration queries ALL initial bootstrap
+      // nodes (not limited by concurrency) so we don't miss any.
+      const batchLimit = iteration === 1 ? candidates.length : concurrency
       const batch: Array<{ host: string; port: number; id?: Uint8Array }> = []
       for (const candidate of candidates) {
         if (!queried.has(nodeKey(candidate.host, candidate.port))) {
           batch.push(candidate)
-          if (batch.length >= concurrency) break
+          if (batch.length >= batchLimit) break
         }
       }
 
@@ -805,8 +859,6 @@ export class DHTNode extends EventEmitter {
       `DHT bootstrap complete: ${stats.routingTableSize} nodes, ` +
         `${stats.responsesReceived}/${stats.queriedCount} responses, ${stats.durationMs}ms`,
     )
-    this._bootstrapped = true
-    this.emit('test:bootstrapped', stats)
     return stats
   }
 
@@ -970,7 +1022,7 @@ export class DHTNode extends EventEmitter {
     for (const { node, alive } of results) {
       if (!alive) {
         const failures = this.routingTable.incrementFailures(node.id)
-        if (failures !== undefined && failures >= 2) {
+        if (failures !== undefined && failures >= MAX_CONSECUTIVE_FAILURES) {
           this.routingTable.removeNode(node.id)
           removed++
         }
@@ -986,7 +1038,7 @@ export class DHTNode extends EventEmitter {
   /**
    * Refresh stale buckets by sending find_node with random target.
    * Per BEP 5: "Buckets that have not been changed in 15 minutes should be refreshed"
-   * Removes nodes with 2+ consecutive failures.
+   * Removes nodes with MAX_CONSECUTIVE_FAILURES+ consecutive failures.
    */
   private async refreshStaleBuckets(): Promise<void> {
     if (!this._ready) return
@@ -1009,7 +1061,7 @@ export class DHTNode extends EventEmitter {
       } catch {
         // Failed - track consecutive failures
         const failures = this.routingTable.incrementFailures(nodeToQuery.id)
-        if (failures !== undefined && failures >= 2) {
+        if (failures !== undefined && failures >= MAX_CONSECUTIVE_FAILURES) {
           this.routingTable.removeNode(nodeToQuery.id)
           removed++
         }

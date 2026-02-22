@@ -7,8 +7,9 @@ import { startDaemon, DaemonHarness } from './helpers/daemon-harness'
 import { DaemonFileSystem } from '../../src/adapters/daemon/daemon-filesystem'
 import { DaemonConnection } from '../../src/adapters/daemon/daemon-connection'
 import {
-  HashMismatchError,
   supportsVerifiedWrite,
+  WriteError,
+  WriteErrorType,
 } from '../../src/adapters/daemon/daemon-file-handle'
 
 describe('DaemonFileSystem Integration', () => {
@@ -219,7 +220,7 @@ describe('DaemonFileSystem Integration', () => {
     expect(stats.size).toBe(data.length)
   })
 
-  it('should throw HashMismatchError on incorrect hash (v2 API)', async () => {
+  it('should throw WriteError with HASH_MISMATCH on incorrect hash (v2 API)', async () => {
     const data = new TextEncoder().encode('Data with wrong hash')
 
     // Create a wrong hash (all zeros)
@@ -233,8 +234,11 @@ describe('DaemonFileSystem Integration', () => {
     // Set wrong expected hash
     handle.setExpectedHashForNextWrite(wrongHash)
 
-    // Write should throw HashMismatchError
-    await expect(handle.write(data, 0, data.length, 0)).rejects.toThrow(HashMismatchError)
+    // Write should throw WriteError with HASH_MISMATCH type
+    await expect(handle.write(data, 0, data.length, 0)).rejects.toMatchObject({
+      name: 'WriteError',
+      type: WriteErrorType.HASH_MISMATCH,
+    })
     await handle.close()
   })
 

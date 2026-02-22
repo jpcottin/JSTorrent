@@ -20,6 +20,8 @@ export default tseslint.config(
       'android/**/src/main/assets/*.js',
       'android/**/quickjs-ng/**',
       'desktop/target/**',
+      'scripts/test-dht-daemon-bootstrap.ts',
+      'scripts/test-dht-engine-bootstrap.ts',
     ],
   },
   {

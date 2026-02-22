@@ -1909,6 +1909,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
           id: hexToNodeId(node.id),
           host: node.host,
           port: node.port,
+          lastSeen: node.lastSeen,
         })
       }
     }

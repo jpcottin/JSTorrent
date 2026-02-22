@@ -18,11 +18,13 @@ const DHT_STATE_KEY = 'dht:state'
 export interface DHTPersistedState {
   /** Our node ID in hex */
   nodeId: string
-  /** Nodes from routing table (id, host, port only - no failure counts) */
+  /** Nodes from routing table (id, host, port, lastSeen - no failure counts) */
   nodes: Array<{
     id: string
     host: string
     port: number
+    /** Timestamp when we last received a valid response */
+    lastSeen?: number
   }>
 }
 
@@ -35,7 +37,12 @@ export interface DHTPersistedState {
 export async function saveDHTState(store: ISessionStore, state: RoutingTableState): Promise<void> {
   const persisted: DHTPersistedState = {
     nodeId: state.nodeId,
-    nodes: state.nodes,
+    nodes: state.nodes.map((n) => ({
+      id: n.id,
+      host: n.host,
+      port: n.port,
+      lastSeen: n.lastSeen,
+    })),
   }
   await store.setJson(DHT_STATE_KEY, persisted)
 }

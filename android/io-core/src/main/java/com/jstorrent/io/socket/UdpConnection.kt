@@ -7,6 +7,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import java.net.DatagramPacket
+import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.MulticastSocket
@@ -41,6 +42,12 @@ internal class UdpConnection(
         private const val TAG = "UdpConnection"
         private const val RECEIVE_BUFFER_SIZE = 65535 // Max UDP packet size
         private const val SO_TIMEOUT = 60_000 // 60 seconds
+
+        /** Resolve a hostname preferring IPv4, to match our IPv4-bound socket. */
+        private fun resolvePreferIPv4(host: String): InetAddress {
+            val addrs = InetAddress.getAllByName(host)
+            return addrs.firstOrNull { it is Inet4Address } ?: addrs.first()
+        }
     }
 
     init {
@@ -147,10 +154,14 @@ internal class UdpConnection(
                 for ((destAddr, destPort, data) in sendQueue) {
                     try {
                         Log.d(TAG, "UDP send: socket=$socketId, to=$destAddr:$destPort, bytes=${data.size}")
+                        // Resolve address preferring IPv4 to match our IPv4-bound socket.
+                        // InetSocketAddress(hostname, port) uses getByName() which may
+                        // return IPv6 first, failing on our IPv4 socket.
+                        val addr = resolvePreferIPv4(destAddr)
                         val packet = DatagramPacket(
                             data,
                             data.size,
-                            InetSocketAddress(destAddr, destPort)
+                            InetSocketAddress(addr, destPort)
                         )
                         socket.send(packet)
                     } catch (e: Exception) {
