@@ -2,6 +2,11 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.25]
+
+- Fix UDP hostname resolution failing on IPv4-bound sockets
+- Periodically refresh desktopVersion from rpc-info.json
+
 ## [0.1.24]
 
 - Add list_tree endpoint to io-daemon for recursive file listing

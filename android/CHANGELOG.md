@@ -2,6 +2,11 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.20]
+
+### Fixed
+- Fix UDP hostname resolution failing on IPv4-bound sockets
+
 ## [1.0.19] - 2026-02-16
 
 ### Changed
