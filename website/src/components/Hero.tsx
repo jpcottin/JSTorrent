@@ -16,7 +16,10 @@ export function Hero() {
             One engine, every platform. Fast, free, and{' '}
             <a href="https://github.com/kzahel/jstorrent">open source</a>.
           </p>
-          <a href={isAndroid() ? '#download-android' : '#download'} className="btn btn-primary btn-large">
+          <a
+            href={isAndroid() ? '#download-android' : '#download'}
+            className="btn btn-primary btn-large"
+          >
             Download
           </a>
         </div>
