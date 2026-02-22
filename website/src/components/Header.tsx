@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 
 function GitHubIcon() {
   return (
@@ -29,6 +29,10 @@ function DiscussionsIcon() {
 
 export function Header() {
   const [navOpen, setNavOpen] = useState(false)
+  const downloadHref = useMemo(
+    () => (/android/i.test(navigator.userAgent) ? '#download-android' : '#download'),
+    [],
+  )
 
   return (
     <header className="site-header">
@@ -41,7 +45,7 @@ export function Header() {
           <a href="#about" onClick={() => setNavOpen(false)}>
             About
           </a>
-          <a href="#download" onClick={() => setNavOpen(false)}>
+          <a href={downloadHref} onClick={() => setNavOpen(false)}>
             Download
           </a>
           <a href="#help" onClick={() => setNavOpen(false)}>

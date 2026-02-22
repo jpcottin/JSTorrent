@@ -388,7 +388,7 @@ export function Downloads() {
         </div>
 
         {/* Android & ChromeOS */}
-        <div className="download-subsection">
+        <div id="download-android" className="download-subsection">
           <h3>Android & ChromeOS</h3>
           <p>
             Native Android app powered by a QuickJS engine. Also works as a companion app on
