@@ -886,8 +886,10 @@ function handleMessage(
     return true
   }
 
-  // Retry connection
+  // Retry connection — disconnect first so Chrome kills the old native host
+  // and spawns a fresh one (needed after desktop app update to pick up new binary)
   if (message.type === 'RETRY_CONNECTION') {
+    bridge.disconnect()
     bridge.connect().then((success: boolean) => {
       sendResponse({ ok: success })
     })
