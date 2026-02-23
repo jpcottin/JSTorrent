@@ -369,7 +369,7 @@ async fn do_handshake(
             version: env!("CARGO_PKG_VERSION").to_string(),
             roots,
             add_token: rpc_info.add_token,
-            desktop_version: rpc_info.desktop_version,
+            desktop_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         })
     } else {
         Err(anyhow::anyhow!("Daemon not running"))
@@ -664,25 +664,20 @@ async fn handle_request(
 
         // Update operations
         Operation::CheckForUpdates => {
-            let desktop_version = rpc::read_discovery_file().desktop_version;
-            match desktop_version {
-                Some(version) => match updater::check_for_updates_http(&version).await {
-                    Ok(result) => {
-                        if let Some(err) = &result.error {
-                            log!("Update check returned error: {err}");
-                        }
-                        Ok(ResponsePayload::UpdateCheck {
-                            available: result.available,
-                            version: result.version,
-                            current_version: result.current_version,
-                            body: result.body,
-                        })
+            let current_version = env!("CARGO_PKG_VERSION");
+            match updater::check_for_updates_http(current_version).await {
+                Ok(result) => {
+                    if let Some(err) = &result.error {
+                        log!("Update check returned error: {err}");
                     }
-                    Err(e) => Err(e),
-                },
-                None => Err(anyhow::anyhow!(
-                    "Desktop version not available — is the desktop app installed?"
-                )),
+                    Ok(ResponsePayload::UpdateCheck {
+                        available: result.available,
+                        version: result.version,
+                        current_version: result.current_version,
+                        body: result.body,
+                    })
+                }
+                Err(e) => Err(e),
             }
         }
 
@@ -754,14 +749,6 @@ async fn handle_request(
                     Err(e) => Err(anyhow::anyhow!("Failed to delete profile: {e}")),
                 }
             }
-        }
-
-        Operation::GetVersionInfo => {
-            let rpc = rpc::read_discovery_file();
-            Ok(ResponsePayload::VersionInfo {
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                desktop_version: rpc.desktop_version,
-            })
         }
 
         // KV storage operations — require handshake first

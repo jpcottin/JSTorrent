@@ -32,27 +32,15 @@ if ! grep -q "## \[${VERSION}\]" "$CHANGELOG" 2>/dev/null; then
   exit 1
 fi
 
-# Update version in tauri.conf.json
-TAURI_CONF="$REPO_ROOT/desktop/tauri-app/src-tauri/tauri.conf.json"
-PKG_JSON="$REPO_ROOT/desktop/tauri-app/package.json"
-CARGO_TOML="$REPO_ROOT/desktop/tauri-app/src-tauri/Cargo.toml"
-
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  # macOS sed requires -i ''
-  sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" "$TAURI_CONF"
-  sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" "$PKG_JSON"
-  sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" "$CARGO_TOML"
-else
-  sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" "$TAURI_CONF"
-  sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" "$PKG_JSON"
-  sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" "$CARGO_TOML"
-fi
-
-# Update Cargo.lock
-(cd "$REPO_ROOT/desktop" && cargo check --quiet)
+# Update version in all files
+"$SCRIPT_DIR/set-tauri-version.sh" "$VERSION"
 
 # Commit version bump
-git add "$TAURI_CONF" "$PKG_JSON" "$CARGO_TOML" "$REPO_ROOT/desktop/Cargo.lock" "$CHANGELOG"
+TAURI_CONF="$REPO_ROOT/desktop/tauri-app/src-tauri/tauri.conf.json"
+PKG_JSON="$REPO_ROOT/desktop/tauri-app/package.json"
+WORKSPACE_TOML="$REPO_ROOT/desktop/Cargo.toml"
+
+git add "$TAURI_CONF" "$PKG_JSON" "$WORKSPACE_TOML" "$REPO_ROOT/desktop/Cargo.lock" "$CHANGELOG"
 git commit -m "Release Tauri App v${VERSION}"
 
 # Push commit and tag

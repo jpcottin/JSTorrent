@@ -101,8 +101,6 @@ export class DaemonBridge {
   private nativePort: chrome.runtime.Port | null = null
   private ws: WebSocket | null = null
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null
-  private versionRefreshInterval: ReturnType<typeof setInterval> | null = null
-  private versionRefreshSupported: boolean | null = null
 
   // Pending KV requests (for request/response correlation)
   private pendingKvRequests = new Map<
@@ -615,7 +613,23 @@ export class DaemonBridge {
     if (this.state.platform !== 'desktop') {
       return { ok: false, error: 'Updates only available for desktop' }
     }
-    return this.sendNativeRequest('checkForUpdates', {})
+    const response = await this.sendNativeRequestFull('checkForUpdates', {})
+    if (response.ok && response.type === 'UpdateCheck') {
+      const payload = response.payload as {
+        available?: boolean
+        version?: string
+        currentVersion?: string
+        body?: string
+      }
+      return {
+        ok: true,
+        available: payload?.available ?? false,
+        version: payload?.version ?? undefined,
+        currentVersion: payload?.currentVersion ?? undefined,
+        body: payload?.body ?? undefined,
+      }
+    }
+    return { ok: false, error: (response.error as string) ?? 'Unknown error' }
   }
 
   /**
@@ -903,7 +917,6 @@ export class DaemonBridge {
             profileInUseInfo: null,
           })
           this.startHealthCheck(DESKTOP_HOST, payload.port)
-          this.startVersionRefresh()
 
           resolve()
         } else if (resolved) {
@@ -1504,45 +1517,6 @@ export class DaemonBridge {
     }, 5000)
   }
 
-  private startVersionRefresh(): void {
-    if (this.versionRefreshInterval) {
-      clearInterval(this.versionRefreshInterval)
-    }
-    // First check after 5s, then every 60s
-    setTimeout(() => this.refreshDesktopVersion(), 5000)
-    this.versionRefreshInterval = setInterval(() => this.refreshDesktopVersion(), 60000)
-  }
-
-  private async refreshDesktopVersion(): Promise<void> {
-    if (this.versionRefreshSupported === false) return
-    if (!this.nativePort || this.state.status !== 'connected') return
-
-    const response = await this.sendNativeRequestFull('getVersionInfo', {}, 3000)
-
-    if (response.ok && response.type === 'VersionInfo') {
-      this.versionRefreshSupported = true
-      const payload = response.payload as { desktopVersion?: string }
-      const newVersion = payload?.desktopVersion
-      if (
-        newVersion &&
-        newVersion !== this.state.daemonInfo?.desktopVersion &&
-        this.state.daemonInfo
-      ) {
-        console.log('[DaemonBridge] Desktop version updated:', newVersion)
-        this.updateState({
-          daemonInfo: { ...this.state.daemonInfo, desktopVersion: newVersion },
-        })
-      }
-    } else {
-      // Old host doesn't support getVersionInfo — stop trying
-      this.versionRefreshSupported = false
-      if (this.versionRefreshInterval) {
-        clearInterval(this.versionRefreshInterval)
-        this.versionRefreshInterval = null
-      }
-    }
-  }
-
   // ==========================================================================
   // Shared Helpers
   // ==========================================================================
@@ -1652,11 +1626,6 @@ export class DaemonBridge {
       clearInterval(this.healthCheckInterval)
       this.healthCheckInterval = null
     }
-    if (this.versionRefreshInterval) {
-      clearInterval(this.versionRefreshInterval)
-      this.versionRefreshInterval = null
-    }
-    this.versionRefreshSupported = null
     if (this.ws) {
       console.log('[DaemonBridge] Closing WebSocket')
       this.ws.close()

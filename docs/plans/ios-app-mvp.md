@@ -274,8 +274,8 @@ No CocoaPods/SPM dependencies needed for MVP — everything uses Apple framework
 - Session persistence (survives app restart)
 - DHT, PEX, tracker announce
 
-**Not in MVP:**
-- Background downloads (foreground only)
+**Not in MVP (but planned):**
+- Torrent sonification / background audio (see below)
 - .torrent file import (magnet only for MVP)
 - Share extension / URL scheme handling
 - Files app integration (downloaded files visible in Files)
@@ -290,6 +290,32 @@ No CocoaPods/SPM dependencies needed for MVP — everything uses Apple framework
 4. Verify: torrent metadata resolves, peers connect, pieces download, progress updates in UI
 5. Verify: app backgrounded → downloads pause; app foregrounded → downloads resume
 6. Verify: force-quit + relaunch → session restored, torrents still present
+
+## Torrent Sonification (Post-MVP Feature)
+
+8-bit generative audio driven by real-time torrent activity. Doubles as the background keep-alive mechanism (iOS `audio` background mode) — but it's a genuine feature, not a hack.
+
+**Sound events:**
+- **Piece verified**: 8-bit coin pickup bleep (pitch varies by piece index for variety)
+- **Peer connected**: Short chirp / ascending tone
+- **Peer disconnected**: Descending tone
+- **Torrent complete**: Level-clear jingle
+- **Hash failure**: Error buzz
+
+**Continuous audio:**
+- Background arpeggio whose tempo tracks download speed
+- More peers = more voices / richer texture
+- Idle = sparse ambient tones, fast download = dense chiptune
+
+**Implementation:**
+- `AVAudioEngine` with programmatic synthesis (square/saw/triangle waves) — no audio asset files needed
+- Engine events feed into audio engine via the existing `__jstorrent_on_state_update` subscription
+- Volume slider in settings, default at audible level. User can turn down to near-zero for silent background downloads
+- `AVAudioSession` category `.playback` + `.mixWithOthers` keeps the app alive when backgrounded
+- On by default. Turning volume to zero still maintains the audio session (background stays alive)
+
+**Why this works for background downloads:**
+iOS keeps apps alive that have an active audio session in `.playback` mode. Since the audio is a real feature (on at audible volume by default), the background mode usage is legitimate. The user can choose to turn volume down — that's their preference, not a hack.
 
 ## References
 

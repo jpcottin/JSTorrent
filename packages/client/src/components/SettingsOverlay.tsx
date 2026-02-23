@@ -587,7 +587,11 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
         <div style={styles.fieldRow}>
           <span>Version</span>
           <span style={{ color: 'var(--text-secondary)' }}>
-            {channel.getVersion() ?? 'unknown'}
+            {(!isStandalone &&
+              channel.getState().platform === 'desktop' &&
+              channel.getState().daemonInfo?.desktopVersion) ||
+              channel.getVersion() ||
+              'unknown'}
           </span>
         </div>
         {(isStandalone || channel.getState().platform === 'desktop') && (
@@ -601,7 +605,27 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
   )
 }
 
-/** Button that checks for desktop app updates and offers install. */
+/**
+ * Poll channel state until desktopVersion matches expectedVersion or timeout.
+ * Waits for the connection to come back after retryConnection() kills the native host.
+ */
+async function pollForVersion(
+  channel: HostChannel,
+  expectedVersion: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const state = channel.getState()
+    if (state.status === 'connected' && state.daemonInfo?.desktopVersion === expectedVersion) {
+      return true
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  return false
+}
+
+/** Button that checks for desktop app updates, showing results in a modal dialog. */
 function UpdateCheckButton({
   channel,
   isStandalone,
@@ -611,86 +635,132 @@ function UpdateCheckButton({
 }) {
   const [checking, setChecking] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const [verifying, setVerifying] = useState(false)
   const [result, setResult] = useState<UpdateCheckResult | null>(null)
+  const [dialogMessage, setDialogMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const closeDialog = () => {
+    setResult(null)
+    setDialogMessage(null)
+    setError(null)
+    setInstalling(false)
+    setVerifying(false)
+  }
 
   const handleCheck = async () => {
     setChecking(true)
     setResult(null)
+    setDialogMessage(null)
     setError(null)
     try {
       const r = await channel.checkForUpdates()
-      setResult(r)
+      if (r?.available) {
+        setResult(r)
+      } else {
+        setDialogMessage('You are running the latest version.')
+      }
     } catch {
-      setError('Check failed')
+      setError('Failed to check for updates.')
     }
     setChecking(false)
   }
 
   const handleInstall = async () => {
+    const expectedVersion = result?.version
+    if (!expectedVersion) return
+
     setInstalling(true)
     setError(null)
+
+    // Trigger the install — don't rely on return value for success.
+    // On Windows, NSIS kills the Tauri process mid-install so the native host
+    // sees a premature exit. On all platforms, verify via version polling instead.
     try {
-      const ok = await channel.installUpdate()
-      if (!ok) setError('Install failed')
+      await channel.installUpdate()
     } catch {
-      setError('Install failed')
+      // Swallow — install may have worked despite the error
     }
+
     setInstalling(false)
+    setVerifying(true)
+
+    // Wait for install to settle (especially Windows NSIS)
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+
+    // Kill old native host, Chrome spawns a fresh one from the (now-updated) disk binary
+    channel.retryConnection()
+
+    // Poll until the reconnected native host reports the new version
+    const verified = await pollForVersion(channel, expectedVersion, 30000)
+    setVerifying(false)
+
+    if (verified) {
+      setResult(null)
+      setDialogMessage(`Updated to v${expectedVersion}.`)
+    } else {
+      setError('Update may not have completed. Try checking again.')
+    }
   }
 
-  if (checking) {
-    return (
-      <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-base, 13px)' }}>
-        Checking...
-      </span>
-    )
-  }
-
-  if (installing) {
-    return (
-      <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-base, 13px)' }}>
-        Installing...
-      </span>
-    )
-  }
-
-  if (error) {
-    return (
-      <span style={{ color: 'var(--accent-error)', fontSize: 'var(--font-base, 13px)' }}>
-        {error}{' '}
-        <button onClick={handleCheck} style={styles.checkUpdatesButton}>
-          Retry
-        </button>
-      </span>
-    )
-  }
-
-  if (result?.available) {
-    return (
-      <span style={{ fontSize: 'var(--font-base, 13px)' }}>
-        v{result.version} available{' '}
-        {!isStandalone && (
-          <button onClick={handleInstall} style={styles.checkUpdatesButton}>
-            Install &amp; Restart
-          </button>
-        )}
-      </span>
-    )
-  }
-
-  if (result && !result.available) {
-    return (
-      <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-base, 13px)' }}>
-        Up to date
-      </span>
-    )
-  }
+  const showDialog = !!(result?.available || dialogMessage || error || installing || verifying)
 
   return (
-    <button onClick={handleCheck} style={styles.checkUpdatesButton}>
-      Check for Updates
-    </button>
+    <>
+      <button onClick={handleCheck} disabled={checking} style={styles.checkUpdatesButton}>
+        {checking ? 'Checking...' : 'Check for Updates'}
+      </button>
+      {showDialog && (
+        <div style={styles.dialogBackdrop} onClick={closeDialog}>
+          <div style={styles.dialog} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.dialogTitle}>Updates</h3>
+            {installing && <p style={styles.dialogMessage}>Installing...</p>}
+            {verifying && <p style={styles.dialogMessage}>Verifying update...</p>}
+            {error && (
+              <p style={{ ...styles.dialogMessage, color: 'var(--accent-error)' }}>{error}</p>
+            )}
+            {dialogMessage && <p style={styles.dialogMessage}>{dialogMessage}</p>}
+            {result?.available && !installing && !verifying && (
+              <>
+                <p style={styles.dialogMessage}>
+                  Version <strong>{result.version}</strong> is available (current:{' '}
+                  {result.currentVersion}).
+                </p>
+                {result.body && (
+                  <div
+                    style={{
+                      maxHeight: 200,
+                      overflowY: 'auto',
+                      background: 'var(--bg-tertiary)',
+                      borderRadius: '4px',
+                      padding: '8px 12px',
+                      marginBottom: 'var(--spacing-lg, 16px)',
+                      fontSize: 'var(--font-sm, 13px)',
+                      whiteSpace: 'pre-wrap',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    {result.body}
+                  </div>
+                )}
+              </>
+            )}
+            {!installing && !verifying && (
+              <div style={styles.dialogButtons}>
+                {result?.available && !isStandalone && (
+                  <button onClick={handleInstall} style={styles.dialogButtonPrimary}>
+                    Install &amp; Restart
+                  </button>
+                )}
+                <button onClick={closeDialog} style={styles.dialogButtonCancel}>
+                  {result?.available ? 'Later' : 'OK'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -1970,5 +2040,14 @@ const styles: Record<string, React.CSSProperties> = {
     border: 'none',
     borderRadius: '4px',
     cursor: 'pointer',
+  },
+  dialogButtonPrimary: {
+    padding: 'var(--spacing-sm, 8px) var(--spacing-lg, 16px)',
+    background: 'var(--accent-primary)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontWeight: 600,
   },
 }

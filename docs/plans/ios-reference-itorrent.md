@@ -93,3 +93,12 @@ Submodules/         LibTorrent-Swift, GoogleAdsSdk, etc.
 - **Background audio trick**: Same pattern we use in the Chrome extension for background tab execution. Can be added as a toggle later.
 - **Architecture differs**: iTorrent uses C++ libtorrent; we'll use our TypeScript engine via JavaScriptCore. But the background execution strategy is platform-level and engine-agnostic.
 - **UIKit vs SwiftUI**: iTorrent chose UIKit. We're going SwiftUI for the MVP since our UI is minimal.
+
+## Background Audio — Legitimacy Notes
+
+The silent audio hack is the most practical background approach. Key advantages over location mode:
+- No permission prompt required (audio session is a normal app capability)
+- No visible system indicator (location mode shows the blue dot)
+- Extremely common pattern across iOS apps (sleep timers, ambient sound apps, podcast apps)
+
+Can be made more legitimate by providing actual audio feedback — e.g. subtle sounds on piece completion, a chime on torrent completion, or an ambient "data transfer" sound effect. This makes the `audio` background mode genuinely purposeful rather than purely a keep-alive hack. User controls the volume / mute as a setting.

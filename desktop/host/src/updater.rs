@@ -11,6 +11,22 @@ const AUTO_CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60; // 24 hours
 const KV_LAST_CHECK_KEY: &str = "update:lastCheckTime";
 const RESULT_FILENAME: &str = "update-check-result.json";
 
+const UPDATE_ENDPOINT: &str = "https://updates.jstorrent.com/tauri";
+
+const TARGET: &str = if cfg!(target_os = "macos") {
+    "darwin"
+} else if cfg!(target_os = "windows") {
+    "windows"
+} else {
+    "linux"
+};
+
+const ARCH: &str = if cfg!(target_arch = "aarch64") {
+    "aarch64"
+} else {
+    "x86_64"
+};
+
 /// Result read from the JSON file written by the headless Tauri updater.
 #[derive(Debug, Deserialize, Default)]
 pub struct UpdateCheckResult {
@@ -20,6 +36,58 @@ pub struct UpdateCheckResult {
     pub current_version: Option<String>,
     pub body: Option<String>,
     pub error: Option<String>,
+}
+
+/// Response from the Tauri update endpoint (HTTP 200).
+#[derive(Deserialize)]
+struct TauriUpdateResponse {
+    version: String,
+    notes: Option<String>,
+}
+
+/// Check for updates by hitting the Tauri update endpoint directly.
+/// No Tauri app spawn needed — just an HTTP request.
+pub async fn check_for_updates_http(current_version: &str) -> Result<UpdateCheckResult> {
+    let url = format!("{UPDATE_ENDPOINT}/{TARGET}/{ARCH}/{current_version}");
+    crate::log!("Checking for updates: {url}");
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(&url)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .context("Update check HTTP request failed")?;
+
+    match resp.status().as_u16() {
+        204 => Ok(UpdateCheckResult {
+            available: false,
+            version: None,
+            current_version: Some(current_version.to_string()),
+            body: None,
+            error: None,
+        }),
+        200 => {
+            let update: TauriUpdateResponse = resp
+                .json()
+                .await
+                .context("Failed to parse update response")?;
+            Ok(UpdateCheckResult {
+                available: true,
+                version: Some(update.version),
+                current_version: Some(current_version.to_string()),
+                body: update.notes,
+                error: None,
+            })
+        }
+        status => Ok(UpdateCheckResult {
+            available: false,
+            version: None,
+            current_version: Some(current_version.to_string()),
+            body: None,
+            error: Some(format!("Update server returned HTTP {status}")),
+        }),
+    }
 }
 
 /// Run a headless update check by spawning the Tauri app with CLI flags.
@@ -143,8 +211,10 @@ pub(crate) fn find_tauri_app_path() -> Result<PathBuf> {
 fn spawn_tauri_app(app_path: &std::path::Path, flag: &str) -> Result<tokio::process::Child> {
     #[cfg(target_os = "macos")]
     {
-        // Use `open -a` on macOS to respect Gatekeeper and launch the .app bundle properly
+        // Use `open -a` on macOS to respect Gatekeeper and launch the .app bundle properly.
+        // -g: open in background (don't steal focus from Chrome)
         let child = tokio::process::Command::new("open")
+            .arg("-g")
             .arg("-a")
             .arg(app_path)
             .arg("-W") // Wait for the app to exit
