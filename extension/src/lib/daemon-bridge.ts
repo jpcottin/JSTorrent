@@ -41,6 +41,7 @@ import {
   sendKvRequestOverWebSocket,
 } from './daemon-bridge/chromeos/ws-requests'
 import { connectChromeosControlWebSocket } from './daemon-bridge/chromeos/ws-connect'
+import { restartHealthCheck } from './daemon-bridge/shared/health-check'
 
 // Re-export types for convenience
 export type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
@@ -1113,18 +1114,14 @@ export class DaemonBridge {
   }
 
   private startHealthCheck(host: string, port: number): void {
-    // Clear any existing interval to prevent stacking
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval)
-    }
-    this.healthCheckInterval = setInterval(async () => {
-      try {
-        const response = await fetch(`http://${host}:${port}/health`)
-        if (!response.ok) throw new Error('Health check failed')
-      } catch {
-        this.handleDisconnect()
-      }
-    }, 5000)
+    this.healthCheckInterval = restartHealthCheck({
+      existingInterval: this.healthCheckInterval,
+      fetchImpl: fetch,
+      host,
+      port,
+      onUnhealthy: () => this.handleDisconnect(),
+      intervalMs: 5000,
+    })
   }
 
   // ==========================================================================
