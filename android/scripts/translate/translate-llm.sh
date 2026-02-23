@@ -28,6 +28,7 @@ LANGS=()
 COMPARE=false
 DRY_RUN=false
 FORCE=false
+MAX_NEW=0
 MODEL="sonnet"
 
 while [[ $# -gt 0 ]]; do
@@ -51,6 +52,10 @@ while [[ $# -gt 0 ]]; do
             FORCE=true
             shift
             ;;
+        --max)
+            MAX_NEW="$2"
+            shift 2
+            ;;
         --model)
             MODEL="$2"
             shift 2
@@ -67,7 +72,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#LANGS[@]} -eq 0 ]]; then
-    echo "Usage: $0 <lang|--all> [--compare] [--dry-run] [--force] [--model sonnet|opus|haiku]"
+    echo "Usage: $0 <lang|--all> [--compare] [--dry-run] [--force] [--max N] [--model sonnet|opus|haiku]"
     echo ""
     echo "Languages in tier1:"
     cat "$TIER1_FILE"
@@ -100,7 +105,7 @@ translate_lang() {
         if [[ "$actual" -gt 0 ]] && [[ "$expected" -gt 0 ]] && [[ "$actual" -ge "$expected" ]]; then
             echo "  Already complete ($actual strings) — skipping (use --force to redo)"
             echo ""
-            return
+            return 2
         fi
     fi
 
@@ -249,20 +254,32 @@ PYEOF
 }
 
 # Track overall progress
+# translate_lang returns: 0=success, 1=failure, 2=skipped
 total=${#LANGS[@]}
 current=0
 failed=0
+translated=0
+skipped=0
 
 for lang in "${LANGS[@]}"; do
     current=$((current + 1))
     echo "[$current/$total]"
-    if ! translate_lang "$lang"; then
+    if [[ "$MAX_NEW" -gt 0 ]] && [[ "$translated" -ge "$MAX_NEW" ]]; then
+        echo "  Reached --max $MAX_NEW, stopping."
+        break
+    fi
+    translate_lang "$lang" && rc=$? || rc=$?
+    if [[ $rc -eq 2 ]]; then
+        skipped=$((skipped + 1))
+    elif [[ $rc -ne 0 ]]; then
         failed=$((failed + 1))
+        translated=$((translated + 1))
+    else
+        translated=$((translated + 1))
     fi
 done
 
-echo "Done: $((total - failed))/$total succeeded"
+echo "Done: translated=$translated skipped=$skipped failed=$failed"
 if [[ $failed -gt 0 ]]; then
-    echo "  $failed failed"
     exit 1
 fi
