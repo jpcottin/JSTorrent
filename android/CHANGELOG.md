@@ -2,6 +2,16 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.21]
+
+### Fixed
+- Fix .torrent file opening crash (TransactionTooLargeException) by writing torrent bytes to temp file instead of passing base64 via intent extra
+- Fix activity flags: remove FLAG_ACTIVITY_CLEAR_TASK to avoid destroying running activity, add FLAG_GRANT_READ_URI_PERMISSION for content:// URIs
+- Show proper filenames from content providers instead of opaque document IDs
+
+### Added
+- Instant pending torrent placeholder while engine starts (for both .torrent files and magnet links)
+
 ## [1.0.20]
 
 ### Fixed
