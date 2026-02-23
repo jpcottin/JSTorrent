@@ -65,7 +65,7 @@ jobs:
           cd website
           pnpm run build
         env:
-          VITE_TAURI_APP_TAG: ${{ steps.tauri-release.outputs.tag }}
+          TAURI_APP_TAG: ${{ steps.tauri-release.outputs.tag }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

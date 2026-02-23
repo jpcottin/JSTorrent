@@ -1,0 +1,25 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import Header from '../components/Header.astro'
+import Hero from '../components/Hero.astro'
+import About from '../components/About.astro'
+import Downloads from '../components/Downloads'
+import Changelog from '../components/Changelog.astro'
+import FAQ from '../components/FAQ.astro'
+import Footer from '../components/Footer.astro'
+
+const tauriAppTag = import.meta.env.TAURI_APP_TAG || 'v0.1.14'
+---
+
+<BaseLayout
+  title="JSTorrent — Free BitTorrent Client"
+  description="A fast, free, open source BitTorrent client for Windows, Mac, Linux, ChromeOS, and Android."
+>
+  <Header />
+  <Hero />
+  <About />
+  <Downloads client:visible tauriAppTag={tauriAppTag} />
+  <Changelog />
+  <FAQ />
+  <Footer />
+</BaseLayout>

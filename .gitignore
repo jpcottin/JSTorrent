@@ -12,6 +12,9 @@ magnet-link.txt
 
 *.bin
 
+# Astro
+.astro/
+
 # Node
 node_modules
 dist

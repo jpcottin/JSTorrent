@@ -8,8 +8,8 @@ const WEBSTORE_URL = `https://chromewebstore.google.com/detail/jstorrent/${EXTEN
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.jstorrent.app'
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/kzahel/jstorrent/releases?per_page=100'
 
-// Build-time values from CI, fall back to hardcoded versions
-const FALLBACK_TAURI_TAG = import.meta.env.VITE_TAURI_APP_TAG || 'v0.1.14'
+// Set by Astro page at build time, falls back to hardcoded version
+let FALLBACK_TAURI_TAG = 'v0.1.14'
 
 interface TauriReleaseInfo {
   tag: string
@@ -175,6 +175,10 @@ function detectArm64(): boolean {
   return false
 }
 
+interface DownloadsProps {
+  tauriAppTag?: string
+}
+
 const iconStyle = { width: 18, height: 18, fill: 'currentColor', flexShrink: 0 } as const
 
 function GooglePlayIcon() {
@@ -218,7 +222,8 @@ function CopyIcon() {
   )
 }
 
-export function Downloads() {
+export default function Downloads({ tauriAppTag }: DownloadsProps) {
+  if (tauriAppTag) FALLBACK_TAURI_TAG = tauriAppTag
   const [copied, setCopied] = useState(false)
   const [extensionInstalled, setExtensionInstalled] = useState<boolean | null>(null)
   const [status, setStatus] = useState<StatusResponse | null>(null)
