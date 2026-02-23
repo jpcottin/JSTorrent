@@ -27,7 +27,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 
 /**
  * Section header for settings screens.
@@ -163,7 +165,7 @@ fun <T> SettingDropdownRow(
                                 expanded = false
                             },
                             trailingIcon = if (option == currentValue) {
-                                { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                                { Icon(Icons.Default.Check, contentDescription = stringResource(R.string.selected)) }
                             } else null
                         )
                     }

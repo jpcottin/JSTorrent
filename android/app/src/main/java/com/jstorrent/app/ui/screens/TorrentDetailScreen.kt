@@ -222,7 +222,7 @@ fun TorrentDetailScreen(
                                 if (BuildConfig.DEBUG) {
                                     HorizontalDivider()
                                     DropdownMenuItem(
-                                        text = { Text("Reset State") },
+                                        text = { Text(stringResource(R.string.debug_reset_state)) },
                                         onClick = {
                                             showMenu = false
                                             viewModel.resetState()

@@ -9,7 +9,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import com.jstorrent.app.R
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 
 /**
@@ -32,22 +34,18 @@ fun NotificationRequiredDialog(
                 tint = MaterialTheme.colorScheme.primary
             )
         },
-        title = { Text("Notification Permission Required") },
+        title = { Text(stringResource(R.string.dialog_notification_required_title)) },
         text = {
-            Text(
-                "Background downloads require notifications so you can see " +
-                    "download progress and know when the app is using battery.\n\n" +
-                    "Please enable notifications in app settings."
-            )
+            Text(stringResource(R.string.dialog_notification_required_message))
         },
         confirmButton = {
             TextButton(onClick = onOpenSettings) {
-                Text("Open Settings")
+                Text(stringResource(R.string.dialog_notification_required_open_settings))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.cancel))
             }
         }
     )

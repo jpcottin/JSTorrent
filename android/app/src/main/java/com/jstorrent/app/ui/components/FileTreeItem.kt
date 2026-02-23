@@ -31,9 +31,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.model.FilePriority
 import com.jstorrent.app.model.TorrentFileUi
 import com.jstorrent.app.ui.theme.JSTorrentTheme
@@ -141,7 +143,7 @@ fun FileTreeItem(
                 DropdownMenuItem(
                     text = {
                         Text(
-                            text = priority.displayName,
+                            text = stringResource(priority.displayNameRes),
                             color = if (priority == file.priority) {
                                 MaterialTheme.colorScheme.primary
                             } else {
@@ -191,6 +193,7 @@ private fun getIconTint(file: TorrentFileUi) = when {
 /**
  * Format file status text.
  */
+@Composable
 private fun formatFileStatus(file: TorrentFileUi): String {
     val sizeText = if (file.downloaded > 0 && file.downloaded < file.size) {
         "${Formatters.formatBytes(file.downloaded)} / ${Formatters.formatBytes(file.size)}"
@@ -199,15 +202,15 @@ private fun formatFileStatus(file: TorrentFileUi): String {
     }
 
     val statusText = when {
-        !file.isSelected || file.priority == FilePriority.SKIP -> "Skipped"
-        file.progress >= 1.0 -> "Complete"
-        file.progress > 0 -> "Downloading"
-        else -> "Pending"
+        !file.isSelected || file.priority == FilePriority.SKIP -> stringResource(R.string.file_status_skipped)
+        file.progress >= 1.0 -> stringResource(R.string.file_status_complete)
+        file.progress > 0 -> stringResource(R.string.file_status_downloading)
+        else -> stringResource(R.string.file_status_pending)
     }
 
     // Show priority if not normal
     val priorityText = when (file.priority) {
-        FilePriority.HIGH -> " (High)"
+        FilePriority.HIGH -> " ${stringResource(R.string.file_status_priority_high)}"
         else -> ""
     }
 

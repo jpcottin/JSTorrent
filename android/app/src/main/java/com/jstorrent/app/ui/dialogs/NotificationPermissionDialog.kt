@@ -10,8 +10,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.window.DialogProperties
+import com.jstorrent.app.R
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 
 /**
@@ -38,22 +40,18 @@ fun NotificationPermissionDialog(
                 tint = MaterialTheme.colorScheme.primary
             )
         },
-        title = { Text("Enable Notifications?") },
+        title = { Text(stringResource(R.string.dialog_notification_permission_title)) },
         text = {
-            Text(
-                "JSTorrent needs notification permission to:\n\n" +
-                    "\u2022 Download files in the background\n" +
-                    "\u2022 Alert you when downloads complete"
-            )
+            Text(stringResource(R.string.dialog_notification_permission_message))
         },
         confirmButton = {
             Button(onClick = onEnable) {
-                Text("Enable")
+                Text(stringResource(R.string.dialog_notification_permission_enable))
             }
         },
         dismissButton = {
             TextButton(onClick = onNotNow) {
-                Text("Not Now")
+                Text(stringResource(R.string.dialog_notification_permission_not_now))
             }
         }
     )

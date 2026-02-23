@@ -1,5 +1,6 @@
 package com.jstorrent.app.model
 
+import com.jstorrent.app.R
 import com.jstorrent.quickjs.model.FileInfo
 import com.jstorrent.quickjs.model.TorrentInfo
 import com.jstorrent.quickjs.model.TorrentSummary
@@ -164,10 +165,10 @@ data class TorrentDetailUi(
 /**
  * File download priority levels.
  */
-enum class FilePriority(val displayName: String) {
-    HIGH("High"),
-    NORMAL("Normal"),
-    SKIP("Don't Download")
+enum class FilePriority(val displayNameRes: Int) {
+    HIGH(R.string.file_priority_high),
+    NORMAL(R.string.file_priority_normal),
+    SKIP(R.string.file_priority_skip)
 }
 
 /**

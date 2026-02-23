@@ -310,4 +310,52 @@
     <string name="component_selection_bar_start_all_description">Start all selected</string>
     <string name="component_selection_bar_stop_all_description">Stop all selected</string>
     <string name="component_selection_bar_delete_all_description">Delete all selected</string>
+
+    <!-- NotificationPermissionDialog -->
+    <string name="dialog_notification_permission_title">Enable Notifications?</string>
+    <string name="dialog_notification_permission_message">JSTorrent needs notification permission to:\n\n\u2022 Download files in the background\n\u2022 Alert you when downloads complete</string>
+    <string name="dialog_notification_permission_enable">Enable</string>
+    <string name="dialog_notification_permission_not_now">Not Now</string>
+
+    <!-- NotificationRequiredDialog -->
+    <string name="dialog_notification_required_title">Notification Permission Required</string>
+    <string name="dialog_notification_required_message">Background downloads require notifications so you can see download progress and know when the app is using battery.\n\nPlease enable notifications in app settings.</string>
+    <string name="dialog_notification_required_open_settings">Open Settings</string>
+
+    <!-- NotificationsSettingsScreen -->
+    <string name="settings_notifications_permission_section">Permission</string>
+    <string name="settings_notifications_enabled">Enabled</string>
+    <string name="settings_notifications_disabled">Disabled</string>
+    <string name="settings_notifications_required_for_background">Required for background downloads</string>
+    <string name="settings_notifications_enable_button">Enable</string>
+    <string name="settings_notifications_settings_button">Settings</string>
+    <string name="settings_notifications_manage_preferences">Manage notification preferences</string>
+
+    <!-- SpeedHistoryScreen -->
+    <string name="speed_history_title">Speed History</string>
+    <string name="speed_history_download">Download</string>
+    <string name="speed_history_upload">Upload</string>
+    <string name="speed_history_disk_write">Disk Write</string>
+    <string name="speed_history_js_thread_health">JS Thread Health</string>
+    <string name="speed_history_js_thread">JS Thread</string>
+    <string name="speed_history_latency">Latency</string>
+    <string name="speed_history_tick">Tick</string>
+    <string name="speed_history_handler_queue">Handler Q</string>
+    <string name="speed_history_disk_queue">Disk Q</string>
+    <string name="speed_history_pieces">Pieces</string>
+    <string name="speed_history_max_prefix">max: %1$s</string>
+    <string name="speed_history_peers_count">%1$d peers</string>
+
+    <!-- FileTreeItem / FilePriority -->
+    <string name="file_status_skipped">Skipped</string>
+    <string name="file_status_complete">Complete</string>
+    <string name="file_status_downloading">Downloading</string>
+    <string name="file_status_pending">Pending</string>
+    <string name="file_status_priority_high">(High)</string>
+    <string name="file_priority_high">High</string>
+    <string name="file_priority_normal">Normal</string>
+    <string name="file_priority_skip">Don\'t Download</string>
+
+    <!-- Debug menu (not user-facing in release) -->
+    <string name="debug_reset_state">Reset State</string>
 </resources>

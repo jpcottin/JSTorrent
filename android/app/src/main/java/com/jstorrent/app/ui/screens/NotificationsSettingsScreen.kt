@@ -29,7 +29,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,12 +49,12 @@ fun NotificationsSettingsScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Notifications") },
+                title = { Text(stringResource(R.string.settings_notifications_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.back)
                         )
                     }
                 }
@@ -65,7 +67,7 @@ fun NotificationsSettingsScreen(
                 .padding(innerPadding)
         ) {
             item {
-                SectionHeader(title = "Permission")
+                SectionHeader(title = stringResource(R.string.settings_notifications_permission_section))
             }
 
             item {
@@ -124,12 +126,12 @@ private fun NotificationsSection(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (permissionGranted) "Enabled" else "Disabled",
+                        text = stringResource(if (permissionGranted) R.string.settings_notifications_enabled else R.string.settings_notifications_disabled),
                         style = MaterialTheme.typography.bodyLarge
                     )
                     if (!permissionGranted) {
                         Text(
-                            text = "Required for background downloads",
+                            text = stringResource(R.string.settings_notifications_required_for_background),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -139,7 +141,7 @@ private fun NotificationsSection(
                     Button(
                         onClick = if (canRequestInline) onRequestPermission else onOpenSettings
                     ) {
-                        Text(if (canRequestInline) "Enable" else "Settings")
+                        Text(stringResource(if (canRequestInline) R.string.settings_notifications_enable_button else R.string.settings_notifications_settings_button))
                     }
                 }
             }
@@ -147,7 +149,7 @@ private fun NotificationsSection(
 
         // Always show link to system notification settings
         Text(
-            text = "Manage notification preferences",
+            text = stringResource(R.string.settings_notifications_manage_preferences),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier

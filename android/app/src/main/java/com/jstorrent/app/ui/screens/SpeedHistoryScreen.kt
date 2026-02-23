@@ -33,8 +33,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.model.SpeedHistoryUiState
 import com.jstorrent.app.model.TimeWindow
 import com.jstorrent.app.ui.components.SpeedChart
@@ -58,12 +60,12 @@ fun SpeedHistoryScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Speed History") },
+                title = { Text(stringResource(R.string.speed_history_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.back)
                         )
                     }
                 }
@@ -226,7 +228,7 @@ private fun CurrentRatesCard(
                 RateDisplay(
                     icon = Icons.Default.ArrowDownward,
                     iconColor = Color(0xFF22C55E), // Green - matches chart
-                    label = "Download",
+                    label = stringResource(R.string.speed_history_download),
                     rate = downloadRate
                 )
 
@@ -234,7 +236,7 @@ private fun CurrentRatesCard(
                 RateDisplay(
                     icon = Icons.Default.ArrowUpward,
                     iconColor = Color(0xFF3B82F6), // Blue - matches chart
-                    label = "Upload",
+                    label = stringResource(R.string.speed_history_upload),
                     rate = uploadRate
                 )
             }
@@ -247,7 +249,7 @@ private fun CurrentRatesCard(
                 RateDisplay(
                     icon = Icons.Default.Storage,
                     iconColor = Color(0xFFF59E0B), // Amber - matches chart
-                    label = "Disk Write",
+                    label = stringResource(R.string.speed_history_disk_write),
                     rate = diskWriteRate
                 )
             }
@@ -323,11 +325,11 @@ private fun JsThreadHealthCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Memory,
-                    contentDescription = "JS Thread",
+                    contentDescription = stringResource(R.string.speed_history_js_thread),
                     tint = Color(0xFF8B5CF6) // Purple
                 )
                 Text(
-                    text = "JS Thread Health",
+                    text = stringResource(R.string.speed_history_js_thread_health),
                     style = MaterialTheme.typography.titleMedium
                 )
             }
@@ -339,17 +341,17 @@ private fun JsThreadHealthCard(
             ) {
                 // Latency
                 StatDisplay(
-                    label = "Latency",
+                    label = stringResource(R.string.speed_history_latency),
                     value = formatLatency(currentLatencyMs),
-                    subValue = "max: ${formatLatency(maxLatencyMs)}",
+                    subValue = stringResource(R.string.speed_history_max_prefix, formatLatency(maxLatencyMs)),
                     isWarning = currentLatencyMs > 1000
                 )
 
                 // Tick duration (target <50ms for 100ms interval)
                 StatDisplay(
-                    label = "Tick",
+                    label = stringResource(R.string.speed_history_tick),
                     value = formatTickMs(tickAvgMs),
-                    subValue = "max: ${formatTickMs(tickMaxMs)}",
+                    subValue = stringResource(R.string.speed_history_max_prefix, formatTickMs(tickMaxMs)),
                     isWarning = tickAvgMs > 50f
                 )
             }
@@ -361,17 +363,17 @@ private fun JsThreadHealthCard(
             ) {
                 // Handler queue depth (runnables waiting to execute)
                 StatDisplay(
-                    label = "Handler Q",
+                    label = stringResource(R.string.speed_history_handler_queue),
                     value = handlerQueueDepth.toString(),
-                    subValue = "max: $handlerMaxQueueDepth",
+                    subValue = stringResource(R.string.speed_history_max_prefix, handlerMaxQueueDepth.toString()),
                     isWarning = handlerQueueDepth > 50
                 )
 
                 // Disk queue depth (file I/O callbacks)
                 StatDisplay(
-                    label = "Disk Q",
+                    label = stringResource(R.string.speed_history_disk_queue),
                     value = diskQueueDepth.toString(),
-                    subValue = "max: $diskMaxQueueDepth",
+                    subValue = stringResource(R.string.speed_history_max_prefix, diskMaxQueueDepth.toString()),
                     isWarning = diskQueueDepth > 20
                 )
             }
@@ -383,9 +385,9 @@ private fun JsThreadHealthCard(
             ) {
                 // Active pieces
                 StatDisplay(
-                    label = "Pieces",
+                    label = stringResource(R.string.speed_history_pieces),
                     value = activePieces.toString(),
-                    subValue = "$connectedPeers peers",
+                    subValue = stringResource(R.string.speed_history_peers_count, connectedPeers),
                     isWarning = false
                 )
             }
