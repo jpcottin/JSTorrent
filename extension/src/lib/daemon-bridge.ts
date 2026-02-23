@@ -25,6 +25,10 @@ import {
 } from './daemon-bridge/desktop/native-requests'
 import { connectDesktopHandshake } from './daemon-bridge/desktop/desktop-connector'
 import { requestDesktopTakeOver } from './daemon-bridge/desktop/takeover'
+import {
+  pickDownloadFolderDesktop,
+  removeDownloadRootDesktop,
+} from './daemon-bridge/desktop/root-ops'
 
 // Re-export types for convenience
 export type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
@@ -837,83 +841,28 @@ export class DaemonBridge {
   }
 
   private async pickFolderDesktop(): Promise<DownloadRoot | null> {
-    if (!this.nativePort) return null
-
-    return new Promise((resolve) => {
-      const requestId = crypto.randomUUID()
-
-      const handler = (msg: unknown) => {
-        if (typeof msg !== 'object' || msg === null) return
-        const response = msg as {
-          id?: string
-          ok?: boolean
-          type?: string
-          payload?: { root?: DownloadRoot }
-        }
-
-        if (response.id !== requestId) return
-
-        if (response.ok && response.type === 'RootAdded' && response.payload?.root) {
-          this.addRoot(response.payload.root)
-          resolve(response.payload.root)
-        } else {
-          resolve(null)
-        }
-      }
-
-      // Note: Native messaging doesn't support removing listeners easily,
-      // but responses are keyed by requestId so this is safe
-      this.nativePort!.onMessage.addListener(handler)
-      this.nativePort!.postMessage({ op: 'pickDownloadDirectory', id: requestId })
-    })
+    const root = await pickDownloadFolderDesktop(this.nativePort)
+    if (root) {
+      this.addRoot(root)
+    }
+    return root
   }
 
   private async removeRootDesktop(key: string): Promise<boolean> {
-    if (!this.nativePort) return false
+    const result = await removeDownloadRootDesktop(this.nativePort, key)
+    if (result.ok) {
+      this.updateState({
+        roots: this.state.roots.filter((r) => r.key !== key),
+      })
+      return true
+    }
 
-    return new Promise((resolve) => {
-      const requestId = crypto.randomUUID()
-      let resolved = false
-
-      // Timeout after 10 seconds to prevent hanging
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true
-          console.error('[DaemonBridge] removeRootDesktop timed out')
-          resolve(false)
-        }
-      }, 10000)
-
-      const handler = (msg: unknown) => {
-        if (resolved) return
-        if (typeof msg !== 'object' || msg === null) return
-        const response = msg as {
-          id?: string
-          ok?: boolean
-          type?: string
-          payload?: { key?: string }
-        }
-
-        if (response.id !== requestId) return
-
-        resolved = true
-        clearTimeout(timeout)
-
-        if (response.ok && response.type === 'RootRemoved') {
-          // Remove from local state
-          this.updateState({
-            roots: this.state.roots.filter((r) => r.key !== key),
-          })
-          resolve(true)
-        } else {
-          console.error('[DaemonBridge] removeRootDesktop failed:', response)
-          resolve(false)
-        }
-      }
-
-      this.nativePort!.onMessage.addListener(handler)
-      this.nativePort!.postMessage({ op: 'deleteDownloadRoot', key, id: requestId })
-    })
+    if (result.reason === 'timeout') {
+      console.error('[DaemonBridge] removeRootDesktop timed out')
+    } else {
+      console.error('[DaemonBridge] removeRootDesktop failed:', result.response)
+    }
+    return false
   }
 
   // ==========================================================================
