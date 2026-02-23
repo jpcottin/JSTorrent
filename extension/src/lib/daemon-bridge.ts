@@ -9,6 +9,20 @@ import type { Platform } from './platform'
 import { detectPlatform } from './platform'
 import type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
 import { getOrCreateTelemetryId } from './telemetry-id'
+import {
+  buildControlFrame,
+  decodeControlFrameJsonPayload,
+  readControlFramePayload,
+  readControlFrameRequestId,
+} from './daemon-bridge/protocol/control-frame'
+import {
+  mapCompanionRoots,
+  type CompanionRoot,
+} from './daemon-bridge/protocol/root-mapper'
+import {
+  sendNativeRequest as sendNativeRequestViaPort,
+  sendNativeRequestFull as sendNativeRequestFullViaPort,
+} from './daemon-bridge/desktop/native-requests'
 
 // Re-export types for convenience
 export type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
@@ -489,31 +503,9 @@ export class DaemonBridge {
     // Fetch roots with auth
     const rootsResponse = await fetch(`http://${host}:${port}/roots`, { headers })
     const rootsData = (await rootsResponse.json()) as {
-      roots: Array<{
-        key: string
-        uri?: string
-        path?: string
-        displayName?: string
-        display_name?: string
-        removable: boolean
-        lastStatOk?: boolean
-        last_stat_ok?: boolean
-        lastChecked?: number
-        last_checked?: number
-        diskId?: string
-        disk_id?: string
-      }>
+      roots: CompanionRoot[]
     }
-    // Map Android format (uri, displayName) to extension format (path, display_name)
-    const roots: DownloadRoot[] = (rootsData.roots || []).map((r) => ({
-      key: r.key,
-      path: r.uri || r.path || '',
-      display_name: r.displayName || r.display_name || '',
-      removable: r.removable,
-      last_stat_ok: r.lastStatOk ?? r.last_stat_ok ?? true,
-      last_checked: r.lastChecked ?? r.last_checked ?? Date.now(),
-      disk_id: r.diskId ?? r.disk_id ?? '',
-    }))
+    const roots = mapCompanionRoots(rootsData.roots)
 
     // Connect WebSocket to ioPort (where /control now lives after Ktor->Netty migration)
     if (!ioPort) {
@@ -740,36 +732,7 @@ export class DaemonBridge {
     op: string,
     params: Record<string, unknown>,
   ): Promise<{ ok: boolean; error?: string }> {
-    if (!this.nativePort) {
-      return { ok: false, error: 'Not connected' }
-    }
-
-    return new Promise((resolve) => {
-      const requestId = crypto.randomUUID()
-      let resolved = false
-
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true
-          resolve({ ok: false, error: 'Request timed out' })
-        }
-      }, 10000)
-
-      const handler = (msg: unknown) => {
-        if (resolved) return
-        if (typeof msg !== 'object' || msg === null) return
-        const response = msg as { id?: string; ok?: boolean; error?: string }
-
-        if (response.id !== requestId) return
-
-        resolved = true
-        clearTimeout(timeout)
-        resolve({ ok: response.ok ?? false, error: response.error })
-      }
-
-      this.nativePort!.onMessage.addListener(handler)
-      this.nativePort!.postMessage({ op, ...params, id: requestId })
-    })
+    return sendNativeRequestViaPort(this.nativePort, op, params)
   }
 
   /**
@@ -780,36 +743,7 @@ export class DaemonBridge {
     params: Record<string, unknown>,
     timeoutMs = 10000,
   ): Promise<Record<string, unknown>> {
-    if (!this.nativePort) {
-      return { ok: false, error: 'Not connected' }
-    }
-
-    return new Promise((resolve) => {
-      const requestId = crypto.randomUUID()
-      let resolved = false
-
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true
-          resolve({ ok: false, error: 'Request timed out' })
-        }
-      }, timeoutMs)
-
-      const handler = (msg: unknown) => {
-        if (resolved) return
-        if (typeof msg !== 'object' || msg === null) return
-        const response = msg as Record<string, unknown>
-
-        if (response.id !== requestId) return
-
-        resolved = true
-        clearTimeout(timeout)
-        resolve(response)
-      }
-
-      this.nativePort!.onMessage.addListener(handler)
-      this.nativePort!.postMessage({ op, ...params, id: requestId })
-    })
+    return sendNativeRequestFullViaPort(this.nativePort, op, params, timeoutMs)
   }
 
   // ==========================================================================
@@ -1090,7 +1024,7 @@ export class DaemonBridge {
 
       ws.onopen = () => {
         // Send CLIENT_HELLO
-        ws.send(this.buildFrame(0x01, 0, new Uint8Array(0)))
+        ws.send(buildControlFrame(0x01, 0, new Uint8Array(0)))
       }
 
       ws.onmessage = (event) => {
@@ -1115,7 +1049,7 @@ export class DaemonBridge {
           authPayload[1 + tokenBytes.length + 1 + extensionIdBytes.length] = 0 // null separator
           authPayload.set(telemetryIdBytes, 1 + tokenBytes.length + 1 + extensionIdBytes.length + 1)
 
-          ws.send(this.buildFrame(0x03, 0, authPayload))
+          ws.send(buildControlFrame(0x03, 0, authPayload))
         } else if (opcode === 0x04) {
           // AUTH_RESULT
           const status = data[8]
@@ -1158,33 +1092,8 @@ export class DaemonBridge {
 
   private handleRootsChanged(frame: Uint8Array): void {
     try {
-      const payload = frame.slice(8)
-      const json = new TextDecoder().decode(payload)
-      const roots = JSON.parse(json) as Array<{
-        key: string
-        uri?: string
-        path?: string
-        displayName?: string
-        display_name?: string
-        removable: boolean
-        lastStatOk?: boolean
-        last_stat_ok?: boolean
-        lastChecked?: number
-        last_checked?: number
-        diskId?: string
-        disk_id?: string
-      }>
-
-      // Map Android format to extension format
-      const mapped: DownloadRoot[] = roots.map((r) => ({
-        key: r.key,
-        path: r.uri || r.path || '',
-        display_name: r.displayName || r.display_name || '',
-        removable: r.removable,
-        last_stat_ok: r.lastStatOk ?? r.last_stat_ok ?? true,
-        last_checked: r.lastChecked ?? r.last_checked ?? Date.now(),
-        disk_id: r.diskId ?? r.disk_id ?? '',
-      }))
+      const roots = decodeControlFrameJsonPayload<CompanionRoot[]>(frame)
+      const mapped = mapCompanionRoots(roots)
 
       this.updateState({ roots: mapped })
       console.log('[DaemonBridge] Roots updated:', mapped.length)
@@ -1195,9 +1104,7 @@ export class DaemonBridge {
 
   private handleControlEvent(frame: Uint8Array): void {
     try {
-      const payload = frame.slice(8)
-      const json = new TextDecoder().decode(payload)
-      const event = JSON.parse(json) as NativeEvent
+      const event = decodeControlFrameJsonPayload<NativeEvent>(frame)
       this.emitEvent(event)
     } catch (e) {
       console.error('[DaemonBridge] Failed to parse EVENT:', e)
@@ -1214,7 +1121,7 @@ export class DaemonBridge {
     }
 
     const requestId = Math.floor(Math.random() * 0xffffffff)
-    this.ws.send(this.buildFrame(0xe2, requestId, new Uint8Array(0))) // OP_CTRL_OPEN_FOLDER_PICKER
+    this.ws.send(buildControlFrame(0xe2, requestId, new Uint8Array(0))) // OP_CTRL_OPEN_FOLDER_PICKER
 
     // Wait for ROOTS_CHANGED with new root (via WebSocket)
     return new Promise((resolve) => {
@@ -1258,18 +1165,6 @@ export class DaemonBridge {
       console.error('[DaemonBridge] Failed to remove root:', e)
       return false
     }
-  }
-
-  private buildFrame(opcode: number, requestId: number, payload: Uint8Array): ArrayBuffer {
-    const frame = new Uint8Array(8 + payload.length)
-    frame[0] = 1 // version
-    frame[1] = opcode
-    // flags at 2-3 (0)
-    // requestId at 4-7 (little endian)
-    const view = new DataView(frame.buffer)
-    view.setUint32(4, requestId, true)
-    frame.set(payload, 8)
-    return frame.buffer
   }
 
   // ==========================================================================
@@ -1325,7 +1220,7 @@ export class DaemonBridge {
         },
       })
 
-      this.ws!.send(this.buildFrame(opcode, requestId, payloadBytes))
+      this.ws!.send(buildControlFrame(opcode, requestId, payloadBytes))
     })
   }
 
@@ -1338,36 +1233,7 @@ export class DaemonBridge {
     op: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    if (!this.nativePort) {
-      return { ok: false, error: 'Not connected' }
-    }
-
-    return new Promise((resolve) => {
-      const requestId = crypto.randomUUID()
-      let resolved = false
-
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true
-          resolve({ ok: false, error: 'Request timed out' })
-        }
-      }, 10000)
-
-      const handler = (msg: unknown) => {
-        if (resolved) return
-        if (typeof msg !== 'object' || msg === null) return
-        const response = msg as Record<string, unknown>
-
-        if (response.id !== requestId) return
-
-        resolved = true
-        clearTimeout(timeout)
-        resolve(response)
-      }
-
-      this.nativePort!.onMessage.addListener(handler)
-      this.nativePort!.postMessage({ op, ...params, id: requestId })
-    })
+    return sendNativeRequestFullViaPort(this.nativePort, op, params)
   }
 
   /**
@@ -1398,7 +1264,7 @@ export class DaemonBridge {
         },
       })
 
-      this.ws!.send(this.buildFrame(opcode, requestId, payloadBytes))
+      this.ws!.send(buildControlFrame(opcode, requestId, payloadBytes))
     })
   }
 
@@ -1406,8 +1272,12 @@ export class DaemonBridge {
    * Handle control response from WebSocket (open file/folder results).
    */
   private handleControlResponse(frame: Uint8Array): void {
-    const view = new DataView(frame.buffer)
-    const requestId = view.getUint32(4, true)
+    let requestId: number
+    try {
+      requestId = readControlFrameRequestId(frame)
+    } catch {
+      return
+    }
 
     const pending = this.pendingControlRequests.get(requestId)
     if (!pending) {
@@ -1416,7 +1286,7 @@ export class DaemonBridge {
     }
 
     try {
-      const payload = frame.slice(8)
+      const payload = readControlFramePayload(frame)
       const json = new TextDecoder().decode(payload)
       const response = JSON.parse(json) as { ok: boolean; error?: string }
       pending.resolve(response)
@@ -1429,8 +1299,12 @@ export class DaemonBridge {
    * Handle KV response from WebSocket.
    */
   private handleKvResponse(frame: Uint8Array): void {
-    const view = new DataView(frame.buffer)
-    const requestId = view.getUint32(4, true)
+    let requestId: number
+    try {
+      requestId = readControlFrameRequestId(frame)
+    } catch {
+      return
+    }
 
     const pending = this.pendingKvRequests.get(requestId)
     if (!pending) {
