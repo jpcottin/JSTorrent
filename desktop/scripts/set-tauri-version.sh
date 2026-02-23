@@ -3,7 +3,7 @@
 # Set the Tauri desktop app version across all files.
 # Used for testing (swap to a test version, then swap back) and by the release script.
 #
-# Usage: ./scripts/set-tauri-version.sh <version>
+# Usage: ./desktop/scripts/set-tauri-version.sh <version>
 #
 # Updates:
 #   - desktop/Cargo.toml              (workspace version — all crates inherit)

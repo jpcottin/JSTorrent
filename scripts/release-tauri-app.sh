@@ -33,7 +33,7 @@ if ! grep -q "## \[${VERSION}\]" "$CHANGELOG" 2>/dev/null; then
 fi
 
 # Update version in all files
-"$SCRIPT_DIR/set-tauri-version.sh" "$VERSION"
+"$REPO_ROOT/desktop/scripts/set-tauri-version.sh" "$VERSION"
 
 # Commit version bump
 TAURI_CONF="$REPO_ROOT/desktop/tauri-app/src-tauri/tauri.conf.json"
