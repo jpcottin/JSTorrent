@@ -110,6 +110,10 @@ pub enum Operation {
         #[serde(rename = "displayName")]
         display_name: String,
     },
+    DeleteProfile {
+        #[serde(rename = "profileId")]
+        profile_id: String,
+    },
 
     // Lightweight version info refresh (no handshake side effects)
     GetVersionInfo,
@@ -262,6 +266,9 @@ impl fmt::Display for Operation {
                 profile_id,
                 display_name,
             } => write!(f, "RenameProfile {profile_id} -> {display_name}"),
+            Operation::DeleteProfile { profile_id } => {
+                write!(f, "DeleteProfile {profile_id}")
+            }
             Operation::GetVersionInfo => write!(f, "GetVersionInfo"),
         }
     }

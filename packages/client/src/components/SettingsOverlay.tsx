@@ -1198,6 +1198,7 @@ const ProfilesTab: React.FC<{ activeTab: SettingsTab }> = ({ activeTab }) => {
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const currentProfileId = channel.getState().daemonInfo?.profileId
 
@@ -1249,6 +1250,16 @@ const ProfilesTab: React.FC<{ activeTab: SettingsTab }> = ({ activeTab }) => {
     } catch (e) {
       standaloneAlert(`Failed to create profile: ${e}`)
     }
+  }
+
+  const handleDelete = async (profileId: string) => {
+    const ok = await channel.deleteProfile(profileId)
+    if (ok) {
+      setProfiles((prev) => prev.filter((p) => p.profileId !== profileId))
+    } else {
+      standaloneAlert('Failed to remove profile')
+    }
+    setDeleteConfirmId(null)
   }
 
   return (
@@ -1339,6 +1350,15 @@ const ProfilesTab: React.FC<{ activeTab: SettingsTab }> = ({ activeTab }) => {
                       Switch
                     </button>
                   )}
+                  {!isCurrent && !isEditing && (
+                    <button
+                      style={styles.iconButton}
+                      onClick={() => setDeleteConfirmId(profile.profileId)}
+                      title="Remove"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
               )
             })}
@@ -1348,6 +1368,27 @@ const ProfilesTab: React.FC<{ activeTab: SettingsTab }> = ({ activeTab }) => {
           + Create New Profile
         </button>
       </Section>
+      {deleteConfirmId && (
+        <div style={styles.dialogBackdrop} onClick={() => setDeleteConfirmId(null)}>
+          <div style={styles.dialog} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.dialogTitle}>Remove profile?</h3>
+            <p style={styles.dialogMessage}>
+              This will delete the profile and its stored data. Torrents are not affected.
+            </p>
+            <div style={styles.dialogButtons}>
+              <button style={styles.dialogButtonCancel} onClick={() => setDeleteConfirmId(null)}>
+                Cancel
+              </button>
+              <button
+                style={styles.dialogButtonDanger}
+                onClick={() => handleDelete(deleteConfirmId)}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

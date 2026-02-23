@@ -83,5 +83,6 @@ export interface HostChannel {
   // --- Profile management ---
   listProfiles(): Promise<ProfileListEntry[]>
   renameProfile(profileId: string, displayName: string): Promise<boolean>
+  deleteProfile(profileId: string): Promise<boolean>
   switchProfile(profileId: string | null): Promise<void>
 }

@@ -684,6 +684,12 @@ export class DaemonBridge {
     return (response.ok as boolean) ?? false
   }
 
+  async deleteProfile(profileId: string): Promise<boolean> {
+    if (this.state.platform !== 'desktop') return false
+    const response = await this.sendNativeKvRequest('deleteProfile', { profileId })
+    return (response.ok as boolean) ?? false
+  }
+
   /**
    * Get stats from the daemon about socket and connection state.
    * Useful for debugging.

@@ -663,20 +663,28 @@ async fn handle_request(
         }
 
         // Update operations
-        Operation::CheckForUpdates => match updater::run_update_check(false).await {
-            Ok(result) => {
-                if let Some(err) = &result.error {
-                    log!("Update check returned error: {err}");
-                }
-                Ok(ResponsePayload::UpdateCheck {
-                    available: result.available,
-                    version: result.version,
-                    current_version: result.current_version,
-                    body: result.body,
-                })
+        Operation::CheckForUpdates => {
+            let desktop_version = rpc::read_discovery_file().desktop_version;
+            match desktop_version {
+                Some(version) => match updater::check_for_updates_http(&version).await {
+                    Ok(result) => {
+                        if let Some(err) = &result.error {
+                            log!("Update check returned error: {err}");
+                        }
+                        Ok(ResponsePayload::UpdateCheck {
+                            available: result.available,
+                            version: result.version,
+                            current_version: result.current_version,
+                            body: result.body,
+                        })
+                    }
+                    Err(e) => Err(e),
+                },
+                None => Err(anyhow::anyhow!(
+                    "Desktop version not available — is the desktop app installed?"
+                )),
             }
-            Err(e) => Err(e),
-        },
+        }
 
         Operation::InstallUpdate => match updater::run_update_check(true).await {
             Ok(result) => {
@@ -729,6 +737,24 @@ async fn handle_request(
             }
             Err(e) => Err(anyhow::anyhow!("Failed to rename profile: {e}")),
         },
+
+        Operation::DeleteProfile { profile_id } => {
+            // Don't allow deleting the currently active profile
+            let is_current = state
+                .rpc_info
+                .lock()
+                .ok()
+                .and_then(|g| g.as_ref().map(|info| info.profile_id == profile_id))
+                .unwrap_or(false);
+            if is_current {
+                Err(anyhow::anyhow!("Cannot delete the active profile"))
+            } else {
+                match rpc::delete_profile(&profile_id) {
+                    Ok(()) => Ok(ResponsePayload::Empty),
+                    Err(e) => Err(anyhow::anyhow!("Failed to delete profile: {e}")),
+                }
+            }
+        }
 
         Operation::GetVersionInfo => {
             let rpc = rpc::read_discovery_file();

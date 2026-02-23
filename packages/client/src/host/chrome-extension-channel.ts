@@ -372,6 +372,18 @@ export class ChromeExtensionChannel implements HostChannel {
     }
   }
 
+  async deleteProfile(profileId: string): Promise<boolean> {
+    try {
+      const response = await this.sendMessage<{ ok: boolean }>({
+        type: 'DELETE_PROFILE',
+        profileId,
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
   async switchProfile(profileId: string | null): Promise<void> {
     const response = await this.sendMessage<{ ok: boolean; error?: string }>({
       type: 'SWITCH_PROFILE',

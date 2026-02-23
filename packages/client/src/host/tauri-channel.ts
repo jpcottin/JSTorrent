@@ -560,6 +560,15 @@ export class TauriChannel implements HostChannel {
     }
   }
 
+  async deleteProfile(profileId: string): Promise<boolean> {
+    try {
+      const resp = await hostMessage({ op: 'deleteProfile', profileId })
+      return resp.ok
+    } catch {
+      return false
+    }
+  }
+
   async switchProfile(profileId: string | null): Promise<void> {
     if (profileId != null) {
       try {

@@ -842,6 +842,20 @@ function handleMessage(
     return true
   }
 
+  // Delete profile (desktop only, no handshake required)
+  if (message.type === 'DELETE_PROFILE') {
+    const profileId = message.profileId as string | undefined
+    if (!profileId) {
+      sendResponse({ ok: false, error: 'Missing profileId' })
+      return true
+    }
+    bridge
+      .deleteProfile(profileId)
+      .then((ok) => sendResponse({ ok }))
+      .catch((e: unknown) => sendResponse({ ok: false, error: String(e) }))
+    return true
+  }
+
   // Switch profile: store new profileId, disconnect+reconnect bridge
   if (message.type === 'SWITCH_PROFILE') {
     const switchProfileId = message.profileId
