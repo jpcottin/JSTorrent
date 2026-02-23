@@ -43,8 +43,13 @@ jobs:
       - name: Build extension
         run: pnpm run build
 
+      - name: Install system dependencies
+        # rfd (file dialog) crate requires Wayland/GTK headers on Linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libgtk-3-dev
+
       - name: Install Rust
-        # Needed to build jstorrent-host and jstorrent-io-daemon for e2e tests
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Native Host
