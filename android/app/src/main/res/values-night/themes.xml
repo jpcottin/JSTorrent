@@ -4,8 +4,6 @@
     <!-- Main app theme (dark mode) -->
     <style name="Theme.JSTorrent" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowBackground">@color/splash_background_dark</item>
-        <item name="android:statusBarColor">@color/splash_background_dark</item>
-        <item name="android:navigationBarColor">@color/splash_background_dark</item>
     </style>
 
     <!-- Transparent theme for AddRootActivity (SAF folder picker launcher) -->
