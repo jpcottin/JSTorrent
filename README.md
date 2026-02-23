@@ -4,21 +4,25 @@
 
 A modern, full-featured BitTorrent client built on a shared TypeScript engine that runs everywhere.
 
-**[Google Play](https://play.google.com/store/apps/details?id=com.jstorrent.app)** | **[Desktop App](https://new.jstorrent.com)** | **[Chrome Web Store](https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk)** | **[Website](https://new.jstorrent.com)**
+**[Google Play](https://play.google.com/store/apps/details?id=com.jstorrent.app)** | **[Desktop App](https://jstorrent.com)** | **[Chrome Web Store](https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk)** | **[Website](https://jstorrent.com)**
 
 ## Platforms
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| **Desktop App** | ✅ Available | Standalone app for macOS, Windows, and Linux ([download](https://new.jstorrent.com)) |
+| **Desktop App** | ✅ Available | Standalone app for macOS, Windows, and Linux ([download](https://jstorrent.com)) |
 | **Chrome Extension** | ✅ Available | Chrome, Edge, Brave, and other Chromium browsers |
 | **Android** | ✅ Available | [Google Play](https://play.google.com/store/apps/details?id=com.jstorrent.app) — native app with QuickJS engine |
-| **ChromeOS** | ✅ Available | Extension + [Android companion app](https://play.google.com/store/apps/details?id=com.jstorrent.app) |
-| **iOS** | 🚧 Planned | Sideload only |
+| **ChromeOS** | ✅ Available | [Extension](https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk) + [Android companion app](https://play.google.com/store/apps/details?id=com.jstorrent.app) |
+| **iOS** | 🚧 Planned | Sideload only — [MVP plan](docs/plans/ios-app-mvp.md) |
 
 ## Architecture
 
 One TypeScript BitTorrent engine powers all platforms. Platform-specific native code handles networking and disk I/O, while the core protocol logic remains shared and tested across environments.
+
+- **Desktop**: Tauri (Rust) — lightweight native window, no Electron. Small download, low memory footprint.
+- **Android**: Native Kotlin + Jetpack Compose UI. The engine runs in-process via QuickJS with JNI bindings for I/O.
+- **Extension**: Runs in the browser with a Rust sidecar (io-daemon) for disk and network access.
 
 ## Features
 
@@ -64,7 +68,7 @@ One TypeScript BitTorrent engine powers all platforms. Platform-specific native 
 
 JSTorrent started as a [Chrome App](https://github.com/kzahel/jstorrent-legacy-app), was rebuilt as a Chrome Extension when Apps were deprecated, and has since expanded to Android and desktop platforms—all sharing the same TypeScript engine.
 
-Written in TypeScript with comprehensive test coverage, including integration tests against libtorrent.
+Written in TypeScript with comprehensive test coverage, including integration tests against [libtorrent](https://github.com/arvidn/libtorrent).
 
 ## Development
 
