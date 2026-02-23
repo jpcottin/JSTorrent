@@ -41,6 +41,7 @@ import {
   sendControlRequestOverWebSocket,
   sendKvRequestOverWebSocket,
 } from './daemon-bridge/chromeos/ws-requests'
+import { connectChromeosControlWebSocket } from './daemon-bridge/chromeos/ws-connect'
 
 // Re-export types for convenience
 export type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
@@ -907,82 +908,20 @@ export class DaemonBridge {
 
   private async connectWebSocket(host: string, port: number, token: string): Promise<void> {
     const telemetryId = await getOrCreateTelemetryId()
-
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://${host}:${port}/control`)
-      ws.binaryType = 'arraybuffer'
-
-      const timeout = setTimeout(() => {
-        ws.close()
-        reject(new Error('WebSocket timeout'))
-      }, 10000)
-
-      ws.onopen = () => {
-        // Send CLIENT_HELLO
-        ws.send(buildControlFrame(0x01, 0, new Uint8Array(0)))
-      }
-
-      ws.onmessage = (event) => {
-        const data = new Uint8Array(event.data as ArrayBuffer)
-        const opcode = data[1]
-
-        if (opcode === 0x02) {
-          // SERVER_HELLO - send AUTH with token + extensionId + telemetryId
-          const encoder = new TextEncoder()
-          const tokenBytes = encoder.encode(token)
-          const extensionIdBytes = encoder.encode(chrome.runtime.id)
-          const telemetryIdBytes = encoder.encode(telemetryId)
-
-          // Format: authType(1) + token + \0 + extensionId + \0 + installId
-          const authPayload = new Uint8Array(
-            1 + tokenBytes.length + 1 + extensionIdBytes.length + 1 + telemetryIdBytes.length,
-          )
-          authPayload[0] = 0 // authType
-          authPayload.set(tokenBytes, 1)
-          authPayload[1 + tokenBytes.length] = 0 // null separator
-          authPayload.set(extensionIdBytes, 1 + tokenBytes.length + 1)
-          authPayload[1 + tokenBytes.length + 1 + extensionIdBytes.length] = 0 // null separator
-          authPayload.set(telemetryIdBytes, 1 + tokenBytes.length + 1 + extensionIdBytes.length + 1)
-
-          ws.send(buildControlFrame(0x03, 0, authPayload))
-        } else if (opcode === 0x04) {
-          // AUTH_RESULT
-          const status = data[8]
-          if (status === 0) {
-            clearTimeout(timeout)
-            this.ws = ws
-            resolve()
-          } else {
-            clearTimeout(timeout)
-            ws.close()
-            reject(new Error('Auth failed'))
-          }
-        } else if (opcode === 0xe0) {
-          // ROOTS_CHANGED
-          this.handleRootsChanged(data)
-        } else if (opcode === 0xe1) {
-          // EVENT
-          this.handleControlEvent(data)
-        } else if (opcode >= 0xe3 && opcode <= 0xe8) {
-          // KV response opcodes (0xE3-0xE8)
-          this.handleKvResponse(data)
-        } else if (opcode === 0xe9 || opcode === 0xea) {
-          // OPEN_FILE / OPEN_FOLDER response
-          this.handleControlResponse(data)
-        }
-      }
-
-      ws.onerror = () => {
-        clearTimeout(timeout)
-        reject(new Error('WebSocket error'))
-      }
-
-      ws.onclose = () => {
-        if (this.ws === ws) {
-          this.handleDisconnect()
-        }
-      }
+    const ws = await connectChromeosControlWebSocket({
+      host,
+      port,
+      token,
+      extensionId: chrome.runtime.id,
+      telemetryId,
+      onRootsChanged: (frame) => this.handleRootsChanged(frame),
+      onControlEvent: (frame) => this.handleControlEvent(frame),
+      onKvResponse: (frame) => this.handleKvResponse(frame),
+      onControlResponse: (frame) => this.handleControlResponse(frame),
+      onDisconnected: () => this.handleDisconnect(),
+      timeoutMs: 10000,
     })
+    this.ws = ws as WebSocket
   }
 
   private handleRootsChanged(frame: Uint8Array): void {
