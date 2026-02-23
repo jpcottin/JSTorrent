@@ -37,7 +37,7 @@ export const test = base.extend<{
             os.homedir(),
             'Library/Application Support/JSTorrent/JSTorrent Native Host.app/Contents/MacOS/jstorrent-host',
           )
-        : path.join(os.homedir(), '.local/lib/jstorrent-native/jstorrent-native-host')
+        : path.join(os.homedir(), '.local/lib/jstorrent/jstorrent-host')
 
     // Create a wrapper script that sets JSTORRENT_CONFIG_DIR before calling the real binary.
     // This ensures the native host uses our temp config dir instead of ~/.config/jstorrent-native
