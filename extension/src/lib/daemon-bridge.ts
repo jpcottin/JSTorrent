@@ -42,6 +42,7 @@ import {
 } from './daemon-bridge/chromeos/ws-requests'
 import { connectChromeosControlWebSocket } from './daemon-bridge/chromeos/ws-connect'
 import { restartHealthCheck } from './daemon-bridge/shared/health-check'
+import { ensureChromeosPairedAndConnect } from './daemon-bridge/chromeos/pairing'
 
 // Re-export types for convenience
 export type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
@@ -346,92 +347,30 @@ export class DaemonBridge {
    * Check pairing status and initiate pairing flow if needed.
    */
   private async checkStatusAndPair(host: string, port: number): Promise<void> {
-    const telemetryId = await getOrCreateTelemetryId()
+    const installId = await getOrCreateTelemetryId()
     const extensionId = chrome.runtime.id
 
-    const status = await this.fetchStatus(host, port)
-
-    // Already paired with us?
-    if (status.paired && status.extensionId === extensionId && status.installId === telemetryId) {
-      console.log('[DaemonBridge] Already paired, connecting...')
-      await this.completeConnection(
-        host,
-        port,
-        status.version,
-        status.capabilities,
-        status.ioPort,
-        status.streamingPort,
-      )
-      return
-    }
-
-    // Need to pair - POST /pair
-    const pairResult = await this.requestPairing(host, port)
-
-    if (pairResult === 'approved') {
-      // Re-fetch status to get capabilities after pairing
-      const newStatus = await this.fetchStatus(host, port)
-      await this.completeConnection(
-        host,
-        port,
-        newStatus.version,
-        newStatus.capabilities,
-        newStatus.ioPort,
-        newStatus.streamingPort,
-      )
-      return
-    }
-
-    if (pairResult === 'conflict') {
-      // Dialog already showing, wait and retry
-      await new Promise((r) => setTimeout(r, 2000))
-      await this.checkStatusAndPair(host, port)
-      return
-    }
-
-    // pairResult === 'pending' - poll until paired
-    await this.pollForPairing(host, port)
-  }
-
-  /**
-   * Poll /status until pairing completes or times out.
-   */
-  private async pollForPairing(host: string, port: number): Promise<void> {
-    const maxPollAttempts = 60 // 60s for user to approve
-    const pollInterval = 1000
-    const telemetryId = await getOrCreateTelemetryId()
-    const extensionId = chrome.runtime.id
-
-    for (let i = 0; i < maxPollAttempts; i++) {
-      await new Promise((r) => setTimeout(r, pollInterval))
-
-      try {
-        const status = await this.fetchStatus(host, port)
-        if (
-          status.paired &&
-          status.extensionId === extensionId &&
-          status.installId === telemetryId
-        ) {
-          console.log('[DaemonBridge] Pairing approved')
-          await this.completeConnection(
-            host,
-            port,
-            status.version,
-            status.capabilities,
-            status.ioPort,
-            status.streamingPort,
-          )
-          return
-        }
-      } catch {
-        // Keep polling
-      }
-    }
-
-    this.updateState({
-      status: 'disconnected',
-      lastError: 'Pairing timed out',
+    const result = await ensureChromeosPairedAndConnect({
+      host,
+      port,
+      extensionId,
+      installId,
+      fetchStatus: (h, p) => this.fetchStatus(h, p),
+      requestPairing: (h, p) => this.requestPairing(h, p),
+      completeConnection: (h, p, version, capabilities, ioPort, streamingPort) =>
+        this.completeConnection(h, p, version, capabilities, ioPort, streamingPort),
+      wait: (ms) => new Promise((r) => setTimeout(r, ms)),
+      conflictRetryMs: 2000,
+      pollIntervalMs: 1000,
+      maxPollAttempts: 60,
     })
+
+    if (result === 'timeout') {
+      this.updateState({
+        status: 'disconnected',
+        lastError: 'Pairing timed out',
+      })
+    }
   }
 
   /**
