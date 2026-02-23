@@ -18,7 +18,7 @@ const tauriAppTag = import.meta.env.TAURI_APP_TAG || 'v0.1.14'
   <Header />
   <Hero />
   <About />
-  <Downloads client:visible tauriAppTag={tauriAppTag} />
+  <Downloads client:only="react" tauriAppTag={tauriAppTag} />
   <Changelog />
   <FAQ />
   <Footer />
