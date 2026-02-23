@@ -22,12 +22,16 @@ describe('health-check helper', () => {
     await expect(checkDaemonHealth({ fetchImpl: fetchOk, host: 'h', port: 1 })).resolves.toBe(true)
 
     const fetchBad = vi.fn(async () => responseOf(false))
-    await expect(checkDaemonHealth({ fetchImpl: fetchBad, host: 'h', port: 1 })).resolves.toBe(false)
+    await expect(checkDaemonHealth({ fetchImpl: fetchBad, host: 'h', port: 1 })).resolves.toBe(
+      false,
+    )
 
     const fetchErr = vi.fn(async () => {
       throw new Error('network')
     })
-    await expect(checkDaemonHealth({ fetchImpl: fetchErr, host: 'h', port: 1 })).resolves.toBe(false)
+    await expect(checkDaemonHealth({ fetchImpl: fetchErr, host: 'h', port: 1 })).resolves.toBe(
+      false,
+    )
   })
 
   it('restartHealthCheck clears prior interval and triggers onUnhealthy', async () => {

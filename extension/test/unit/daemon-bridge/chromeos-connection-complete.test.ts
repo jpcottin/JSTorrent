@@ -58,7 +58,9 @@ describe('chromeos connection-complete', () => {
   it('buildDaemonCapabilities defaults roots_manageable to true', () => {
     expect(buildDaemonCapabilities()).toEqual({ roots_manageable: true })
     expect(buildDaemonCapabilities({})).toEqual({ roots_manageable: true })
-    expect(buildDaemonCapabilities({ roots_manageable: false })).toEqual({ roots_manageable: false })
+    expect(buildDaemonCapabilities({ roots_manageable: false })).toEqual({
+      roots_manageable: false,
+    })
   })
 
   it('buildConnectedDaemonInfo includes defaults and fields', () => {

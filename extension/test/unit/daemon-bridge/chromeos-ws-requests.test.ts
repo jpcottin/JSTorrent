@@ -146,7 +146,9 @@ describe('chromeos ws-requests', () => {
     await controlResolved
 
     const shortFrame = new Uint8Array([1, 2, 3])
-    expect(handleControlResponseFrame(shortFrame, pendingControlRequests)).toEqual({ kind: 'invalid' })
+    expect(handleControlResponseFrame(shortFrame, pendingControlRequests)).toEqual({
+      kind: 'invalid',
+    })
     expect(handleKvResponseFrame(shortFrame, pendingKvRequests)).toEqual({ kind: 'invalid' })
   })
 })

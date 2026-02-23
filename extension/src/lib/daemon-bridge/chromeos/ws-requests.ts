@@ -1,4 +1,8 @@
-import { buildControlFrame, readControlFramePayload, readControlFrameRequestId } from '../protocol/control-frame'
+import {
+  buildControlFrame,
+  readControlFramePayload,
+  readControlFrameRequestId,
+} from '../protocol/control-frame'
 
 export interface PendingKvRequest {
   resolve: (response: unknown) => void

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mapCompanionRoot, mapCompanionRoots } from '../../../src/lib/daemon-bridge/protocol/root-mapper'
+import {
+  mapCompanionRoot,
+  mapCompanionRoots,
+} from '../../../src/lib/daemon-bridge/protocol/root-mapper'
 
 describe('root-mapper', () => {
   it('maps field aliases and prefers uri/displayName/camelCase values', () => {

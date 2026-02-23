@@ -20,10 +20,7 @@ import {
   pickDownloadFolderDesktop,
   removeDownloadRootDesktop,
 } from './daemon-bridge/desktop/root-ops'
-import {
-  parseControlEventFrame,
-  parseRootsChangedFrame,
-} from './daemon-bridge/chromeos/ws-events'
+import { parseControlEventFrame, parseRootsChangedFrame } from './daemon-bridge/chromeos/ws-events'
 import {
   fetchChromeosStatus,
   findChromeosDaemonPort,

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ensureChromeosPairedAndConnect, type PairingStatus } from '../../../src/lib/daemon-bridge/chromeos/pairing'
+import {
+  ensureChromeosPairedAndConnect,
+  type PairingStatus,
+} from '../../../src/lib/daemon-bridge/chromeos/pairing'
 
 function status(overrides: Partial<PairingStatus> = {}): PairingStatus {
   return {
@@ -121,7 +124,9 @@ describe('chromeos pairing flow', () => {
       .fn()
       .mockResolvedValueOnce(status())
       .mockRejectedValueOnce(new Error('temp'))
-      .mockResolvedValueOnce(status({ paired: true, extensionId: 'ext', installId: 'ins', ioPort: 7 }))
+      .mockResolvedValueOnce(
+        status({ paired: true, extensionId: 'ext', installId: 'ins', ioPort: 7 }),
+      )
     const requestPairing = vi.fn(async () => 'pending' as const)
     const completeConnection = vi.fn(async () => undefined)
 

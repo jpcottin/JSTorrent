@@ -28,7 +28,8 @@ function toResponseShape(input: MockFetchResponse): Response {
 
 export function installMockFetchRouter(routes: MockFetchRoute[]): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
 
     for (const route of routes) {
       if (route.match(url, init)) {

@@ -62,7 +62,11 @@ describe('desktop root-ops', () => {
     const port = createMockNativePort()
     const promise = removeDownloadRootDesktop(port, 'r1')
 
-    expect(port.postMessage).toHaveBeenCalledWith({ op: 'deleteDownloadRoot', key: 'r1', id: 'req-3' })
+    expect(port.postMessage).toHaveBeenCalledWith({
+      op: 'deleteDownloadRoot',
+      key: 'r1',
+      id: 'req-3',
+    })
 
     port.emitMessage({ id: 'req-3', ok: true, type: 'RootRemoved', payload: { key: 'r1' } })
 

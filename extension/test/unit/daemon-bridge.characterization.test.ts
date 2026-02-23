@@ -52,7 +52,11 @@ describe('DaemonBridge characterization', () => {
     const p1 = bridge.connect()
     const p2 = bridge.connect()
 
-    await emitHandshakeSuccess(chrome.runtime.connectNative, nativePort.emitMessage, createDaemonInfo())
+    await emitHandshakeSuccess(
+      chrome.runtime.connectNative,
+      nativePort.emitMessage,
+      createDaemonInfo(),
+    )
 
     await expect(p1).resolves.toBe(true)
     await expect(p2).resolves.toBe(true)
@@ -66,7 +70,11 @@ describe('DaemonBridge characterization', () => {
     const bridge = new DaemonBridge()
 
     const initialConnect = bridge.connect()
-    await emitHandshakeSuccess(chrome.runtime.connectNative, nativePort.emitMessage, createDaemonInfo())
+    await emitHandshakeSuccess(
+      chrome.runtime.connectNative,
+      nativePort.emitMessage,
+      createDaemonInfo(),
+    )
     await expect(initialConnect).resolves.toBe(true)
 
     await expect(bridge.connect()).resolves.toBe(true)
