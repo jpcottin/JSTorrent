@@ -31,6 +31,11 @@ import {
   parseRootsChangedFrame,
 } from './daemon-bridge/chromeos/ws-events'
 import {
+  fetchChromeosStatus,
+  findChromeosDaemonPort,
+  requestChromeosPairing,
+} from './daemon-bridge/chromeos/http-api'
+import {
   handleControlResponseFrame,
   handleKvResponseFrame,
   sendControlRequestOverWebSocket,
@@ -460,12 +465,12 @@ export class DaemonBridge {
     streamingPort?: number
   }> {
     const headers = await this.buildHeaders()
-    const response = await fetch(`http://${host}:${port}/status`, {
-      method: 'POST',
+    return fetchChromeosStatus({
+      fetchImpl: fetch,
+      host,
+      port,
       headers,
     })
-    if (!response.ok) throw new Error(`Status failed: ${response.status}`)
-    return response.json()
   }
 
   /**
@@ -478,25 +483,13 @@ export class DaemonBridge {
   ): Promise<'approved' | 'pending' | 'conflict'> {
     const token = await this.getOrCreateToken()
     const headers = await this.buildHeaders()
-    headers['Content-Type'] = 'application/json'
-
-    try {
-      const response = await fetch(`http://${host}:${port}/pair`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ token }),
-      })
-
-      if (response.ok) {
-        const data = (await response.json()) as { status: string }
-        return data.status as 'approved' | 'pending'
-      } else if (response.status === 409) {
-        return 'conflict'
-      }
-      return 'pending'
-    } catch {
-      return 'pending'
-    }
+    return requestChromeosPairing({
+      fetchImpl: fetch,
+      host,
+      port,
+      headers,
+      token,
+    })
   }
 
   /**
@@ -1158,42 +1151,19 @@ export class DaemonBridge {
    * Returns the host and port if found.
    */
   private async findDaemonPort(): Promise<{ host: string; port: number } | null> {
-    const stored = await chrome.storage.local.get([STORAGE_KEY_PORT, STORAGE_KEY_HOST])
-    const ports = [stored[STORAGE_KEY_PORT], 7800, 7805, 7814, 7827, 7844].filter(
-      Boolean,
-    ) as number[]
-
-    // Try stored host first, then others
-    const storedHost = stored[STORAGE_KEY_HOST] as string | undefined
-    const hostsToTry = storedHost
-      ? [storedHost, ...CHROMEOS_HOSTS.filter((h) => h !== storedHost)]
-      : CHROMEOS_HOSTS
-
-    for (const host of hostsToTry) {
-      for (const port of ports) {
-        try {
-          const controller = new AbortController()
-          setTimeout(() => controller.abort(), 2000)
-
-          // Use /health endpoint which doesn't require headers
-          const response = await fetch(`http://${host}:${port}/health`, {
-            signal: controller.signal,
-          })
-
-          if (response.ok) {
-            await chrome.storage.local.set({
-              [STORAGE_KEY_PORT]: port,
-              [STORAGE_KEY_HOST]: host,
-            })
-            console.log(`[DaemonBridge] Found daemon at ${host}:${port}`)
-            return { host, port }
-          }
-        } catch {
-          // Try next port/host
-        }
-      }
+    const found = await findChromeosDaemonPort({
+      storage: chrome.storage.local,
+      fetchImpl: fetch,
+      storageKeyPort: STORAGE_KEY_PORT,
+      storageKeyHost: STORAGE_KEY_HOST,
+      hosts: CHROMEOS_HOSTS,
+      fallbackPorts: [7800, 7805, 7814, 7827, 7844],
+      timeoutMs: 2000,
+    })
+    if (found) {
+      console.log(`[DaemonBridge] Found daemon at ${found.host}:${found.port}`)
     }
-    return null
+    return found
   }
 
   private async getOrCreateToken(): Promise<string> {
