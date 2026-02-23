@@ -87,6 +87,30 @@ python3 translate-match.py languages    # language overlap across all 3 projects
 python3 translate-match.py summary      # counts only
 ```
 
+### translate-llm.sh — Translate via Claude CLI
+
+Runs `claude -p` to translate the unmatched strings. Generates the prompt, calls Claude,
+validates the JSON output, and saves to `claude/<lang>.json`.
+
+```bash
+./translate-llm.sh de                  # translate German
+./translate-llm.sh --all               # translate all tier 1 languages
+./translate-llm.sh de --compare        # translate and diff against existing
+./translate-llm.sh --all --dry-run     # show what would be done
+./translate-llm.sh --model opus de     # use a specific model (default: sonnet)
+```
+
+### translate-merge.py — Merge LLM translations into strings.xml
+
+Merges the open-source translations (from `translate.py`) with LLM translations
+(from `translate-llm.sh`) into a single sorted `strings.xml`. Idempotent.
+
+```bash
+python3 translate-merge.py de          # merge German
+python3 translate-merge.py --all       # merge all languages with claude/*.json
+python3 translate-merge.py de --dry-run
+```
+
 ### translate-prompt.py — Generate LLM prompts
 
 Produces prompts for Claude, GPT, Gemini, etc. to translate remaining strings.
@@ -115,24 +139,24 @@ The `parse` subcommand converts that JSON to Android XML.
 ## Workflow: Adding a New Language
 
 ```bash
-# 1. Generate auto-matched translations
-python3 translate.py de --dry-run       # review what we get for free
+# 1. Auto-match from open-source repos
+python3 translate.py de                 # writes values-de/strings.xml (~282 strings)
 
-# 2. Generate the LLM prompt for remaining strings
-python3 translate-prompt.py de --reference > prompt-de.txt
+# 2. LLM-translate the remaining strings
+./translate-llm.sh de                   # writes claude/de.json (~185 strings)
 
-# 3. Feed prompt to multiple LLMs, save JSON responses
-#    e.g., prompt-de-claude.json, prompt-de-gpt.json, prompt-de-gemini.json
+# 3. Merge both into a single sorted strings.xml
+python3 translate-merge.py de           # merges into values-de/strings.xml
 
-# 4. Compare results, pick best translations, save final JSON
-python3 translate-prompt.py parse response-de-final.json > /tmp/llm-de.xml
+# 4. Test in app — change device language, verify UI
+```
 
-# 5. Generate the full strings.xml (auto-matched + LLM)
-#    Add LLM translations to MANUAL_TRANSLATIONS in translate.py, then:
-python3 translate.py de
+For all tier 1 languages at once:
 
-# 6. Test in app
-#    Change device language to German, verify UI
+```bash
+python3 translate.py --all
+./translate-llm.sh --all
+python3 translate-merge.py --all
 ```
 
 ## Tier 1 Languages
