@@ -1752,6 +1752,12 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     return this._upnpStatus
   }
 
+  private setUpnpStatus(status: UPnPStatus): void {
+    if (this._upnpStatus === status) return
+    this._upnpStatus = status
+    this.emit('upnpStatusChanged', status)
+  }
+
   /**
    * Whether we've ever received a successful incoming connection this session.
    * Useful for verifying port forwarding is working.
@@ -1776,18 +1782,18 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
 
     if (!this.getNetworkInterfaces) {
       this.logger.warn('UPnP: Cannot enable - no getNetworkInterfaces function provided')
-      this._upnpStatus = 'failed'
+      this.setUpnpStatus('failed')
       return
     }
 
-    this._upnpStatus = 'discovering'
+    this.setUpnpStatus('discovering')
     this.logger.info('UPnP: Discovering gateway...')
 
     this.upnpManager = new UPnPManager(this.socketFactory, this.getNetworkInterfaces, this.logger)
 
     const discovered = await this.upnpManager.discover()
     if (!discovered) {
-      this._upnpStatus = 'unavailable'
+      this.setUpnpStatus('unavailable')
       this.logger.info('UPnP: No gateway found')
       return
     }
@@ -1796,12 +1802,12 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     const udpMapped = await this.upnpManager.addMapping(this.port + 1, 'UDP') // For DHT
 
     if (tcpMapped) {
-      this._upnpStatus = 'mapped'
+      this.setUpnpStatus('mapped')
       this.logger.info(
         `UPnP: Mapped TCP port ${this.port}${udpMapped ? ` and UDP port ${this.port + 1}` : ''}, external IP: ${this.upnpManager.externalIP}`,
       )
     } else {
-      this._upnpStatus = 'failed'
+      this.setUpnpStatus('failed')
       this.logger.warn(`UPnP: Failed to map port ${this.port}`)
     }
   }
@@ -1816,7 +1822,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       this.upnpManager = undefined
     }
 
-    this._upnpStatus = 'disabled'
+    this.setUpnpStatus('disabled')
     this.logger.info('UPnP: Disabled')
   }
 
