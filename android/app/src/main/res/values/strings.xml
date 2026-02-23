@@ -12,7 +12,7 @@
     <string name="torrent_list_add_torrent">Add torrent</string>
     <string name="torrent_list_loading">Loading…</string>
     <string name="torrent_list_error">Error</string>
-    <string name="torrent_list_empty_all">No torrents yet</string>
+    <string name="torrent_list_empty_all">No torrents</string>
     <string name="torrent_list_empty_active">No active torrents</string>
     <string name="torrent_list_empty_queued">No queued torrents</string>
     <string name="torrent_list_empty_finished">No completed torrents</string>
@@ -77,13 +77,13 @@
     <string name="torrent_detail_pause_button">Pause</string>
     <string name="torrent_detail_menu_button">Menu</string>
     <string name="torrent_detail_remove_button">Remove torrent</string>
-    <string name="torrent_detail_recheck_button">Verify data</string>
+    <string name="torrent_detail_recheck_button">Force recheck</string>
     <string name="torrent_detail_error_title">Error</string>
     <string name="torrent_detail_file_not_downloaded">File is not fully downloaded yet</string>
     <string name="torrent_detail_storage_unknown">Storage location unknown</string>
     <string name="torrent_detail_storage_root_not_found">Storage root not found</string>
     <string name="torrent_detail_file_not_found">File not found</string>
-    <string name="torrent_detail_open_with">Open with</string>
+    <string name="torrent_detail_open_with">Open using</string>
     <string name="torrent_detail_open_file_error">Could not open file: %1$s</string>
     <string name="torrent_detail_open_folder">Open folder</string>
     <string name="torrent_detail_open_folder_error">Could not open folder: %1$s</string>
@@ -234,7 +234,7 @@
     <string name="tab_status_download_label">DOWNLOAD</string>
     <string name="tab_status_upload_label">UPLOAD</string>
     <string name="tab_status_eta_label">ETA</string>
-    <string name="tab_status_eta_complete">Complete</string>
+    <string name="tab_status_eta_complete">Finished</string>
     <string name="tab_status_connected_peers_label">Connected Peers</string>
     <string name="tab_status_known_peers_label">Known Peers</string>
     <string name="tab_status_uploaded_label">Uploaded</string>
@@ -260,12 +260,12 @@
     <string name="tab_peers_empty_description">Peers will appear here when connected</string>
 
     <!-- TrackersTab -->
-    <string name="tab_trackers_add_button">Add tracker</string>
+    <string name="tab_trackers_add_button">Add trackers</string>
     <string name="tab_trackers_section_title">TRACKERS</string>
     <string name="tab_trackers_empty">No trackers</string>
     <string name="tab_trackers_peer_discovery_title">PEER DISCOVERY</string>
     <string name="tab_trackers_status_ok">OK</string>
-    <string name="tab_trackers_status_updating">Updating</string>
+    <string name="tab_trackers_status_updating">Updating…</string>
     <string name="tab_trackers_status_error">Error</string>
     <string name="tab_trackers_status_disabled">Disabled</string>
     <string name="tab_trackers_announcing">Announcing…</string>
@@ -274,8 +274,8 @@
     <string name="tab_trackers_peers_received_of_total">%1$d / %2$d</string>
 
     <!-- PlayPauseButton -->
-    <string name="component_play_pause_resume_description">Resume torrent</string>
-    <string name="component_play_pause_pause_description">Pause torrent</string>
+    <string name="component_play_pause_resume_description">Resume</string>
+    <string name="component_play_pause_pause_description">Pause</string>
     <string name="component_play_pause_loading_description">Starting…</string>
 
     <!-- TorrentCard -->
@@ -284,15 +284,15 @@
     <string name="component_torrent_card_eta_prefix">ETA: %1$s</string>
 
     <!-- StatusBadge / Formatters status strings -->
-    <string name="status_downloading">Downloading</string>
-    <string name="status_downloading_metadata">Getting metadata...</string>
-    <string name="status_seeding">Seeding</string>
+    <string name="status_downloading">Downloading…</string>
+    <string name="status_downloading_metadata">Downloading metadata…</string>
+    <string name="status_seeding">Seeding…</string>
     <string name="status_paused">Paused</string>
-    <string name="status_checking">Checking...</string>
+    <string name="status_checking">Checking…</string>
     <string name="status_checking_label">Checking</string>
     <string name="status_error">Error</string>
     <string name="status_queued">Queued</string>
-    <string name="status_done">Done</string>
+    <string name="status_done">Finished</string>
     <string name="status_removing">Removing…</string>
     <string name="status_waiting_wifi">Waiting for WiFi</string>
     <string name="status_waiting_vpn">Waiting for VPN</string>
