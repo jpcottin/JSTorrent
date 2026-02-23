@@ -12,15 +12,15 @@ describe('desktop root-ops', () => {
   })
 
   it('pickDownloadFolderDesktop returns root on RootAdded response', async () => {
-    vi.spyOn(crypto, 'randomUUID').mockReturnValue('req-1')
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('r-e-q-0-1')
 
     const port = createMockNativePort()
     const promise = pickDownloadFolderDesktop(port)
 
-    expect(port.postMessage).toHaveBeenCalledWith({ op: 'pickDownloadDirectory', id: 'req-1' })
+    expect(port.postMessage).toHaveBeenCalledWith({ op: 'pickDownloadDirectory', id: 'r-e-q-0-1' })
 
     port.emitMessage({
-      id: 'req-1',
+      id: 'r-e-q-0-1',
       ok: true,
       type: 'RootAdded',
       payload: {
@@ -46,18 +46,18 @@ describe('desktop root-ops', () => {
   })
 
   it('pickDownloadFolderDesktop returns null on non-matching response', async () => {
-    vi.spyOn(crypto, 'randomUUID').mockReturnValue('req-2')
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('r-e-q-0-2')
 
     const port = createMockNativePort()
     const promise = pickDownloadFolderDesktop(port)
 
-    port.emitMessage({ id: 'req-2', ok: false, error: 'cancelled' })
+    port.emitMessage({ id: 'r-e-q-0-2', ok: false, error: 'cancelled' })
 
     await expect(promise).resolves.toBeNull()
   })
 
   it('removeDownloadRootDesktop returns ok true on RootRemoved', async () => {
-    vi.spyOn(crypto, 'randomUUID').mockReturnValue('req-3')
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('r-e-q-0-3')
 
     const port = createMockNativePort()
     const promise = removeDownloadRootDesktop(port, 'r1')
@@ -65,14 +65,14 @@ describe('desktop root-ops', () => {
     expect(port.postMessage).toHaveBeenCalledWith({
       op: 'deleteDownloadRoot',
       key: 'r1',
-      id: 'req-3',
+      id: 'r-e-q-0-3',
     })
 
-    port.emitMessage({ id: 'req-3', ok: true, type: 'RootRemoved', payload: { key: 'r1' } })
+    port.emitMessage({ id: 'r-e-q-0-3', ok: true, type: 'RootRemoved', payload: { key: 'r1' } })
 
     await expect(promise).resolves.toEqual({
       ok: true,
-      response: { id: 'req-3', ok: true, type: 'RootRemoved', payload: { key: 'r1' } },
+      response: { id: 'r-e-q-0-3', ok: true, type: 'RootRemoved', payload: { key: 'r1' } },
     })
   })
 
@@ -85,7 +85,7 @@ describe('desktop root-ops', () => {
     })
 
     vi.useFakeTimers()
-    vi.spyOn(crypto, 'randomUUID').mockReturnValue('req-4')
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('r-e-q-0-4')
 
     const port = createMockNativePort()
     const promise = removeDownloadRootDesktop(port, 'r2')

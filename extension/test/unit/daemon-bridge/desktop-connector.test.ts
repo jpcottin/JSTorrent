@@ -16,7 +16,7 @@ describe('desktop-connector', () => {
   })
 
   it('sends handshake and resolves on daemon info', async () => {
-    vi.spyOn(crypto, 'randomUUID').mockReturnValue('hs-1')
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('h-s-0-0-1')
 
     const port = createMockNativePort()
     const onConnected = vi.fn()
@@ -44,7 +44,7 @@ describe('desktop-connector', () => {
       profileId: 'profile-a',
       clientType: 'extension',
       clientVersion: '9.9.9',
-      id: 'hs-1',
+      id: 'h-s-0-0-1',
     })
     expect(onHandshakeBuilt).toHaveBeenCalledTimes(1)
 

@@ -53,7 +53,7 @@ describe('DaemonBridge characterization', () => {
     const p2 = bridge.connect()
 
     await emitHandshakeSuccess(
-      chrome.runtime.connectNative,
+      chrome.runtime.connectNative as ReturnType<typeof vi.fn>,
       nativePort.emitMessage,
       createDaemonInfo(),
     )
@@ -71,7 +71,7 @@ describe('DaemonBridge characterization', () => {
 
     const initialConnect = bridge.connect()
     await emitHandshakeSuccess(
-      chrome.runtime.connectNative,
+      chrome.runtime.connectNative as ReturnType<typeof vi.fn>,
       nativePort.emitMessage,
       createDaemonInfo(),
     )

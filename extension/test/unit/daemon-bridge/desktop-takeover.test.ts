@@ -29,7 +29,7 @@ describe('desktop-takeover', () => {
   })
 
   it('posts takeover message and resolves true on DaemonInfo', async () => {
-    vi.spyOn(crypto, 'randomUUID').mockReturnValue('take-1')
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('t-a-k-e-1')
 
     const port = createMockNativePort()
     const onSuccess = vi.fn()
@@ -50,7 +50,7 @@ describe('desktop-takeover', () => {
       profileId: 'p1',
       clientType: 'extension',
       clientVersion: '3.4.5',
-      id: 'take-1',
+      id: 't-a-k-e-1',
     })
 
     port.emitMessage({ type: 'DaemonInfo', payload: daemonInfoPayload })

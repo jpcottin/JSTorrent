@@ -1,20 +1,20 @@
-import { vi } from 'vitest'
+import { vi, type Mock } from 'vitest'
 
 type MessageListener = (msg: unknown) => void
 type DisconnectListener = () => void
 
 export interface MockNativePort {
   name: string
-  postMessage: ReturnType<typeof vi.fn>
-  disconnect: ReturnType<typeof vi.fn>
+  postMessage: Mock<(msg: unknown) => void>
+  disconnect: Mock<() => void>
   onMessage: {
-    addListener: ReturnType<typeof vi.fn>
-    removeListener: ReturnType<typeof vi.fn>
+    addListener: Mock<(listener: MessageListener) => void>
+    removeListener: Mock<(listener: MessageListener) => void>
     listeners: MessageListener[]
   }
   onDisconnect: {
-    addListener: ReturnType<typeof vi.fn>
-    removeListener: ReturnType<typeof vi.fn>
+    addListener: Mock<(listener: DisconnectListener) => void>
+    removeListener: Mock<(listener: DisconnectListener) => void>
     listeners: DisconnectListener[]
   }
   emitMessage: (msg: unknown) => void
@@ -42,8 +42,8 @@ export function createMockNativePort(name = 'com.jstorrent.native'): MockNativeP
 
   return {
     name,
-    postMessage: vi.fn(),
-    disconnect: vi.fn(() => {
+    postMessage: vi.fn((_msg: unknown) => {}),
+    disconnect: vi.fn((): void => {
       emitDisconnect()
     }),
     onMessage: {

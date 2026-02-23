@@ -22,7 +22,9 @@ class StubWebSocket {
     } else if (data instanceof ArrayBuffer) {
       this.sent.push(data)
     } else if (ArrayBuffer.isView(data)) {
-      this.sent.push(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength))
+      this.sent.push(
+        (data.buffer as ArrayBuffer).slice(data.byteOffset, data.byteOffset + data.byteLength),
+      )
     } else {
       this.sent.push(new Uint8Array(0).buffer)
     }

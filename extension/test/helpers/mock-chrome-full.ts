@@ -94,7 +94,7 @@ export function installMockChromeFull(options: MockChromeOptions = {}): {
   })
 
   return {
-    chrome: chromeMock as typeof globalThis.chrome,
+    chrome: chromeMock as unknown as typeof globalThis.chrome,
     nativePort,
     storageData,
   }

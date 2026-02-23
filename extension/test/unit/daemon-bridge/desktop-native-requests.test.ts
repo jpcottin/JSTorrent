@@ -19,7 +19,7 @@ describe('desktop native-requests', () => {
   })
 
   it('sends request and resolves full response on matching id', async () => {
-    vi.spyOn(crypto, 'randomUUID').mockReturnValue('req-1')
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('r-e-q-0-1')
 
     const port = createMockNativePort()
     const promise = sendNativeRequestFull(port, 'handshake', { profileId: 'p1' })
@@ -27,14 +27,14 @@ describe('desktop native-requests', () => {
     expect(port.postMessage).toHaveBeenCalledWith({
       op: 'handshake',
       profileId: 'p1',
-      id: 'req-1',
+      id: 'r-e-q-0-1',
     })
 
     port.emitMessage({ id: 'other', ok: true })
-    port.emitMessage({ id: 'req-1', ok: true, type: 'DaemonInfo', payload: { port: 7800 } })
+    port.emitMessage({ id: 'r-e-q-0-1', ok: true, type: 'DaemonInfo', payload: { port: 7800 } })
 
     await expect(promise).resolves.toEqual({
-      id: 'req-1',
+      id: 'r-e-q-0-1',
       ok: true,
       type: 'DaemonInfo',
       payload: { port: 7800 },
@@ -42,19 +42,19 @@ describe('desktop native-requests', () => {
   })
 
   it('returns simplified response shape for sendNativeRequest', async () => {
-    vi.spyOn(crypto, 'randomUUID').mockReturnValue('req-2')
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('r-e-q-0-2')
 
     const port = createMockNativePort()
     const promise = sendNativeRequest(port, 'installUpdate', {})
 
-    port.emitMessage({ id: 'req-2', ok: false, error: 'Update failed', extra: 123 })
+    port.emitMessage({ id: 'r-e-q-0-2', ok: false, error: 'Update failed', extra: 123 })
 
     await expect(promise).resolves.toEqual({ ok: false, error: 'Update failed' })
   })
 
   it('times out unresolved requests', async () => {
     vi.useFakeTimers()
-    vi.spyOn(crypto, 'randomUUID').mockReturnValue('req-3')
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('r-e-q-0-3')
 
     const port = createMockNativePort()
     const promise = sendNativeRequestFull(port, 'listProfiles', {}, 25)
