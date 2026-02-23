@@ -55,6 +55,7 @@ static jbyteArray array_buffer_to_byte_array(JSContext *ctx, JNIEnv *env, JSValu
     }
 
     jbyteArray result = (*env)->NewByteArray(env, (jsize)len);
+    if (!result) return NULL;  // OOM
     (*env)->SetByteArrayRegion(env, result, 0, (jsize)len, (jbyte *)buf);
     return result;
 }
@@ -267,14 +268,33 @@ static JSValue js_kotlin_callback(
         attached = 1;
     }
 
+    // Helper macro: check for pending JNI exception (e.g. OOM) and bail out
+    // with a JS exception instead of letting ART abort the process.
+    #define CHECK_JNI_EXCEPTION() do { \
+        if ((*env)->ExceptionCheck(env)) { \
+            (*env)->ExceptionClear(env); \
+            if (attached) (*data->jvm)->DetachCurrentThread(data->jvm); \
+            return JS_ThrowInternalError(ctx, "JNI exception (OOM?) in callback"); \
+        } \
+    } while (0)
+
     // Convert JS args to Java String array
     jclass stringClass = (*env)->FindClass(env, "java/lang/String");
+    CHECK_JNI_EXCEPTION();
     jobjectArray jargs = (*env)->NewObjectArray(env, argc, stringClass, NULL);
+    CHECK_JNI_EXCEPTION();
 
     for (int i = 0; i < argc; i++) {
         const char *str = JS_ToCString(ctx, argv[i]);
         if (str) {
             jstring jstr = (*env)->NewStringUTF(env, str);
+            if ((*env)->ExceptionCheck(env)) {
+                (*env)->ExceptionClear(env);
+                JS_FreeCString(ctx, str);
+                (*env)->DeleteLocalRef(env, jargs);
+                if (attached) (*data->jvm)->DetachCurrentThread(data->jvm);
+                return JS_ThrowInternalError(ctx, "JNI exception (OOM?) in callback");
+            }
             (*env)->SetObjectArrayElement(env, jargs, i, jstr);
             (*env)->DeleteLocalRef(env, jstr);
             JS_FreeCString(ctx, str);
@@ -283,6 +303,12 @@ static JSValue js_kotlin_callback(
 
     // Call Kotlin callback: invoke(args: Array<String>): String?
     jstring jresult = (jstring)(*env)->CallObjectMethod(env, data->callback, data->invokeMethod, jargs);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        (*env)->DeleteLocalRef(env, jargs);
+        if (attached) (*data->jvm)->DetachCurrentThread(data->jvm);
+        return JS_ThrowInternalError(ctx, "Kotlin callback threw exception");
+    }
 
     (*env)->DeleteLocalRef(env, jargs);
 
@@ -298,6 +324,7 @@ static JSValue js_kotlin_callback(
         (*data->jvm)->DetachCurrentThread(data->jvm);
     }
 
+    #undef CHECK_JNI_EXCEPTION
     return result;
 }
 
@@ -424,9 +451,21 @@ static JSValue js_kotlin_binary_callback(
         attached = 1;
     }
 
+    // Helper macro: check for pending JNI exception (e.g. OOM) and bail out
+    // with a JS exception instead of letting ART abort the process.
+    #define CHECK_JNI_EXCEPTION() do { \
+        if ((*env)->ExceptionCheck(env)) { \
+            (*env)->ExceptionClear(env); \
+            if (attached) (*data->jvm)->DetachCurrentThread(data->jvm); \
+            return JS_ThrowInternalError(ctx, "JNI exception (OOM?) in binary callback"); \
+        } \
+    } while (0)
+
     // Build string args array (for non-binary args)
     jclass stringClass = (*env)->FindClass(env, "java/lang/String");
+    CHECK_JNI_EXCEPTION();
     jobjectArray jargs = (*env)->NewObjectArray(env, argc, stringClass, NULL);
+    CHECK_JNI_EXCEPTION();
 
     jbyteArray binaryArg = NULL;
 
@@ -434,12 +473,21 @@ static JSValue js_kotlin_binary_callback(
         if (i == data->binaryArgIndex) {
             // This arg is binary - convert to ByteArray
             binaryArg = array_buffer_to_byte_array(ctx, env, argv[i]);
+            CHECK_JNI_EXCEPTION();
             // Put placeholder in string array
             (*env)->SetObjectArrayElement(env, jargs, i, NULL);
         } else {
             const char *str = JS_ToCString(ctx, argv[i]);
             if (str) {
                 jstring jstr = (*env)->NewStringUTF(env, str);
+                if ((*env)->ExceptionCheck(env)) {
+                    (*env)->ExceptionClear(env);
+                    JS_FreeCString(ctx, str);
+                    if (binaryArg) (*env)->DeleteLocalRef(env, binaryArg);
+                    (*env)->DeleteLocalRef(env, jargs);
+                    if (attached) (*data->jvm)->DetachCurrentThread(data->jvm);
+                    return JS_ThrowInternalError(ctx, "JNI exception (OOM?) in binary callback");
+                }
                 (*env)->SetObjectArrayElement(env, jargs, i, jstr);
                 (*env)->DeleteLocalRef(env, jstr);
                 JS_FreeCString(ctx, str);
@@ -454,6 +502,14 @@ static JSValue js_kotlin_binary_callback(
         jbyteArray jresult = (jbyteArray)(*env)->CallObjectMethod(
             env, data->callback, data->invokeMethod, jargs, binaryArg);
 
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionClear(env);
+            if (binaryArg) (*env)->DeleteLocalRef(env, binaryArg);
+            (*env)->DeleteLocalRef(env, jargs);
+            if (attached) (*data->jvm)->DetachCurrentThread(data->jvm);
+            return JS_ThrowInternalError(ctx, "Kotlin binary callback threw exception");
+        }
+
         if (jresult) {
             result = byte_array_to_array_buffer(ctx, env, jresult);
             (*env)->DeleteLocalRef(env, jresult);
@@ -462,6 +518,14 @@ static JSValue js_kotlin_binary_callback(
         // Call: invoke(args: Array<String>, binary: ByteArray?): String?
         jstring jresult = (jstring)(*env)->CallObjectMethod(
             env, data->callback, data->invokeMethod, jargs, binaryArg);
+
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionClear(env);
+            if (binaryArg) (*env)->DeleteLocalRef(env, binaryArg);
+            (*env)->DeleteLocalRef(env, jargs);
+            if (attached) (*data->jvm)->DetachCurrentThread(data->jvm);
+            return JS_ThrowInternalError(ctx, "Kotlin binary callback threw exception");
+        }
 
         if (jresult) {
             const char *resultStr = (*env)->GetStringUTFChars(env, jresult, NULL);
@@ -478,6 +542,7 @@ static JSValue js_kotlin_binary_callback(
         (*data->jvm)->DetachCurrentThread(data->jvm);
     }
 
+    #undef CHECK_JNI_EXCEPTION
     return result;
 }
 
