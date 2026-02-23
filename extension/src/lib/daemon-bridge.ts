@@ -23,6 +23,8 @@ import {
   sendNativeRequest as sendNativeRequestViaPort,
   sendNativeRequestFull as sendNativeRequestFullViaPort,
 } from './daemon-bridge/desktop/native-requests'
+import { connectDesktopHandshake } from './daemon-bridge/desktop/desktop-connector'
+import { requestDesktopTakeOver } from './daemon-bridge/desktop/takeover'
 
 // Re-export types for convenience
 export type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
@@ -754,122 +756,66 @@ export class DaemonBridge {
     const stored = await chrome.storage.local.get('profileId')
     console.log('[DaemonBridge] connectDesktop() called, profileId:', stored.profileId ?? 'none')
 
-    return new Promise((resolve, reject) => {
-      console.log('[DaemonBridge] Calling chrome.runtime.connectNative("com.jstorrent.native")')
-      const port = chrome.runtime.connectNative('com.jstorrent.native')
-      console.log('[DaemonBridge] connectNative returned port:', !!port)
+    await connectDesktopHandshake({
+      connectNative: () => {
+        console.log('[DaemonBridge] Calling chrome.runtime.connectNative("com.jstorrent.native")')
+        const port = chrome.runtime.connectNative('com.jstorrent.native')
+        console.log('[DaemonBridge] connectNative returned port:', !!port)
+        return port
+      },
+      getDisconnectError: () => chrome.runtime.lastError?.message || 'Disconnected',
+      runtimeId: chrome.runtime.id,
+      clientVersion: chrome.runtime.getManifest().version,
+      storedProfileId: (stored.profileId as string) ?? null,
+      isDaemonInfoMessage: (msg) => this.isDaemonInfoMessage(msg),
+      isProfileInUseMessage: (msg) => this.isProfileInUseMessage(msg),
+      onConnected: (port, payload) => {
+        console.log(
+          '[DaemonBridge] Got DaemonInfo, version:',
+          payload.version,
+          'roots:',
+          payload.roots?.length,
+          'profileId:',
+          payload.profileId,
+        )
+        this.nativePort = port
 
-      let resolved = false
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          console.log('[DaemonBridge] Handshake timeout after 10s')
-          resolved = true
-          port.disconnect()
-          reject(new Error('Handshake timeout'))
-        }
-      }, 10000)
-
-      port.onDisconnect.addListener(() => {
-        const error = chrome.runtime.lastError?.message || 'Disconnected'
-        console.log('[DaemonBridge] onDisconnect fired, resolved:', resolved, 'error:', error)
-        if (!resolved) {
-          resolved = true
-          clearTimeout(timeout)
-          reject(new Error(error))
-        } else {
-          // Disconnected after successful connection
-          this.handleDisconnect()
-        }
-      })
-
-      port.onMessage.addListener((msg: unknown) => {
-        console.log('[DaemonBridge] Received message from native host:', msg)
-
-        // Check for profile_in_use block before DaemonInfo check
-        if (!resolved && this.isProfileInUseMessage(msg)) {
-          resolved = true
-          clearTimeout(timeout)
-          // Keep port alive for potential TakeOver
-          this.nativePort = port
-
-          // Extract metadata from the response
-          const response = msg as {
-            payload?: {
-              profileId?: string
-              clientType?: string
-              clientVersion?: string
-              browserName?: string
-              pid?: number
-              started?: number
-            }
-          }
-          this.updateState({
-            profileInUseInfo: response.payload
-              ? {
-                  clientType: response.payload.clientType,
-                  clientVersion: response.payload.clientVersion,
-                  browserName: response.payload.browserName,
-                  pid: response.payload.pid,
-                  started: response.payload.started,
-                }
-              : null,
-          })
-
-          reject(new Error('profile_in_use'))
-          return
+        // Store profileId for future handshakes
+        if (payload.profileId) {
+          chrome.storage.local.set({ profileId: payload.profileId })
         }
 
-        if (!resolved && this.isDaemonInfoMessage(msg)) {
-          resolved = true
-          clearTimeout(timeout)
-
-          const payload = (msg as { payload: DaemonInfo }).payload
-          console.log(
-            '[DaemonBridge] Got DaemonInfo, version:',
-            payload.version,
-            'roots:',
-            payload.roots?.length,
-            'profileId:',
-            payload.profileId,
-          )
-          this.nativePort = port
-
-          // Store profileId for future handshakes
-          if (payload.profileId) {
-            chrome.storage.local.set({ profileId: payload.profileId })
-          }
-
-          this.updateState({
-            status: 'connected',
-            daemonInfo: {
-              ...payload,
-              version: payload.version ?? 'unknown',
-              roots: payload.roots || [],
-              host: DESKTOP_HOST,
-            },
+        this.updateState({
+          status: 'connected',
+          daemonInfo: {
+            ...payload,
+            version: payload.version ?? 'unknown',
             roots: payload.roots || [],
-            profileInUseInfo: null,
-          })
-          this.startHealthCheck(DESKTOP_HOST, payload.port)
-
-          resolve()
-        } else if (resolved) {
-          // Post-connection messages
-          this.handleDesktopMessage(msg)
-        }
-      })
-
-      // Send handshake
-      const handshakeMsg = {
-        op: 'handshake',
-        extensionId: chrome.runtime.id,
-        profileId: (stored.profileId as string) ?? null,
-        clientType: 'extension',
-        clientVersion: chrome.runtime.getManifest().version,
-        id: crypto.randomUUID(),
-      }
-      console.log('[DaemonBridge] Sending handshake:', handshakeMsg)
-      port.postMessage(handshakeMsg)
+            host: DESKTOP_HOST,
+          },
+          roots: payload.roots || [],
+          profileInUseInfo: null,
+        })
+        this.startHealthCheck(DESKTOP_HOST, payload.port)
+      },
+      onProfileInUse: (port, info) => {
+        // Keep port alive for potential TakeOver
+        this.nativePort = port
+        this.updateState({ profileInUseInfo: info })
+      },
+      onDisconnectedAfterConnected: () => {
+        this.handleDisconnect()
+      },
+      onPostConnectionMessage: (msg) => {
+        this.handleDesktopMessage(msg)
+      },
+      onMessageReceived: (msg) => {
+        console.log('[DaemonBridge] Received message from native host:', msg)
+      },
+      onHandshakeBuilt: (handshakeMsg) => {
+        console.log('[DaemonBridge] Sending handshake:', handshakeMsg)
+      },
+      timeoutMs: 10000,
     })
   }
 
@@ -1422,54 +1368,37 @@ export class DaemonBridge {
    * waits for the daemon to start, and completes the handshake.
    */
   async takeOver(): Promise<boolean> {
-    if (!this.nativePort) return false
-
     const stored = await chrome.storage.local.get('profileId')
 
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        this.nativePort?.onMessage.removeListener(handler)
-        resolve(false)
-      }, 15000) // 15s — needs time for incumbent to die + daemon to start
+    return requestDesktopTakeOver({
+      nativePort: this.nativePort,
+      runtimeId: chrome.runtime.id,
+      clientVersion: chrome.runtime.getManifest().version,
+      profileId: (stored.profileId as string) ?? null,
+      isDaemonInfoMessage: (msg) => this.isDaemonInfoMessage(msg),
+      onSuccess: (payload) => {
+        console.log('[DaemonBridge] TakeOver succeeded, version:', payload.version)
 
-      const handler = (msg: unknown) => {
-        if (this.isDaemonInfoMessage(msg)) {
-          clearTimeout(timeout)
-          this.nativePort?.onMessage.removeListener(handler)
-          const payload = (msg as { payload: DaemonInfo }).payload
-          console.log('[DaemonBridge] TakeOver succeeded, version:', payload.version)
-
-          // Store profileId for future handshakes
-          if (payload.profileId) {
-            chrome.storage.local.set({ profileId: payload.profileId })
-          }
-
-          this.updateState({
-            status: 'connected',
-            daemonInfo: {
-              ...payload,
-              version: payload.version ?? 'unknown',
-              roots: payload.roots || [],
-              host: DESKTOP_HOST,
-            },
-            roots: payload.roots || [],
-            lastError: null,
-            profileInUseInfo: null,
-          })
-          this.startHealthCheck(DESKTOP_HOST, payload.port)
-          resolve(true)
+        // Store profileId for future handshakes
+        if (payload.profileId) {
+          chrome.storage.local.set({ profileId: payload.profileId })
         }
-      }
 
-      this.nativePort!.onMessage.addListener(handler)
-      this.nativePort!.postMessage({
-        op: 'takeOver',
-        extensionId: chrome.runtime.id,
-        profileId: (stored.profileId as string) ?? null,
-        clientType: 'extension',
-        clientVersion: chrome.runtime.getManifest().version,
-        id: crypto.randomUUID(),
-      })
+        this.updateState({
+          status: 'connected',
+          daemonInfo: {
+            ...payload,
+            version: payload.version ?? 'unknown',
+            roots: payload.roots || [],
+            host: DESKTOP_HOST,
+          },
+          roots: payload.roots || [],
+          lastError: null,
+          profileInUseInfo: null,
+        })
+        this.startHealthCheck(DESKTOP_HOST, payload.port)
+      },
+      timeoutMs: 15000,
     })
   }
 
