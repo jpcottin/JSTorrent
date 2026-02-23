@@ -49,6 +49,14 @@ class TorrentListViewModel(
     private val _pendingRemovalTorrents = MutableStateFlow<Set<String>>(emptySet())
     val pendingRemovalTorrents: StateFlow<Set<String>> = _pendingRemovalTorrents.asStateFlow()
 
+    // Pending new torrents - placeholder entries shown immediately when adding a torrent
+    // before the engine has started and parsed the data. Cleared when engine torrent count
+    // exceeds the baseline (meaning the real torrent has appeared in engine state).
+    private val _pendingNewTorrents = MutableStateFlow<List<TorrentSummary>>(emptyList())
+    // Torrent count baseline when pending entries were added. Used to detect when the
+    // engine has actually processed the new torrent (count increases above this baseline).
+    private var _pendingBaseTorrentCount = 0
+
     // Highlighted torrent (for duplicate detection feedback)
     private val _highlightedTorrent = MutableStateFlow<String?>(null)
     val highlightedTorrent: StateFlow<String?> = _highlightedTorrent.asStateFlow()
@@ -86,6 +94,14 @@ class TorrentListViewModel(
                     // Clear removal pending for torrents that have disappeared from engine state
                     if (_pendingRemovalTorrents.value.isNotEmpty()) {
                         _pendingRemovalTorrents.value = _pendingRemovalTorrents.value.intersect(engineInfoHashes)
+                    }
+                    // Clear pending new torrent placeholders only when the engine's
+                    // torrent count exceeds the baseline from before we added them.
+                    // This prevents flicker: pending shows → engine reports old state
+                    // (no new torrent yet) → pending would be cleared → gap → real torrent appears.
+                    if (_pendingNewTorrents.value.isNotEmpty() &&
+                        state.torrents.size > _pendingBaseTorrentCount) {
+                        _pendingNewTorrents.value = emptyList()
                     }
                 }
             }
@@ -130,8 +146,9 @@ class TorrentListViewModel(
     val uiState: StateFlow<TorrentListUiState> = combine(
         dataSourceFlow,
         _filter,
-        _sortOrder
-    ) { dataSource, filter, sortOrder ->
+        _sortOrder,
+        _pendingNewTorrents
+    ) { dataSource, filter, sortOrder, pendingNew ->
         val engineTorrents = dataSource.state?.torrents ?: emptyList()
 
         // Update lastActiveAt for torrents that are currently downloading
@@ -158,8 +175,9 @@ class TorrentListViewModel(
         android.util.Log.d("TorrentListVM", "uiState: engineLoaded=${dataSource.isLoaded}, " +
             "engineTorrents=${engineTorrents.size}, " +
             "cachedSummaries=${dataSource.cachedSummaries.size}, " +
-            "cacheIsLoaded=${dataSource.cacheIsLoaded}, error=${dataSource.error}")
-        when {
+            "cacheIsLoaded=${dataSource.cacheIsLoaded}, error=${dataSource.error}, " +
+            "pendingNew=${pendingNew.size}")
+        val baseState = when {
             // Error state (only show if engine hasn't loaded yet)
             dataSource.error != null && !dataSource.isLoaded -> {
                 android.util.Log.d("TorrentListVM", "-> Error state")
@@ -244,6 +262,24 @@ class TorrentListViewModel(
                 TorrentListUiState.Loading
             }
         }
+
+        // Prepend pending new torrent placeholders so they appear immediately
+        if (pendingNew.isNotEmpty()) {
+            when (baseState) {
+                is TorrentListUiState.Loaded ->
+                    baseState.copy(torrents = pendingNew + baseState.torrents)
+                is TorrentListUiState.Loading ->
+                    TorrentListUiState.Loaded(
+                        torrents = pendingNew,
+                        filter = filter,
+                        sortOrder = sortOrder,
+                        isLive = false
+                    )
+                else -> baseState
+            }
+        } else {
+            baseState
+        }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
@@ -327,6 +363,32 @@ class TorrentListViewModel(
      */
     fun setSortOrder(sortOrder: TorrentSortOrder) {
         _sortOrder.value = sortOrder
+    }
+
+    /**
+     * Add a pending placeholder torrent to the list for immediate UI feedback.
+     * Called before the engine starts, so the user sees the entry right away.
+     * Cleared automatically when the engine reports its first state update.
+     */
+    fun addPendingNewTorrent(displayName: String) {
+        // Capture current engine torrent count as baseline. The pending placeholder
+        // stays visible until the engine reports more torrents than this baseline,
+        // meaning the new torrent has been processed and appears in engine state.
+        if (_pendingNewTorrents.value.isEmpty()) {
+            _pendingBaseTorrentCount = repository.state.value?.torrents?.size ?: 0
+        }
+        val placeholder = TorrentSummary(
+            infoHash = "__pending_${System.nanoTime()}",
+            name = displayName,
+            progress = 0.0,
+            downloadSpeed = 0L,
+            uploadSpeed = 0L,
+            status = "downloading_metadata",
+            userState = "active",
+            hasMetadata = false,
+            addedAt = System.currentTimeMillis()
+        )
+        _pendingNewTorrents.value = _pendingNewTorrents.value + placeholder
     }
 
     /**

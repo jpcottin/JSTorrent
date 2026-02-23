@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.util.Log
 import com.jstorrent.app.auth.TokenStore
 import com.jstorrent.app.link.PendingLinkManager
@@ -106,15 +107,18 @@ class LinkHandlerActivity : Activity() {
     private fun handleStandaloneIntent(uri: Uri) {
         Log.i(TAG, "Standalone: Forwarding to native activity")
 
-        // Read torrent file now (we have URI permission) and pass as extra
-        // This avoids permission issues when forwarding content:// URIs between activities
-        var torrentBase64: String? = null
+        // For torrent files: read now (we have URI permission), write to a temp file,
+        // and pass the path. We can't pass the data as an intent extra because large
+        // .torrent files cause TransactionTooLargeException (Android's ~500KB Binder limit).
+        var torrentTempPath: String? = null
         if (uri.scheme == "content" || uri.scheme == "file") {
             try {
                 val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 if (bytes != null) {
-                    torrentBase64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-                    Log.i(TAG, "Read torrent file: ${bytes.size} bytes")
+                    val tempFile = java.io.File(cacheDir, "pending_torrent.dat")
+                    tempFile.writeBytes(bytes)
+                    torrentTempPath = tempFile.absolutePath
+                    Log.i(TAG, "Read torrent file: ${bytes.size} bytes, saved to $torrentTempPath")
                 } else {
                     Log.e(TAG, "Failed to read torrent file: openInputStream returned null")
                 }
@@ -123,13 +127,23 @@ class LinkHandlerActivity : Activity() {
             }
         }
 
+        // Use FLAG_ACTIVITY_NEW_TASK only (not CLEAR_TASK). NativeStandaloneActivity has
+        // singleTask launch mode, so the system will either deliver this intent via onNewIntent
+        // to an existing instance, or create a new one. CLEAR_TASK would destroy a running
+        // instance (triggering engine shutdown) before recreating it.
         startActivity(Intent(this, NativeStandaloneActivity::class.java).apply {
-            if (torrentBase64 != null) {
-                putExtra("torrent_base64", torrentBase64)
+            if (torrentTempPath != null) {
+                putExtra("torrent_temp_path", torrentTempPath)
+                // Pass filename for immediate UI display while engine parses the torrent
+                val displayName = queryDisplayName(uri)?.removeSuffix(".torrent")
+                if (displayName != null) {
+                    putExtra("torrent_display_name", displayName)
+                }
             } else {
                 data = uri  // Magnet links pass through as URI
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         })
     }
 
@@ -193,6 +207,19 @@ class LinkHandlerActivity : Activity() {
             // Fallback to default browser if Chrome not available
             val fallbackIntent = Intent(Intent.ACTION_VIEW, Uri.parse(EXTENSION_URL))
             startActivity(fallbackIntent)
+        }
+    }
+
+    /** Query the content provider for the human-readable filename (content:// URIs). */
+    private fun queryDisplayName(uri: Uri): String? {
+        if (uri.scheme == "file") return uri.lastPathSegment
+        return try {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to query display name for $uri", e)
+            uri.lastPathSegment  // fallback
         }
     }
 }

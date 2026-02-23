@@ -304,11 +304,28 @@ class NativeStandaloneActivity : ComponentActivity() {
             return
         }
 
-        // Check for pre-read torrent file (base64 from MainActivity)
-        // MainActivity reads the file while it has URI permission, then passes base64 here
+        // Check for torrent file passed via temp file path (avoids TransactionTooLargeException)
+        val torrentTempPath = intent?.getStringExtra("torrent_temp_path")
+        if (!torrentTempPath.isNullOrEmpty()) {
+            Log.i(TAG, "Received torrent temp path: $torrentTempPath")
+            val tempFile = java.io.File(torrentTempPath)
+            if (tempFile.exists()) {
+                val bytes = tempFile.readBytes()
+                tempFile.delete()
+                val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                val displayName = intent?.getStringExtra("torrent_display_name")
+                Log.i(TAG, "Read torrent from temp file: ${bytes.size} bytes, name=$displayName")
+                addOrQueueMagnet(base64, pendingName = displayName)
+            } else {
+                Log.e(TAG, "Torrent temp file not found: $torrentTempPath")
+            }
+            return
+        }
+
+        // Legacy: Check for pre-read torrent file (base64 from intent extra)
         val torrentBase64 = intent?.getStringExtra("torrent_base64")
         if (!torrentBase64.isNullOrEmpty()) {
-            Log.i(TAG, "Received torrent from MainActivity (${torrentBase64.length} chars)")
+            Log.i(TAG, "Received torrent from intent extra (${torrentBase64.length} chars)")
             addOrQueueMagnet(torrentBase64)
             return
         }
@@ -371,7 +388,18 @@ class NativeStandaloneActivity : ComponentActivity() {
      * @param magnet The magnet link or base64-encoded torrent file
      * @param replace If true, removes any existing torrent with the same infohash first
      */
-    private fun addOrQueueMagnet(magnet: String, replace: Boolean = false) {
+    private fun addOrQueueMagnet(
+        magnet: String,
+        replace: Boolean = false,
+        pendingName: String? = null
+    ) {
+        // Show a pending placeholder in the list immediately for responsiveness.
+        // This appears before the engine starts and parses the torrent.
+        val displayName = pendingName
+            ?: extractMagnetDisplayName(magnet)
+            ?: "Loading\u2026"
+        viewModel.addPendingNewTorrent(displayName)
+
         // Ensure engine is loaded (synchronous - returns after fully loaded)
         val controller = app.engineController
         if (controller == null || controller.isLoaded?.value != true) {
@@ -388,6 +416,21 @@ class NativeStandaloneActivity : ComponentActivity() {
         }
         // Navigate to list to show the newly added torrent
         navigateToListTrigger.value++
+    }
+
+    /** Extract display name (dn= parameter) from a magnet link. */
+    private fun extractMagnetDisplayName(magnetOrBase64: String): String? {
+        if (!magnetOrBase64.startsWith("magnet:?", ignoreCase = true)) return null
+        val dnPrefix = "dn="
+        val startIdx = magnetOrBase64.indexOf(dnPrefix, ignoreCase = true)
+        if (startIdx < 0) return null
+        val nameStart = startIdx + dnPrefix.length
+        val nameEnd = magnetOrBase64.indexOf('&', nameStart).let { if (it < 0) magnetOrBase64.length else it }
+        return try {
+            java.net.URLDecoder.decode(magnetOrBase64.substring(nameStart, nameEnd), "UTF-8")
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun handleTorrentFile(uri: Uri) {

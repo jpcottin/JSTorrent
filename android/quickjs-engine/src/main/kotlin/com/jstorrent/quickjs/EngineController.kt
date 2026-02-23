@@ -182,11 +182,9 @@ class EngineController(
 
         // Load bundle from assets
         val bundleJs = context.assets.open("engine.bundle.js").bufferedReader().use { it.readText() }
-        Log.i(TAG, "Bundle loaded: ${bundleJs.length / 1024} KB")
 
         // Evaluate bundle
         eng.evaluate(bundleJs, "engine.bundle.js")
-        Log.i(TAG, "Bundle evaluated")
 
         // Initialize engine with config
         val configJson = json.encodeToString(config)
@@ -195,7 +193,7 @@ class EngineController(
         // Execute pending jobs to complete async initialization
         // The init() call starts async work that needs microtasks to be pumped
         eng.executeAllPendingJobs()
-        Log.i(TAG, "Engine initialized with ${config.contentRoots.size} content roots")
+        Log.i(TAG, "Engine loaded, ${config.contentRoots.size} content roots")
 
         // Create ConfigBridge for config management
         configBridge = ConfigBridge(eng)
