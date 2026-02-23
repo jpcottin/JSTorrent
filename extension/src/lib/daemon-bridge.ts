@@ -7,15 +7,9 @@
 
 import type { Platform } from './platform'
 import { detectPlatform } from './platform'
-import type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
+import type { DaemonInfo, DownloadRoot } from './native-connection'
 import { getOrCreateTelemetryId } from './telemetry-id'
-import {
-  buildControlFrame,
-} from './daemon-bridge/protocol/control-frame'
-import {
-  mapCompanionRoots,
-  type CompanionRoot,
-} from './daemon-bridge/protocol/root-mapper'
+import { buildControlFrame } from './daemon-bridge/protocol/control-frame'
 import {
   sendNativeRequest as sendNativeRequestViaPort,
   sendNativeRequestFull as sendNativeRequestFullViaPort,
@@ -35,6 +29,11 @@ import {
   findChromeosDaemonPort,
   requestChromeosPairing,
 } from './daemon-bridge/chromeos/http-api'
+import {
+  buildConnectedDaemonInfo,
+  buildDaemonCapabilities,
+  fetchChromeosRoots,
+} from './daemon-bridge/chromeos/connection-complete'
 import {
   handleControlResponseFrame,
   handleKvResponseFrame,
@@ -507,12 +506,12 @@ export class DaemonBridge {
     const token = await this.getOrCreateToken()
     const headers = await this.buildHeaders(true)
 
-    // Fetch roots with auth
-    const rootsResponse = await fetch(`http://${host}:${port}/roots`, { headers })
-    const rootsData = (await rootsResponse.json()) as {
-      roots: CompanionRoot[]
-    }
-    const roots = mapCompanionRoots(rootsData.roots)
+    const roots = await fetchChromeosRoots({
+      fetchImpl: fetch,
+      host,
+      port,
+      headers,
+    })
 
     // Connect WebSocket to ioPort (where /control now lives after Ktor->Netty migration)
     if (!ioPort) {
@@ -520,23 +519,21 @@ export class DaemonBridge {
     }
     await this.connectWebSocket(host, ioPort, token)
 
-    // Build capabilities - default to manageable unless explicitly set to false
-    const daemonCapabilities: DaemonCapabilities = {
-      roots_manageable: capabilities?.roots_manageable !== false,
-    }
+    const daemonCapabilities = buildDaemonCapabilities(capabilities)
+    const daemonInfo = buildConnectedDaemonInfo({
+      port,
+      token,
+      version,
+      roots,
+      host,
+      capabilities,
+      ioPort,
+      streamingPort,
+    })
 
     this.updateState({
       status: 'connected',
-      daemonInfo: {
-        port,
-        token,
-        version: version ?? 'unknown',
-        roots,
-        host,
-        capabilities: daemonCapabilities,
-        ioPort,
-        streamingPort,
-      },
+      daemonInfo,
       roots,
       lastError: null,
     })
