@@ -8,8 +8,7 @@ const WEBSTORE_URL = `https://chromewebstore.google.com/detail/jstorrent/${EXTEN
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.jstorrent.app'
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/kzahel/jstorrent/releases?per_page=100'
 
-// Set by Astro page at build time, falls back to hardcoded version
-let FALLBACK_TAURI_TAG = 'v0.1.14'
+const FALLBACK_TAURI_TAG = 'v0.1.25'
 
 interface TauriReleaseInfo {
   tag: string
@@ -63,10 +62,8 @@ function compareVersions(a: string, b: string): number {
   return 0
 }
 
-function useGitHubReleases(): TauriReleaseInfo {
-  const [tauri, setTauri] = useState<TauriReleaseInfo>(() =>
-    makeTauriReleaseInfo(FALLBACK_TAURI_TAG),
-  )
+function useGitHubReleases(fallbackTag: string): TauriReleaseInfo {
+  const [tauri, setTauri] = useState<TauriReleaseInfo>(() => makeTauriReleaseInfo(fallbackTag))
 
   useEffect(() => {
     let cancelled = false
@@ -223,13 +220,12 @@ function CopyIcon() {
 }
 
 export default function Downloads({ tauriAppTag }: DownloadsProps) {
-  if (tauriAppTag) FALLBACK_TAURI_TAG = tauriAppTag
   const [copied, setCopied] = useState(false)
   const [extensionInstalled, setExtensionInstalled] = useState<boolean | null>(null)
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>(detectPlatform)
   const isArm64 = detectArm64()
-  const tauri = useGitHubReleases()
+  const tauri = useGitHubReleases(tauriAppTag || FALLBACK_TAURI_TAG)
 
   useEffect(() => {
     const checkExtension = () => {

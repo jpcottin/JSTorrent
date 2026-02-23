@@ -22,6 +22,8 @@ export default tseslint.config(
       'desktop/target/**',
       'scripts/test-dht-daemon-bootstrap.ts',
       'scripts/test-dht-engine-bootstrap.ts',
+      'website/.astro/**',
+      'website/src/env.d.ts',
     ],
   },
   {
