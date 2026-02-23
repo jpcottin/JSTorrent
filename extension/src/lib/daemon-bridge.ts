@@ -11,8 +11,6 @@ import type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-conn
 import { getOrCreateTelemetryId } from './telemetry-id'
 import {
   buildControlFrame,
-  readControlFramePayload,
-  readControlFrameRequestId,
 } from './daemon-bridge/protocol/control-frame'
 import {
   mapCompanionRoots,
@@ -32,6 +30,12 @@ import {
   parseControlEventFrame,
   parseRootsChangedFrame,
 } from './daemon-bridge/chromeos/ws-events'
+import {
+  handleControlResponseFrame,
+  handleKvResponseFrame,
+  sendControlRequestOverWebSocket,
+  sendKvRequestOverWebSocket,
+} from './daemon-bridge/chromeos/ws-requests'
 
 // Re-export types for convenience
 export type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
@@ -1091,33 +1095,12 @@ export class DaemonBridge {
    * Only works when connected to Android companion.
    */
   async sendKvRequest(opcode: number, payload: Record<string, unknown>): Promise<unknown> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('WebSocket not connected')
-    }
-
-    const requestId = Math.floor(Math.random() * 0xffffffff)
-    const payloadBytes = new TextEncoder().encode(JSON.stringify(payload))
-
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingKvRequests.delete(requestId)
-        reject(new Error('KV request timeout'))
-      }, 10000)
-
-      this.pendingKvRequests.set(requestId, {
-        resolve: (response) => {
-          clearTimeout(timeout)
-          this.pendingKvRequests.delete(requestId)
-          resolve(response)
-        },
-        reject: (error) => {
-          clearTimeout(timeout)
-          this.pendingKvRequests.delete(requestId)
-          reject(error)
-        },
-      })
-
-      this.ws!.send(buildControlFrame(opcode, requestId, payloadBytes))
+    return sendKvRequestOverWebSocket({
+      ws: this.ws,
+      pendingKvRequests: this.pendingKvRequests,
+      opcode,
+      payload,
+      timeoutMs: 10000,
     })
   }
 
@@ -1140,28 +1123,12 @@ export class DaemonBridge {
     opcode: number,
     payload: Record<string, unknown>,
   ): Promise<{ ok: boolean; error?: string }> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return { ok: false, error: 'WebSocket not connected' }
-    }
-
-    const requestId = Math.floor(Math.random() * 0xffffffff)
-    const payloadBytes = new TextEncoder().encode(JSON.stringify(payload))
-
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        this.pendingControlRequests.delete(requestId)
-        resolve({ ok: false, error: 'Request timed out' })
-      }, 10000)
-
-      this.pendingControlRequests.set(requestId, {
-        resolve: (response) => {
-          clearTimeout(timeout)
-          this.pendingControlRequests.delete(requestId)
-          resolve(response)
-        },
-      })
-
-      this.ws!.send(buildControlFrame(opcode, requestId, payloadBytes))
+    return sendControlRequestOverWebSocket({
+      ws: this.ws,
+      pendingControlRequests: this.pendingControlRequests,
+      opcode,
+      payload,
+      timeoutMs: 10000,
     })
   }
 
@@ -1169,26 +1136,9 @@ export class DaemonBridge {
    * Handle control response from WebSocket (open file/folder results).
    */
   private handleControlResponse(frame: Uint8Array): void {
-    let requestId: number
-    try {
-      requestId = readControlFrameRequestId(frame)
-    } catch {
-      return
-    }
-
-    const pending = this.pendingControlRequests.get(requestId)
-    if (!pending) {
-      console.warn('[DaemonBridge] No pending control request for requestId:', requestId)
-      return
-    }
-
-    try {
-      const payload = readControlFramePayload(frame)
-      const json = new TextDecoder().decode(payload)
-      const response = JSON.parse(json) as { ok: boolean; error?: string }
-      pending.resolve(response)
-    } catch (e) {
-      pending.resolve({ ok: false, error: `Failed to parse response: ${e}` })
+    const result = handleControlResponseFrame(frame, this.pendingControlRequests)
+    if (result.kind === 'missing') {
+      console.warn('[DaemonBridge] No pending control request for requestId:', result.requestId)
     }
   }
 
@@ -1196,26 +1146,9 @@ export class DaemonBridge {
    * Handle KV response from WebSocket.
    */
   private handleKvResponse(frame: Uint8Array): void {
-    let requestId: number
-    try {
-      requestId = readControlFrameRequestId(frame)
-    } catch {
-      return
-    }
-
-    const pending = this.pendingKvRequests.get(requestId)
-    if (!pending) {
-      console.warn('[DaemonBridge] No pending KV request for requestId:', requestId)
-      return
-    }
-
-    try {
-      const payload = frame.slice(8)
-      const json = new TextDecoder().decode(payload)
-      const response = JSON.parse(json)
-      pending.resolve(response)
-    } catch (e) {
-      pending.reject(new Error(`Failed to parse KV response: ${e}`))
+    const result = handleKvResponseFrame(frame, this.pendingKvRequests)
+    if (result.kind === 'missing') {
+      console.warn('[DaemonBridge] No pending KV request for requestId:', result.requestId)
     }
   }
 
