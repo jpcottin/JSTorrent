@@ -27,6 +27,7 @@ PROMPT_DIR="$SCRIPT_DIR/prompts"
 LANGS=()
 COMPARE=false
 DRY_RUN=false
+FORCE=false
 MODEL="sonnet"
 
 while [[ $# -gt 0 ]]; do
@@ -46,6 +47,10 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true
             shift
             ;;
+        --force)
+            FORCE=true
+            shift
+            ;;
         --model)
             MODEL="$2"
             shift 2
@@ -62,7 +67,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#LANGS[@]} -eq 0 ]]; then
-    echo "Usage: $0 <lang|--all> [--compare] [--dry-run] [--model sonnet|opus|haiku]"
+    echo "Usage: $0 <lang|--all> [--compare] [--dry-run] [--force] [--model sonnet|opus|haiku]"
     echo ""
     echo "Languages in tier1:"
     cat "$TIER1_FILE"
@@ -85,6 +90,19 @@ translate_lang() {
     # Generate prompt
     python3 "$SCRIPT_DIR/translate-prompt.py" "$lang" --reference > "$prompt_file"
     echo "  Prompt: $prompt_file"
+
+    # Skip if output already has the expected number of strings
+    if ! $FORCE && [[ -f "$output_file" ]]; then
+        local expected actual
+        expected=$(sed -n 's/.*(\([0-9]*\) total).*/\1/p' "$prompt_file" 2>/dev/null | head -1)
+        expected=${expected:-0}
+        actual=$(python3 -c "import json; print(len(json.load(open('$output_file'))))" 2>/dev/null || echo 0)
+        if [[ "$actual" -gt 0 ]] && [[ "$expected" -gt 0 ]] && [[ "$actual" -ge "$expected" ]]; then
+            echo "  Already complete ($actual strings) — skipping (use --force to redo)"
+            echo ""
+            return
+        fi
+    fi
 
     if $DRY_RUN; then
         echo "  [DRY RUN] Would translate and save to $output_file"
