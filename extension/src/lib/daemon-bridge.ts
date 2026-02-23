@@ -11,7 +11,6 @@ import type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-conn
 import { getOrCreateTelemetryId } from './telemetry-id'
 import {
   buildControlFrame,
-  decodeControlFrameJsonPayload,
   readControlFramePayload,
   readControlFrameRequestId,
 } from './daemon-bridge/protocol/control-frame'
@@ -29,6 +28,10 @@ import {
   pickDownloadFolderDesktop,
   removeDownloadRootDesktop,
 } from './daemon-bridge/desktop/root-ops'
+import {
+  parseControlEventFrame,
+  parseRootsChangedFrame,
+} from './daemon-bridge/chromeos/ws-events'
 
 // Re-export types for convenience
 export type { DaemonCapabilities, DaemonInfo, DownloadRoot } from './native-connection'
@@ -987,8 +990,7 @@ export class DaemonBridge {
 
   private handleRootsChanged(frame: Uint8Array): void {
     try {
-      const roots = decodeControlFrameJsonPayload<CompanionRoot[]>(frame)
-      const mapped = mapCompanionRoots(roots)
+      const mapped = parseRootsChangedFrame(frame)
 
       this.updateState({ roots: mapped })
       console.log('[DaemonBridge] Roots updated:', mapped.length)
@@ -999,7 +1001,7 @@ export class DaemonBridge {
 
   private handleControlEvent(frame: Uint8Array): void {
     try {
-      const event = decodeControlFrameJsonPayload<NativeEvent>(frame)
+      const event = parseControlEventFrame(frame)
       this.emitEvent(event)
     } catch (e) {
       console.error('[DaemonBridge] Failed to parse EVENT:', e)
