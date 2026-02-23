@@ -2,6 +2,11 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.27]
+
+- Fix Windows build: update icon path after legacy installer removal
+- Fix UPnP status display
+
 ## [0.1.26]
 
 - Simplify desktop version reporting and improve update UX
