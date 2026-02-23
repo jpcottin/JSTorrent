@@ -61,8 +61,6 @@ JSTorrent ships as multiple products that share the same TypeScript engine but r
 
 **Tauri Desktop App** (`desktop/tauri-app/`): Bundles the same extension UI assets into a native desktop window. Can run standalone (without the browser extension) or headlessly as the I/O backend for the extension. Provides auto-updates. The io-daemon runs as a sidecar process.
 
-**System Bridge** (`desktop/installers/`, `desktop/link-handler/`): **Legacy** — the old packaging/installer and link-handler mechanism that predates Tauri. Replaced by the Tauri desktop app. Other components in `desktop/` (io-daemon, host, common) are **shared** between Tauri and the old system bridge and are NOT legacy.
-
 **Android App** (`android/`): Single APK, no build variants. Has its own native Compose UI. Runs a foreground service for background operation. Operates in two modes:
 - **Standalone mode**: Engine runs in QuickJS in-process, full native UI. Used on phones and optionally on ChromeOS.
 - **Companion mode**: Minimal UI (pair/unpair, mode switch). Runs the companion server (HTTP + WebSocket) so the Chrome extension can use it for I/O on ChromeOS.
@@ -336,7 +334,6 @@ All components follow the same release pattern:
 | **Extension** | `extension-v{ver}` | ZIP | Manual upload to Chrome Web Store |
 | **Android** | `android-v{ver}` | Signed APK + AAB | Manual upload to Play Store |
 | **Tauri App** | `tauri-app-v{ver}` | Signed installers (Mac/Win/Linux) | Auto-updates via updater JSON |
-| **System Bridge** | `system-bridge-v{ver}` | Platform installers | GitHub Release (legacy) |
 | **Website** | `website-v{ver}` | N/A | Auto-deploys on push to main |
 
 ### Version Compatibility & Release Order
@@ -415,18 +412,6 @@ Requires upload keystore at `android/app/signing/upload.keystore`.
 - CI creates GitHub Release with updater JSON for auto-updates
 - **No manual step:** Existing installs auto-update via the updater JSON endpoint
 - Changelog: `desktop/tauri-app/CHANGELOG.md`
-
-### System Bridge Releases
-
-```bash
-./scripts/release-system-bridge.sh <version>
-```
-
-- Updates `desktop/Cargo.toml` and `desktop/io-daemon/Cargo.toml`
-- Creates tag: `system-bridge-v{version}`
-- CI builds installers for Windows, macOS (signed/notarized), and Linux
-- CI creates GitHub Release with platform installers
-- Changelog: `desktop/CHANGELOG.md`
 
 ### Website Releases
 

@@ -14,8 +14,6 @@ echo
 echo "Stopping running processes..."
 pkill -x "jstorrent-host" 2>/dev/null && echo "Stopped jstorrent-host" || true
 pkill -x "jstorrent-io-daemon" 2>/dev/null && echo "Stopped jstorrent-io-daemon" || true
-pkill -x "jstorrent-link-handler" 2>/dev/null && echo "Stopped jstorrent-link-handler" || true
-pkill -x "jstorrent-link-handler-bin" 2>/dev/null && echo "Stopped jstorrent-link-handler-bin" || true
 sleep 0.5
 echo
 

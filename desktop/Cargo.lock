@@ -2524,26 +2524,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jstorrent-link-handler"
-version = "1.0.2"
-dependencies = [
- "anyhow",
- "base64 0.21.7",
- "chrono",
- "clap",
- "ctrlc",
- "dirs 5.0.1",
- "jstorrent-common",
- "open",
- "reqwest 0.11.27",
- "serde",
- "serde_json",
- "sysinfo",
- "windows-sys 0.52.0",
- "winres",
-]
-
-[[package]]
 name = "keyboard-types"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
