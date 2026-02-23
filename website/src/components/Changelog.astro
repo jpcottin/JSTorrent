@@ -1,113 +1,185 @@
 ---
+import fs from 'node:fs'
+import path from 'node:path'
+import { execSync } from 'node:child_process'
+
+interface ChangelogEntry {
+  product: string
+  version: string
+  date: string | null
+  sortDate: string
+  items: string[]
+  badge: string | null
+}
+
+const PRODUCTS: Array<{
+  file: string
+  name: string
+  initialVersion: string
+  tagPrefix: string
+}> = [
+  { file: 'extension/CHANGELOG.md', name: 'Extension', initialVersion: '1.0.0', tagPrefix: 'extension-v' },
+  { file: 'android/CHANGELOG.md', name: 'Android', initialVersion: '1.0.3', tagPrefix: 'android-v' },
+  { file: 'desktop/tauri-app/CHANGELOG.md', name: 'Desktop App', initialVersion: '0.1.0', tagPrefix: 'tauri-app-v' },
+]
+
+const MAX_ENTRIES = 10
+
+function parseVersion(v: string): number[] {
+  return v.split('.').map((n) => parseInt(n, 10))
+}
+
+function versionGte(a: string, b: string): boolean {
+  const pa = parseVersion(a)
+  const pb = parseVersion(b)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (diff > 0) return true
+    if (diff < 0) return false
+  }
+  return true
+}
+
+// Get dates from git tags for entries that lack dates in the CHANGELOG
+function getTagDates(repoDir: string): Map<string, string> {
+  const dates = new Map<string, string>()
+  try {
+    const output = execSync(
+      "git for-each-ref --format='%(refname:short) %(creatordate:short)' refs/tags/",
+      { cwd: repoDir, encoding: 'utf-8' },
+    )
+    for (const line of output.trim().split('\n')) {
+      const match = line.match(/^(\S+)\s+(\d{4}-\d{2}-\d{2})$/)
+      if (match) {
+        dates.set(match[1], match[2])
+      }
+    }
+  } catch {
+    // Git not available (e.g., CI without full clone) — fall back gracefully
+  }
+  return dates
+}
+
+function parseChangelog(
+  content: string,
+  product: { name: string; initialVersion: string; tagPrefix: string },
+  tagDates: Map<string, string>,
+): ChangelogEntry[] {
+  // Strip HTML comments (which contain template examples)
+  content = content.replace(/<!--[\s\S]*?-->/g, '')
+
+  const entries: ChangelogEntry[] = []
+  const versionRegex = /^## \[(.+?)\](?:\s*-\s*(.+))?/
+  const lines = content.split('\n')
+
+  let current: ChangelogEntry | null = null
+
+  for (const line of lines) {
+    const versionMatch = line.match(versionRegex)
+    if (versionMatch) {
+      if (current && current.items.length > 0) {
+        entries.push(current)
+      }
+      const version = versionMatch[1]
+      // Skip [Unreleased] and non-numeric versions
+      if (version === 'Unreleased' || !/^\d+\.\d+/.test(version)) {
+        current = null
+        continue
+      }
+      // Skip versions older than the initial release
+      if (!versionGte(version, product.initialVersion)) {
+        current = null
+        continue
+      }
+      const rawDate = versionMatch[2]?.trim() || null
+      const tagDate = tagDates.get(product.tagPrefix + version) || null
+      const displayDate = rawDate || tagDate
+      current = {
+        product: product.name,
+        version,
+        date: displayDate,
+        sortDate: displayDate || '',
+        items: [],
+        badge: version === product.initialVersion ? 'Initial Release' : null,
+      }
+      continue
+    }
+
+    if (!current) continue
+    if (line.match(/^###\s/)) continue
+
+    const itemMatch = line.match(/^-\s+(.+)/)
+    if (itemMatch) {
+      current.items.push(itemMatch[1])
+    }
+  }
+
+  if (current && current.items.length > 0) {
+    entries.push(current)
+  }
+
+  // Fill in sortDate for undated entries from the nearest dated entry below
+  // (entries are newest-first, so iterate backwards to propagate dates upward)
+  let lastSeenDate: string | null = null
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].date) {
+      lastSeenDate = entries[i].date
+    } else if (lastSeenDate) {
+      entries[i].sortDate = lastSeenDate
+    }
+  }
+
+  return entries
+}
+
+function parseDate(dateStr: string): Date {
+  return new Date(dateStr + 'T00:00:00')
+}
+
+function formatDate(dateStr: string): string {
+  const d = parseDate(dateStr)
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+}
+
+const repoRoot = path.resolve(import.meta.dirname, '..', '..', '..')
+const tagDates = getTagDates(repoRoot)
+
+const allEntries: ChangelogEntry[] = []
+for (const product of PRODUCTS) {
+  const filePath = path.join(repoRoot, product.file)
+  const content = fs.readFileSync(filePath, 'utf-8')
+  allEntries.push(...parseChangelog(content, product, tagDates))
+}
+
+// Sort by sortDate (newest first). Stable sort preserves file order for same-date entries.
+allEntries.sort((a, b) => {
+  if (a.sortDate && b.sortDate)
+    return parseDate(b.sortDate).getTime() - parseDate(a.sortDate).getTime()
+  if (!a.sortDate && b.sortDate) return 1
+  if (a.sortDate && !b.sortDate) return -1
+  return 0
+})
+
+const entries = allEntries.slice(0, MAX_ENTRIES)
 ---
 
 <section id="news" class="section section-alt">
   <div class="container">
     <h2>Recent Changes</h2>
 
-    <article class="changelog-entry">
-      <h3>
-        Extension v1.0.3 <span class="date">February 16, 2026</span>
-      </h3>
-      <ul>
-        <li>Context menu options on extension icon: open as tab, popup, or desktop app</li>
-        <li>Batch piece hash verification for faster resume</li>
-        <li>Recursive file listing for faster recheck</li>
-      </ul>
-    </article>
-
-    <article class="changelog-entry">
-      <h3>
-        Android v1.0.18 <span class="date">February 16, 2026</span>
-      </h3>
-      <ul>
-        <li>Recursive file listing for faster resume and recheck</li>
-        <li>Batch piece hash verification</li>
-        <li>Fix torrent data always being deleted on removal in standalone mode</li>
-      </ul>
-    </article>
-
-    <article class="changelog-entry">
-      <h3>
-        Desktop App v0.1.24 <span class="date">February 2026</span>
-      </h3>
-      <ul>
-        <li>Recursive file listing and batch hash verification</li>
-        <li>Fix .torrent file open for filenames with spaces</li>
-        <li>Aggregated changelogs across skipped versions in auto-updater</li>
-      </ul>
-    </article>
-
-    <article class="changelog-entry">
-      <h3>
-        Extension v1.0.2 <span class="date">February 11, 2026</span>
-        <span class="badge">Major Update</span>
-      </h3>
-      <ul>
-        <li>Desktop app launch from extension settings</li>
-        <li>Profile picker UI and multi-profile support</li>
-        <li>Torrent queue management with active download/seed limits</li>
-        <li>Log viewer and completion notifications</li>
-        <li>Improved peer management: RTT-based snubbing, adaptive timeouts, peer caching</li>
-      </ul>
-    </article>
-
-    <article class="changelog-entry">
-      <h3>
-        Android v1.0.15 <span class="date">February 8, 2026</span>
-      </h3>
-      <ul>
-        <li>Queue management UI and settings</li>
-        <li>Log viewer, file opening, and completion notifications</li>
-        <li>Seed rotation and reset command</li>
-      </ul>
-    </article>
-
-    <article class="changelog-entry">
-      <h3>
-        Extension v1.0.0 <span class="date">February 4, 2026</span>
-        <span class="badge">Initial Release</span>
-      </h3>
-      <ul>
-        <li>Full rewrite of the engine in TypeScript</li>
-        <li>Multi-platform support: Windows, Mac, Linux, ChromeOS, Android</li>
-        <li>SOCKS5 proxy support with UDP for tracker announces</li>
-        <li>ETA display, torrent recheck, file truncation</li>
-      </ul>
-    </article>
-
-    <article class="changelog-entry">
-      <h3>
-        Android v1.0.10 <span class="date">February 3, 2026</span>
-      </h3>
-      <ul>
-        <li>83% smaller APK (~9.5 MB vs ~55 MB) via R8 minification</li>
-        <li>16KB memory page size support for Android 15+ devices</li>
-      </ul>
-    </article>
-
-    <article class="changelog-entry">
-      <h3>
-        Android v1.0.3 <span class="badge">Initial Release</span>
-      </h3>
-      <ul>
-        <li>Native Android app with QuickJS engine</li>
-        <li>BitTorrent v1 and v2 support</li>
-        <li>Magnet link handling, DHT, PEX, and tracker support</li>
-        <li>Standalone and ChromeOS companion modes</li>
-      </ul>
-    </article>
-
-    <article class="changelog-entry">
-      <h3>
-        Desktop App v0.1.0 <span class="badge">Initial Release</span>
-      </h3>
-      <ul>
-        <li>Tauri 2 app for Windows, Mac, and Linux</li>
-        <li>Deep link handling for magnet URIs and .torrent files</li>
-        <li>System tray with close-to-tray behavior</li>
-        <li>Auto-updater with signed and notarized builds</li>
-      </ul>
-    </article>
+    {entries.map((entry) => (
+      <article class="changelog-entry">
+        <h3>
+          {entry.product} v{entry.version}
+          {entry.date && <span class="date">{formatDate(entry.date)}</span>}
+          {entry.badge && <span class="badge">{entry.badge}</span>}
+        </h3>
+        <ul>
+          {entry.items.map((item) => (
+            <li>{item}</li>
+          ))}
+        </ul>
+      </article>
+    ))}
   </div>
 </section>
