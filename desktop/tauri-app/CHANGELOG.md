@@ -2,6 +2,14 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.26]
+
+- Simplify desktop version reporting and improve update UX
+- Add profile removal to Settings > Profiles tab
+- Fix desktop app update verification timeout
+- Remove legacy System Bridge installers and link-handler scripts
+- Refactor daemon bridge into smaller modules with characterization tests
+
 ## [0.1.25]
 
 - Fix UDP hostname resolution failing on IPv4-bound sockets
