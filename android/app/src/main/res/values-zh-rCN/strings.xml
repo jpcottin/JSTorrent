@@ -92,7 +92,6 @@
     <string name="settings_network_connection_section">连接</string>
     <string name="settings_network_description">DHT、UPnP、加密、代理</string>
     <string name="settings_network_dht_description">用于查找节点的分布式哈希表</string>
-    <string name="settings_network_dht_label">DHT</string>
     <string name="settings_network_encryption_allow">允许</string>
     <string name="settings_network_encryption_disabled">禁用</string>
     <string name="settings_network_encryption_label">协议加密</string>
@@ -263,7 +262,6 @@
     <string name="tab_trackers">Tracker</string>
     <string name="tab_trackers_add_button">添加 Tracker</string>
     <string name="tab_trackers_announcing">通告中…</string>
-    <string name="tab_trackers_dht">DHT</string>
     <string name="tab_trackers_empty">没有 Tracker</string>
     <string name="tab_trackers_peer_discovery_title">节点发现</string>
     <string name="tab_trackers_peers_count">%1$d 个节点</string>
@@ -272,7 +270,6 @@
     <string name="tab_trackers_section_title">Tracker</string>
     <string name="tab_trackers_status_disabled">禁用</string>
     <string name="tab_trackers_status_error">错误</string>
-    <string name="tab_trackers_status_ok">确定</string>
     <string name="tab_trackers_status_updating">更新中…</string>
     <string name="torrent_already_in_list">种子已在列表中</string>
     <string name="torrent_detail_back_button">返回</string>

@@ -89,7 +89,6 @@ Activați notificările în setările aplicației.</string>
     <string name="settings_network_connection_section">Conexiune</string>
     <string name="settings_network_description">DHT, UPnP, criptare, proxy</string>
     <string name="settings_network_dht_description">Tabel hash distribuit pentru găsirea semenilor</string>
-    <string name="settings_network_dht_label">DHT</string>
     <string name="settings_network_encryption_allow">Permite</string>
     <string name="settings_network_encryption_disabled">Dezactivat</string>
     <string name="settings_network_encryption_label">Criptare protocol</string>
@@ -258,7 +257,6 @@ Activați notificările în setările aplicației.</string>
     <string name="tab_trackers">Trackere</string>
     <string name="tab_trackers_add_button">Adaugă trackere</string>
     <string name="tab_trackers_announcing">Se anunță…</string>
-    <string name="tab_trackers_dht">DHT</string>
     <string name="tab_trackers_empty">Fără urmăritori</string>
     <string name="tab_trackers_peer_discovery_title">DESCOPERIRE SEMENI</string>
     <string name="tab_trackers_peers_count">%1$d semeni</string>
@@ -267,7 +265,6 @@ Activați notificările în setările aplicației.</string>
     <string name="tab_trackers_section_title">Trackere</string>
     <string name="tab_trackers_status_disabled">Dezactivat</string>
     <string name="tab_trackers_status_error">Eroare</string>
-    <string name="tab_trackers_status_ok">OK</string>
     <string name="tab_trackers_status_updating">Se actualizează…</string>
     <string name="torrent_already_in_list">Torrentul este deja în listă</string>
     <string name="torrent_detail_back_button">Înapoi</string>

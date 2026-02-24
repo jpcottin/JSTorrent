@@ -197,7 +197,7 @@ private fun NetworkSection(
 
         // DHT toggle
         SettingToggleRow(
-            label = stringResource(R.string.settings_network_dht_label),
+            label = "DHT",
             description = stringResource(R.string.settings_network_dht_description),
             checked = dhtEnabled,
             onCheckedChange = onDhtChange

@@ -91,7 +91,6 @@ Aktiver venligst notifikationer i appindstillinger.</string>
     <string name="settings_network_connection_section">Forbindelse</string>
     <string name="settings_network_description">DHT, UPnP, kryptering, proxy</string>
     <string name="settings_network_dht_description">Distribueret hashtabel til at finde peers</string>
-    <string name="settings_network_dht_label">DHT</string>
     <string name="settings_network_encryption_allow">Tillad</string>
     <string name="settings_network_encryption_disabled">Deaktiveret</string>
     <string name="settings_network_encryption_label">Protokolkryptering</string>
@@ -260,7 +259,6 @@ Aktiver venligst notifikationer i appindstillinger.</string>
     <string name="tab_trackers">Trackers</string>
     <string name="tab_trackers_add_button">Tilføj trackers</string>
     <string name="tab_trackers_announcing">Annoncerer…</string>
-    <string name="tab_trackers_dht">DHT</string>
     <string name="tab_trackers_empty">Ingen trackers</string>
     <string name="tab_trackers_peer_discovery_title">PEER-OPSPORING</string>
     <string name="tab_trackers_peers_count">%1$d peers</string>
@@ -269,7 +267,6 @@ Aktiver venligst notifikationer i appindstillinger.</string>
     <string name="tab_trackers_section_title">Trackers</string>
     <string name="tab_trackers_status_disabled">Deaktiveret</string>
     <string name="tab_trackers_status_error">Fejl</string>
-    <string name="tab_trackers_status_ok">OK</string>
     <string name="tab_trackers_status_updating">Opdaterer …</string>
     <string name="torrent_already_in_list">Torrent allerede på listen</string>
     <string name="torrent_detail_back_button">Tilbage</string>

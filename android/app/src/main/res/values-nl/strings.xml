@@ -92,7 +92,6 @@ Schakel meldingen in bij de app-instellingen.</string>
     <string name="settings_network_connection_section">Verbinding</string>
     <string name="settings_network_description">DHT, UPnP, versleuteling, proxy</string>
     <string name="settings_network_dht_description">Gedistribueerde hashtabel voor het vinden van peers</string>
-    <string name="settings_network_dht_label">DHT</string>
     <string name="settings_network_encryption_allow">Toestaan</string>
     <string name="settings_network_encryption_disabled">Uitgeschakeld</string>
     <string name="settings_network_encryption_label">Protocolversleuteling</string>
@@ -263,7 +262,6 @@ Schakel meldingen in bij de app-instellingen.</string>
     <string name="tab_trackers">Trackers</string>
     <string name="tab_trackers_add_button">Trackers toevoegen</string>
     <string name="tab_trackers_announcing">Aanmelden…</string>
-    <string name="tab_trackers_dht">DHT</string>
     <string name="tab_trackers_empty">Geen trackers</string>
     <string name="tab_trackers_peer_discovery_title">PEER-ONTDEKKING</string>
     <string name="tab_trackers_peers_count">%1$d peers</string>
@@ -272,7 +270,6 @@ Schakel meldingen in bij de app-instellingen.</string>
     <string name="tab_trackers_section_title">Trackers</string>
     <string name="tab_trackers_status_disabled">Uitgeschakeld</string>
     <string name="tab_trackers_status_error">Fout</string>
-    <string name="tab_trackers_status_ok">Ok</string>
     <string name="tab_trackers_status_updating">Bijwerken…</string>
     <string name="torrent_already_in_list">Torrent staat al in de lijst</string>
     <string name="torrent_detail_back_button">Terug</string>

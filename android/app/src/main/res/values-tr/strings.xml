@@ -92,7 +92,6 @@ Lütfen uygulama ayarlarından bildirimleri etkinleştirin.</string>
     <string name="settings_network_connection_section">Bağlantı</string>
     <string name="settings_network_description">DHT, UPnP, şifreleme, proxy</string>
     <string name="settings_network_dht_description">Eş bulmak için Dağıtık Hash Tablosu</string>
-    <string name="settings_network_dht_label">DHT</string>
     <string name="settings_network_encryption_allow">İzin ver</string>
     <string name="settings_network_encryption_disabled">Etkisizleştirildi</string>
     <string name="settings_network_encryption_label">Protokol şifreleme</string>
@@ -263,7 +262,6 @@ Lütfen uygulama ayarlarından bildirimleri etkinleştirin.</string>
     <string name="tab_trackers">Takipçiler</string>
     <string name="tab_trackers_add_button">Takipçi ekle</string>
     <string name="tab_trackers_announcing">Duyuruluyor…</string>
-    <string name="tab_trackers_dht">DHT</string>
     <string name="tab_trackers_empty">Takipçi yok</string>
     <string name="tab_trackers_peer_discovery_title">EŞ KEŞFİ</string>
     <string name="tab_trackers_peers_count">%1$d eş</string>
@@ -272,7 +270,6 @@ Lütfen uygulama ayarlarından bildirimleri etkinleştirin.</string>
     <string name="tab_trackers_section_title">Takipçiler</string>
     <string name="tab_trackers_status_disabled">Etkisizleştirildi</string>
     <string name="tab_trackers_status_error">Hata</string>
-    <string name="tab_trackers_status_ok">TAMAM</string>
     <string name="tab_trackers_status_updating">Güncelleniyor…</string>
     <string name="torrent_already_in_list">Torrent zaten listede</string>
     <string name="torrent_detail_back_button">Geri</string>

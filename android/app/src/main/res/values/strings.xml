@@ -124,7 +124,6 @@
     <string name="settings_network_encryption_allow">Allow</string>
     <string name="settings_network_encryption_prefer">Prefer</string>
     <string name="settings_network_encryption_required">Required</string>
-    <string name="settings_network_dht_label">DHT</string>
     <string name="settings_network_dht_description">Distributed Hash Table for finding peers</string>
     <string name="settings_network_view_dht_info">View DHT Info</string>
     <string name="settings_network_pex_label">PEX (Peer Exchange)</string>
@@ -267,7 +266,6 @@
     <string name="tab_trackers_section_title">TRACKERS</string>
     <string name="tab_trackers_empty">No trackers</string>
     <string name="tab_trackers_peer_discovery_title">PEER DISCOVERY</string>
-    <string name="tab_trackers_status_ok">OK</string>
     <string name="tab_trackers_status_updating">Updating…</string>
     <string name="tab_trackers_status_error">Error</string>
     <string name="tab_trackers_status_disabled">Disabled</string>
@@ -401,10 +399,6 @@
     <string name="tab_pieces_legend_missing">Missing</string>
     <string name="tab_pieces_no_info_title">No piece information</string>
     <string name="tab_pieces_no_info_description">Piece data not yet available</string>
-
-    <!-- TrackersTab -->
-    <string name="tab_trackers_dht">DHT</string>
-    <string name="tab_trackers_pex">PeX</string>
 
     <!-- DhtInfoScreen -->
     <string name="dht_info_title">DHT Info</string>

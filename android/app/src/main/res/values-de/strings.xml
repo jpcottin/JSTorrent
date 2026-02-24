@@ -92,7 +92,6 @@ Bitte aktivieren Sie Benachrichtigungen in den App-Einstellungen.</string>
     <string name="settings_network_connection_section">Verbindung</string>
     <string name="settings_network_description">DHT, UPnP, Verschlüsselung, Proxy</string>
     <string name="settings_network_dht_description">Verteilte Hashtabelle zur Peer-Suche</string>
-    <string name="settings_network_dht_label">DHT</string>
     <string name="settings_network_encryption_allow">Erlauben</string>
     <string name="settings_network_encryption_disabled">Deaktiviert</string>
     <string name="settings_network_encryption_label">Protokollverschlüsselung</string>
@@ -263,7 +262,6 @@ Bitte aktivieren Sie Benachrichtigungen in den App-Einstellungen.</string>
     <string name="tab_trackers">Tracker</string>
     <string name="tab_trackers_add_button">Tracker hinzufügen</string>
     <string name="tab_trackers_announcing">Ankündigung läuft…</string>
-    <string name="tab_trackers_dht">DHT</string>
     <string name="tab_trackers_empty">Keine Tracker</string>
     <string name="tab_trackers_peer_discovery_title">PEER-ERKENNUNG</string>
     <string name="tab_trackers_peers_count">%1$d Peers</string>
@@ -272,7 +270,6 @@ Bitte aktivieren Sie Benachrichtigungen in den App-Einstellungen.</string>
     <string name="tab_trackers_section_title">Tracker</string>
     <string name="tab_trackers_status_disabled">Deaktiviert</string>
     <string name="tab_trackers_status_error">Fehler</string>
-    <string name="tab_trackers_status_ok">OK</string>
     <string name="tab_trackers_status_updating">Erneuernd…</string>
     <string name="torrent_already_in_list">Torrent bereits in der Liste</string>
     <string name="torrent_detail_back_button">Zurück</string>

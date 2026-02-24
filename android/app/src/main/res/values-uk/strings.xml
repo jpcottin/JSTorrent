@@ -92,7 +92,6 @@
     <string name="settings_network_connection_section">З\'єднання</string>
     <string name="settings_network_description">DHT, UPnP, шифрування, проксі</string>
     <string name="settings_network_dht_description">Розподілена хеш-таблиця для пошуку вузлів</string>
-    <string name="settings_network_dht_label">DHT</string>
     <string name="settings_network_encryption_allow">Дозволити</string>
     <string name="settings_network_encryption_disabled">Вимкнено</string>
     <string name="settings_network_encryption_label">Шифрування протоколу</string>
@@ -263,7 +262,6 @@
     <string name="tab_trackers">Трекери</string>
     <string name="tab_trackers_add_button">Додати трекери</string>
     <string name="tab_trackers_announcing">Оголошення…</string>
-    <string name="tab_trackers_dht">DHT</string>
     <string name="tab_trackers_empty">Немає трекерів</string>
     <string name="tab_trackers_peer_discovery_title">ПОШУК ВУЗЛІВ</string>
     <string name="tab_trackers_peers_count">%1$d вузлів</string>
@@ -272,7 +270,6 @@
     <string name="tab_trackers_section_title">Трекери</string>
     <string name="tab_trackers_status_disabled">Вимкнено</string>
     <string name="tab_trackers_status_error">Помилка</string>
-    <string name="tab_trackers_status_ok">ГАРАЗД</string>
     <string name="tab_trackers_status_updating">Оновлення…</string>
     <string name="torrent_already_in_list">Торент вже в списку</string>
     <string name="torrent_detail_back_button">Назад</string>

@@ -134,12 +134,12 @@ private fun DhtPexSection(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             StatusChip(
-                label = stringResource(R.string.tab_trackers_dht),
+                label = "DHT",
                 isEnabled = dhtEnabled,
                 modifier = Modifier.weight(1f)
             )
             StatusChip(
-                label = stringResource(R.string.tab_trackers_pex),
+                label = "PeX",
                 isEnabled = pexEnabled,
                 modifier = Modifier.weight(1f)
             )
@@ -216,7 +216,7 @@ private fun TrackerItem(
             when (tracker.status) {
                 TrackerStatus.OK -> Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = stringResource(R.string.tab_trackers_status_ok),
+                    contentDescription = "OK",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(16.dp)
                 )

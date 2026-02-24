@@ -92,7 +92,6 @@
     <string name="settings_network_connection_section">Соединение</string>
     <string name="settings_network_description">DHT, UPnP, шифрование, прокси</string>
     <string name="settings_network_dht_description">Распределённая хеш-таблица для поиска пиров</string>
-    <string name="settings_network_dht_label">Включить DHT</string>
     <string name="settings_network_encryption_allow">Разрешить</string>
     <string name="settings_network_encryption_disabled">Отключено</string>
     <string name="settings_network_encryption_label">Шифрование протокола</string>
@@ -263,7 +262,6 @@
     <string name="tab_trackers">Трекеры</string>
     <string name="tab_trackers_add_button">Добавить трекеры</string>
     <string name="tab_trackers_announcing">Объявление…</string>
-    <string name="tab_trackers_dht">Включить DHT</string>
     <string name="tab_trackers_empty">Нет трекеров</string>
     <string name="tab_trackers_peer_discovery_title">ПОИСК ПИРОВ</string>
     <string name="tab_trackers_peers_count">%1$d пиров</string>
@@ -272,7 +270,6 @@
     <string name="tab_trackers_section_title">Трекеры</string>
     <string name="tab_trackers_status_disabled">Отключено</string>
     <string name="tab_trackers_status_error">Ошибка</string>
-    <string name="tab_trackers_status_ok">ОК</string>
     <string name="tab_trackers_status_updating">Обновление…</string>
     <string name="torrent_already_in_list">Торрент уже в списке</string>
     <string name="torrent_detail_back_button">Назад</string>

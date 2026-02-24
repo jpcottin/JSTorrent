@@ -92,7 +92,6 @@
     <string name="settings_network_connection_section">接続</string>
     <string name="settings_network_description">DHT、UPnP、暗号化、プロキシ</string>
     <string name="settings_network_dht_description">ピアを検索するための分散ハッシュテーブル</string>
-    <string name="settings_network_dht_label">DHT</string>
     <string name="settings_network_encryption_allow">許可</string>
     <string name="settings_network_encryption_disabled">無効</string>
     <string name="settings_network_encryption_label">プロトコル暗号化</string>
@@ -263,7 +262,6 @@
     <string name="tab_trackers">トラッカー</string>
     <string name="tab_trackers_add_button">トラッカー追加</string>
     <string name="tab_trackers_announcing">アナウンス中…</string>
-    <string name="tab_trackers_dht">DHT</string>
     <string name="tab_trackers_empty">トラッカーなし</string>
     <string name="tab_trackers_peer_discovery_title">ピア探索</string>
     <string name="tab_trackers_peers_count">%1$d ピア</string>
@@ -272,7 +270,6 @@
     <string name="tab_trackers_section_title">トラッカー</string>
     <string name="tab_trackers_status_disabled">無効</string>
     <string name="tab_trackers_status_error">エラー</string>
-    <string name="tab_trackers_status_ok">OK</string>
     <string name="tab_trackers_status_updating">アップデート中…</string>
     <string name="torrent_already_in_list">トレントはすでにリストにあります</string>
     <string name="torrent_detail_back_button">戻る</string>

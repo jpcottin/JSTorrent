@@ -92,7 +92,6 @@
     <string name="settings_network_connection_section">連線</string>
     <string name="settings_network_description">DHT、UPnP、加密、代理</string>
     <string name="settings_network_dht_description">用於尋找節點的分散式雜湊表</string>
-    <string name="settings_network_dht_label">DHT</string>
     <string name="settings_network_encryption_allow">允許</string>
     <string name="settings_network_encryption_disabled">已停用</string>
     <string name="settings_network_encryption_label">協定加密</string>
@@ -263,7 +262,6 @@
     <string name="tab_trackers">追蹤器</string>
     <string name="tab_trackers_add_button">新增追蹤器</string>
     <string name="tab_trackers_announcing">通報中…</string>
-    <string name="tab_trackers_dht">DHT</string>
     <string name="tab_trackers_empty">沒有追蹤器</string>
     <string name="tab_trackers_peer_discovery_title">節點探索</string>
     <string name="tab_trackers_peers_count">%1$d 個節點</string>
@@ -272,7 +270,6 @@
     <string name="tab_trackers_section_title">追蹤器</string>
     <string name="tab_trackers_status_disabled">已停用</string>
     <string name="tab_trackers_status_error">錯誤</string>
-    <string name="tab_trackers_status_ok">確定</string>
     <string name="tab_trackers_status_updating">更新中…</string>
     <string name="torrent_already_in_list">Torrent 已在清單中</string>
     <string name="torrent_detail_back_button">返回</string>

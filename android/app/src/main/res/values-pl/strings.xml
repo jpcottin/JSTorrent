@@ -92,7 +92,6 @@ Włącz powiadomienia w ustawieniach aplikacji.</string>
     <string name="settings_network_connection_section">Połączenie</string>
     <string name="settings_network_description">DHT, UPnP, szyfrowanie, proxy</string>
     <string name="settings_network_dht_description">Rozproszony hash do wyszukiwania peerów</string>
-    <string name="settings_network_dht_label">DHT</string>
     <string name="settings_network_encryption_allow">Zezwól</string>
     <string name="settings_network_encryption_disabled">Wyłączone</string>
     <string name="settings_network_encryption_label">Szyfrowanie protokołu</string>
@@ -263,7 +262,6 @@ Włącz powiadomienia w ustawieniach aplikacji.</string>
     <string name="tab_trackers">Trackery</string>
     <string name="tab_trackers_add_button">Dodaj trackery</string>
     <string name="tab_trackers_announcing">Ogłaszanie…</string>
-    <string name="tab_trackers_dht">DHT</string>
     <string name="tab_trackers_empty">Brak trackerów</string>
     <string name="tab_trackers_peer_discovery_title">WYKRYWANIE PEERÓW</string>
     <string name="tab_trackers_peers_count">%1$d peerów</string>
@@ -272,7 +270,6 @@ Włącz powiadomienia w ustawieniach aplikacji.</string>
     <string name="tab_trackers_section_title">Trackery</string>
     <string name="tab_trackers_status_disabled">Wyłączone</string>
     <string name="tab_trackers_status_error">Błąd</string>
-    <string name="tab_trackers_status_ok">Ok</string>
     <string name="tab_trackers_status_updating">Aktualizowanie…</string>
     <string name="torrent_already_in_list">Torrent już na liście</string>
     <string name="torrent_detail_back_button">Wstecz</string>

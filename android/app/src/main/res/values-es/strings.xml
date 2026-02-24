@@ -92,7 +92,6 @@ Habilita las notificaciones en los ajustes de la app.</string>
     <string name="settings_network_connection_section">Conexión</string>
     <string name="settings_network_description">DHT, UPnP, cifrado, proxy</string>
     <string name="settings_network_dht_description">Tabla hash distribuida para encontrar pares</string>
-    <string name="settings_network_dht_label">DHT</string>
     <string name="settings_network_encryption_allow">Permitir</string>
     <string name="settings_network_encryption_disabled">Deshabilitado</string>
     <string name="settings_network_encryption_label">Cifrado de protocolo</string>
@@ -263,7 +262,6 @@ Habilita las notificaciones en los ajustes de la app.</string>
     <string name="tab_trackers">Rastreadores</string>
     <string name="tab_trackers_add_button">Añadir rastreadores</string>
     <string name="tab_trackers_announcing">Anunciando…</string>
-    <string name="tab_trackers_dht">DHT</string>
     <string name="tab_trackers_empty">No hay rastreadores</string>
     <string name="tab_trackers_peer_discovery_title">DESCUBRIMIENTO DE PARES</string>
     <string name="tab_trackers_peers_count">%1$d pares</string>
@@ -272,7 +270,6 @@ Habilita las notificaciones en los ajustes de la app.</string>
     <string name="tab_trackers_section_title">Rastreadores</string>
     <string name="tab_trackers_status_disabled">Deshabilitado</string>
     <string name="tab_trackers_status_error">Error</string>
-    <string name="tab_trackers_status_ok">Aceptar</string>
     <string name="tab_trackers_status_updating">Actualizando…</string>
     <string name="torrent_already_in_list">El torrent ya está en la lista</string>
     <string name="torrent_detail_back_button">Atrás</string>
