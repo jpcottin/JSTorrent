@@ -210,4 +210,89 @@ describe('BtEngine', () => {
     // Clean up to avoid timeout from tracker connections
     await client.destroy()
   }, 15000)
+
+  describe('removeTorrentWithData', () => {
+    it('should delete single-file torrent content from disk', async () => {
+      const info = {
+        name: 'test-file.txt',
+        'piece length': 16384,
+        pieces: new Uint8Array(20),
+        length: 1000,
+      }
+      const buffer = Bencode.encode({ info })
+
+      const { torrent } = await client.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      // Create the file on the in-memory filesystem
+      const handle = await fileSystem.open('test-file.txt', 'w')
+      await handle.write(new Uint8Array(1000), 0, 1000, 0)
+      await handle.close()
+      expect(await fileSystem.exists('test-file.txt')).toBe(true)
+
+      const result = await client.removeTorrentWithData(torrent)
+      expect(result.success).toBe(true)
+      expect(result.errors).toEqual([])
+      expect(await fileSystem.exists('test-file.txt')).toBe(false)
+    })
+
+    it('should delete multi-file torrent content from disk', async () => {
+      const info = {
+        name: 'Movie',
+        'piece length': 16384,
+        pieces: new Uint8Array(20),
+        files: [
+          { length: 500, path: ['movie.mkv'] },
+          { length: 300, path: ['extras', 'trailer.mkv'] },
+          { length: 200, path: ['subs', 'en.srt'] },
+        ],
+      }
+      const buffer = Bencode.encode({ info })
+
+      const { torrent } = await client.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      // Create files on the in-memory filesystem
+      for (const path of ['Movie/movie.mkv', 'Movie/extras/trailer.mkv', 'Movie/subs/en.srt']) {
+        const h = await fileSystem.open(path, 'w')
+        await h.write(new Uint8Array(100), 0, 100, 0)
+        await h.close()
+      }
+      expect(await fileSystem.exists('Movie/movie.mkv')).toBe(true)
+      expect(await fileSystem.exists('Movie/extras/trailer.mkv')).toBe(true)
+
+      const result = await client.removeTorrentWithData(torrent)
+      expect(result.success).toBe(true)
+      expect(result.errors).toEqual([])
+      expect(await fileSystem.exists('Movie/movie.mkv')).toBe(false)
+      expect(await fileSystem.exists('Movie/extras/trailer.mkv')).toBe(false)
+      expect(await fileSystem.exists('Movie/subs/en.srt')).toBe(false)
+    })
+
+    it('should delete content even when exists() throws', async () => {
+      const info = {
+        name: 'test-exists-throw.txt',
+        'piece length': 16384,
+        pieces: new Uint8Array(20),
+        length: 1000,
+      }
+      const buffer = Bencode.encode({ info })
+
+      const { torrent } = await client.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      // Create the file
+      const handle = await fileSystem.open('test-exists-throw.txt', 'w')
+      await handle.write(new Uint8Array(1000), 0, 1000, 0)
+      await handle.close()
+
+      // Make exists() throw
+      const origExists = fileSystem.exists.bind(fileSystem)
+      fileSystem.exists = vi.fn().mockRejectedValue(new Error('exists failed'))
+
+      const result = await client.removeTorrentWithData(torrent)
+      // Should still attempt deletion despite exists() throwing
+      expect(await origExists('test-exists-throw.txt')).toBe(false)
+    })
+  })
 })
