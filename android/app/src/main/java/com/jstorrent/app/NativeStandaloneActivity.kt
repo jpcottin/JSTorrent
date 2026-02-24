@@ -7,11 +7,11 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Base64
 import android.util.Log
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
 import androidx.compose.foundation.background
@@ -55,7 +55,7 @@ private const val TAG = "NativeStandaloneActivity"
  * Native standalone activity with Compose UI.
  * Uses the engine from the Application to display and control torrents.
  */
-class NativeStandaloneActivity : ComponentActivity() {
+class NativeStandaloneActivity : AppCompatActivity() {
 
     companion object {
         /**

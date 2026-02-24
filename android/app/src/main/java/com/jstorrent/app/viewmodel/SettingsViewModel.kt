@@ -656,13 +656,13 @@ class SettingsViewModel(
      */
     fun setAppLocale(tag: String) {
         settingsStore.appLocale = tag
+        _uiState.value = _uiState.value.copy(appLocale = tag)
         val localeList = if (tag.isEmpty()) {
             LocaleListCompat.getEmptyLocaleList()
         } else {
             LocaleListCompat.forLanguageTags(tag)
         }
         AppCompatDelegate.setApplicationLocales(localeList)
-        // Activity will be recreated by the system, no need to update UI state
     }
 
     /**

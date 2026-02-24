@@ -1,11 +1,10 @@
 package com.jstorrent.app
 
-import android.app.Activity
 import android.os.Bundle
 import android.util.Log
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,7 +21,7 @@ private const val TAG = "PairingApprovalActivity"
  * Launched by HttpServer when POST /pair is received.
  * Result communicated via companion object callback.
  */
-class PairingApprovalActivity : ComponentActivity() {
+class PairingApprovalActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,7 +75,7 @@ class PairingApprovalActivity : ComponentActivity() {
     }
 
     private fun finishWithResult(approved: Boolean) {
-        setResult(if (approved) Activity.RESULT_OK else Activity.RESULT_CANCELED)
+        setResult(if (approved) RESULT_OK else RESULT_CANCELED)
         finish()
     }
 
