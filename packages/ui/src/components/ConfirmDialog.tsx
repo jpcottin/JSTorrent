@@ -6,6 +6,7 @@ export interface ConfirmDialogProps {
   confirmLabel?: string
   cancelLabel?: string
   danger?: boolean
+  loading?: boolean
   onConfirm: () => void
   onCancel: () => void
 }
@@ -85,23 +86,24 @@ export function ConfirmDialog({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   danger = false,
+  loading = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
 
-  // Close on Escape key
+  // Close on Escape key (disabled while loading)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel()
+      if (e.key === 'Escape' && !loading) onCancel()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onCancel])
+  }, [onCancel, loading])
 
-  // Click outside to cancel
+  // Click outside to cancel (disabled while loading)
   const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === overlayRef.current) onCancel()
+    if (e.target === overlayRef.current && !loading) onCancel()
   }
 
   return (
@@ -110,11 +112,20 @@ export function ConfirmDialog({
         <h3 style={titleStyle}>{title}</h3>
         <div style={messageStyle}>{message}</div>
         <div style={buttonRowStyle}>
-          <button style={cancelButtonStyle} onClick={onCancel}>
-            {cancelLabel}
-          </button>
-          <button style={danger ? dangerButtonStyle : confirmButtonStyle} onClick={onConfirm}>
-            {confirmLabel}
+          {!loading && (
+            <button style={cancelButtonStyle} onClick={onCancel}>
+              {cancelLabel}
+            </button>
+          )}
+          <button
+            style={{
+              ...(danger ? dangerButtonStyle : confirmButtonStyle),
+              ...(loading ? { opacity: 0.7, cursor: 'not-allowed' } : {}),
+            }}
+            onClick={onConfirm}
+            disabled={loading}
+          >
+            {loading ? 'Deleting\u2026' : confirmLabel}
           </button>
         </div>
       </div>

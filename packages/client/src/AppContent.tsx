@@ -79,6 +79,7 @@ export function AppContent({
   }, [])
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [confirmRemoveAll, setConfirmRemoveAll] = useState<Torrent[] | null>(null)
+  const [removingData, setRemovingData] = useState(false)
   const { adapter, torrents, refresh } = useEngineState()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -222,12 +223,14 @@ export function AppContent({
   }
 
   const handleRemoveWithDataConfirm = async () => {
-    if (!confirmRemoveAll) return
+    if (!confirmRemoveAll || removingData) return
+    setRemovingData(true)
     const errors: string[] = []
     for (const t of confirmRemoveAll) {
       const result = await adapter.removeTorrentWithData(t)
       errors.push(...result.errors)
     }
+    setRemovingData(false)
     setConfirmRemoveAll(null)
     setSelectedTorrents(new Set())
     if (errors.length > 0) {
@@ -623,6 +626,7 @@ export function AppContent({
           } and ALL downloaded files? This cannot be undone.`}
           confirmLabel="Delete Everything"
           danger
+          loading={removingData}
           onConfirm={handleRemoveWithDataConfirm}
           onCancel={() => setConfirmRemoveAll(null)}
         />
