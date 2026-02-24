@@ -10,6 +10,8 @@ export interface UpdateCheckEvent {
   latestVersion: string
   updateAvailable: boolean
   userAgent: string
+  cfuId: string
+  checkReason: string
 }
 
 export class AnalyticsLogger {

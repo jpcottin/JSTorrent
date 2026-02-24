@@ -61,6 +61,8 @@ async function handleUpdateCheck(
     latestVersion: latest.version,
     updateAvailable,
     userAgent: req.headers['user-agent'] || '',
+    cfuId: (req.headers['x-cfu-id'] as string) || '',
+    checkReason: (req.headers['x-check-reason'] as string) || '',
   })
 
   if (!updateAvailable) {
