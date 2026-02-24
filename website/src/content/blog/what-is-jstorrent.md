@@ -29,6 +29,7 @@ Why another torrent client? Why not just use Transmission or qBittorrent or uTor
 - Lightweight. Android app is ~3MB. 9 MB Windows / 12 MB Mac. No electron crap. Rust+Typescript (+Kotlin/QuickJS on Android)
 - No ads. ever. No crypto crap.
 - Secure. Completely open source, all builds created and signed by Github.
+- Fast. 90+ MB/s on Android, 100+ MB/s on desktop
 - Goes with you on every platform
 - No accounts, no sign in, no telemetry, no spying
 - Chromebook support!
