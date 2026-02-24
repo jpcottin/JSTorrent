@@ -847,6 +847,10 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   }
 
   async removeTorrent(torrent: Torrent) {
+    // Immediately stop network activity (synchronous) so the torrent can't
+    // continue downloading while we do async cleanup below.
+    torrent.stopNetwork()
+
     // Notify queue manager before removal (while torrent is still in the list)
     this.queueManager?.onTorrentRemoved(torrent)
 
@@ -885,13 +889,18 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     const errors: string[] = []
     const infoHash = toHex(torrent.infoHash)
 
-    // 1. Close file handles and stop torrent
+    // 1. Immediately stop all network activity (synchronous) before any async work.
+    // This prevents the torrent from continuing to download/connect while we
+    // close file handles and delete files, which can be slow on Android/SAF.
+    torrent.stopNetwork()
+
+    // 2. Close file handles and fully destroy torrent state
     if (torrent.contentStorage) {
       await torrent.contentStorage.close()
     }
     await torrent.destroy({ skipAnnounce: true })
 
-    // 2. Get filesystem for this torrent (may throw if no storage root)
+    // 3. Get filesystem for this torrent (may throw if no storage root)
     let fs: IFileSystem | null = null
     try {
       fs = this.storageRootManager.getFileSystemForTorrent(infoHash)
@@ -899,7 +908,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       // No storage root - skip file deletion (torrent may never have had files)
     }
 
-    // 3. Delete content files
+    // 4. Delete content files
     if (torrent.contentStorage && fs) {
       for (const file of torrent.contentStorage.filesList) {
         try {
@@ -914,7 +923,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       await this.cleanupEmptyDirectories(fs, torrent.contentStorage.filesList)
     }
 
-    // 4. Delete .parts file
+    // 5. Delete .parts file
     if (fs) {
       const partsPath = `${infoHash}.parts`
       try {
@@ -926,7 +935,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       }
     }
 
-    // 5. Remove from engine (clears session data)
+    // 6. Remove from engine (clears session data)
     await this.removeTorrent(torrent)
 
     return { success: errors.length === 0, errors }
