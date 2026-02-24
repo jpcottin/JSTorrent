@@ -125,12 +125,13 @@ def group_strings(strings):
 
 
 def generate_prompt(lang_code, unmatched_strings, reference_translations=None,
-                    existing_llm_translations=None):
+                    existing_llm_translations=None, jst_en=None):
     """Generate the LLM translation prompt.
 
     Args:
         existing_llm_translations: dict of name -> translation from previous LLM runs.
             Included as context for terminology consistency in diff mode.
+        jst_en: dict of name -> English text (used to show English alongside existing translations).
     """
     lang_name = LANG_NAMES.get(lang_code, lang_code)
 
@@ -164,7 +165,11 @@ def generate_prompt(lang_code, unmatched_strings, reference_translations=None,
         lines.append("Use these for terminology and style consistency (do NOT re-translate these):")
         lines.append("")
         for name, tr in sorted(existing_llm_translations.items()):
-            lines.append(f"  {name}: \"{tr}\"")
+            en_text = jst_en.get(name, "") if jst_en else ""
+            if en_text:
+                lines.append(f"  {name}: \"{en_text}\" -> \"{tr}\"")
+            else:
+                lines.append(f"  {name}: \"{tr}\"")
         lines.append("")
 
     lines.append("Output format: Return ONLY a JSON object mapping string ID to translation.")
@@ -237,7 +242,7 @@ def main():
     if args.reference:
         reference = get_matched_translations(jst_en, args.lang)
 
-    prompt = generate_prompt(args.lang, unmatched, reference, existing_llm)
+    prompt = generate_prompt(args.lang, unmatched, reference, existing_llm, jst_en)
     print(prompt)
 
 

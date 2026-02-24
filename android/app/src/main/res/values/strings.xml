@@ -426,10 +426,6 @@
     <string name="dht_info_errors">Errors</string>
     <string name="dht_info_bytes_sent">Bytes Sent</string>
     <string name="dht_info_bytes_received">Bytes Received</string>
-    <string name="dht_info_query_ping">ping</string>
-    <string name="dht_info_query_find_node">find_node</string>
-    <string name="dht_info_query_get_peers">get_peers</string>
-    <string name="dht_info_query_announce_peer">announce_peer</string>
 
     <!-- LogViewerScreen -->
     <string name="logs_title">Logs</string>

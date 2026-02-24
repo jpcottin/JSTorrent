@@ -279,22 +279,22 @@ private fun QueriesSentSection(stats: DhtStats) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             QueryStatRow(
-                label = stringResource(R.string.dht_info_query_ping),
+                label = "ping",
                 succeeded = stats.pingsSucceeded,
                 total = stats.pingsSent
             )
             QueryStatRow(
-                label = stringResource(R.string.dht_info_query_find_node),
+                label = "find_node",
                 succeeded = stats.findNodesSucceeded,
                 total = stats.findNodesSent
             )
             QueryStatRow(
-                label = stringResource(R.string.dht_info_query_get_peers),
+                label = "get_peers",
                 succeeded = stats.getPeersSucceeded,
                 total = stats.getPeersSent
             )
             QueryStatRow(
-                label = stringResource(R.string.dht_info_query_announce_peer),
+                label = "announce_peer",
                 succeeded = stats.announcesSucceeded,
                 total = stats.announcesSent
             )
@@ -316,10 +316,10 @@ private fun QueriesReceivedSection(stats: DhtStats) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            StatRow(label = stringResource(R.string.dht_info_query_ping), value = stats.pingsReceived.toString())
-            StatRow(label = stringResource(R.string.dht_info_query_find_node), value = stats.findNodesReceived.toString())
-            StatRow(label = stringResource(R.string.dht_info_query_get_peers), value = stats.getPeersReceived.toString())
-            StatRow(label = stringResource(R.string.dht_info_query_announce_peer), value = stats.announcesReceived.toString())
+            StatRow(label = "ping", value = stats.pingsReceived.toString())
+            StatRow(label = "find_node", value = stats.findNodesReceived.toString())
+            StatRow(label = "get_peers", value = stats.getPeersReceived.toString())
+            StatRow(label = "announce_peer", value = stats.announcesReceived.toString())
         }
     }
 }
