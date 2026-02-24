@@ -59,6 +59,10 @@ packages/engine/src/geo/ipv4-country-data.ts
 # Claude Code
 .claude/settings.local.json
 
+# Translation pipeline intermediates
+android/scripts/translate/claude/*.raw
+android/scripts/translate/claude/*.err
+
 # Inno Setup output
 desktop/installers/windows/Output/
 .mcp.json

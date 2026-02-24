@@ -2,10 +2,12 @@ package com.jstorrent.io.file
 
 import android.net.Uri
 import android.util.Log
+import androidx.documentfile.provider.DocumentFile
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -20,10 +22,15 @@ import java.util.concurrent.TimeUnit
  * Concurrency tests for FileManagerImpl to verify that concurrent directory
  * creation does not produce duplicates or deadlocks.
  *
- * Uses file:// URIs (where Java's File.mkdirs() is idempotent) to verify
- * the locking infrastructure doesn't deadlock and concurrent operations succeed.
- * The actual SAF race (duplicate "name (1)" directories) only manifests with
- * content:// URIs, but the same findOrCreateDirectory code path is exercised.
+ * Two categories:
+ * 1. file:// URI tests — verify the locking infrastructure doesn't deadlock
+ *    and concurrent operations succeed (Java's File.mkdirs() is idempotent,
+ *    so these can't reproduce the SAF deduplication race).
+ * 2. content:// URI test — uses [DuplicatingDocumentsProvider], a custom
+ *    DocumentsProvider that mimics ExternalStorageProvider's deduplication
+ *    behavior (createDirectory always creates "name (1)" if "name" exists).
+ *    This exercises the real findOrCreateDirectory() SAF code path and can
+ *    reproduce the race condition that the per-directory lock fixes.
  */
 @RunWith(AndroidJUnit4::class)
 class FileManagerConcurrencyTest {
@@ -274,6 +281,99 @@ class FileManagerConcurrencyTest {
             val file = File(dir, "file_$t.bin")
             assertTrue("file_$t.bin should exist", file.exists())
         }
+    }
+
+    // =========================================================================
+    // SAF (content://) concurrency tests
+    //
+    // Uses DuplicatingDocumentsProvider — a custom DocumentsProvider registered
+    // in the test APK that mimics ExternalStorageProvider's behavior: when
+    // createDocument() is called for a directory name that already exists, it
+    // deduplicates to "name (1)", "name (2)", etc.
+    //
+    // This exercises the exact same findOrCreateDirectory() code path with real
+    // content:// URIs, without requiring external storage permissions.
+    // =========================================================================
+
+    /** Tree URI pointing to our test DocumentsProvider's root. */
+    private val safTreeUri = Uri.parse(
+        "content://${DuplicatingDocumentsProvider.AUTHORITY}/tree/${DuplicatingDocumentsProvider.ROOT_ID}"
+    )
+
+    /**
+     * Clean up all content under the test provider's root directory.
+     */
+    private fun cleanSafTestDir() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = DocumentFile.fromTreeUri(context, safTreeUri) ?: return
+        root.listFiles().forEach { it.delete() }
+    }
+
+    /**
+     * Concurrent writes to the same parent directory via content:// URI backed
+     * by DuplicatingDocumentsProvider. The provider's createDocument() deduplicates
+     * directory names to "name (1)" etc., exactly like the real
+     * ExternalStorageProvider. Without the per-directory lock in
+     * findOrCreateDirectory(), this test produces duplicate directories.
+     */
+    @Test
+    fun saf_concurrentWritesSameDirectory_noDuplicates() {
+        cleanSafTestDir()
+
+        val dirName = "RaceTest"
+        val threadCount = 8
+        val testData = ByteArray(64) { it.toByte() }
+
+        val executor = Executors.newFixedThreadPool(threadCount)
+        val startLatch = CountDownLatch(1)
+        val doneLatch = CountDownLatch(threadCount)
+        val errors = ConcurrentLinkedQueue<Throwable>()
+
+        for (t in 0 until threadCount) {
+            executor.submit {
+                try {
+                    startLatch.await(5, TimeUnit.SECONDS)
+                    fileManager.write(safTreeUri, "$dirName/file_$t.bin", 0L, testData)
+                } catch (e: Throwable) {
+                    Log.e(TAG, "SAF thread $t failed", e)
+                    errors.add(e)
+                } finally {
+                    doneLatch.countDown()
+                }
+            }
+        }
+
+        startLatch.countDown()
+        assertTrue("All threads should complete within 60s",
+            doneLatch.await(60, TimeUnit.SECONDS))
+        executor.shutdown()
+
+        assertTrue("No errors expected, got: ${errors.map { it.message }}",
+            errors.isEmpty())
+
+        // Verify via SAF: only one "RaceTest" directory, no "RaceTest (1)" etc.
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = DocumentFile.fromTreeUri(context, safTreeUri)
+        assertNotNull("SAF root should be accessible", root)
+
+        val children = root!!.listFiles()
+        val matchingDirs = children.filter {
+            it.isDirectory && it.name?.startsWith(dirName) == true
+        }
+        assertEquals(
+            "Should have exactly one '$dirName' directory via SAF, " +
+                "found: ${matchingDirs.map { it.name }}",
+            1, matchingDirs.size
+        )
+        assertEquals("Directory name should be exact", dirName, matchingDirs[0].name)
+
+        // Verify all files exist inside
+        val raceDir = matchingDirs[0]
+        val files = raceDir.listFiles()
+        assertEquals("All $threadCount files should be present", threadCount, files.size)
+
+        // Clean up
+        cleanSafTestDir()
     }
 
     /**
