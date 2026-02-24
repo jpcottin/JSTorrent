@@ -277,6 +277,7 @@ private class NettyHttpHandler(
                 path.startsWith("/write-batch/") && method == HttpMethod.POST -> handleWriteBatch(ctx, request, path)
                 path.startsWith("/ops/exists") && method == HttpMethod.GET -> handleOpsExists(ctx, request)
                 path == "/ops/delete" && method == HttpMethod.POST -> handleOpsDelete(ctx, request)
+                path == "/ops/batch_delete" && method == HttpMethod.POST -> handleOpsBatchDelete(ctx, request)
                 path.startsWith("/ops/stat") && method == HttpMethod.GET -> handleOpsStat(ctx, request)
                 path.startsWith("/ops/list_tree") && method == HttpMethod.GET -> handleOpsListTree(ctx, request)
                 path == "/ops/verify_chunks" && method == HttpMethod.POST -> handleOpsVerifyChunks(ctx, request)
@@ -754,6 +755,54 @@ private class NettyHttpHandler(
             return
         }
         sendJsonResponse(ctx, request, HttpResponseStatus.OK, """{"ok":true}""")
+    }
+
+    /**
+     * POST /ops/batch_delete
+     * Body: {"root_key": "...", "directory": "...", "entries": ["file1", "dir2", ...]}
+     * Returns: JSON array of entry names that failed to delete
+     */
+    private fun handleOpsBatchDelete(ctx: ChannelHandlerContext, request: FullHttpRequest) {
+        if (getExtensionHeaders(request) == null && !isStandaloneAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing extension headers")
+            return
+        }
+        if (!validateAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.UNAUTHORIZED, "Invalid token")
+            return
+        }
+
+        val body = request.content().toString(Charsets.UTF_8)
+        val json = try {
+            org.json.JSONObject(body)
+        } catch (e: Exception) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid JSON body")
+            return
+        }
+
+        val rootKey = if (json.has("root_key")) json.getString("root_key") else null
+        val directory = if (json.has("directory")) json.getString("directory") else null
+        val entriesArr = if (json.has("entries")) json.getJSONArray("entries") else null
+
+        if (rootKey == null || directory == null || entriesArr == null) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing root_key, directory, or entries")
+            return
+        }
+
+        if (directory.contains("..")) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid directory path")
+            return
+        }
+
+        val rootUri = deps.rootStore.resolveKey(rootKey)
+        if (rootUri == null) {
+            sendError(ctx, request, HttpResponseStatus.FORBIDDEN, "Invalid root key")
+            return
+        }
+
+        val entries = (0 until entriesArr.length()).map { i -> entriesArr.getString(i) }
+        val failed = fileManager.batchDelete(rootUri, directory, entries)
+        sendJsonResponse(ctx, request, HttpResponseStatus.OK, org.json.JSONArray(failed).toString())
     }
 
     /**

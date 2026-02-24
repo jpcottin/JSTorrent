@@ -457,6 +457,65 @@ class FileManagerImpl(
         return deleted
     }
 
+    override fun batchDelete(rootUri: Uri, directory: String, entries: List<String>): List<String> {
+        if (isFileUri(rootUri)) {
+            return batchDeleteNative(rootUri, directory, entries)
+        }
+        return batchDeleteSaf(rootUri, directory, entries)
+    }
+
+    private fun batchDeleteNative(rootUri: Uri, directory: String, entries: List<String>): List<String> {
+        val dirFile = resolveNativeFile(rootUri, directory)
+        val failed = mutableListOf<String>()
+        for (entry in entries) {
+            if (entry.contains('/') || entry.contains('\\') || entry.contains("..")) {
+                failed.add(entry)
+                continue
+            }
+            val entryFile = File(dirFile, entry)
+            if (!entryFile.exists()) continue // Missing entries silently ignored
+            // Close any pooled handles before deleting
+            val absPath = entryFile.absolutePath
+            fileHandleLock.withLock {
+                fileHandlePool.remove(absPath)?.close()
+            }
+            val deleted = if (entryFile.isDirectory) entryFile.delete() else entryFile.delete()
+            if (!deleted) {
+                failed.add(entry)
+            }
+        }
+        return failed
+    }
+
+    private fun batchDeleteSaf(rootUri: Uri, directory: String, entries: List<String>): List<String> {
+        val dirDoc = resolvePath(rootUri, directory) ?: return entries.toList()
+        if (!dirDoc.isDirectory) return entries.toList()
+        val failed = mutableListOf<String>()
+        for (entry in entries) {
+            if (entry.contains('/') || entry.contains('\\') || entry.contains("..")) {
+                failed.add(entry)
+                continue
+            }
+            val child = dirDoc.findFile(entry)
+            if (child == null) continue // Missing entries silently ignored
+            // Close any pooled SAF handles
+            val cacheKey = "$rootUri|${if (directory.isEmpty()) entry else "$directory/$entry"}"
+            safHandleLock.withLock {
+                safHandlePool.remove(cacheKey)?.close()
+            }
+            val deleted = child.delete()
+            if (!deleted) {
+                failed.add(entry)
+            } else {
+                // Invalidate cache
+                synchronized(cacheLock) {
+                    documentFileCache.keys.removeAll { it.startsWith(cacheKey) }
+                }
+            }
+        }
+        return failed
+    }
+
     // =========================================================================
     // Internal helpers
     // =========================================================================

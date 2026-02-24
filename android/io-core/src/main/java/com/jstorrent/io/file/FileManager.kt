@@ -160,6 +160,18 @@ interface FileManager {
     fun listTree(rootUri: Uri, relativePath: String): List<FileTreeEntry>
 
     /**
+     * Delete a list of entries (files or empty directories) within a directory.
+     * Each entry is a name relative to the directory (not a nested path).
+     * Missing entries are silently ignored (not reported as failures).
+     *
+     * @param rootUri SAF tree URI for the root
+     * @param directory Directory path relative to root
+     * @param entries List of filenames/directory names to delete within the directory
+     * @return List of entry names that failed to delete (empty = all succeeded)
+     */
+    fun batchDelete(rootUri: Uri, directory: String, entries: List<String>): List<String>
+
+    /**
      * Verify chunks by reading files as a concatenated byte stream and comparing
      * SHA1 hashes. Returns one byte per chunk: 0=match, 1=mismatch, 2=io_error.
      *

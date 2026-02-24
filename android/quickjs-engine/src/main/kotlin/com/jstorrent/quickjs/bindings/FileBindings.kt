@@ -654,6 +654,26 @@ class FileBindings(
             }
         }
 
+        // __jstorrent_file_batch_delete(rootKey: string, requestJson: string): string (JSON array of failed entries)
+        ctx.setGlobalFunction("__jstorrent_file_batch_delete") { args ->
+            val rootKey = args.getOrNull(0) ?: ""
+            val requestJson = args.getOrNull(1) ?: ""
+
+            val rootUri = resolveRoot(rootKey) ?: return@setGlobalFunction "[]"
+
+            try {
+                val json = JSONObject(requestJson)
+                val directory = json.getString("directory")
+                val entriesArr = json.getJSONArray("entries")
+                val entries = (0 until entriesArr.length()).map { i -> entriesArr.getString(i) }
+                val failed = fileManager.batchDelete(rootUri, directory, entries)
+                JSONArray(failed).toString()
+            } catch (e: Exception) {
+                Log.e(TAG, "BatchDelete failed", e)
+                "[]"
+            }
+        }
+
         // __jstorrent_file_list_tree(rootKey: string, path: string): string (JSON array)
         ctx.setGlobalFunction("__jstorrent_file_list_tree") { args ->
             val rootKey = args.getOrNull(0) ?: ""
