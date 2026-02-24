@@ -102,6 +102,27 @@ export class NodeFileSystem implements IFileSystem {
     await fs.rm(filePath, { recursive: true, force: true })
   }
 
+  async batchDelete(directory: string, entries: string[]): Promise<string[]> {
+    const failed: string[] = []
+    const results = await Promise.allSettled(
+      entries.map(async (entry) => {
+        const p = path.join(directory, entry)
+        try {
+          await fs.rm(p, { force: true })
+        } catch {
+          // fs.rm without recursive fails on directories — try rmdir (empty dirs only)
+          await fs.rmdir(p)
+        }
+      }),
+    )
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status === 'rejected') {
+        failed.push(entries[i])
+      }
+    }
+    return failed
+  }
+
   async verifyChunks(request: VerifyChunksRequest): Promise<Uint8Array> {
     const { files, chunkSize, hashes } = request
     const totalLength = files.reduce((sum, f) => sum + f.length, 0)

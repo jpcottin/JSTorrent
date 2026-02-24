@@ -34,6 +34,10 @@ export class ScopedNodeFileSystem extends NodeFileSystem {
     return super.listTree(this.resolve(dirPath))
   }
 
+  async batchDelete(directory: string, entries: string[]) {
+    return super.batchDelete(this.resolve(directory), entries)
+  }
+
   async verifyChunks(request: VerifyChunksRequest) {
     return super.verifyChunks({
       ...request,

@@ -69,6 +69,10 @@ export class NullFileSystem implements IFileSystem {
     this.sizes.delete(path)
   }
 
+  async batchDelete(_directory: string, _entries: string[]): Promise<string[]> {
+    return []
+  }
+
   async listTree(_path: string): Promise<Array<{ path: string; size: number }>> {
     return []
   }

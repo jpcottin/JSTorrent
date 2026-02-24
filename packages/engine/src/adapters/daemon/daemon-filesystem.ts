@@ -72,6 +72,14 @@ export class DaemonFileSystem implements IFileSystem {
     })
   }
 
+  async batchDelete(directory: string, entries: string[]): Promise<string[]> {
+    return this.connection.request<string[]>('POST', '/ops/batch_delete', undefined, {
+      root_key: this.rootKey,
+      directory,
+      entries,
+    })
+  }
+
   async listTree(path: string): Promise<Array<{ path: string; size: number }>> {
     return this.connection.request<Array<{ path: string; size: number }>>('GET', '/ops/list_tree', {
       path,

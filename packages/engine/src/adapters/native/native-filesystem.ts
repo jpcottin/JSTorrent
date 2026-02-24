@@ -95,6 +95,12 @@ export class NativeFileSystem implements IFileSystem {
     }
   }
 
+  async batchDelete(directory: string, entries: string[]): Promise<string[]> {
+    const requestJson = JSON.stringify({ directory, entries })
+    const result = __jstorrent_file_batch_delete(this.rootKey, requestJson)
+    return JSON.parse(result) as string[]
+  }
+
   /**
    * Recursively list all files under a directory with their sizes.
    * Uses dedicated __jstorrent_file_list_tree JNI call for efficiency.

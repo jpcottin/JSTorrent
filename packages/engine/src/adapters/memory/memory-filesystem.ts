@@ -138,6 +138,34 @@ export class InMemoryFileSystem implements IFileSystem {
     this.files.delete(path)
   }
 
+  async batchDelete(directory: string, entries: string[]): Promise<string[]> {
+    const failed: string[] = []
+    const prefix = directory ? `${directory}/` : ''
+    for (const entry of entries) {
+      const fullPath = `${prefix}${entry}`
+      // Try as file first
+      if (this.files.has(fullPath)) {
+        this.files.delete(fullPath)
+        continue
+      }
+      // Try as directory (prefix match)
+      const dirPrefix = `${fullPath}/`
+      let isDir = false
+      for (const key of this.files.keys()) {
+        if (key.startsWith(dirPrefix)) {
+          isDir = true
+          break
+        }
+      }
+      if (isDir) {
+        // Non-empty directory — can't delete (engine should have emptied it first)
+        failed.push(entry)
+      }
+      // If neither file nor directory exists, silently ignore (missing = ok)
+    }
+    return failed
+  }
+
   async verifyChunks(request: VerifyChunksRequest): Promise<Uint8Array> {
     const { files, chunkSize, hashes } = request
     const totalLength = files.reduce((sum, f) => sum + f.length, 0)

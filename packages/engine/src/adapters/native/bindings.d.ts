@@ -238,6 +238,17 @@ declare global {
   function __jstorrent_file_list_tree(rootKey: string, path: string): string
 
   /**
+   * Delete a list of entries (files or empty directories) within a directory.
+   * Missing entries are silently ignored.
+   * Returns JSON array of entry names that failed to delete.
+   *
+   * @param rootKey Storage root key
+   * @param requestJson JSON string: { directory: string, entries: string[] }
+   * @returns JSON array string of failed entry names (e.g. '["file.txt"]' or '[]')
+   */
+  function __jstorrent_file_batch_delete(rootKey: string, requestJson: string): string
+
+  /**
    * Verify chunks by reading and hashing files on the native side.
    * Files are treated as an implicitly concatenated byte stream.
    * Returns ArrayBuffer with one byte per chunk: 0=match, 1=mismatch, 2=io_error.

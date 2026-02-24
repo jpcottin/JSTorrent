@@ -113,4 +113,15 @@ export interface IFileSystem {
    * @returns One byte per chunk: 0=MATCH, 1=MISMATCH, 2=IO_ERROR
    */
   verifyChunks(request: VerifyChunksRequest): Promise<Uint8Array>
+
+  /**
+   * Delete a list of entries (files or empty directories) within a directory.
+   * Each entry is a name relative to the directory (not a nested path).
+   * Missing entries are silently ignored (not reported as failures).
+   *
+   * @param directory Parent directory path
+   * @param entries List of filenames/directory names to delete within the directory
+   * @returns List of entry names that failed to delete (empty = all succeeded)
+   */
+  batchDelete(directory: string, entries: string[]): Promise<string[]>
 }
