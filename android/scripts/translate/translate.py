@@ -14,9 +14,10 @@ Only strings with a translation are emitted. Untranslated strings are omitted fr
 Usage:
     python translate.py de                 # generate German, write to values-de/strings.xml
     python translate.py de --dry-run       # preview without writing
-    python translate.py --all              # generate all available languages
-    python translate.py --all --dry-run    # preview all languages
-    python translate.py --summary          # coverage table across all languages
+    python translate.py --all              # generate tier 1 languages
+    python translate.py --all --dry-run    # preview tier 1 languages
+    python translate.py --all-sources      # generate ALL available languages (not just tier 1)
+    python translate.py --summary          # coverage table across all available languages
 
 Reference repos expected at:
     ~/code/reference/libretorrent/
@@ -25,200 +26,19 @@ Reference repos expected at:
 """
 
 import argparse
-import xml.etree.ElementTree as ET
-import os
-from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).parent
-ANDROID_DIR = SCRIPT_DIR.parent.parent
-JSTORRENT_STRINGS = ANDROID_DIR / "app/src/main/res/values/strings.xml"
-
-LIBRETORRENT_DIR = Path(os.path.expanduser("~/code/reference/libretorrent/app/src/main/res"))
-LIBRETORRENT_EN = LIBRETORRENT_DIR / "values/strings.xml"
-TRANSMISSION_DIR = Path(os.path.expanduser("~/code/reference/transmission/qt/translations"))
-TRANSMISSION_EN = TRANSMISSION_DIR / "transmission_en.ts"
-QBITTORRENT_DESKTOP_DIR = Path(os.path.expanduser("~/code/reference/qbittorrent/src/lang"))
-QBITTORRENT_WEBUI_DIR = Path(os.path.expanduser("~/code/reference/qbittorrent/src/webui/www/translations"))
-
-# Skip these string IDs (debug-only or should not be translated)
-SKIP_IDS = {
-    "app_name",
-    "debug_add_test_100mb",
-    "debug_add_test_1gb",
-    "debug_add_ubuntu",
-    "debug_add_bunny",
-    "debug_add_webtorrent",
-    "debug_show_review_dialog",
-    "debug_reset_state",
-    "dialog_add_torrent_magnet_hint",  # placeholder example, keep as-is
-    "settings_network_proxy_host_placeholder",  # example domain, keep as-is
-    "settings_network_proxy_port_placeholder",  # number, keep as-is
-}
-
-# Manual mapping: JSTorrent string ID -> LibreTorrent string ID
-# For cases where the English text differs but the meaning is the same.
-MANUAL_ID_MAP = {
-    # JST says "Remove" but we want LT's "Delete" translation
-    "dialog_remove_confirm_button": "delete",
-    "dialog_bulk_remove_confirm_button": "delete",
-    "settings_storage_remove_folder_confirm": "delete",
-}
+from translate_common import (
+    ANDROID_RES, JSTORRENT_STRINGS, LIBRETORRENT_EN, SKIP_IDS, MANUAL_ID_MAP,
+    parse_android, build_reverse, write_strings_xml,
+    load_lt_translations, load_tx_translations, load_qb_translations,
+    get_tier1_languages, get_all_languages,
+)
 
 # Per-language translations for strings that have no match in any source.
 MANUAL_TRANSLATIONS = {
     "de": {},
 }
 
-# Language dirs in LT that aren't real translations
-LT_SKIP_DIRS = {
-    "large-land", "large-port", "night", "night-v31", "v30", "v31",
-    "sw360dp-v13", "sw600dp-land", "w1024dp", "w600dp", "w720dp",
-}
-
-
-# --- Parsing ---
-
-def parse_android(path):
-    """Parse an Android strings.xml file, return dict of name -> text."""
-    if not path.exists():
-        return {}
-    tree = ET.parse(path)
-    strings = {}
-    for elem in tree.getroot().findall("string"):
-        name = elem.get("name")
-        text = elem.text or ""
-        for child in elem:
-            text += ET.tostring(child, encoding="unicode")
-        strings[name] = text
-    return strings
-
-
-def build_reverse(strings):
-    """Build lowercase text -> list of IDs lookup."""
-    lookup = {}
-    for name, text in strings.items():
-        key = text.strip().lower()
-        lookup.setdefault(key, []).append(name)
-    return lookup
-
-
-def parse_qt_translations(ts_path):
-    """Parse a Qt .ts file, return dict of lowercase_source -> translation."""
-    if not ts_path.exists():
-        return {}
-    tree = ET.parse(ts_path)
-    translations = {}
-    for msg in tree.getroot().iter("message"):
-        src = msg.find("source")
-        tr = msg.find("translation")
-        if src is None or src.text is None:
-            continue
-        if tr is None or tr.text is None:
-            continue
-        # Skip unfinished translations
-        if tr.get("type") == "unfinished":
-            continue
-        key = src.text.strip().lower()
-        # First match wins (some sources may have duplicates)
-        if key not in translations:
-            translations[key] = tr.text
-    return translations
-
-
-def parse_qt_sources(ts_path):
-    """Extract English source strings from a Qt .ts file. Returns lowercase -> [original]."""
-    if not ts_path.exists():
-        return {}
-    tree = ET.parse(ts_path)
-    sources = {}
-    for msg in tree.getroot().iter("message"):
-        src = msg.find("source")
-        if src is not None and src.text:
-            key = src.text.strip().lower()
-            sources.setdefault(key, []).append(src.text.strip())
-    return sources
-
-
-# --- Language discovery ---
-
-def android_to_qt(android_code):
-    """Convert Android language code to Qt style. e.g. pt-rBR -> pt_BR"""
-    return android_code.replace("-r", "_")
-
-
-def qt_to_android(qt_code):
-    """Convert Qt language code to Android style. e.g. pt_BR -> pt-rBR"""
-    if "_" in qt_code:
-        parts = qt_code.split("_", 1)
-        return f"{parts[0]}-r{parts[1]}"
-    return qt_code
-
-
-def get_lt_languages():
-    """Get language codes from LibreTorrent (Android format)."""
-    langs = set()
-    for d in LIBRETORRENT_DIR.iterdir():
-        if d.is_dir() and d.name.startswith("values-"):
-            code = d.name[len("values-"):]
-            if code not in LT_SKIP_DIRS and (d / "strings.xml").exists():
-                langs.add(code)
-    return langs
-
-
-def get_tx_languages():
-    """Get language codes from Transmission (Qt format, converted to Android)."""
-    langs = set()
-    for f in TRANSMISSION_DIR.glob("transmission_*.ts"):
-        code = f.stem.replace("transmission_", "")
-        if code != "en":
-            langs.add(qt_to_android(code))
-    return langs
-
-
-def get_qb_languages():
-    """Get language codes from qBittorrent (Qt format, converted to Android)."""
-    langs = set()
-    for f in QBITTORRENT_DESKTOP_DIR.glob("qbittorrent_*.ts"):
-        code = f.stem.replace("qbittorrent_", "")
-        if code != "en":
-            langs.add(qt_to_android(code))
-    return langs
-
-
-def get_all_languages():
-    """Get union of all available languages (Android format)."""
-    return sorted(get_lt_languages() | get_tx_languages() | get_qb_languages())
-
-
-# --- Translation loading ---
-
-def load_lt_translations(lang_code):
-    """Load LibreTorrent translations for a language. Returns name -> text."""
-    path = LIBRETORRENT_DIR / f"values-{lang_code}" / "strings.xml"
-    return parse_android(path)
-
-
-def load_tx_translations(lang_code):
-    """Load Transmission translations for a language. Returns lowercase_source -> translation."""
-    qt_code = android_to_qt(lang_code)
-    path = TRANSMISSION_DIR / f"transmission_{qt_code}.ts"
-    return parse_qt_translations(path)
-
-
-def load_qb_translations(lang_code):
-    """Load qBittorrent translations (desktop + webui). Returns lowercase_source -> translation."""
-    qt_code = android_to_qt(lang_code)
-    combined = {}
-    desktop_path = QBITTORRENT_DESKTOP_DIR / f"qbittorrent_{qt_code}.ts"
-    combined.update(parse_qt_translations(desktop_path))
-    webui_path = QBITTORRENT_WEBUI_DIR / f"webui_{qt_code}.ts"
-    # Desktop takes priority; only add webui if not already present
-    for k, v in parse_qt_translations(webui_path).items():
-        combined.setdefault(k, v)
-    return combined
-
-
-# --- Core generation ---
 
 def generate_translation(lang_code, jst_en=None, lt_en_reverse=None):
     """Generate translations for a language from all sources.
@@ -295,24 +115,6 @@ def generate_translation(lang_code, jst_en=None, lt_en_reverse=None):
     return results, stats
 
 
-# --- Output ---
-
-def write_strings_xml(results, output_path):
-    """Write a strings.xml with only translated strings."""
-    lines = ['<?xml version="1.0" encoding="utf-8"?>', "<resources>"]
-
-    for name, en_text, translated, source in results:
-        if translated is not None:
-            lines.append(f'    <string name="{name}">{translated}</string>')
-
-    lines.append("</resources>")
-    lines.append("")
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-
-
 def write_report(results, stats, lang_code):
     """Print a human-readable report."""
     total = sum(stats.values())
@@ -334,33 +136,39 @@ def write_report(results, stats, lang_code):
             print(f"    {name}: \"{en_text}\" -> \"{translated}\"  [{source}]")
 
 
-# --- Commands ---
-
 def cmd_generate(args):
     jst_en = parse_android(JSTORRENT_STRINGS)
     lt_en = parse_android(LIBRETORRENT_EN)
     lt_en_reverse = build_reverse(lt_en)
 
-    if args.all:
+    if args.all_sources:
         langs = get_all_languages()
+    elif args.all:
+        langs = get_tier1_languages()
     else:
         langs = [args.lang]
 
     for lang in langs:
         results, stats = generate_translation(lang, jst_en=jst_en, lt_en_reverse=lt_en_reverse)
-        output_path = ANDROID_DIR / f"app/src/main/res/values-{lang}/strings.xml"
+        output_path = ANDROID_RES / f"values-{lang}" / "strings.xml"
 
         covered = stats["manual"] + stats["mapped"] + stats["lt"] + stats["tx"] + stats["qb"]
         if covered == 0:
-            if not args.all:
+            if not args.all and not args.all_sources:
                 print(f"No translations found for '{lang}'")
             continue
+
+        # Build dict of translated strings for write_strings_xml
+        translated_strings = {}
+        for name, en_text, translated, source in results:
+            if translated is not None:
+                translated_strings[name] = translated
 
         if args.dry_run:
             write_report(results, stats, lang)
             print(f"  [DRY RUN] Would write to: {output_path}")
         else:
-            write_strings_xml(results, output_path)
+            write_strings_xml(translated_strings, output_path)
             write_report(results, stats, lang)
             print(f"  Written to: {output_path}")
 
@@ -391,7 +199,8 @@ def main():
         description="Generate translated strings.xml from open-source torrent clients")
 
     parser.add_argument("lang", nargs="?", help="Language code (e.g. de, pt-rBR)")
-    parser.add_argument("--all", action="store_true", help="Generate all available languages")
+    parser.add_argument("--all", action="store_true", help="Generate tier 1 languages")
+    parser.add_argument("--all-sources", action="store_true", help="Generate ALL available languages (not just tier 1)")
     parser.add_argument("--dry-run", action="store_true", help="Preview without writing files")
     parser.add_argument("--summary", action="store_true", help="Show coverage table")
 
@@ -399,7 +208,7 @@ def main():
 
     if args.summary:
         cmd_summary(args)
-    elif args.all or args.lang:
+    elif args.all or args.all_sources or args.lang:
         cmd_generate(args)
     else:
         parser.print_help()

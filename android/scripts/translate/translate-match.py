@@ -18,99 +18,18 @@ Reference repos expected at:
 """
 
 import argparse
-import xml.etree.ElementTree as ET
-import os
-from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).parent
-ANDROID_DIR = SCRIPT_DIR.parent.parent
-JSTORRENT_STRINGS = ANDROID_DIR / "app/src/main/res/values/strings.xml"
-
-LIBRETORRENT_DIR = Path(os.path.expanduser("~/code/reference/libretorrent/app/src/main/res"))
-LIBRETORRENT_EN = LIBRETORRENT_DIR / "values/strings.xml"
-TRANSMISSION_DIR = Path(os.path.expanduser("~/code/reference/transmission/qt/translations"))
-TRANSMISSION_EN = TRANSMISSION_DIR / "transmission_en.ts"
-QBITTORRENT_DESKTOP_DIR = Path(os.path.expanduser("~/code/reference/qbittorrent/src/lang"))
-QBITTORRENT_WEBUI_DIR = Path(os.path.expanduser("~/code/reference/qbittorrent/src/webui/www/translations"))
-
-SKIP_IDS = {
-    "app_name",
-    "debug_add_test_100mb",
-    "debug_add_test_1gb",
-    "debug_add_ubuntu",
-    "debug_add_bunny",
-    "debug_add_webtorrent",
-    "debug_show_review_dialog",
-    "debug_reset_state",
-    "dialog_add_torrent_magnet_hint",
-    "settings_network_proxy_host_placeholder",
-    "settings_network_proxy_port_placeholder",
-}
-
-MANUAL_ID_MAP = {
-    "dialog_remove_confirm_button": "delete",
-    "dialog_bulk_remove_confirm_button": "delete",
-    "settings_storage_remove_folder_confirm": "delete",
-}
-
-LT_SKIP_DIRS = {
-    "large-land", "large-port", "night", "night-v31", "v30", "v31",
-    "sw360dp-v13", "sw600dp-land", "w1024dp", "w600dp", "w720dp",
-}
+from translate_common import (
+    JSTORRENT_STRINGS, LIBRETORRENT_EN, TRANSMISSION_EN,
+    SKIP_IDS, MANUAL_ID_MAP,
+    parse_android, build_reverse, parse_qt_sources, get_qb_sources,
+    get_lt_languages, get_tx_languages, get_qb_languages,
+)
 
 
-def parse_android(path):
-    """Parse an Android strings.xml file, return dict of name -> text."""
-    if not path.exists():
-        return {}
-    tree = ET.parse(path)
-    strings = {}
-    for elem in tree.getroot().findall("string"):
-        name = elem.get("name")
-        text = elem.text or ""
-        for child in elem:
-            text += ET.tostring(child, encoding="unicode")
-        strings[name] = text
-    return strings
-
-
-def build_reverse(strings):
-    """Build lowercase text -> list of IDs lookup."""
-    lookup = {}
-    for name, text in strings.items():
-        key = text.strip().lower()
-        lookup.setdefault(key, []).append(name)
-    return lookup
-
-
-def parse_qt_sources(ts_path):
-    """Extract English source strings from a Qt .ts file. Returns lowercase -> [original text]."""
-    if not ts_path.exists():
-        return {}
-    tree = ET.parse(ts_path)
-    sources = {}
-    for msg in tree.getroot().iter("message"):
-        src = msg.find("source")
-        if src is not None and src.text:
-            key = src.text.strip().lower()
-            sources.setdefault(key, []).append(src.text.strip())
-    return sources
-
-
-def get_qbittorrent_sources():
-    """Get combined English sources from qBittorrent desktop + webui."""
-    sources = {}
-    # Desktop translations - any .ts file has the English sources
-    desktop_files = sorted(QBITTORRENT_DESKTOP_DIR.glob("qbittorrent_*.ts"))
-    if desktop_files:
-        sources.update(parse_qt_sources(desktop_files[0]))
-    # Webui translations
-    webui_files = sorted(QBITTORRENT_WEBUI_DIR.glob("webui_*.ts"))
-    if webui_files:
-        webui_sources = parse_qt_sources(webui_files[0])
-        for k, v in webui_sources.items():
-            sources.setdefault(k, []).extend(v)
-    return sources
+def normalize_lang(code):
+    """Normalize Android/Qt language codes for comparison. Android: pt-rBR -> pt_BR"""
+    return code.replace("-r", "_")
 
 
 def get_unmatched_from_lt(jst, lt_reverse):
@@ -127,45 +46,12 @@ def get_unmatched_from_lt(jst, lt_reverse):
     return unmatched
 
 
-def normalize_lang(code):
-    """Normalize Android/Qt language codes for comparison. Android: pt-rBR -> pt_BR"""
-    return code.replace("-r", "_")
-
-
-def get_lt_languages():
-    langs = set()
-    for d in LIBRETORRENT_DIR.iterdir():
-        if d.is_dir() and d.name.startswith("values-"):
-            code = d.name[len("values-"):]
-            if code not in LT_SKIP_DIRS and (d / "strings.xml").exists():
-                langs.add(normalize_lang(code))
-    return langs
-
-
-def get_tx_languages():
-    langs = set()
-    for f in TRANSMISSION_DIR.glob("transmission_*.ts"):
-        code = f.stem.replace("transmission_", "")
-        if code != "en":
-            langs.add(normalize_lang(code))
-    return langs
-
-
-def get_qb_languages():
-    langs = set()
-    for f in QBITTORRENT_DESKTOP_DIR.glob("qbittorrent_*.ts"):
-        code = f.stem.replace("qbittorrent_", "")
-        if code != "en":
-            langs.add(normalize_lang(code))
-    return langs
-
-
 def cmd_default(args):
     jst = parse_android(JSTORRENT_STRINGS)
     lt_en = parse_android(LIBRETORRENT_EN)
     lt_reverse = build_reverse(lt_en)
     tx_sources = parse_qt_sources(TRANSMISSION_EN)
-    qb_sources = get_qbittorrent_sources()
+    qb_sources = get_qb_sources()
 
     unmatched = get_unmatched_from_lt(jst, lt_reverse)
 
@@ -217,7 +103,7 @@ def cmd_unmatched(args):
     lt_en = parse_android(LIBRETORRENT_EN)
     lt_reverse = build_reverse(lt_en)
     tx_sources = parse_qt_sources(TRANSMISSION_EN)
-    qb_sources = get_qbittorrent_sources()
+    qb_sources = get_qb_sources()
 
     unmatched = get_unmatched_from_lt(jst, lt_reverse)
 
@@ -244,9 +130,9 @@ def cmd_unmatched(args):
 
 
 def cmd_languages(args):
-    lt_langs = get_lt_languages()
-    tx_langs = get_tx_languages()
-    qb_langs = get_qb_languages()
+    lt_langs = {normalize_lang(c) for c in get_lt_languages()}
+    tx_langs = {normalize_lang(c) for c in get_tx_languages()}
+    qb_langs = {normalize_lang(c) for c in get_qb_languages()}
     all_langs = sorted(lt_langs | tx_langs | qb_langs)
     common = sorted(lt_langs & tx_langs & qb_langs)
 
@@ -274,7 +160,7 @@ def cmd_summary(args):
     lt_en = parse_android(LIBRETORRENT_EN)
     lt_reverse = build_reverse(lt_en)
     tx_sources = parse_qt_sources(TRANSMISSION_EN)
-    qb_sources = get_qbittorrent_sources()
+    qb_sources = get_qb_sources()
 
     total_translatable = len(jst) - len(SKIP_IDS & set(jst.keys()))
     unmatched = get_unmatched_from_lt(jst, lt_reverse)

@@ -41,6 +41,11 @@ terminology consistency.
 
 ## Scripts
 
+### translate_common.py — Shared module
+
+Constants, parsing, escaping, and utility functions shared by all scripts. Not run
+directly — imported by the other scripts.
+
 ### translate.py — Generate translated strings.xml
 
 The main generator. Pulls from all three sources and writes Android resource files.
@@ -60,32 +65,6 @@ python3 translate.py --summary
 
 Output only includes strings that have a translation. Android falls back to
 `values/strings.xml` (English) for anything missing.
-
-### translate-analyse.py — Analyse against LibreTorrent
-
-Single-source analysis tool for understanding LibreTorrent coverage.
-
-```bash
-python3 translate-analyse.py stats              # quick overview
-python3 translate-analyse.py unmatched           # strings with no LT match
-python3 translate-analyse.py unmatched -g        # grouped by prefix
-python3 translate-analyse.py matched             # strings that do match
-python3 translate-analyse.py lt-unmatched        # LT strings we don't use
-python3 translate-analyse.py lt-unmatched -g     # grouped
-python3 translate-analyse.py coverage            # per-language coverage
-```
-
-### translate-match.py — Cross-project matching
-
-Find matches across all three projects (LibreTorrent + Transmission + qBittorrent).
-
-```bash
-python3 translate-match.py matches      # new matches from TX/qBT (default)
-python3 translate-match.py unmatched    # strings with no match anywhere
-python3 translate-match.py unmatched -g # grouped by prefix
-python3 translate-match.py languages    # language overlap across all 3 projects
-python3 translate-match.py summary      # counts only
-```
 
 ### translate-llm.sh — Translate via Claude CLI
 
@@ -128,13 +107,21 @@ python3 translate-prompt.py de --group settings,tab
 # Redirect to file or clipboard
 python3 translate-prompt.py de --reference > prompt-de.txt
 python3 translate-prompt.py de | pbcopy
-
-# Parse LLM JSON response back to strings.xml format
-python3 translate-prompt.py parse response-de.json
 ```
 
 The prompt instructs the LLM to return a JSON object (`{"string_id": "translation"}`).
-The `parse` subcommand converts that JSON to Android XML.
+
+### translate-match.py — Cross-project matching
+
+Find matches across all three projects (LibreTorrent + Transmission + qBittorrent).
+
+```bash
+python3 translate-match.py matches      # new matches from TX/qBT (default)
+python3 translate-match.py unmatched    # strings with no match anywhere
+python3 translate-match.py unmatched -g # grouped by prefix
+python3 translate-match.py languages    # language overlap across all 3 projects
+python3 translate-match.py summary      # counts only
+```
 
 ## Workflow: Adding a New Language
 
@@ -147,8 +134,6 @@ python3 translate.py de                 # writes values-de/strings.xml (~282 str
 
 # 3. Merge both into a single sorted strings.xml
 python3 translate-merge.py de           # merges into values-de/strings.xml
-
-# 4. Test in app — change device language, verify UI
 ```
 
 For all tier 1 languages at once:

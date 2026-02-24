@@ -14,70 +14,21 @@ Usage:
 
 import argparse
 import json
-import re
 import sys
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from translate_common import (
+    ANDROID_RES, JSTORRENT_STRINGS,
+    parse_android, escape_for_android_xml, write_strings_xml,
+)
+
 SCRIPT_DIR = Path(__file__).parent
-ANDROID_RES = SCRIPT_DIR.parent.parent / "app" / "src" / "main" / "res"
 CLAUDE_DIR = SCRIPT_DIR / "claude"
-EN_STRINGS = ANDROID_RES / "values" / "strings.xml"
-
-
-def parse_strings_xml(path):
-    """Parse a strings.xml into a dict of {name: text}."""
-    if not path.exists():
-        return {}
-    tree = ET.parse(path)
-    strings = {}
-    for elem in tree.getroot().findall("string"):
-        name = elem.get("name")
-        # Reconstruct full text including any child elements (e.g. <xliff:g>)
-        text = elem.text or ""
-        for child in elem:
-            text += ET.tostring(child, encoding="unicode")
-            if child.tail:
-                text += child.tail
-        strings[name] = text
-    return strings
 
 
 def get_en_names():
     """Get the set of valid string names from English strings.xml."""
-    return set(parse_strings_xml(EN_STRINGS).keys())
-
-
-def escape_xml(text):
-    """Escape text for Android strings.xml."""
-    # Android strings.xml uses backslash-escaped apostrophes, not XML entities.
-    # The XML header/footer are written as raw strings, so we only need to
-    # handle the text content here.
-    text = text.replace("&", "&amp;")
-    text = text.replace("<", "&lt;")
-    text = text.replace(">", "&gt;")
-    # Don't escape quotes/apostrophes — they use Android's backslash convention
-    # and come pre-escaped from both sources.
-    return text
-
-
-def write_merged_xml(strings, output_path, dry_run=False):
-    """Write a sorted strings.xml."""
-    lines = ['<?xml version="1.0" encoding="utf-8"?>', "<resources>"]
-    for name in sorted(strings.keys()):
-        value = strings[name]
-        lines.append(f'    <string name="{name}">{value}</string>')
-    lines.append("</resources>")
-    lines.append("")
-
-    content = "\n".join(lines)
-    if dry_run:
-        return content
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(content)
-    return content
+    return set(parse_android(JSTORRENT_STRINGS).keys())
 
 
 def merge_lang(lang, dry_run=False):
@@ -85,7 +36,7 @@ def merge_lang(lang, dry_run=False):
     xml_path = ANDROID_RES / f"values-{lang}" / "strings.xml"
     json_path = CLAUDE_DIR / f"{lang}.json"
 
-    existing = parse_strings_xml(xml_path)
+    existing = parse_android(xml_path, lenient=True)
     en_names = get_en_names()
 
     if not json_path.exists():
@@ -127,7 +78,7 @@ def merge_lang(lang, dry_run=False):
         print(f"  Still missing: {missing} strings")
     print(f"  Total: {len(merged)}/{len(en_names)} strings")
 
-    write_merged_xml(merged, xml_path, dry_run=dry_run)
+    write_strings_xml(merged, xml_path, dry_run=dry_run)
     if not dry_run:
         print(f"  Written: {xml_path}")
 

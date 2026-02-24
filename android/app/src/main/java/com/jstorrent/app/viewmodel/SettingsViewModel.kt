@@ -3,8 +3,10 @@ package com.jstorrent.app.viewmodel
 import android.Manifest
 import android.content.Context
 import android.os.Build
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
+import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.jstorrent.app.JSTorrentApplication
@@ -82,7 +84,9 @@ data class SettingsUiState(
     val notificationPermissionGranted: Boolean = false,
     val canRequestNotificationPermission: Boolean = true,
     val showNotificationRequiredDialog: Boolean = false,
-    val showKeepSeedingWarningDialog: Boolean = false
+    val showKeepSeedingWarningDialog: Boolean = false,
+    // Language
+    val appLocale: String = ""
 )
 
 /**
@@ -161,7 +165,8 @@ class SettingsViewModel(
             cpuWakeLockEnabled = settingsStore.cpuWakeLockEnabled,
             shutdownOnLowBatteryEnabled = settingsStore.shutdownOnLowBatteryEnabled,
             shutdownOnLowBatteryThreshold = settingsStore.shutdownOnLowBatteryThreshold,
-            notificationPermissionGranted = notificationGranted
+            notificationPermissionGranted = notificationGranted,
+            appLocale = settingsStore.appLocale
         )
         // Also refresh UPnP status from engine
         refreshUpnpStatus()
@@ -649,6 +654,26 @@ class SettingsViewModel(
             canRequestNotificationPermission = canRequest,
             backgroundDownloadsEnabled = backgroundEnabled
         )
+    }
+
+    // =========================================================================
+    // Language Settings
+    // =========================================================================
+
+    /**
+     * Set the app locale. Empty string means system default.
+     * Persists the preference and applies via AppCompatDelegate.
+     * On API 33+, this delegates to the platform locale API.
+     */
+    fun setAppLocale(tag: String) {
+        settingsStore.appLocale = tag
+        val localeList = if (tag.isEmpty()) {
+            LocaleListCompat.getEmptyLocaleList()
+        } else {
+            LocaleListCompat.forLanguageTags(tag)
+        }
+        AppCompatDelegate.setApplicationLocales(localeList)
+        // Activity will be recreated by the system, no need to update UI state
     }
 
     /**

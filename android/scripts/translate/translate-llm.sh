@@ -11,10 +11,13 @@
 #   ./translate-llm.sh de --compare        # translate and diff against existing
 #   ./translate-llm.sh --all --dry-run     # show what would be done
 #   ./translate-llm.sh --model opus de     # use a specific model
+#   ./translate-llm.sh --all -c            # translate all, clean up .raw/.err on success
 #
 # Output:
 #   claude/<lang>.json   — translated strings
 #   prompts/<lang>.txt   — the prompt that was sent
+#   claude/<lang>.raw    — raw LLM output (removed with -c)
+#   claude/<lang>.err    — stderr (removed with -c)
 
 set -euo pipefail
 
@@ -26,6 +29,7 @@ PROMPT_DIR="$SCRIPT_DIR/prompts"
 # Parse args
 LANGS=()
 COMPARE=false
+CLEAN=false
 DRY_RUN=false
 FORCE=false
 MAX_NEW=0
@@ -42,6 +46,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --compare)
             COMPARE=true
+            shift
+            ;;
+        -c|--clean)
+            CLEAN=true
             shift
             ;;
         --dry-run)
@@ -72,7 +80,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#LANGS[@]} -eq 0 ]]; then
-    echo "Usage: $0 <lang|--all> [--compare] [--dry-run] [--force] [--max N] [--model sonnet|opus|haiku]"
+    echo "Usage: $0 <lang|--all> [--compare] [-c|--clean] [--dry-run] [--force] [--max N] [--model sonnet|opus|haiku]"
     echo ""
     echo "Languages in tier1:"
     cat "$TIER1_FILE"
@@ -221,7 +229,13 @@ PYEOF
         return 1
     fi
 
-    echo "  Raw: $raw_file"
+    # Clean up intermediate files if requested
+    if $CLEAN; then
+        rm -f "$raw_file" "$err_file"
+        echo "  Cleaned: $raw_file $err_file"
+    else
+        echo "  Raw: $raw_file"
+    fi
 
     # Compare with existing if requested
     if $COMPARE; then

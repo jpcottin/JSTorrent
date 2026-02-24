@@ -43,6 +43,27 @@ import com.jstorrent.app.ui.dialogs.ClearAllDataDialog
 import com.jstorrent.app.ui.dialogs.ResetSettingsDialog
 import com.jstorrent.app.viewmodel.SettingsViewModel
 
+private val LANGUAGE_OPTIONS = listOf(
+    "cs" to "Čeština",
+    "da" to "Dansk",
+    "de" to "Deutsch",
+    "es" to "Español",
+    "fr" to "Français",
+    "it" to "Italiano",
+    "ja" to "日本語",
+    "ko" to "한국어",
+    "nl" to "Nederlands",
+    "pl" to "Polski",
+    "pt-BR" to "Português (Brasil)",
+    "ro" to "Română",
+    "ru" to "Русский",
+    "sv" to "Svenska",
+    "tr" to "Türkçe",
+    "uk" to "Українська",
+    "zh-CN" to "简体中文",
+    "zh-TW" to "繁體中文"
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdvancedSettingsScreen(
@@ -77,6 +98,27 @@ fun AdvancedSettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            // Language picker
+            item {
+                SectionHeader(title = stringResource(R.string.settings_advanced_language_section))
+            }
+
+            item {
+                val systemDefault = stringResource(R.string.settings_advanced_language_system_default)
+                val allOptions = listOf("" to systemDefault) + LANGUAGE_OPTIONS
+                val currentTag = uiState.appLocale
+                val currentOption = allOptions.find { it.first == currentTag } ?: allOptions[0]
+
+                SettingDropdownRow(
+                    label = stringResource(R.string.settings_advanced_language_label),
+                    currentValue = currentOption,
+                    options = allOptions,
+                    labelFor = { it.second },
+                    onValueChange = { viewModel.setAppLocale(it.first) },
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+
             // Chromebook-only: Switch to Companion Mode
             if (isChromebook && onSwitchToCompanionMode != null) {
                 item {

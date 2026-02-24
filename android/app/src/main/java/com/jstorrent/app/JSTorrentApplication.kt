@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.net.Uri
 import android.util.Log
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
 import com.jstorrent.app.cache.TorrentSummaryCache
 import com.jstorrent.app.network.NetworkRestrictionEnforcer
 import com.jstorrent.app.notification.TorrentNotificationManager
@@ -173,6 +175,15 @@ class JSTorrentApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // Apply saved locale before any UI is created (needed for API < 33)
+        val savedLocale = settingsStore.appLocale
+        if (savedLocale.isNotEmpty()) {
+            AppCompatDelegate.setApplicationLocales(
+                LocaleListCompat.forLanguageTags(savedLocale)
+            )
+        }
+
         createNotificationChannels()
         deleteLegacyChannels()
 

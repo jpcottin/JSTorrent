@@ -86,6 +86,18 @@ class SettingsStore(context: Context) {
         set(value) = prefs.edit { putString(KEY_WHEN_DOWNLOADS_COMPLETE, value) }
 
     // =========================================================================
+    // Language (Android-only)
+    // =========================================================================
+
+    /**
+     * BCP 47 language tag for the app locale (e.g. "de", "zh-CN").
+     * Empty string means use system default.
+     */
+    var appLocale: String
+        get() = prefs.getString(KEY_APP_LOCALE, "") ?: ""
+        set(value) = prefs.edit { putString(KEY_APP_LOCALE, value) }
+
+    // =========================================================================
     // UI State (Android-only)
     // =========================================================================
 
@@ -102,9 +114,13 @@ class SettingsStore(context: Context) {
      */
     fun resetToDefaults() {
         val preserveNotificationPrompt = hasShownNotificationPrompt
+        val preserveLocale = appLocale
         prefs.edit { clear() }
         if (preserveNotificationPrompt) {
             hasShownNotificationPrompt = true
+        }
+        if (preserveLocale.isNotEmpty()) {
+            appLocale = preserveLocale
         }
     }
 
@@ -123,6 +139,9 @@ class SettingsStore(context: Context) {
 
         // Standalone behavior
         private const val KEY_WHEN_DOWNLOADS_COMPLETE = "when_downloads_complete"
+
+        // Language
+        private const val KEY_APP_LOCALE = "app_locale"
 
         // UI state
         private const val KEY_HAS_SHOWN_NOTIFICATION_PROMPT = "has_shown_notification_prompt"
