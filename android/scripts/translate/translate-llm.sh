@@ -12,6 +12,7 @@
 #   ./translate-llm.sh --all --dry-run     # show what would be done
 #   ./translate-llm.sh --model opus de     # use a specific model
 #   ./translate-llm.sh --all -c            # translate all, clean up .raw/.err on success
+#   ./translate-llm.sh --all --diff        # only translate NEW strings not in existing .json
 #
 # Output:
 #   claude/<lang>.json   — translated strings
@@ -32,6 +33,7 @@ COMPARE=false
 CLEAN=false
 DRY_RUN=false
 FORCE=false
+DIFF=false
 MAX_NEW=0
 MODEL="sonnet"
 
@@ -50,6 +52,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -c|--clean)
             CLEAN=true
+            shift
+            ;;
+        --diff)
+            DIFF=true
             shift
             ;;
         --dry-run)
@@ -80,7 +86,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#LANGS[@]} -eq 0 ]]; then
-    echo "Usage: $0 <lang|--all> [--compare] [-c|--clean] [--dry-run] [--force] [--max N] [--model sonnet|opus|haiku]"
+    echo "Usage: $0 <lang|--all> [--compare] [-c|--clean] [--dry-run] [--force] [--diff] [--max N] [--model sonnet|opus|haiku]"
+    echo ""
+    echo "  --diff    Only translate strings not already in claude/<lang>.json"
+    echo "            Merges new translations into the existing .json file"
     echo ""
     echo "Languages in tier1:"
     cat "$TIER1_FILE"
@@ -100,15 +109,43 @@ translate_lang() {
 
     echo "=== $lang ==="
 
+    # Build prompt args
+    local prompt_args=("$lang" --reference)
+    if $DIFF; then
+        prompt_args+=(--diff)
+    fi
+
     # Generate prompt
-    python3 "$SCRIPT_DIR/translate-prompt.py" "$lang" --reference > "$prompt_file"
+    local prompt_stderr
+    prompt_stderr=$(python3 "$SCRIPT_DIR/translate-prompt.py" "${prompt_args[@]}" > "$prompt_file" 2>&1) || true
+    if [[ -n "$prompt_stderr" ]]; then
+        # In diff mode, "No new strings" is printed to stderr — detect and skip
+        if [[ "$prompt_stderr" == *"No new strings"* ]]; then
+            echo "  $prompt_stderr"
+            echo ""
+            return 2
+        fi
+        echo "  $prompt_stderr" >&2
+    fi
+
+    # Check if prompt is empty (shouldn't happen unless --diff found nothing)
+    if [[ ! -s "$prompt_file" ]]; then
+        echo "  No strings to translate — skipping"
+        echo ""
+        return 2
+    fi
+
     echo "  Prompt: $prompt_file"
 
-    # Skip if output already has the expected number of strings
-    if ! $FORCE && [[ -f "$output_file" ]]; then
-        local expected actual
-        expected=$(sed -n 's/.*(\([0-9]*\) total).*/\1/p' "$prompt_file" 2>/dev/null | head -1)
-        expected=${expected:-0}
+    # Extract expected count from prompt
+    local expected
+    expected=$(sed -n 's/.*(\([0-9]*\) total).*/\1/p' "$prompt_file" 2>/dev/null | head -1)
+    expected=${expected:-0}
+    echo "  Strings to translate: $expected"
+
+    # In non-diff mode, skip if output already has enough strings
+    if ! $DIFF && ! $FORCE && [[ -f "$output_file" ]]; then
+        local actual
         actual=$(python3 -c "import json; print(len(json.load(open('$output_file'))))" 2>/dev/null || echo 0)
         if [[ "$actual" -gt 0 ]] && [[ "$expected" -gt 0 ]] && [[ "$actual" -ge "$expected" ]]; then
             echo "  Already complete ($actual strings) — skipping (use --force to redo)"
@@ -118,7 +155,12 @@ translate_lang() {
     fi
 
     if $DRY_RUN; then
-        echo "  [DRY RUN] Would translate and save to $output_file"
+        echo "  [DRY RUN] Would translate $expected strings and save to $output_file"
+        if $DIFF && [[ -f "$output_file" ]]; then
+            local existing_count
+            existing_count=$(python3 -c "import json; print(len(json.load(open('$output_file'))))" 2>/dev/null || echo 0)
+            echo "  [DRY RUN] Existing: $existing_count strings, would merge $expected new"
+        fi
         return
     fi
 
@@ -148,7 +190,8 @@ translate_lang() {
         fi
         return 1
     fi
-    # Extract and validate JSON using Python (avoids sed portability issues)
+    # Extract, validate, and optionally merge JSON
+    local diff_mode="$DIFF"
     python3 << PYEOF
 import json, re, sys
 from pathlib import Path
@@ -174,10 +217,22 @@ if start == -1 or end == -1:
 json_text = text[start:end+1]
 
 try:
-    data = json.loads(json_text)
+    new_data = json.loads(json_text)
 except json.JSONDecodeError as e:
     print(f"  ERROR: Invalid JSON: {e}", file=sys.stderr)
     sys.exit(1)
+
+print(f"  LLM returned: {len(new_data)} strings")
+
+# In diff mode, merge new translations into existing .json
+diff_mode = "$diff_mode" == "true"
+if diff_mode and Path("$output_file").exists():
+    existing = json.load(open("$output_file"))
+    merged = {**existing, **new_data}
+    data = merged
+    print(f"  Merged: {len(existing)} existing + {len(new_data)} new = {len(data)} total")
+else:
+    data = new_data
 
 # Save pretty-printed JSON
 with open("$output_file", "w") as f:
@@ -199,7 +254,7 @@ for elem in tree.getroot().findall("string"):
     en[name] = t
 
 errors = 0
-for key, val in data.items():
+for key, val in new_data.items():
     if key not in en:
         print(f"  UNKNOWN KEY: {key}")
         errors += 1
@@ -215,12 +270,13 @@ if errors == 0:
 else:
     print(f"  Validation: {errors} error(s)")
 
-# Check completeness
-expected = 185  # known unmatched count
-if len(data) < expected:
-    print(f"  WARNING: Only {len(data)}/{expected} strings (missing {expected - len(data)})")
-elif len(data) == expected:
-    print(f"  Completeness: {len(data)}/{expected} (100%)")
+# Check completeness against expected count from prompt
+expected = $expected
+if expected > 0:
+    if len(new_data) < expected:
+        print(f"  WARNING: Only {len(new_data)}/{expected} strings (missing {expected - len(new_data)})")
+    elif len(new_data) >= expected:
+        print(f"  Completeness: {len(new_data)}/{expected} (100%)")
 PYEOF
 
     local py_exit=$?

@@ -27,7 +27,7 @@ human-verified translation. Priority order:
 2. **Transmission** (Qt .ts files, ~35 languages)
 3. **qBittorrent** (Qt .ts files, ~55 languages)
 
-This currently covers ~97 of 282 translatable strings (34%) for top-tier languages.
+This currently covers ~121 of 353 translatable strings (34%) for top-tier languages.
 
 To increase coverage, we adjusted some English strings to match the open-source wording
 (e.g., "Done" -> "Finished", "Verify data" -> "Force recheck"). Only safe, semantically
@@ -35,9 +35,12 @@ equivalent changes.
 
 ### Phase 2: LLM translation (remaining strings)
 
-For the ~185 strings with no open-source match, we generate structured prompts and
+For the ~232 strings with no open-source match, we generate structured prompts and
 feed them to LLMs. The prompt includes reference translations from Phase 1 for
 terminology consistency.
+
+When new strings are added to `strings.xml`, use `--diff` mode to translate only the
+new ones without re-doing existing translations (see workflow below).
 
 ## Scripts
 
@@ -74,10 +77,15 @@ validates the JSON output, and saves to `claude/<lang>.json`.
 ```bash
 ./translate-llm.sh de                  # translate German
 ./translate-llm.sh --all               # translate all tier 1 languages
+./translate-llm.sh --all --diff        # only translate NEW strings (incremental)
 ./translate-llm.sh de --compare        # translate and diff against existing
 ./translate-llm.sh --all --dry-run     # show what would be done
 ./translate-llm.sh --model opus de     # use a specific model (default: sonnet)
 ```
+
+The `--diff` flag is the key for incremental updates: it only sends strings not
+already in `claude/<lang>.json` to the LLM, then merges the results back into
+the existing `.json` file.
 
 ### translate-merge.py — Merge LLM translations into strings.xml
 
@@ -99,6 +107,9 @@ Produces prompts for Claude, GPT, Gemini, etc. to translate remaining strings.
 python3 translate-prompt.py de
 python3 translate-prompt.py de --reference      # include matched strings as context
 
+# Incremental: only strings not already in claude/<lang>.json
+python3 translate-prompt.py de --diff --reference
+
 # Subset by group (useful for reviewing in batches)
 python3 translate-prompt.py de --list-groups    # show groups and counts
 python3 translate-prompt.py de --group dialog
@@ -108,6 +119,9 @@ python3 translate-prompt.py de --group settings,tab
 python3 translate-prompt.py de --reference > prompt-de.txt
 python3 translate-prompt.py de | pbcopy
 ```
+
+In `--diff` mode, the prompt includes existing LLM translations as "Previously
+translated" context so the LLM stays consistent with prior terminology.
 
 The prompt instructs the LLM to return a JSON object (`{"string_id": "translation"}`).
 
@@ -123,14 +137,16 @@ python3 translate-match.py languages    # language overlap across all 3 projects
 python3 translate-match.py summary      # counts only
 ```
 
-## Workflow: Adding a New Language
+## Workflows
+
+### Adding a new language
 
 ```bash
 # 1. Auto-match from open-source repos
-python3 translate.py de                 # writes values-de/strings.xml (~282 strings)
+python3 translate.py de                 # writes values-de/strings.xml
 
 # 2. LLM-translate the remaining strings
-./translate-llm.sh de                   # writes claude/de.json (~185 strings)
+./translate-llm.sh de                   # writes claude/de.json
 
 # 3. Merge both into a single sorted strings.xml
 python3 translate-merge.py de           # merges into values-de/strings.xml
@@ -143,6 +159,26 @@ python3 translate.py --all
 ./translate-llm.sh --all
 python3 translate-merge.py --all
 ```
+
+### After adding new strings to strings.xml
+
+When new English strings are added, use the incremental workflow to avoid
+re-translating everything:
+
+```bash
+# 1. Pick up any new open-source matches
+python3 translate.py --all
+
+# 2. LLM-translate only the NEW unmatched strings (merges into existing .json)
+./translate-llm.sh --all --diff
+
+# 3. Merge everything into final strings.xml
+python3 translate-merge.py --all
+```
+
+The `--diff` flag compares the current unmatched set against what's already in
+`claude/<lang>.json` and only sends the delta to the LLM. Existing translations
+are included as context for consistency.
 
 ## Tier 1 Languages
 

@@ -11,6 +11,8 @@ Usage:
     python translate-prompt.py de --group dialog,tab  # multiple groups
     python translate-prompt.py de --list-groups       # show available groups
     python translate-prompt.py de --reference         # include already-translated strings as context
+    python translate-prompt.py de --diff              # only strings not already in claude/<lang>.json
+    python translate-prompt.py de --diff --reference  # diff mode with open-source + existing LLM context
 
 Output goes to stdout. Redirect or pipe as needed:
     python translate-prompt.py de > prompt-de.txt
@@ -18,6 +20,8 @@ Output goes to stdout. Redirect or pipe as needed:
 """
 
 import argparse
+import json
+from pathlib import Path
 
 from translate_common import (
     JSTORRENT_STRINGS, LIBRETORRENT_EN, LIBRETORRENT_DIR,
@@ -25,6 +29,9 @@ from translate_common import (
     parse_android, build_reverse, parse_qt_sources, get_qb_sources,
     load_tx_translations, load_qb_translations,
 )
+
+SCRIPT_DIR = Path(__file__).parent
+CLAUDE_DIR = SCRIPT_DIR / "claude"
 
 
 def get_unmatched(jst_en):
@@ -91,6 +98,21 @@ def get_matched_translations(jst_en, lang_code):
     return matched
 
 
+def load_existing_llm(lang_code):
+    """Load existing LLM translations from claude/<lang>.json. Returns dict or {}."""
+    json_path = CLAUDE_DIR / f"{lang_code}.json"
+    if not json_path.exists():
+        return {}
+    with open(json_path) as f:
+        return json.load(f)
+
+
+def get_diff_strings(unmatched, lang_code):
+    """Return only unmatched strings not already in claude/<lang>.json."""
+    existing = load_existing_llm(lang_code)
+    return {k: v for k, v in unmatched.items() if k not in existing}
+
+
 def group_strings(strings):
     """Group strings by their name prefix (first segment before _)."""
     groups = {}
@@ -102,8 +124,14 @@ def group_strings(strings):
     return groups
 
 
-def generate_prompt(lang_code, unmatched_strings, reference_translations=None):
-    """Generate the LLM translation prompt."""
+def generate_prompt(lang_code, unmatched_strings, reference_translations=None,
+                    existing_llm_translations=None):
+    """Generate the LLM translation prompt.
+
+    Args:
+        existing_llm_translations: dict of name -> translation from previous LLM runs.
+            Included as context for terminology consistency in diff mode.
+    """
     lang_name = LANG_NAMES.get(lang_code, lang_code)
 
     lines = []
@@ -129,6 +157,14 @@ def generate_prompt(lang_code, unmatched_strings, reference_translations=None):
         lines.append("")
         for name, (en, tr) in sorted(reference_translations.items()):
             lines.append(f"  {name}: \"{en}\" -> \"{tr}\"")
+        lines.append("")
+
+    if existing_llm_translations:
+        lines.append(f"Previously translated: Here are strings already translated to {lang_name} in prior runs.")
+        lines.append("Use these for terminology and style consistency (do NOT re-translate these):")
+        lines.append("")
+        for name, tr in sorted(existing_llm_translations.items()):
+            lines.append(f"  {name}: \"{tr}\"")
         lines.append("")
 
     lines.append("Output format: Return ONLY a JSON object mapping string ID to translation.")
@@ -157,6 +193,8 @@ def main():
     parser.add_argument("--group", help="Comma-separated groups to include (e.g. settings,dialog)")
     parser.add_argument("--list-groups", action="store_true", help="List available string groups")
     parser.add_argument("--reference", action="store_true", help="Include already-translated strings as context")
+    parser.add_argument("--diff", action="store_true",
+                        help="Only include strings not already in claude/<lang>.json")
 
     args = parser.parse_args()
 
@@ -169,6 +207,21 @@ def main():
             print(f"{prefix}: {len(items)} strings")
         print(f"\nTotal: {len(unmatched)} unmatched strings")
         return
+
+    # In diff mode, load existing LLM translations for context and filter
+    existing_llm = None
+    if args.diff:
+        all_existing = load_existing_llm(args.lang)
+        # Only keep existing translations for strings that are still unmatched
+        # (some may have gained open-source matches since last run)
+        existing_llm = {k: v for k, v in all_existing.items() if k in unmatched}
+        unmatched = get_diff_strings(unmatched, args.lang)
+        if not unmatched:
+            import sys
+            print(f"No new strings to translate for {args.lang} "
+                  f"(all {len(existing_llm)} unmatched strings already in claude/{args.lang}.json)",
+                  file=sys.stderr)
+            return
 
     # Filter by groups if specified
     if args.group:
@@ -184,7 +237,7 @@ def main():
     if args.reference:
         reference = get_matched_translations(jst_en, args.lang)
 
-    prompt = generate_prompt(args.lang, unmatched, reference)
+    prompt = generate_prompt(args.lang, unmatched, reference, existing_llm)
     print(prompt)
 
 
