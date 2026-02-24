@@ -3,32 +3,40 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import { listen } from '@tauri-apps/api/event'
 
 const STARTUP_CHECK_DELAY_MS = 5_000
+const PERIODIC_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
-/** Initialize the auto-updater: listen for tray events and check on startup. */
+type CheckReason = 'startup' | 'periodic' | 'manual'
+
+/** Initialize the auto-updater: listen for tray events and check on startup + periodically. */
 export function initUpdater(): void {
   // Tray menu "Check for Updates" triggers this event
   listen('check-for-updates', () => {
-    checkForUpdates(true)
+    checkForUpdates('manual')
   })
 
   // Silent startup check after a short delay
-  setTimeout(() => checkForUpdates(false), STARTUP_CHECK_DELAY_MS)
+  setTimeout(() => checkForUpdates('startup'), STARTUP_CHECK_DELAY_MS)
+
+  // Periodic silent check every 24 hours
+  setInterval(() => checkForUpdates('periodic'), PERIODIC_CHECK_INTERVAL_MS)
 }
 
-async function checkForUpdates(userInitiated: boolean): Promise<void> {
+async function checkForUpdates(reason: CheckReason): Promise<void> {
   // Prevent concurrent checks
   if (document.getElementById('jst-updater-overlay')) return
 
   try {
-    const update = await check()
+    const update = await check({
+      headers: { 'X-Check-Reason': reason },
+    })
     if (update) {
       showUpdateDialog(update)
-    } else if (userInitiated) {
+    } else if (reason === 'manual') {
       showInfoDialog('You are running the latest version.')
     }
   } catch (err) {
     console.error('Update check failed:', err)
-    if (userInitiated) {
+    if (reason === 'manual') {
       showInfoDialog(`Failed to check for updates: ${err}`)
     }
   }

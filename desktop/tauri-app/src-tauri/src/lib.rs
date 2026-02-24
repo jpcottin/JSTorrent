@@ -944,10 +944,15 @@ pub fn run() {
             }
         })
         .setup(move |app| {
-            // Auto-updater
+            // Auto-updater with check-for-update ID header
             #[cfg(desktop)]
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            {
+                let mut builder = tauri_plugin_updater::Builder::new();
+                if let Some(cfu_id) = jstorrent_common::get_or_create_cfu_id() {
+                    builder = builder.header("X-CFU-Id", &cfu_id)?;
+                }
+                app.handle().plugin(builder.build())?;
+            }
 
             // Store CLI launch args
             app.manage(LaunchArgs {

@@ -25,10 +25,16 @@ const RESULT_FILENAME: &str = "update-check-result.json";
 pub fn run(auto_update: bool, context: tauri::Context) {
     let app = tauri::Builder::default()
         .setup(move |app| {
-            // Register the updater plugin
+            // Register the updater plugin with CFU ID and reason headers
             #[cfg(desktop)]
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            {
+                let mut builder = tauri_plugin_updater::Builder::new()
+                    .header("X-Check-Reason", "host")?;
+                if let Some(cfu_id) = jstorrent_common::get_or_create_cfu_id() {
+                    builder = builder.header("X-CFU-Id", &cfu_id)?;
+                }
+                app.handle().plugin(builder.build())?;
+            }
 
             // Close the window immediately — we don't need UI
             if let Some(window) = app.get_webview_window("main") {

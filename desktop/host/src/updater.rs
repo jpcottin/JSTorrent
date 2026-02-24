@@ -51,10 +51,13 @@ pub async fn check_for_updates_http(current_version: &str) -> Result<UpdateCheck
     let url = format!("{UPDATE_ENDPOINT}/{TARGET}/{ARCH}/{current_version}");
     crate::log!("Checking for updates: {url}");
 
+    let cfu_id = jstorrent_common::get_or_create_cfu_id().unwrap_or_default();
     let client = reqwest::Client::new();
     let resp = client
         .get(&url)
         .timeout(Duration::from_secs(15))
+        .header("X-CFU-Id", &cfu_id)
+        .header("X-Check-Reason", "host")
         .send()
         .await
         .context("Update check HTTP request failed")?;
