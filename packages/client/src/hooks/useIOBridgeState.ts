@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useHostChannel } from '../host/HostChannelContext'
 import { ChromeExtensionChannel } from '../host/chrome-extension-channel'
 import type { BootstrapState } from '../../../../extension/src/lib/chromeos-bootstrap'
-import type { PortStatus, DaemonBridgeState, DaemonStats } from '../host/types'
+import type { PortStatus, DaemonBridgeState, DaemonStats, UsageMetrics } from '../host/types'
 
 export type {
   PortStatus,
@@ -30,6 +30,8 @@ export interface UseIOBridgeStateResult {
   takeOver: () => void
   /** Fetch daemon stats for debug panel */
   getStats: () => Promise<DaemonStats | null>
+  /** Fetch usage metrics for bug reports */
+  getMetrics: () => Promise<UsageMetrics | null>
   /** ChromeOS bootstrap state (only relevant on ChromeOS) */
   chromeosBootstrapState: BootstrapState | null
   chromeosHasEverConnected: boolean
@@ -103,6 +105,7 @@ export function useIOBridgeState(config: UseIOBridgeStateConfig = {}): UseIOBrid
     channel.takeOver()
   }, [channel])
   const getStats = useCallback(() => channel.getStats(), [channel])
+  const getMetrics = useCallback(() => channel.getMetrics(), [channel])
 
   return {
     state,
@@ -113,6 +116,7 @@ export function useIOBridgeState(config: UseIOBridgeStateConfig = {}): UseIOBrid
     cancel,
     takeOver,
     getStats,
+    getMetrics,
     chromeosBootstrapState,
     chromeosHasEverConnected,
     portStatus: state.status === 'connected' ? 'connected' : 'disconnected',

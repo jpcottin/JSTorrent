@@ -1,6 +1,8 @@
 import { useState, useCallback, useMemo } from 'react'
+import type { BtEngine } from '@jstorrent/engine'
 import type { DaemonBridgeState, VersionStatus } from '../components/SystemBridgePanel'
 import type { DownloadRoot } from '../types'
+import type { DaemonStats, UsageMetrics } from '../host/types'
 import { copyTextToClipboard } from '../utils/clipboard'
 
 /** Which type of I/O backend the extension is connected to. */
@@ -167,6 +169,10 @@ export interface UseSystemBridgeConfig {
   hasPendingTorrents: boolean
   /** Extension/app version string for bug reports */
   extensionVersion?: string | null
+  /** Fetch daemon stats (for bug report diagnostics) */
+  getStats: () => Promise<DaemonStats | null>
+  /** Fetch usage metrics (for bug report diagnostics) */
+  getMetrics: () => Promise<UsageMetrics | null>
   /** Callbacks for bridge actions */
   onRetry: () => void
   onLaunch: () => void
@@ -194,8 +200,8 @@ export interface UseSystemBridgeResult {
   daemonVersion: string | undefined
   /** Copy debug info to clipboard */
   copyDebugInfo: () => Promise<void>
-  /** Get URL for filing a bug report on GitHub */
-  getBugReportUrl: () => string
+  /** Get URL for filing a bug report on GitHub (async — collects diagnostics at click time) */
+  getBugReportUrl: () => Promise<string>
 }
 
 /**
@@ -244,9 +250,18 @@ export function useSystemBridge(config: UseSystemBridgeConfig): UseSystemBridgeR
     await copyTextToClipboard(text)
   }, [state, backendType, daemonVersion, versionStatus, readiness, roots])
 
-  // Generate bug report URL with pre-filled info
-  const getBugReportUrl = useCallback(() => {
+  // Generate bug report URL with pre-filled diagnostics (collected at click time)
+  const getBugReportUrl = useCallback(async () => {
     const extVersion = extensionVersion ?? 'unknown'
+
+    // Collect engine state (sync reads from window.engine)
+    const engineSection = collectEngineInfo()
+
+    // Collect daemon stats (async)
+    const daemonSection = await collectDaemonInfo(config.getStats)
+
+    // Collect usage metrics (async, extension-only — returns null on Tauri)
+    const metricsSection = await collectMetricsInfo(config.getMetrics)
 
     const body = `**Environment:**
 - Extension: v${extVersion}
@@ -255,7 +270,7 @@ export function useSystemBridge(config: UseSystemBridgeConfig): UseSystemBridgeR
 - Status: ${state.status}
 - User-Agent: ${navigator.userAgent}
 ${state.lastError ? `- Last Error: ${state.lastError}` : ''}
-
+${engineSection}${daemonSection}${metricsSection}
 **Description:**
 [Describe the issue here]
 
@@ -273,7 +288,7 @@ ${state.lastError ? `- Last Error: ${state.lastError}` : ''}
     const url = new URL('https://github.com/kzahel/jstorrent/issues/new')
     url.searchParams.set('body', body)
     return url.toString()
-  }, [state, backendType, daemonVersion, extensionVersion])
+  }, [state, backendType, daemonVersion, extensionVersion, config.getStats, config.getMetrics])
 
   return {
     panelOpen,
@@ -286,5 +301,71 @@ ${state.lastError ? `- Last Error: ${state.lastError}` : ''}
     daemonVersion,
     copyDebugInfo,
     getBugReportUrl,
+  }
+}
+
+// === Bug report diagnostic helpers (module-level, no React deps) ===
+
+function formatUptime(secs: number): string {
+  if (secs < 60) return `${secs}s`
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  return `${h}h ${m}m`
+}
+
+function collectEngineInfo(): string {
+  const engine = window.engine as BtEngine | undefined
+  if (!engine) return ''
+
+  const torrents = engine.torrents
+  const total = torrents.length
+  const active = torrents.filter((t) => t.userState === 'active').length
+  const completed = torrents.filter((t) => t.isComplete).length
+  const withMeta = torrents.filter((t) => t.hasMetadata).length
+  const errored = torrents.filter((t) => t.errorMessage).length
+
+  const dhtInfo = engine.dhtEnabled ? `on (${engine.dhtNode?.getNodeCount() ?? '?'} nodes)` : 'off'
+  const upnpInfo =
+    engine.upnpStatus + (engine.hasReceivedIncomingConnection ? ' (incoming OK)' : '')
+
+  let section = `
+**Engine:**
+- Torrents: ${total} total, ${active} active, ${completed} complete, ${withMeta} with metadata`
+  if (errored > 0) section += `, ${errored} errored`
+  section += `
+- Peers: ${engine.numConnections}
+- DHT: ${dhtInfo}
+- UPnP: ${upnpInfo}
+- Port: ${engine.listeningPort}
+`
+  return section
+}
+
+async function collectDaemonInfo(getStats: () => Promise<DaemonStats | null>): Promise<string> {
+  try {
+    const stats = await getStats()
+    if (!stats) return ''
+    return `- Uptime: ${formatUptime(stats.uptime_secs)}
+`
+  } catch {
+    return ''
+  }
+}
+
+async function collectMetricsInfo(getMetrics: () => Promise<UsageMetrics | null>): Promise<string> {
+  try {
+    const m = await getMetrics()
+    if (!m) return ''
+
+    let section = `
+**Usage:**
+- Sessions: ${m.sessionsStarted} | Added: ${m.torrentsAdded} | Completed: ${m.completedDownloads}`
+    if (m.devices > 0) section += `\n- Devices: ${m.devices}`
+    if (m.daysInstalled != null) section += ` | Days installed: ${m.daysInstalled}`
+    section += '\n'
+    return section
+  } catch {
+    return ''
   }
 }

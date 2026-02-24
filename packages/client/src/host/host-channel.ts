@@ -18,6 +18,7 @@ import type {
   DownloadRoot,
   UpdateCheckResult,
   ProfileListEntry,
+  UsageMetrics,
 } from './types'
 
 export interface HostChannel {
@@ -61,6 +62,7 @@ export interface HostChannel {
   // --- Debug / admin ---
   getStats(): Promise<DaemonStats | null>
   getDaemonInfo(): Promise<DaemonInfo | null>
+  getMetrics(): Promise<UsageMetrics | null>
   clearSessionStorage(): Promise<void>
   notifyClosing(): void
 

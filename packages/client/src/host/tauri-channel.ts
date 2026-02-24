@@ -24,6 +24,7 @@ import type {
   DownloadRoot,
   UpdateCheckResult,
   ProfileListEntry,
+  UsageMetrics,
 } from './types'
 
 // --- Tauri IPC helpers ---
@@ -486,6 +487,10 @@ export class TauriChannel implements HostChannel {
 
   async getDaemonInfo(): Promise<DaemonInfo | null> {
     return this.currentState.daemonInfo
+  }
+
+  async getMetrics(): Promise<UsageMetrics | null> {
+    return null // Metrics are extension-only (chrome.storage.sync)
   }
 
   async clearSessionStorage(): Promise<void> {

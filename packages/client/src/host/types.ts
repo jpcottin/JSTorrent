@@ -138,6 +138,17 @@ export interface UpdateCheckResult {
   body?: string
 }
 
+// --- Usage Metrics ---
+
+/** Aggregate usage metrics for bug reports (extension-only, from chrome.storage.sync). */
+export interface UsageMetrics {
+  completedDownloads: number
+  torrentsAdded: number
+  sessionsStarted: number
+  devices: number
+  daysInstalled?: number
+}
+
 // --- Utility ---
 
 /** Unsubscribe function returned by event listeners. */

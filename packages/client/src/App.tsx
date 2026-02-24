@@ -142,6 +142,7 @@ function App() {
     cancel,
     takeOver,
     getStats,
+    getMetrics,
     chromeosBootstrapState,
     chromeosHasEverConnected,
   } = useIOBridgeState({
@@ -189,6 +190,8 @@ function App() {
     defaultRootKey,
     hasPendingTorrents,
     extensionVersion: channel.getVersion(),
+    getStats,
+    getMetrics,
     onRetry: retry,
     onLaunch: launch,
     onCancel: cancel,
@@ -362,7 +365,7 @@ function App() {
               )}
             </span>
             <button
-              onClick={() => openExternalUrl(systemBridge.getBugReportUrl())}
+              onClick={async () => openExternalUrl(await systemBridge.getBugReportUrl())}
               style={{
                 background: 'var(--button-bg)',
                 border: '1px solid var(--border-color)',

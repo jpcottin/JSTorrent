@@ -26,6 +26,8 @@ import {
   incrementTorrentsAdded,
   incrementCompletedDownloads,
   incrementSessionsStarted,
+  getSyncMetrics,
+  getInstallTimestamp,
 } from './lib/metrics'
 
 // ============================================================================
@@ -755,6 +757,27 @@ function handleMessage(
     bridge.getStats().then((stats) => {
       sendResponse({ ok: true, stats })
     })
+    return true
+  }
+
+  // Get usage metrics (for bug reports)
+  if (message.type === 'GET_METRICS') {
+    Promise.all([getSyncMetrics(), getInstallTimestamp()])
+      .then(([sync, installTs]) => {
+        sendResponse({
+          ok: true,
+          metrics: {
+            completedDownloads: sync.completedDownloads,
+            torrentsAdded: sync.torrentsAdded,
+            sessionsStarted: sync.sessionsStarted,
+            devices: sync.deviceIds.length,
+            daysInstalled: Math.floor((Date.now() - installTs) / (1000 * 60 * 60 * 24)),
+          },
+        })
+      })
+      .catch(() => {
+        sendResponse({ ok: false })
+      })
     return true
   }
 

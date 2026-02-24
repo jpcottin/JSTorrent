@@ -23,6 +23,7 @@ import type {
   DownloadRoot,
   UpdateCheckResult,
   ProfileListEntry,
+  UsageMetrics,
 } from './types'
 
 export class ChromeExtensionChannel implements HostChannel {
@@ -239,6 +240,17 @@ export class ChromeExtensionChannel implements HostChannel {
         type: 'GET_DAEMON_INFO',
       })
       return response.ok && response.daemonInfo ? response.daemonInfo : null
+    } catch {
+      return null
+    }
+  }
+
+  async getMetrics(): Promise<UsageMetrics | null> {
+    try {
+      const response = await this.sendMessage<{ ok: boolean; metrics?: UsageMetrics }>({
+        type: 'GET_METRICS',
+      })
+      return response.ok && response.metrics ? response.metrics : null
     } catch {
       return null
     }
