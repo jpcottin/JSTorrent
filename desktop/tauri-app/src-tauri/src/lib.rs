@@ -252,10 +252,24 @@ fn torrent_file_event(file_url: &str) -> Option<serde_json::Value> {
     }))
 }
 
+/// Set the window icon to a high-resolution PNG on Windows.
+/// Tauri v2's codegen only reads the first ICO entry (16x16), making the
+/// taskbar icon appear blank. See https://github.com/tauri-apps/tauri/issues/14596
+#[cfg(windows)]
+fn set_window_icon(window: &tauri::WebviewWindow) {
+    if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")) {
+        let _ = window.set_icon(icon);
+    }
+}
+
+#[cfg(not(windows))]
+fn set_window_icon(_window: &tauri::WebviewWindow) {}
+
 /// Show, unminimize, and focus the main window.
 /// If the window was destroyed (`run_in_background=false`), recreate it.
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        set_window_icon(&window);
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -265,6 +279,7 @@ fn show_main_window(app: &tauri::AppHandle) {
             .inner_size(1024.0, 700.0)
             .build()
     {
+        set_window_icon(&window);
         let _ = window.restore_state(tauri_plugin_window_state::StateFlags::all());
     }
 }
