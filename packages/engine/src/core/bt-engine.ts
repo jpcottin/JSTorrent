@@ -908,30 +908,111 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       // No storage root - skip file deletion (torrent may never have had files)
     }
 
-    // 4. Delete content files
+    // 4. Delete content files using batchDelete (bottom-up)
     if (torrent.contentStorage && fs) {
-      for (const file of torrent.contentStorage.filesList) {
+      const files = torrent.contentStorage.filesList
+      if (files.length > 0) {
+        const firstSlash = files[0].path.indexOf('/')
+        const isMultiFile = firstSlash >= 0
+        const torrentRootDir = isMultiFile ? files[0].path.substring(0, firstSlash) : ''
+
+        // Early bail: check if torrent root exists
+        const rootCheckPath = isMultiFile ? torrentRootDir : files[0].path
+        let rootExists = false
         try {
-          if (await fs.exists(file.path)) {
-            await fs.delete(file.path)
+          rootExists = await fs.exists(rootCheckPath)
+        } catch {
+          // If exists() throws, proceed anyway — batchDelete handles missing entries
+        }
+
+        if (rootExists) {
+          if (isMultiFile) {
+            // Group files by parent directory (relative to storage root)
+            const dirToEntries = new Map<string, string[]>()
+            for (const file of files) {
+              const lastSlash = file.path.lastIndexOf('/')
+              const dir = file.path.substring(0, lastSlash)
+              const name = file.path.substring(lastSlash + 1)
+              const entries = dirToEntries.get(dir)
+              if (entries) {
+                entries.push(name)
+              } else {
+                dirToEntries.set(dir, [name])
+              }
+            }
+
+            // Sort directory groups deepest-first
+            const sortedDirs = [...dirToEntries.keys()].sort(
+              (a, b) => b.split('/').length - a.split('/').length,
+            )
+
+            // Delete files bottom-up, adding empty subdirectory names to parent batches
+            const deletedSubdirs = new Map<string, string[]>()
+            for (const dir of sortedDirs) {
+              const entries = dirToEntries.get(dir)!
+              // Include any subdirectories that were emptied at a deeper level
+              const subdirEntries = deletedSubdirs.get(dir)
+              if (subdirEntries) {
+                entries.push(...subdirEntries)
+              }
+              try {
+                const failed = await fs.batchDelete(dir, entries)
+                for (const name of failed) {
+                  errors.push(`${dir}/${name}: failed to delete`)
+                }
+                // Track successfully deleted entries so parent knows this subdir is empty
+                const allSucceeded = failed.length === 0
+                if (allSucceeded) {
+                  const parentSlash = dir.lastIndexOf('/')
+                  if (parentSlash >= 0) {
+                    const parentDir = dir.substring(0, parentSlash)
+                    const subdirName = dir.substring(parentSlash + 1)
+                    const parentSubdirs = deletedSubdirs.get(parentDir)
+                    if (parentSubdirs) {
+                      parentSubdirs.push(subdirName)
+                    } else {
+                      deletedSubdirs.set(parentDir, [subdirName])
+                    }
+                  }
+                }
+              } catch (e) {
+                errors.push(`${dir}: ${e instanceof Error ? e.message : String(e)}`)
+              }
+            }
+
+            // Delete the torrent root directory itself
+            try {
+              // Include any subdirectories emptied directly under the root
+              const rootSubdirs = deletedSubdirs.get(torrentRootDir)
+              if (rootSubdirs) {
+                const failed = await fs.batchDelete(torrentRootDir, rootSubdirs)
+                for (const name of failed) {
+                  errors.push(`${torrentRootDir}/${name}: failed to delete`)
+                }
+              }
+              await fs.delete(torrentRootDir)
+            } catch (e) {
+              errors.push(`${torrentRootDir}: ${e instanceof Error ? e.message : String(e)}`)
+            }
+          } else {
+            // Single-file torrent: just delete the one file
+            try {
+              await fs.delete(files[0].path)
+            } catch (e) {
+              errors.push(`${files[0].path}: ${e instanceof Error ? e.message : String(e)}`)
+            }
           }
-        } catch (e) {
-          errors.push(`${file.path}: ${e instanceof Error ? e.message : String(e)}`)
         }
       }
-      // Clean up empty parent directories (best effort)
-      await this.cleanupEmptyDirectories(fs, torrent.contentStorage.filesList)
     }
 
-    // 5. Delete .parts file
+    // 5. Delete .parts file (no exists check, catch errors)
     if (fs) {
       const partsPath = `${infoHash}.parts`
       try {
-        if (await fs.exists(partsPath)) {
-          await fs.delete(partsPath)
-        }
-      } catch (e) {
-        errors.push(`.parts: ${e instanceof Error ? e.message : String(e)}`)
+        await fs.delete(partsPath)
+      } catch {
+        // Ignore — .parts file may not exist
       }
     }
 
@@ -939,33 +1020,6 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     await this.removeTorrent(torrent)
 
     return { success: errors.length === 0, errors }
-  }
-
-  /**
-   * Clean up empty parent directories after deleting files.
-   * Works deepest-first to properly clean up nested empty directories.
-   */
-  private async cleanupEmptyDirectories(fs: IFileSystem, files: { path: string }[]): Promise<void> {
-    const dirs = new Set<string>()
-    for (const file of files) {
-      let dir = file.path
-      while (dir.includes('/')) {
-        dir = dir.substring(0, dir.lastIndexOf('/'))
-        if (dir) dirs.add(dir)
-      }
-    }
-    // Sort deepest first
-    const sorted = [...dirs].sort((a, b) => b.split('/').length - a.split('/').length)
-    for (const dir of sorted) {
-      try {
-        const contents = await fs.readdir(dir)
-        if (contents.length === 0) {
-          await fs.delete(dir)
-        }
-      } catch {
-        // Ignore errors - directory may not exist or be non-empty
-      }
-    }
   }
 
   /**
