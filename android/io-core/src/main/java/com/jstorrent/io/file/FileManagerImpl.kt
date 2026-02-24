@@ -175,6 +175,14 @@ class FileManagerImpl(
     private val creationLocks = ConcurrentHashMap<String, ReentrantLock>()
 
     /**
+     * Per-directory locks to prevent SAF duplicate directory creation.
+     * SAF's createDirectory always creates a new directory, deduplicating to "name (1)" etc.
+     * This lock makes the findFile + createDirectory sequence atomic per directory path.
+     * Key format: "$rootUri|$dirPath" where dirPath accumulates segments from root.
+     */
+    private val directoryCreationLocks = ConcurrentHashMap<String, ReentrantLock>()
+
+    /**
      * Pool of open file handles for native file:// writes.
      * Key: absolute file path
      */
@@ -297,13 +305,12 @@ class FileManagerImpl(
         var current = DocumentFile.fromTreeUri(context, rootUri) ?: return false
 
         val segments = relativePath.trimStart('/').split('/').filter { it.isNotEmpty() }
+        val pathBuilder = StringBuilder()
         for (segment in segments) {
-            val existing = current.findFile(segment)
-            current = when {
-                existing?.isDirectory == true -> existing
-                existing != null -> return false // File exists, not a directory
-                else -> current.createDirectory(segment) ?: return false
-            }
+            if (pathBuilder.isNotEmpty()) pathBuilder.append('/')
+            pathBuilder.append(segment)
+            current = findOrCreateDirectory(current, segment, rootUri, pathBuilder.toString())
+                ?: return false
         }
         return true
     }
@@ -527,6 +534,35 @@ class FileManagerImpl(
     }
 
     /**
+     * Find or create a single directory segment under [parent], using a per-directory
+     * lock to prevent SAF from creating duplicate directories when multiple threads
+     * race on the same path.
+     */
+    private fun findOrCreateDirectory(
+        parent: DocumentFile,
+        segment: String,
+        rootUri: Uri,
+        dirPath: String
+    ): DocumentFile? {
+        val lockKey = "$rootUri|$dirPath"
+        val lock = directoryCreationLocks.computeIfAbsent(lockKey) { ReentrantLock() }
+        try {
+            return lock.withLock {
+                val existing = parent.findFile(segment)
+                when {
+                    existing != null && existing.isDirectory -> existing
+                    existing != null -> null
+                    else -> parent.createDirectory(segment)
+                }
+            }
+        } finally {
+            if (!lock.hasQueuedThreads()) {
+                directoryCreationLocks.remove(lockKey, lock)
+            }
+        }
+    }
+
+    /**
      * Create a file at the given path under a SAF tree.
      * Creates parent directories as needed.
      */
@@ -537,14 +573,13 @@ class FileManagerImpl(
         val fileName = segments.lastOrNull() ?: return null
         val dirSegments = segments.dropLast(1)
 
-        // Create/navigate directories
+        // Create/navigate directories with per-directory locking
+        val pathBuilder = StringBuilder()
         for (segment in dirSegments) {
-            val existing = current.findFile(segment)
-            current = if (existing != null && existing.isDirectory) {
-                existing
-            } else {
-                current.createDirectory(segment) ?: return null
-            }
+            if (pathBuilder.isNotEmpty()) pathBuilder.append('/')
+            pathBuilder.append(segment)
+            current = findOrCreateDirectory(current, segment, rootUri, pathBuilder.toString())
+                ?: return null
         }
 
         // Get or create file
@@ -917,7 +952,7 @@ class FileManagerImpl(
             return true
         }
         val dir = resolveNativeFile(rootUri, relativePath)
-        return dir.exists() || dir.mkdirs()
+        return dir.mkdirs() || dir.isDirectory
     }
 
     private fun readdirNative(rootUri: Uri, relativePath: String): List<String> {
