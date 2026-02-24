@@ -7,6 +7,8 @@ tags: [announcement]
 
 JSTorrent is back! Get it at [jstorrent.com](https://jstorrent.com)
 
+![JSTorrent desktop app](/blog/desktop-speed.png)
+
 This is my fourth BitTorrent client rewrite. I'm certain it will not be my last.
 
 JSTorrent started as an idea while I worked at BitTorrent Inc. I [posted about it in 2012](https://kyle.graehl.org/coding/2012/12/07/torrent-in-your-browser.html), which is a long time ago.
@@ -18,6 +20,8 @@ To this day there are still around 60k JSTorrent users, all on ChromeOS, because
 What started out as a simple project to figure out a way to migrate those Chromebook users onto a new extension spiraled into something even bigger than the original Chrome platform app. The original plan was to just have a headless Android app that the extension connects to, and now it runs on every platform *(except iOS, which I do plan to do later)
 
 The new JSTorrent sports an improved engine with all the features the previous implementation lacked (mainly DHT, meaningful seeding, and encryption) but now also has a standalone Android app, and desktop app. While we still offer the extension as the primary UI, it's optional on all platforms. You can use the desktop app if you don't like Chrome or don't want to install any extensions. Or just use it on your Android phone.
+
+![JSTorrent Android app](/blog/android-list.png)
 
 Why another torrent client? Why not just use Transmission or qBittorrent or uTorrent or LibTorrent?
 
