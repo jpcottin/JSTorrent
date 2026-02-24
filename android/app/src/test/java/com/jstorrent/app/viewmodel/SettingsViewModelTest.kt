@@ -65,6 +65,7 @@ class SettingsViewModelTest {
             on { cpuWakeLockEnabled } doReturn false
             on { shutdownOnLowBatteryEnabled } doReturn false
             on { shutdownOnLowBatteryThreshold } doReturn 15
+            on { appLocale } doReturn ""
         }
         // Engine settings (from AndroidConfigHub / SQLite KV)
         configHub = mock {

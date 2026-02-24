@@ -121,16 +121,6 @@ class SettingsViewModel(
     fun refreshAllSettings() {
         val roots = rootStore.refreshAvailability()
 
-        // Check notification permission at init time to avoid UI flicker
-        val notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                app,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PermissionChecker.PERMISSION_GRANTED
-        } else {
-            true
-        }
-
         _uiState.value = _uiState.value.copy(
             downloadRoots = roots,
             // Engine settings (from AndroidConfigHub / SQLite KV)
@@ -165,7 +155,6 @@ class SettingsViewModel(
             cpuWakeLockEnabled = settingsStore.cpuWakeLockEnabled,
             shutdownOnLowBatteryEnabled = settingsStore.shutdownOnLowBatteryEnabled,
             shutdownOnLowBatteryThreshold = settingsStore.shutdownOnLowBatteryThreshold,
-            notificationPermissionGranted = notificationGranted,
             appLocale = settingsStore.appLocale
         )
         // Also refresh UPnP status from engine
