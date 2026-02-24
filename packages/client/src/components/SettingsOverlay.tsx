@@ -655,7 +655,9 @@ function UpdateCheckButton({
     setError(null)
     try {
       const r = await channel.checkForUpdates()
-      if (r?.available) {
+      if (r === null) {
+        // Channel handles updates itself (e.g., Tauri native updater)
+      } else if (r.available) {
         setResult(r)
       } else {
         setDialogMessage('You are running the latest version.')
