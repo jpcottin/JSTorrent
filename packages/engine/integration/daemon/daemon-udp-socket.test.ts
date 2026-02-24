@@ -10,6 +10,7 @@ describe('DaemonSocketFactory UDP', () => {
   let factory: DaemonSocketFactory
   let echoServer: dgram.Socket
   let echoPort: number
+  let drainInterval: ReturnType<typeof setInterval>
 
   beforeAll(async () => {
     // Start daemon
@@ -17,6 +18,11 @@ describe('DaemonSocketFactory UDP', () => {
     connection = new DaemonConnection(harness.port, '127.0.0.1', undefined, harness.token)
     await connection.connectWebSocket()
     factory = new DaemonSocketFactory(connection)
+
+    // DaemonSocketFactory enables frame queuing (for batched processing in engine tick).
+    // Without an engine tick loop, queued frames are never drained and all socket
+    // operations timeout. Drain periodically to simulate the engine tick.
+    drainInterval = setInterval(() => factory.flushCallbacks(), 10)
 
     // Start a local UDP echo server
     echoServer = dgram.createSocket('udp4')
@@ -34,6 +40,7 @@ describe('DaemonSocketFactory UDP', () => {
   })
 
   afterAll(async () => {
+    clearInterval(drainInterval)
     echoServer?.close()
     connection.close?.()
     await harness.cleanup()

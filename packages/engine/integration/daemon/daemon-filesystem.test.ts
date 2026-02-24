@@ -237,7 +237,7 @@ describe('DaemonFileSystem Integration', () => {
     // Write should throw WriteError with HASH_MISMATCH type
     await expect(handle.write(data, 0, data.length, 0)).rejects.toMatchObject({
       name: 'WriteError',
-      type: WriteErrorType.HASH_MISMATCH,
+      errorType: WriteErrorType.HASH_MISMATCH,
     })
     await handle.close()
   })

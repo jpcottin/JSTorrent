@@ -10,6 +10,7 @@ describe('DaemonSocketFactory TCP', () => {
   let factory: DaemonSocketFactory
   let echoServer: net.Server
   let echoPort: number
+  let drainInterval: ReturnType<typeof setInterval>
 
   beforeAll(async () => {
     // Start daemon
@@ -17,6 +18,11 @@ describe('DaemonSocketFactory TCP', () => {
     connection = new DaemonConnection(harness.port, '127.0.0.1', undefined, harness.token)
     await connection.connectWebSocket()
     factory = new DaemonSocketFactory(connection)
+
+    // DaemonSocketFactory enables frame queuing (for batched processing in engine tick).
+    // Without an engine tick loop, queued frames are never drained and all socket
+    // operations timeout. Drain periodically to simulate the engine tick.
+    drainInterval = setInterval(() => factory.flushCallbacks(), 10)
 
     // Start a local echo server for testing
     echoServer = net.createServer((socket) => {
@@ -35,6 +41,7 @@ describe('DaemonSocketFactory TCP', () => {
   })
 
   afterAll(async () => {
+    clearInterval(drainInterval)
     echoServer?.close()
     connection.close?.()
     await harness.cleanup()
@@ -87,9 +94,11 @@ describe('DaemonSocketFactory TCP', () => {
   })
 
   it('should handle remote close', async () => {
-    // Create a server that closes immediately
+    // Create a server that accepts a connection, reads one byte, then closes
     const closeServer = net.createServer((socket) => {
-      socket.end()
+      socket.once('data', () => {
+        socket.destroy()
+      })
     })
 
     const closePort = await new Promise<number>((resolve) => {
@@ -99,15 +108,23 @@ describe('DaemonSocketFactory TCP', () => {
     })
 
     const socket = await factory.createTcpSocket()
-    let closed = false
-    socket.onClose(() => {
-      closed = true
+
+    const closedPromise = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 5000)
+      socket.onClose(() => {
+        clearTimeout(timer)
+        resolve(true)
+      })
     })
 
     await socket.connect!(closePort, '127.0.0.1')
 
-    // Wait for close event
-    await new Promise((r) => setTimeout(r, 200))
+    // Send a byte to activate the daemon's read task (the read task is only
+    // spawned on the first OP_TCP_SEND — until then the stream is held in
+    // pending_tcp for potential TLS upgrade).
+    socket.send(new Uint8Array([0]))
+
+    const closed = await closedPromise
     expect(closed).toBe(true)
 
     closeServer.close()
