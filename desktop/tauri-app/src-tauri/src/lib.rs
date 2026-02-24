@@ -933,8 +933,14 @@ pub fn run() {
                     // Hide window but keep webview alive (downloads continue)
                     let _ = window.hide();
                     api.prevent_close();
+                } else {
+                    // Window closing, downloads will stop — clear stale tray stats
+                    if let Some(tray) = window.app_handle().tray_by_id("tray") {
+                        let _ = tray.set_tooltip(Some("JSTorrent"));
+                        #[cfg(target_os = "macos")]
+                        let _ = tray.set_title(Some(""));
+                    }
                 }
-                // else: let window destroy (stops downloads), tray stays
             }
         })
         .setup(move |app| {
