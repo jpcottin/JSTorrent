@@ -56,11 +56,10 @@ describe('TorrentCreator', () => {
   it('should create a multi-file torrent from directory', async () => {
     const file1 = new Uint8Array([1, 2, 3])
     const file2 = new Uint8Array([4, 5])
+    await fs.mkdir('/dir')
+    await fs.mkdir('/dir/sub')
     fs.files.set('/dir/file1.txt', file1)
     fs.files.set('/dir/sub/file2.txt', file2)
-
-    // We need to ensure directory structure exists for readdir to work in our naive memory fs?
-    // Our naive readdir just filters keys, so it should work fine without explicit mkdir.
 
     const torrentData = await TorrentCreator.create(storage, '/dir', hasher, {
       pieceLength: 2,

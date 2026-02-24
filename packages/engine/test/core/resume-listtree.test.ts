@@ -98,6 +98,8 @@ describe('verifyResumeData with listTree', () => {
     }
 
     // Create files on disk matching expected sizes
+    await fileSystem.mkdir('TestTorrent')
+    await fileSystem.mkdir('TestTorrent/sub')
     const h1 = await fileSystem.open('TestTorrent/file1.txt', 'w')
     await h1.write(new Uint8Array(1000), 0, 1000, 0)
     await h1.close()
@@ -128,6 +130,8 @@ describe('verifyResumeData with listTree', () => {
     }
 
     // Create files but file2 is truncated (wrong size)
+    await fileSystem.mkdir('TestTorrent')
+    await fileSystem.mkdir('TestTorrent/sub')
     const h1 = await fileSystem.open('TestTorrent/file1.txt', 'w')
     await h1.write(new Uint8Array(1000), 0, 1000, 0)
     await h1.close()
@@ -154,6 +158,7 @@ describe('verifyResumeData with listTree', () => {
 
     // No bitfield set (fresh add, no resume data)
     // But files exist on disk from a previous download
+    await fileSystem.mkdir('TestTorrent')
     const h1 = await fileSystem.open('TestTorrent/file1.txt', 'w')
     await h1.write(new Uint8Array(1000), 0, 1000, 0)
     await h1.close()
@@ -227,6 +232,7 @@ describe('_doCheckPieces with listTree skip optimization', () => {
     if (!torrent) throw new Error('Torrent is null')
 
     // Only create file1 (pieces 0-1), skip file2 (pieces 2-3)
+    await fileSystem.mkdir('TestTorrent')
     const h1 = await fileSystem.open('TestTorrent/file1.txt', 'w')
     await h1.write(new Uint8Array(2048), 0, 2048, 0)
     await h1.close()

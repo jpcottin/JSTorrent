@@ -252,7 +252,10 @@ describe('BtEngine', () => {
       const { torrent } = await client.addTorrent(buffer)
       if (!torrent) throw new Error('Torrent is null')
 
-      // Create files on the in-memory filesystem
+      // Create directories and files on the in-memory filesystem
+      await fileSystem.mkdir('Movie')
+      await fileSystem.mkdir('Movie/extras')
+      await fileSystem.mkdir('Movie/subs')
       for (const path of ['Movie/movie.mkv', 'Movie/extras/trailer.mkv', 'Movie/subs/en.srt']) {
         const h = await fileSystem.open(path, 'w')
         await h.write(new Uint8Array(100), 0, 100, 0)

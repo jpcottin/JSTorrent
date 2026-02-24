@@ -9,6 +9,7 @@ describe('InMemoryFileSystem.batchDelete', () => {
   })
 
   it('should delete multiple files in a directory', async () => {
+    await fs.mkdir('torrent')
     await fs.open('torrent/a.txt', 'w')
     await fs.open('torrent/b.txt', 'w')
     await fs.open('torrent/c.txt', 'w')
@@ -21,6 +22,7 @@ describe('InMemoryFileSystem.batchDelete', () => {
   })
 
   it('should silently ignore missing entries', async () => {
+    await fs.mkdir('torrent')
     await fs.open('torrent/a.txt', 'w')
 
     const failed = await fs.batchDelete('torrent', ['a.txt', 'nonexistent.txt'])
@@ -34,6 +36,8 @@ describe('InMemoryFileSystem.batchDelete', () => {
   })
 
   it('should fail on non-empty subdirectories', async () => {
+    await fs.mkdir('torrent')
+    await fs.mkdir('torrent/subdir')
     await fs.open('torrent/subdir/file.txt', 'w')
 
     // Trying to delete subdir while it still has files should fail
@@ -55,6 +59,9 @@ describe('InMemoryFileSystem.batchDelete', () => {
 
   it('should support bottom-up deletion pattern', async () => {
     // Simulate engine's bottom-up tree walk
+    await fs.mkdir('Movie')
+    await fs.mkdir('Movie/extras')
+    await fs.mkdir('Movie/subs')
     await fs.open('Movie/extras/behind.mkv', 'w')
     await fs.open('Movie/extras/trailer.mkv', 'w')
     await fs.open('Movie/subs/en.srt', 'w')
@@ -65,8 +72,6 @@ describe('InMemoryFileSystem.batchDelete', () => {
     expect(await fs.batchDelete('Movie/subs', ['en.srt'])).toEqual([])
 
     // Level 1: delete files + now-empty subdirs
-    // After deleting all files, subdirs are effectively "empty" in the flat map
-    // (no keys with prefix "Movie/extras/" remain)
     expect(await fs.batchDelete('Movie', ['movie.mkv', 'extras', 'subs'])).toEqual([])
   })
 })

@@ -65,10 +65,26 @@ class MemoryFileHandle implements IFileHandle {
 
 export class InMemoryFileSystem implements IFileSystem {
   public files = new Map<string, Uint8Array>()
+  private dirs = new Set<string>([''])
+
+  private parentDir(path: string): string {
+    const lastSlash = path.lastIndexOf('/')
+    return lastSlash === -1 ? '' : path.substring(0, lastSlash)
+  }
+
+  private ensureParentDir(path: string): void {
+    const parent = this.parentDir(path)
+    if (!this.dirs.has(parent)) {
+      throw new Error(`ENOENT: parent directory does not exist: ${parent}`)
+    }
+  }
 
   async open(path: string, mode: 'r' | 'w' | 'r+'): Promise<IFileHandle> {
     if (mode === 'r' && !this.files.has(path)) {
       throw new Error(`File not found: ${path}`)
+    }
+    if ((mode === 'w' || mode === 'r+') && !this.files.has(path)) {
+      this.ensureParentDir(path)
     }
     if (!this.files.has(path)) {
       this.files.set(path, new Uint8Array(0))
@@ -87,44 +103,58 @@ export class InMemoryFileSystem implements IFileSystem {
       }
     }
 
-    // Check if it's a directory
-    const prefix = path.endsWith('/') ? path : `${path}/`
-    for (const key of this.files.keys()) {
-      if (key.startsWith(prefix)) {
-        return {
-          size: 0,
-          mtime: new Date(),
-          isDirectory: true,
-          isFile: false,
-        }
+    if (this.dirs.has(path)) {
+      return {
+        size: 0,
+        mtime: new Date(),
+        isDirectory: true,
+        isFile: false,
       }
     }
 
     throw new Error(`File not found: ${path}`)
   }
 
-  async mkdir(_path: string): Promise<void> {
-    // No-op for flat memory FS
+  async mkdir(dirPath: string): Promise<void> {
+    if (this.files.has(dirPath)) {
+      throw new Error(`EEXIST: path is a file, not a directory: ${dirPath}`)
+    }
+    this.ensureParentDir(dirPath)
+    this.dirs.add(dirPath)
   }
+
   async exists(path: string): Promise<boolean> {
-    return this.files.has(path)
+    return this.files.has(path) || this.dirs.has(path)
   }
 
   async readdir(dirPath: string): Promise<string[]> {
-    // Naive implementation for flat map: find keys starting with dirPath
-    // This assumes paths are normalized and use / separator
+    if (!this.dirs.has(dirPath)) {
+      throw new Error(`ENOENT: directory does not exist: ${dirPath}`)
+    }
     const entries = new Set<string>()
-    const prefix = dirPath.endsWith('/') ? dirPath : `${dirPath}/`
+    const prefix = dirPath === '' ? '' : `${dirPath}/`
 
-    for (const path of this.files.keys()) {
-      if (path.startsWith(prefix)) {
-        const relative = path.slice(prefix.length)
-        const parts = relative.split('/')
-        if (parts.length > 0) {
-          entries.add(parts[0])
+    for (const filePath of this.files.keys()) {
+      if (prefix === '' ? !filePath.includes('/') : filePath.startsWith(prefix)) {
+        const relative = prefix === '' ? filePath : filePath.slice(prefix.length)
+        const firstSegment = relative.split('/')[0]
+        if (firstSegment !== '') {
+          entries.add(firstSegment)
         }
       }
     }
+
+    for (const dir of this.dirs) {
+      if (dir === dirPath) continue
+      if (prefix === '' ? !dir.includes('/') : dir.startsWith(prefix)) {
+        const relative = prefix === '' ? dir : dir.slice(prefix.length)
+        const firstSegment = relative.split('/')[0]
+        if (firstSegment !== '') {
+          entries.add(firstSegment)
+        }
+      }
+    }
+
     return Array.from(entries)
   }
 
@@ -135,7 +165,25 @@ export class InMemoryFileSystem implements IFileSystem {
   }
 
   async delete(path: string): Promise<void> {
-    this.files.delete(path)
+    if (this.files.delete(path)) return
+
+    if (this.dirs.has(path)) {
+      const prefix = `${path}/`
+      for (const key of this.files.keys()) {
+        if (key.startsWith(prefix)) {
+          throw new Error(`Directory not empty: ${path}`)
+        }
+      }
+      for (const dir of this.dirs) {
+        if (dir !== path && dir.startsWith(prefix)) {
+          throw new Error(`Directory not empty: ${path}`)
+        }
+      }
+      this.dirs.delete(path)
+      return
+    }
+
+    throw new Error(`ENOENT: no such file or directory: ${path}`)
   }
 
   async batchDelete(directory: string, entries: string[]): Promise<string[]> {
@@ -148,18 +196,30 @@ export class InMemoryFileSystem implements IFileSystem {
         this.files.delete(fullPath)
         continue
       }
-      // Try as directory (prefix match)
-      const dirPrefix = `${fullPath}/`
-      let isDir = false
-      for (const key of this.files.keys()) {
-        if (key.startsWith(dirPrefix)) {
-          isDir = true
-          break
+      // Try as directory in dirs set
+      if (this.dirs.has(fullPath)) {
+        const dirPrefix = `${fullPath}/`
+        let isEmpty = true
+        for (const key of this.files.keys()) {
+          if (key.startsWith(dirPrefix)) {
+            isEmpty = false
+            break
+          }
         }
-      }
-      if (isDir) {
-        // Non-empty directory — can't delete (engine should have emptied it first)
-        failed.push(entry)
+        if (isEmpty) {
+          for (const dir of this.dirs) {
+            if (dir !== fullPath && dir.startsWith(dirPrefix)) {
+              isEmpty = false
+              break
+            }
+          }
+        }
+        if (isEmpty) {
+          this.dirs.delete(fullPath)
+        } else {
+          failed.push(entry)
+        }
+        continue
       }
       // If neither file nor directory exists, silently ignore (missing = ok)
     }

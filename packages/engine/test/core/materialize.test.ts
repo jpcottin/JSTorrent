@@ -74,6 +74,9 @@ describe('Materialization', () => {
         pieceLength: 16384,
       })
 
+      // Create parent directory for engine writes during materialization
+      await fileSystem.mkdir('test-folder')
+
       const { torrent } = await engine.addTorrent(buffer)
       if (!torrent) throw new Error('Torrent is null')
 
@@ -255,6 +258,9 @@ describe('Materialization', () => {
         ],
         pieceLength: 16384,
       })
+
+      // Create parent directory for engine writes during materialization
+      await fileSystem.mkdir('test-folder')
 
       const { torrent } = await engine.addTorrent(buffer)
       if (!torrent) throw new Error('Torrent is null')

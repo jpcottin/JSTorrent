@@ -14,6 +14,7 @@ describe('InMemoryFileSystem.listTree', () => {
   })
 
   it('should list files with sizes', async () => {
+    await fs.mkdir('root')
     const h1 = await fs.open('root/file1.txt', 'w')
     await h1.write(new Uint8Array(100), 0, 100, 0)
     await h1.close()
@@ -32,6 +33,9 @@ describe('InMemoryFileSystem.listTree', () => {
   })
 
   it('should recurse into subdirectories', async () => {
+    await fs.mkdir('root')
+    await fs.mkdir('root/sub')
+    await fs.mkdir('root/sub/deep')
     const h = await fs.open('root/sub/deep/file.bin', 'w')
     await h.write(new Uint8Array(50), 0, 50, 0)
     await h.close()
@@ -41,6 +45,7 @@ describe('InMemoryFileSystem.listTree', () => {
   })
 
   it('should return empty array for empty directory', async () => {
+    await fs.mkdir('root')
     await fs.mkdir('root/empty')
     const result = await fs.listTree('root/empty')
     expect(result).toEqual([])

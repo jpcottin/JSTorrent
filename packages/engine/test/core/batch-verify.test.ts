@@ -190,6 +190,7 @@ describe('_doCheckPieces batch verification via verifyChunks', () => {
     if (!torrent) throw new Error('Torrent is null')
 
     // Write files to in-memory filesystem
+    await fileSystem.mkdir('TestTorrent')
     const h1 = await fileSystem.open('TestTorrent/file1.bin', 'w')
     await h1.write(file1Data, 0, file1Data.length, 0)
     await h1.close()
@@ -223,6 +224,7 @@ describe('_doCheckPieces batch verification via verifyChunks', () => {
     if (!torrent) throw new Error('Torrent is null')
 
     // Only write file1, file2 is missing
+    await fileSystem.mkdir('TestTorrent')
     const h1 = await fileSystem.open('TestTorrent/file1.bin', 'w')
     await h1.write(file1Data, 0, file1Data.length, 0)
     await h1.close()
