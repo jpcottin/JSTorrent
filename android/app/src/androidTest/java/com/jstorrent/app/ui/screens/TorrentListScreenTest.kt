@@ -45,7 +45,7 @@ class TorrentListScreenTest {
         }
 
         // Verify empty state message is shown
-        composeTestRule.onNodeWithText("No torrents yet").assertIsDisplayed()
+        composeTestRule.onNodeWithText("No torrents").assertIsDisplayed()
         composeTestRule.onNodeWithText("Tap + to add a magnet link").assertIsDisplayed()
     }
 

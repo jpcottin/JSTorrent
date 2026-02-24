@@ -221,7 +221,7 @@ class TorrentDetailScreenTest {
         }
 
         // Click pause button
-        composeTestRule.onNodeWithContentDescription("Pause torrent").performClick()
+        composeTestRule.onNodeWithContentDescription("Pause").performClick()
 
         // Verify pause was called
         assert(fakeRepository.pausedTorrents.contains(testInfoHash)) {
@@ -251,7 +251,7 @@ class TorrentDetailScreenTest {
         }
 
         // Resume button should be visible when paused
-        composeTestRule.onNodeWithContentDescription("Resume torrent").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Resume").assertIsDisplayed()
     }
 
     @Test

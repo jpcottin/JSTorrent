@@ -190,7 +190,7 @@ class CacheToLiveTransitionTest {
         }
 
         // Then: empty state shown immediately (Stage 2 behavior)
-        composeTestRule.onNodeWithText("No torrents yet").assertIsDisplayed()
+        composeTestRule.onNodeWithText("No torrents").assertIsDisplayed()
     }
 
     @Test
@@ -277,7 +277,7 @@ class CacheToLiveTransitionTest {
         composeTestRule.waitForIdle()
 
         // Then: engine wins - shows empty state, not cached data
-        composeTestRule.onNodeWithText("No torrents yet").assertIsDisplayed()
+        composeTestRule.onNodeWithText("No torrents").assertIsDisplayed()
         composeTestRule.onNodeWithText("Cached Torrent").assertDoesNotExist()
     }
 
