@@ -35,6 +35,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/ops/exists", get(exists_file))
         .route("/ops/list", get(list_dir))
         .route("/ops/delete", post(delete_file))
+        .route("/ops/batch_delete", post(batch_delete))
         .route("/ops/truncate", post(truncate_file))
         .route("/ops/list_tree", get(list_tree_dir))
         .route("/ops/verify_chunks", post(verify_chunks))
@@ -498,6 +499,48 @@ async fn delete_file(
     }
 
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct BatchDeleteParams {
+    root_key: String,
+    directory: String,
+    entries: Vec<String>,
+}
+
+async fn batch_delete(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<BatchDeleteParams>,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    let dir_path = validate_path(&state, &payload.root_key, &payload.directory)?;
+    let mut failed: Vec<String> = Vec::new();
+
+    for entry in &payload.entries {
+        // Reject entries with path separators or traversal
+        if entry.contains('/') || entry.contains('\\') || entry.contains("..") {
+            failed.push(entry.clone());
+            continue;
+        }
+
+        let entry_path = dir_path.join(entry);
+        let result = if entry_path.is_dir() {
+            fs::remove_dir(&entry_path).await
+        } else {
+            fs::remove_file(&entry_path).await
+        };
+
+        match result {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                // Missing entries silently ignored per spec
+            }
+            Err(_) => {
+                failed.push(entry.clone());
+            }
+        }
+    }
+
+    Ok(Json(failed))
 }
 
 #[derive(Deserialize)]
