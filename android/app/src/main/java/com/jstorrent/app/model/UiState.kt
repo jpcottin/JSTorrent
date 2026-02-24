@@ -1,5 +1,6 @@
 package com.jstorrent.app.model
 
+import androidx.annotation.StringRes
 import com.jstorrent.app.R
 import com.jstorrent.quickjs.model.FileInfo
 import com.jstorrent.quickjs.model.TorrentInfo
@@ -102,13 +103,13 @@ sealed class TorrentDetailUiState {
 /**
  * Tabs in the torrent detail screen.
  */
-enum class DetailTab {
-    DETAILS,
-    STATUS,
-    FILES,
-    TRACKERS,
-    PEERS,
-    PIECES
+enum class DetailTab(@StringRes val titleRes: Int) {
+    DETAILS(R.string.tab_details),
+    STATUS(R.string.tab_status),
+    FILES(R.string.tab_files),
+    TRACKERS(R.string.tab_trackers),
+    PEERS(R.string.tab_peers),
+    PIECES(R.string.tab_pieces)
 }
 
 /**

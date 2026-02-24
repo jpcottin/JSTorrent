@@ -34,8 +34,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.viewmodel.DhtViewModel
 import com.jstorrent.quickjs.model.DhtStats
 
@@ -57,12 +59,12 @@ fun DhtInfoScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("DHT Info") },
+                title = { Text(stringResource(R.string.dht_info_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.back)
                         )
                     }
                 }
@@ -88,7 +90,7 @@ fun DhtInfoScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "DHT not initialized",
+                        text = stringResource(R.string.dht_info_not_initialized),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -114,7 +116,7 @@ private fun DhtStatsContent(
     ) {
         // Status Section
         item {
-            SectionHeader(title = "Status")
+            SectionHeader(title = stringResource(R.string.dht_info_status_section))
         }
 
         item {
@@ -127,7 +129,7 @@ private fun DhtStatsContent(
 
         // Traffic Section
         item {
-            SectionHeader(title = "Traffic")
+            SectionHeader(title = stringResource(R.string.dht_info_traffic_section))
         }
 
         item {
@@ -140,7 +142,7 @@ private fun DhtStatsContent(
 
         // Queries Sent Section
         item {
-            SectionHeader(title = "Queries Sent")
+            SectionHeader(title = stringResource(R.string.dht_info_queries_sent_section))
         }
 
         item {
@@ -153,7 +155,7 @@ private fun DhtStatsContent(
 
         // Queries Received Section
         item {
-            SectionHeader(title = "Queries Received")
+            SectionHeader(title = stringResource(R.string.dht_info_queries_received_section))
         }
 
         item {
@@ -169,6 +171,7 @@ private fun DhtStatsContent(
 @Composable
 private fun StatusSection(stats: DhtStats) {
     val context = LocalContext.current
+    val nodeIdCopiedMessage = stringResource(R.string.dht_info_node_id_copied)
 
     Card(
         modifier = Modifier
@@ -183,8 +186,8 @@ private fun StatusSection(stats: DhtStats) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             StatRow(
-                label = "Status",
-                value = if (stats.ready) "Ready" else "Starting..."
+                label = stringResource(R.string.dht_info_status_label),
+                value = if (stats.ready) stringResource(R.string.dht_info_status_ready) else stringResource(R.string.dht_info_status_starting)
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -192,7 +195,7 @@ private fun StatusSection(stats: DhtStats) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Node ID",
+                    text = stringResource(R.string.dht_info_node_id),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -204,31 +207,31 @@ private fun StatusSection(stats: DhtStats) {
                     )
                     IconButton(
                         onClick = {
-                            copyToClipboard(context, stats.nodeId, "Node ID copied")
+                            copyToClipboard(context, stats.nodeId, nodeIdCopiedMessage)
                         }
                     ) {
                         Icon(
                             imageVector = Icons.Default.ContentCopy,
-                            contentDescription = "Copy Node ID",
+                            contentDescription = stringResource(R.string.dht_info_copy_node_id),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
             StatRow(
-                label = "Routing Table",
-                value = "${stats.nodeCount} nodes / ${stats.bucketCount} buckets"
+                label = stringResource(R.string.dht_info_routing_table),
+                value = stringResource(R.string.dht_info_routing_table_value, stats.nodeCount, stats.bucketCount)
             )
             StatRow(
-                label = "Peers Discovered",
+                label = stringResource(R.string.dht_info_peers_discovered),
                 value = stats.peersDiscovered.toString()
             )
             StatRow(
-                label = "Timeouts",
+                label = stringResource(R.string.dht_info_timeouts),
                 value = stats.timeouts.toString()
             )
             StatRow(
-                label = "Errors",
+                label = stringResource(R.string.dht_info_errors),
                 value = stats.errors.toString()
             )
         }
@@ -250,11 +253,11 @@ private fun TrafficSection(stats: DhtStats) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             StatRow(
-                label = "Bytes Sent",
+                label = stringResource(R.string.dht_info_bytes_sent),
                 value = formatBytes(stats.bytesSent)
             )
             StatRow(
-                label = "Bytes Received",
+                label = stringResource(R.string.dht_info_bytes_received),
                 value = formatBytes(stats.bytesReceived)
             )
         }
@@ -276,22 +279,22 @@ private fun QueriesSentSection(stats: DhtStats) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             QueryStatRow(
-                label = "ping",
+                label = stringResource(R.string.dht_info_query_ping),
                 succeeded = stats.pingsSucceeded,
                 total = stats.pingsSent
             )
             QueryStatRow(
-                label = "find_node",
+                label = stringResource(R.string.dht_info_query_find_node),
                 succeeded = stats.findNodesSucceeded,
                 total = stats.findNodesSent
             )
             QueryStatRow(
-                label = "get_peers",
+                label = stringResource(R.string.dht_info_query_get_peers),
                 succeeded = stats.getPeersSucceeded,
                 total = stats.getPeersSent
             )
             QueryStatRow(
-                label = "announce_peer",
+                label = stringResource(R.string.dht_info_query_announce_peer),
                 succeeded = stats.announcesSucceeded,
                 total = stats.announcesSent
             )
@@ -313,10 +316,10 @@ private fun QueriesReceivedSection(stats: DhtStats) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            StatRow(label = "ping", value = stats.pingsReceived.toString())
-            StatRow(label = "find_node", value = stats.findNodesReceived.toString())
-            StatRow(label = "get_peers", value = stats.getPeersReceived.toString())
-            StatRow(label = "announce_peer", value = stats.announcesReceived.toString())
+            StatRow(label = stringResource(R.string.dht_info_query_ping), value = stats.pingsReceived.toString())
+            StatRow(label = stringResource(R.string.dht_info_query_find_node), value = stats.findNodesReceived.toString())
+            StatRow(label = stringResource(R.string.dht_info_query_get_peers), value = stats.getPeersReceived.toString())
+            StatRow(label = stringResource(R.string.dht_info_query_announce_peer), value = stats.announcesReceived.toString())
         }
     }
 }
@@ -392,7 +395,7 @@ private fun formatBytes(bytes: Long): String {
 
 private fun copyToClipboard(context: Context, text: String, message: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    val clip = ClipData.newPlainText("Node ID", text)
+    val clip = ClipData.newPlainText(context.getString(R.string.dht_info_node_id), text)
     clipboard.setPrimaryClip(clip)
     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
 }

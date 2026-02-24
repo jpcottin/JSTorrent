@@ -29,9 +29,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.model.TorrentDetailUi
 import com.jstorrent.app.ui.components.StatRow
 import com.jstorrent.app.ui.theme.JSTorrentTheme
@@ -48,6 +50,7 @@ fun DetailsTab(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val infoHashLabel = stringResource(R.string.tab_details_info_hash)
 
     Column(
         modifier = modifier
@@ -59,7 +62,7 @@ fun DetailsTab(
         // Info Hash section with copy button
         InfoHashSection(
             infoHash = torrent.infoHash,
-            onCopy = { copyToClipboard(context, "Info Hash", torrent.infoHash) }
+            onCopy = { copyToClipboard(context, infoHashLabel, torrent.infoHash) }
         )
 
         HorizontalDivider()
@@ -119,7 +122,7 @@ private fun InfoHashSection(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
-            text = "INFO HASH",
+            text = stringResource(R.string.tab_details_info_hash).uppercase(),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -139,7 +142,7 @@ private fun InfoHashSection(
             IconButton(onClick = onCopy) {
                 Icon(
                     imageVector = Icons.Default.ContentCopy,
-                    contentDescription = "Copy Info Hash",
+                    contentDescription = stringResource(R.string.tab_details_copy_info_hash),
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
@@ -154,18 +157,22 @@ private fun DatesSection(
     progress: Double,
     modifier: Modifier = Modifier
 ) {
+    val unknownText = stringResource(R.string.tab_details_unknown)
+    val completeText = stringResource(R.string.tab_details_complete)
+    val inProgressText = stringResource(R.string.tab_details_in_progress)
+
     Column(modifier = modifier.fillMaxWidth()) {
         StatRow(
-            label = "Date Added",
-            value = addedAt?.let { Formatters.formatDateTime(it) } ?: "Unknown"
+            label = stringResource(R.string.tab_details_date_added),
+            value = addedAt?.let { Formatters.formatDateTime(it) } ?: unknownText
         )
         Spacer(modifier = Modifier.height(12.dp))
         StatRow(
-            label = "Date Finished",
+            label = stringResource(R.string.tab_details_date_finished),
             value = when {
                 completedAt != null -> Formatters.formatDateTime(completedAt)
-                progress >= 1.0 -> "Complete"
-                else -> "In Progress"
+                progress >= 1.0 -> completeText
+                else -> inProgressText
             }
         )
     }
@@ -178,20 +185,22 @@ private fun SizeSection(
     pieceCount: Int?,
     modifier: Modifier = Modifier
 ) {
+    val unknownText = stringResource(R.string.tab_details_unknown)
+
     Column(modifier = modifier.fillMaxWidth()) {
         StatRow(
-            label = "Total Size",
+            label = stringResource(R.string.tab_details_total_size),
             value = Formatters.formatBytes(totalSize)
         )
         Spacer(modifier = Modifier.height(12.dp))
         StatRow(
-            label = "Piece Size",
-            value = pieceSize?.let { Formatters.formatBytes(it) } ?: "Unknown"
+            label = stringResource(R.string.tab_details_piece_size),
+            value = pieceSize?.let { Formatters.formatBytes(it) } ?: unknownText
         )
         Spacer(modifier = Modifier.height(12.dp))
         StatRow(
-            label = "Piece Count",
-            value = pieceCount?.let { Formatters.formatNumber(it) } ?: "Unknown"
+            label = stringResource(R.string.tab_details_piece_count),
+            value = pieceCount?.let { Formatters.formatNumber(it) } ?: unknownText
         )
     }
 }
@@ -204,7 +213,7 @@ private fun SaveLocationSection(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
-            text = "SAVE LOCATION",
+            text = stringResource(R.string.tab_details_save_location).uppercase(),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -223,7 +232,7 @@ private fun SaveLocationSection(
                 IconButton(onClick = onOpen) {
                     Icon(
                         imageVector = Icons.Default.OpenInNew,
-                        contentDescription = "Open folder",
+                        contentDescription = stringResource(R.string.tab_details_open_folder),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -244,7 +253,7 @@ private fun TorrentMetadataSection(
         // Comment (can be multi-line)
         if (comment != null) {
             Text(
-                text = "COMMENT",
+                text = stringResource(R.string.tab_details_comment).uppercase(),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -259,7 +268,7 @@ private fun TorrentMetadataSection(
         // Created By
         if (createdBy != null) {
             StatRow(
-                label = "Created By",
+                label = stringResource(R.string.tab_details_created_by),
                 value = createdBy
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -268,7 +277,7 @@ private fun TorrentMetadataSection(
         // Creation Date
         if (creationDate != null) {
             StatRow(
-                label = "Creation Date",
+                label = stringResource(R.string.tab_details_creation_date),
                 value = Formatters.formatDateTime(creationDate * 1000) // Convert seconds to millis
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -277,8 +286,8 @@ private fun TorrentMetadataSection(
         // Private flag
         if (isPrivate) {
             StatRow(
-                label = "Private Torrent",
-                value = "Yes"
+                label = stringResource(R.string.tab_details_private_torrent),
+                value = stringResource(R.string.tab_details_yes)
             )
         }
     }
@@ -302,7 +311,7 @@ private fun MagnetSection(
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Copy Magnet URL")
+            Text(stringResource(R.string.tab_details_copy_magnet_url))
         }
     }
 }
@@ -311,7 +320,7 @@ private fun copyToClipboard(context: Context, label: String, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     val clip = ClipData.newPlainText(label, text)
     clipboard.setPrimaryClip(clip)
-    Toast.makeText(context, "$label copied", Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, context.getString(R.string.tab_details_copied, label), Toast.LENGTH_SHORT).show()
 }
 
 // =============================================================================

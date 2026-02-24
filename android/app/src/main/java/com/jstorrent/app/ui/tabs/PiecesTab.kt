@@ -23,8 +23,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.jstorrent.app.R
 import com.jstorrent.app.ui.components.PieceBar
 import com.jstorrent.app.ui.components.PieceMap
 import com.jstorrent.app.ui.components.StatRowPair
@@ -69,15 +71,15 @@ fun PiecesTab(
         ) {
             // Statistics
             StatRowPair(
-                leftLabel = "Pieces",
+                leftLabel = stringResource(R.string.tab_pieces_count_label),
                 leftValue = "${Formatters.formatNumber(piecesCompleted ?: 0)} / ${Formatters.formatNumber(piecesTotal)}",
-                rightLabel = "Piece Size",
-                rightValue = pieceSize?.let { Formatters.formatBytes(it) } ?: "Unknown"
+                rightLabel = stringResource(R.string.tab_pieces_piece_size),
+                rightValue = pieceSize?.let { Formatters.formatBytes(it) } ?: stringResource(R.string.tab_pieces_unknown)
             )
 
             // Progress bar (single line, aggregated view)
             Text(
-                text = "PROGRESS",
+                text = stringResource(R.string.tab_pieces_progress).uppercase(),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -96,7 +98,7 @@ fun PiecesTab(
 
             // Piece map (grid view)
             Text(
-                text = "PIECE MAP",
+                text = stringResource(R.string.tab_pieces_piece_map).uppercase(),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -131,11 +133,11 @@ private fun PieceLegend() {
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        LegendItem(color = completedColor, label = "Complete")
-        LegendItem(color = RespondedColor, label = "Verifying")
-        LegendItem(color = RequestedColor, label = "Receiving")
-        LegendItem(color = PartialColor, label = "Requesting")
-        LegendItem(color = MissingColor, label = "Missing")
+        LegendItem(color = completedColor, label = stringResource(R.string.tab_pieces_legend_complete))
+        LegendItem(color = RespondedColor, label = stringResource(R.string.tab_pieces_legend_verifying))
+        LegendItem(color = RequestedColor, label = stringResource(R.string.tab_pieces_legend_receiving))
+        LegendItem(color = PartialColor, label = stringResource(R.string.tab_pieces_legend_requesting))
+        LegendItem(color = MissingColor, label = stringResource(R.string.tab_pieces_legend_missing))
     }
 }
 
@@ -173,12 +175,12 @@ private fun NoPiecesState(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(32.dp)
         ) {
             Text(
-                text = "No piece information",
+                text = stringResource(R.string.tab_pieces_no_info_title),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = "Piece data not yet available",
+                text = stringResource(R.string.tab_pieces_no_info_description),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

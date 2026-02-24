@@ -134,12 +134,12 @@ private fun DhtPexSection(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             StatusChip(
-                label = "DHT",
+                label = stringResource(R.string.tab_trackers_dht),
                 isEnabled = dhtEnabled,
                 modifier = Modifier.weight(1f)
             )
             StatusChip(
-                label = "PeX",
+                label = stringResource(R.string.tab_trackers_pex),
                 isEnabled = pexEnabled,
                 modifier = Modifier.weight(1f)
             )

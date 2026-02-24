@@ -40,10 +40,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jstorrent.app.R
 import com.jstorrent.app.viewmodel.LogLevelFilter
 import com.jstorrent.app.viewmodel.LogViewerViewModel
 import com.jstorrent.quickjs.log.LogBufferEntry
@@ -65,12 +67,12 @@ fun LogViewerScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Logs") },
+                title = { Text(stringResource(R.string.logs_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.back)
                         )
                     }
                 },
@@ -78,7 +80,7 @@ fun LogViewerScreen(
                     IconButton(onClick = { viewModel.clearLogs() }) {
                         Icon(
                             imageVector = Icons.Default.DeleteOutline,
-                            contentDescription = "Clear logs"
+                            contentDescription = stringResource(R.string.logs_clear)
                         )
                     }
                 }
@@ -103,7 +105,7 @@ fun LogViewerScreen(
                     onSelected = { viewModel.setLevelFilter(it) }
                 )
                 Text(
-                    text = "${entries.size} entries",
+                    text = stringResource(R.string.logs_entry_count, entries.size),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -187,7 +189,7 @@ private fun LogEntriesList(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "No log entries",
+                text = stringResource(R.string.logs_empty),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

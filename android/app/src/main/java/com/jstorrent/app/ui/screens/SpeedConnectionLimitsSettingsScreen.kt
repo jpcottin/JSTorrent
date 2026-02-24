@@ -41,7 +41,7 @@ import com.jstorrent.app.viewmodel.SettingsViewModel
 private data class SpeedPreset(val bytesPerSec: Int, val label: String)
 
 private val speedPresets = listOf(
-    SpeedPreset(0, "Unlimited"),
+    SpeedPreset(0, ""), // Resolved via stringResource at display time
     SpeedPreset(102400, "100 KB/s"),
     SpeedPreset(512000, "500 KB/s"),
     SpeedPreset(1048576, "1 MB/s"),
@@ -68,7 +68,7 @@ private val maxGlobalPeersPresets = listOf(
 )
 
 private val maxUploadSlotsPresets = listOf(
-    ConnectionLimitPreset(0, "0 (disabled)"),
+    ConnectionLimitPreset(0, ""), // Resolved via stringResource at display time
     ConnectionLimitPreset(2, "2"),
     ConnectionLimitPreset(4, "4"),
     ConnectionLimitPreset(8, "8"),
@@ -239,8 +239,10 @@ private fun SpeedLimitRow(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val unlimitedLabel = stringResource(R.string.speed_preset_unlimited)
     val currentPreset = speedPresets.find { it.bytesPerSec == currentValue }
         ?: SpeedPreset(currentValue, formatSpeed(currentValue))
+    val currentLabel = if (currentPreset.bytesPerSec == 0) unlimitedLabel else currentPreset.label
 
     Row(
         modifier = modifier
@@ -258,7 +260,7 @@ private fun SpeedLimitRow(
                 modifier = Modifier.clickable { expanded = true }
             ) {
                 Text(
-                    text = currentPreset.label,
+                    text = currentLabel,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
@@ -269,7 +271,7 @@ private fun SpeedLimitRow(
             ) {
                 speedPresets.forEach { preset ->
                     DropdownMenuItem(
-                        text = { Text(preset.label) },
+                        text = { Text(if (preset.bytesPerSec == 0) unlimitedLabel else preset.label) },
                         onClick = {
                             onValueChange(preset.bytesPerSec)
                             expanded = false
@@ -335,8 +337,13 @@ private fun ConnectionLimitRow(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val disabledLabel = stringResource(R.string.speed_preset_upload_disabled)
     val currentPreset = presets.find { it.value == currentValue }
         ?: ConnectionLimitPreset(currentValue, currentValue.toString())
+
+    // Resolve display label: empty label means it needs localized resolution
+    fun resolveLabel(preset: ConnectionLimitPreset): String =
+        if (preset.label.isEmpty()) disabledLabel else preset.label
 
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -363,7 +370,7 @@ private fun ConnectionLimitRow(
                     modifier = Modifier.clickable { expanded = true }
                 ) {
                     Text(
-                        text = currentPreset.label,
+                        text = resolveLabel(currentPreset),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
@@ -374,7 +381,7 @@ private fun ConnectionLimitRow(
                 ) {
                     presets.forEach { preset ->
                         DropdownMenuItem(
-                            text = { Text(preset.label) },
+                            text = { Text(resolveLabel(preset)) },
                             onClick = {
                                 onValueChange(preset.value)
                                 expanded = false

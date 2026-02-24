@@ -410,7 +410,7 @@ private fun DetailContent(
                     onClick = { onTabSelected(tab) },
                     text = {
                         Text(
-                            text = tab.name,
+                            text = stringResource(tab.titleRes),
                             style = MaterialTheme.typography.labelMedium
                         )
                     }

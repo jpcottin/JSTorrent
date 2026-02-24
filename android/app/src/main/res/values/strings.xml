@@ -359,6 +359,88 @@
     <string name="file_priority_normal">Normal</string>
     <string name="file_priority_skip">Don\'t Download</string>
 
+    <!-- Detail tab names -->
+    <string name="tab_details">Details</string>
+    <string name="tab_status">Status</string>
+    <string name="tab_files">Files</string>
+    <string name="tab_trackers">Trackers</string>
+    <string name="tab_peers">Peers</string>
+    <string name="tab_pieces">Pieces</string>
+
+    <!-- DetailsTab -->
+    <string name="tab_details_info_hash">Info Hash</string>
+    <string name="tab_details_copy_info_hash">Copy Info Hash</string>
+    <string name="tab_details_date_added">Date Added</string>
+    <string name="tab_details_date_finished">Date Finished</string>
+    <string name="tab_details_unknown">Unknown</string>
+    <string name="tab_details_complete">Complete</string>
+    <string name="tab_details_in_progress">In Progress</string>
+    <string name="tab_details_total_size">Total Size</string>
+    <string name="tab_details_piece_size">Piece Size</string>
+    <string name="tab_details_piece_count">Piece Count</string>
+    <string name="tab_details_save_location">Save Location</string>
+    <string name="tab_details_open_folder">Open folder</string>
+    <string name="tab_details_comment">Comment</string>
+    <string name="tab_details_created_by">Created By</string>
+    <string name="tab_details_creation_date">Creation Date</string>
+    <string name="tab_details_private_torrent">Private Torrent</string>
+    <string name="tab_details_yes">Yes</string>
+    <string name="tab_details_copy_magnet_url">Copy Magnet URL</string>
+    <string name="tab_details_copied">%1$s copied</string>
+
+    <!-- PiecesTab -->
+    <string name="tab_pieces_count_label">Pieces</string>
+    <string name="tab_pieces_piece_size">Piece Size</string>
+    <string name="tab_pieces_unknown">Unknown</string>
+    <string name="tab_pieces_progress">Progress</string>
+    <string name="tab_pieces_piece_map">Piece Map</string>
+    <string name="tab_pieces_legend_complete">Complete</string>
+    <string name="tab_pieces_legend_verifying">Verifying</string>
+    <string name="tab_pieces_legend_receiving">Receiving</string>
+    <string name="tab_pieces_legend_requesting">Requesting</string>
+    <string name="tab_pieces_legend_missing">Missing</string>
+    <string name="tab_pieces_no_info_title">No piece information</string>
+    <string name="tab_pieces_no_info_description">Piece data not yet available</string>
+
+    <!-- TrackersTab -->
+    <string name="tab_trackers_dht">DHT</string>
+    <string name="tab_trackers_pex">PeX</string>
+
+    <!-- DhtInfoScreen -->
+    <string name="dht_info_title">DHT Info</string>
+    <string name="dht_info_not_initialized">DHT not initialized</string>
+    <string name="dht_info_status_section">Status</string>
+    <string name="dht_info_traffic_section">Traffic</string>
+    <string name="dht_info_queries_sent_section">Queries Sent</string>
+    <string name="dht_info_queries_received_section">Queries Received</string>
+    <string name="dht_info_status_label">Status</string>
+    <string name="dht_info_status_ready">Ready</string>
+    <string name="dht_info_status_starting">Starting\u2026</string>
+    <string name="dht_info_node_id">Node ID</string>
+    <string name="dht_info_copy_node_id">Copy Node ID</string>
+    <string name="dht_info_node_id_copied">Node ID copied</string>
+    <string name="dht_info_routing_table">Routing Table</string>
+    <string name="dht_info_routing_table_value">%1$d nodes / %2$d buckets</string>
+    <string name="dht_info_peers_discovered">Peers Discovered</string>
+    <string name="dht_info_timeouts">Timeouts</string>
+    <string name="dht_info_errors">Errors</string>
+    <string name="dht_info_bytes_sent">Bytes Sent</string>
+    <string name="dht_info_bytes_received">Bytes Received</string>
+    <string name="dht_info_query_ping">ping</string>
+    <string name="dht_info_query_find_node">find_node</string>
+    <string name="dht_info_query_get_peers">get_peers</string>
+    <string name="dht_info_query_announce_peer">announce_peer</string>
+
+    <!-- LogViewerScreen -->
+    <string name="logs_title">Logs</string>
+    <string name="logs_clear">Clear logs</string>
+    <string name="logs_entry_count">%1$d entries</string>
+    <string name="logs_empty">No log entries</string>
+
+    <!-- Speed presets -->
+    <string name="speed_preset_unlimited">Unlimited</string>
+    <string name="speed_preset_upload_disabled">0 (disabled)</string>
+
     <!-- Debug menu (not user-facing in release) -->
     <string name="debug_reset_state">Reset State</string>
 </resources>
