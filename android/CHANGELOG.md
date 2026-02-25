@@ -2,6 +2,26 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.22]
+
+### Added
+- In-app language picker with 18 tier 1 translations
+- Manual theme setting (light/dark/system) in Advanced Settings
+- Batch delete for faster torrent data removal
+
+### Fixed
+- SAF: fix `exists()` for directories, duplicate directory race condition, harden dir creation and cache validation
+- Fix `removeTorrentWithData` skipping multi-file deletion and checking wrong root dir
+- Fix per-app language selector not applying locale changes
+- Fix JNI callbacks aborting on OOM (now throws JS exception)
+- Fix deprecated edge-to-edge APIs for Play Store compliance
+- Fix UPnP status display
+- Engine: add TTL for cached failed file opens
+
+### Changed
+- Stop torrent network immediately on removal
+- Move all hardcoded English strings to strings.xml for localization
+
 ## [1.0.21]
 
 ### Fixed
