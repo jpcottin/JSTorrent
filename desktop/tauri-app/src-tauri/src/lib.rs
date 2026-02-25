@@ -253,12 +253,75 @@ fn torrent_file_event(file_url: &str) -> Option<serde_json::Value> {
 }
 
 /// Set the window icon to a high-resolution PNG on Windows.
-/// Tauri v2's codegen only reads the first ICO entry (16x16), making the
-/// taskbar icon appear blank. See https://github.com/tauri-apps/tauri/issues/14596
+/// Tauri v2 + tao's `set_icon()` only sends `WM_SETICON` with `ICON_SMALL`,
+/// which updates the title bar but NOT the Windows taskbar. We additionally
+/// set `ICON_BIG` via the Win32 API so the taskbar icon renders correctly.
+/// See https://github.com/tauri-apps/tauri/issues/14596
 #[cfg(windows)]
 fn set_window_icon(window: &tauri::WebviewWindow) {
-    if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")) {
+    let png_bytes = include_bytes!("../icons/icon.png");
+    // ICON_SMALL (title bar) — via Tauri API
+    if let Ok(icon) = tauri::image::Image::from_bytes(png_bytes) {
         let _ = window.set_icon(icon);
+    }
+    // ICON_BIG (taskbar) — via Win32 API directly
+    if let Ok(image) = tauri::image::Image::from_bytes(png_bytes) {
+        set_icon_big(window, &image);
+    }
+}
+
+/// Send `WM_SETICON` with `ICON_BIG` to set the Windows taskbar icon.
+/// Creates an HICON from raw RGBA data using the same approach as tao's
+/// `RgbaIcon::into_windows_icon`.
+#[cfg(windows)]
+fn set_icon_big(window: &tauri::WebviewWindow, image: &tauri::image::Image<'_>) {
+    extern "system" {
+        fn CreateIcon(
+            hinst: isize,
+            width: i32,
+            height: i32,
+            planes: u8,
+            bits_per_pixel: u8,
+            and_bits: *const u8,
+            xor_bits: *const u8,
+        ) -> isize;
+        fn SendMessageW(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> isize;
+    }
+    const WM_SETICON: u32 = 0x0080;
+    const ICON_BIG: usize = 1;
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    let rgba = image.rgba();
+    let width = image.width();
+    let height = image.height();
+
+    // Convert RGBA → BGRA (Windows native byte order)
+    let mut bgra = rgba.to_vec();
+    for pixel in bgra.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+
+    // AND mask: inverted alpha (0x00 = opaque, 0xFF = transparent)
+    let and_mask: Vec<u8> = (0..(width * height) as usize)
+        .map(|i| rgba[i * 4 + 3].wrapping_sub(0xFF))
+        .collect();
+
+    unsafe {
+        let hicon = CreateIcon(
+            0,
+            width as i32,
+            height as i32,
+            1,
+            32,
+            and_mask.as_ptr(),
+            bgra.as_ptr(),
+        );
+        if hicon != 0 {
+            // HWND is repr(transparent) around isize — safe to transmute_copy
+            let hwnd_raw: isize = std::mem::transmute_copy(&hwnd);
+            SendMessageW(hwnd_raw, WM_SETICON, ICON_BIG, hicon);
+            // Intentionally leak the HICON — it must remain valid for the window's lifetime.
+        }
     }
 }
 
