@@ -76,11 +76,11 @@ interface FileManager {
     fun write(rootUri: Uri, relativePath: String, offset: Long, data: ByteArray)
 
     /**
-     * Check if a file exists at the given path.
+     * Check if a file or directory exists at the given path.
      *
      * @param rootUri SAF tree URI for the download root
      * @param relativePath Path relative to root
-     * @return true if file exists, false otherwise
+     * @return true if file or directory exists, false otherwise
      */
     fun exists(rootUri: Uri, relativePath: String): Boolean
 

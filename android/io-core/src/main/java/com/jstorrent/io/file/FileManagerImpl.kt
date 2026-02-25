@@ -261,7 +261,7 @@ class FileManagerImpl(
         if (isFileUri(rootUri)) {
             return existsNative(rootUri, relativePath)
         }
-        return getCachedFile(rootUri, relativePath) != null
+        return resolvePath(rootUri, relativePath) != null
     }
 
     override fun getOrCreateFile(rootUri: Uri, relativePath: String): DocumentFile? {
