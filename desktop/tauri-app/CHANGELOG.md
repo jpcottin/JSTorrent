@@ -2,6 +2,21 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.28]
+
+- Add batchDelete endpoint to io-daemon for faster torrent data removal
+- Stop torrent network immediately on removal
+- Add loading state to confirm dialog during torrent data removal
+- Add engine state, usage metrics, and daemon uptime to bug reports
+- Add check-for-update ID and reason headers to update checks
+- Add TTL for cached failed file opens
+- Fix Windows taskbar icon appearing as blank page
+- Fix removeTorrentWithData skipping multi-file deletion
+- Fix removeTorrentWithData checking wrong directory for torrent root
+- Fix system bridge showing Ready when no usable download location
+- Fix duplicate update dialogs
+- Clear tray speed stats when window closes without background mode
+
 ## [0.1.27]
 
 - Fix Windows build: update icon path after legacy installer removal
