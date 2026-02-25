@@ -34,22 +34,58 @@ SCRIPT_DIR = Path(__file__).parent
 CLAUDE_DIR = SCRIPT_DIR / "claude"
 
 
-def get_unmatched(jst_en):
-    """Return dict of strings that have no auto-match in any source."""
+def get_unmatched(jst_en, lang_code=None):
+    """Return dict of strings that have no auto-match in any source.
+
+    If lang_code is provided, also includes strings that match in English but
+    have no actual translation available for that language (coverage gaps).
+    """
     lt_en = parse_android(LIBRETORRENT_EN)
     lt_reverse = build_reverse(lt_en)
     tx_sources = parse_qt_sources(TRANSMISSION_EN)
     qb_sources = get_qb_sources()
 
+    # If lang_code given, load actual translations to detect coverage gaps
+    if lang_code:
+        lt_translated = parse_android(LIBRETORRENT_DIR / f"values-{lang_code}" / "strings.xml")
+        tx_translated = load_tx_translations(lang_code)
+        qb_translated = load_qb_translations(lang_code)
+    else:
+        lt_translated = tx_translated = qb_translated = None
+
     unmatched = {}
     for name, text in jst_en.items():
         if name in SKIP_IDS:
             continue
-        if name in MANUAL_ID_MAP:
-            continue
         key = text.strip().lower()
-        if key not in lt_reverse and key not in tx_sources and key not in qb_sources:
+
+        # Manual ID map — check if translation exists for this language
+        if name in MANUAL_ID_MAP:
+            if lang_code:
+                lt_id = MANUAL_ID_MAP[name]
+                if lt_id not in lt_translated:
+                    unmatched[name] = text
+            continue
+
+        has_source = key in lt_reverse or key in tx_sources or key in qb_sources
+
+        if not has_source:
             unmatched[name] = text
+        elif lang_code:
+            # Source exists in English, but check if translation is available
+            found = False
+            if key in lt_reverse:
+                for lt_id in lt_reverse[key]:
+                    if lt_id in lt_translated:
+                        found = True
+                        break
+            if not found and key in tx_translated:
+                found = True
+            if not found and key in qb_translated:
+                found = True
+            if not found:
+                unmatched[name] = text
+
     return unmatched
 
 
@@ -204,14 +240,17 @@ def main():
     args = parser.parse_args()
 
     jst_en = parse_android(JSTORRENT_STRINGS)
-    unmatched = get_unmatched(jst_en)
 
     if args.list_groups:
+        unmatched = get_unmatched(jst_en)  # no lang_code for listing
         groups = group_strings(unmatched)
         for prefix, items in sorted(groups.items()):
             print(f"{prefix}: {len(items)} strings")
         print(f"\nTotal: {len(unmatched)} unmatched strings")
         return
+
+    # Pass lang_code so coverage gaps (matched in English but no translation) are included
+    unmatched = get_unmatched(jst_en, lang_code=args.lang)
 
     # In diff mode, load existing LLM translations for context and filter
     existing_llm = None
