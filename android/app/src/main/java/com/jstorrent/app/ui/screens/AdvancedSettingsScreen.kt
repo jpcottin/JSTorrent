@@ -119,6 +119,33 @@ fun AdvancedSettingsScreen(
                 )
             }
 
+            // Appearance (theme)
+            item {
+                SectionHeader(title = stringResource(R.string.settings_advanced_appearance_section))
+            }
+
+            item {
+                val systemDefault = stringResource(R.string.settings_advanced_language_system_default)
+                val lightLabel = stringResource(R.string.settings_advanced_theme_light)
+                val darkLabel = stringResource(R.string.settings_advanced_theme_dark)
+                val themeOptions = listOf(
+                    "" to systemDefault,
+                    "light" to lightLabel,
+                    "dark" to darkLabel
+                )
+                val currentTheme = uiState.appTheme
+                val currentOption = themeOptions.find { it.first == currentTheme } ?: themeOptions[0]
+
+                SettingDropdownRow(
+                    label = stringResource(R.string.settings_advanced_theme_label),
+                    currentValue = currentOption,
+                    options = themeOptions,
+                    labelFor = { it.second },
+                    onValueChange = { viewModel.setAppTheme(it.first) },
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+
             // Chromebook-only: Switch to Companion Mode
             if (isChromebook && onSwitchToCompanionMode != null) {
                 item {

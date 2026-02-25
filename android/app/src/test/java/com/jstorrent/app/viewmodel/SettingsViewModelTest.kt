@@ -66,6 +66,7 @@ class SettingsViewModelTest {
             on { shutdownOnLowBatteryEnabled } doReturn false
             on { shutdownOnLowBatteryThreshold } doReturn 15
             on { appLocale } doReturn ""
+            on { appTheme } doReturn ""
         }
         // Engine settings (from AndroidConfigHub / SQLite KV)
         configHub = mock {

@@ -105,7 +105,7 @@
     <string name="settings_power_title">Power Management</string>
     <string name="settings_power_description">Background downloads, seeding</string>
     <string name="settings_advanced_title">Advanced</string>
-    <string name="settings_advanced_description">Language, feedback, reset settings</string>
+    <string name="settings_advanced_description">Theme, language, feedback, reset settings</string>
 
     <!-- Common -->
     <string name="back">Back</string>
@@ -208,6 +208,10 @@
     <string name="settings_advanced_language_section">Language</string>
     <string name="settings_advanced_language_label">App language</string>
     <string name="settings_advanced_language_system_default">System default</string>
+    <string name="settings_advanced_appearance_section">Appearance</string>
+    <string name="settings_advanced_theme_label">Theme</string>
+    <string name="settings_advanced_theme_light">Light</string>
+    <string name="settings_advanced_theme_dark">Dark</string>
     <string name="settings_advanced_mode_section">Mode</string>
     <string name="settings_advanced_companion_mode_label">Switch to Companion Mode</string>
     <string name="settings_advanced_companion_mode_description">Use with Chrome extension instead</string>

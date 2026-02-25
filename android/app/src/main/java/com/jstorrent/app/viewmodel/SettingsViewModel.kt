@@ -85,8 +85,9 @@ data class SettingsUiState(
     val canRequestNotificationPermission: Boolean = true,
     val showNotificationRequiredDialog: Boolean = false,
     val showKeepSeedingWarningDialog: Boolean = false,
-    // Language
-    val appLocale: String = ""
+    // Language & Appearance
+    val appLocale: String = "",
+    val appTheme: String = ""
 )
 
 /**
@@ -155,7 +156,8 @@ class SettingsViewModel(
             cpuWakeLockEnabled = settingsStore.cpuWakeLockEnabled,
             shutdownOnLowBatteryEnabled = settingsStore.shutdownOnLowBatteryEnabled,
             shutdownOnLowBatteryThreshold = settingsStore.shutdownOnLowBatteryThreshold,
-            appLocale = settingsStore.appLocale
+            appLocale = settingsStore.appLocale,
+            appTheme = settingsStore.appTheme
         )
         // Also refresh UPnP status from engine
         refreshUpnpStatus()
@@ -646,7 +648,7 @@ class SettingsViewModel(
     }
 
     // =========================================================================
-    // Language Settings
+    // Language & Appearance Settings
     // =========================================================================
 
     /**
@@ -663,6 +665,23 @@ class SettingsViewModel(
             LocaleListCompat.forLanguageTags(tag)
         }
         AppCompatDelegate.setApplicationLocales(localeList)
+    }
+
+    /**
+     * Set the app theme. Empty string means system default.
+     * "light" forces light mode, "dark" forces dark mode.
+     * Persists the preference and applies via AppCompatDelegate.
+     */
+    fun setAppTheme(mode: String) {
+        settingsStore.appTheme = mode
+        _uiState.value = _uiState.value.copy(appTheme = mode)
+        AppCompatDelegate.setDefaultNightMode(
+            when (mode) {
+                "light" -> AppCompatDelegate.MODE_NIGHT_NO
+                "dark" -> AppCompatDelegate.MODE_NIGHT_YES
+                else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+            }
+        )
     }
 
     /**

@@ -184,6 +184,18 @@ class JSTorrentApplication : Application() {
             )
         }
 
+        // Apply saved theme before any UI is created
+        val savedTheme = settingsStore.appTheme
+        if (savedTheme.isNotEmpty()) {
+            AppCompatDelegate.setDefaultNightMode(
+                when (savedTheme) {
+                    "light" -> AppCompatDelegate.MODE_NIGHT_NO
+                    "dark" -> AppCompatDelegate.MODE_NIGHT_YES
+                    else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+                }
+            )
+        }
+
         createNotificationChannels()
         deleteLegacyChannels()
 

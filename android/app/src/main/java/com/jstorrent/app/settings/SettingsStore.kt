@@ -86,7 +86,7 @@ class SettingsStore(context: Context) {
         set(value) = prefs.edit { putString(KEY_WHEN_DOWNLOADS_COMPLETE, value) }
 
     // =========================================================================
-    // Language (Android-only)
+    // Language & Appearance (Android-only)
     // =========================================================================
 
     /**
@@ -96,6 +96,13 @@ class SettingsStore(context: Context) {
     var appLocale: String
         get() = prefs.getString(KEY_APP_LOCALE, "") ?: ""
         set(value) = prefs.edit { putString(KEY_APP_LOCALE, value) }
+
+    /**
+     * App theme preference: "light", "dark", or "" (system default).
+     */
+    var appTheme: String
+        get() = prefs.getString(KEY_APP_THEME, "") ?: ""
+        set(value) = prefs.edit { putString(KEY_APP_THEME, value) }
 
     // =========================================================================
     // UI State (Android-only)
@@ -115,12 +122,16 @@ class SettingsStore(context: Context) {
     fun resetToDefaults() {
         val preserveNotificationPrompt = hasShownNotificationPrompt
         val preserveLocale = appLocale
+        val preserveTheme = appTheme
         prefs.edit { clear() }
         if (preserveNotificationPrompt) {
             hasShownNotificationPrompt = true
         }
         if (preserveLocale.isNotEmpty()) {
             appLocale = preserveLocale
+        }
+        if (preserveTheme.isNotEmpty()) {
+            appTheme = preserveTheme
         }
     }
 
@@ -140,8 +151,9 @@ class SettingsStore(context: Context) {
         // Standalone behavior
         private const val KEY_WHEN_DOWNLOADS_COMPLETE = "when_downloads_complete"
 
-        // Language
+        // Language & Appearance
         private const val KEY_APP_LOCALE = "app_locale"
+        private const val KEY_APP_THEME = "app_theme"
 
         // UI state
         private const val KEY_HAS_SHOWN_NOTIFICATION_PROMPT = "has_shown_notification_prompt"
