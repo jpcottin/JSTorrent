@@ -22,6 +22,10 @@ const MAX_BATCH_BYTES = 16 * 1024 * 1024 // 16 MB
 // Max pieces per batch
 const MAX_BATCH_COUNT = 64
 
+// Negative-cache TTL for failed file opens.
+// Prevents repeated open spam in hot paths while allowing recovery if files/folders reappear.
+const FAILED_OPEN_CACHE_TTL_MS = 10_000
+
 export class TorrentContentStorage extends EngineComponent {
   static logName = 'content-storage'
   private files: TorrentFile[] = []
@@ -32,11 +36,11 @@ export class TorrentContentStorage extends EngineComponent {
   private fileHandles: Map<string, IFileHandle> = new Map()
   private openingFiles: Map<string, Promise<IFileHandle>> = new Map()
   /**
-   * Paths that failed to open (e.g., file not found). Cached to avoid repeated
-   * failed open attempts during recheck of torrents with missing files.
-   * Cleared on close() so deleted files can be re-detected after being restored.
+   * Paths that failed to open (e.g., missing parent directory), keyed by failure timestamp.
+   * This negative cache avoids repeated open attempts in hot paths, but entries
+   * expire so external filesystem changes can recover without requiring close().
    */
-  private failedPaths: Set<string> = new Set()
+  private failedPaths: Map<string, number> = new Map()
   private pieceLength: number = 0
   private filePriorities: number[] = []
 
@@ -117,9 +121,14 @@ export class TorrentContentStorage extends EngineComponent {
    * so caching just stores metadata objects with no real benefit.
    */
   private async getFileHandle(path: string): Promise<IFileHandle> {
-    // Fast path: already known to be missing
-    if (this.failedPaths.has(path)) {
-      throw new Error(`File open failed (cached): ${path}`)
+    // Fast path: recent failure is still within negative-cache TTL.
+    const failedAt = this.failedPaths.get(path)
+    if (failedAt !== undefined) {
+      if (Date.now() - failedAt < FAILED_OPEN_CACHE_TTL_MS) {
+        throw new Error(`File open failed (cached): ${path}`)
+      }
+      // Expired failure cache entry - retry open.
+      this.failedPaths.delete(path)
     }
 
     if (this.fileHandles.has(path)) {
@@ -149,7 +158,7 @@ export class TorrentContentStorage extends EngineComponent {
         return handle
       } catch (err) {
         // Cache the failure to avoid repeated open attempts for missing files
-        this.failedPaths.add(path)
+        this.failedPaths.set(path, Date.now())
         this.logger.debug(`DiskManager ${this.id}: File open failed, caching: '${path}'`)
         throw err
       }
@@ -158,9 +167,12 @@ export class TorrentContentStorage extends EngineComponent {
     this.openingFiles.set(path, openPromise)
 
     // Clean up openingFiles when done (success or failure)
-    openPromise.finally(() => {
-      this.openingFiles.delete(path)
-    })
+    // Consume the cleanup chain rejection to avoid unhandled-rejection noise when open fails.
+    openPromise
+      .finally(() => {
+        this.openingFiles.delete(path)
+      })
+      .catch(() => {})
 
     return openPromise
   }

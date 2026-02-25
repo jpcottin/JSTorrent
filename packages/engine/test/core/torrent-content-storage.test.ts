@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { TorrentContentStorage } from '../../src/core/torrent-content-storage'
 import { InMemoryFileSystem } from '../../src/adapters/memory'
 import { TorrentFile } from '../../src/core/torrent-file'
@@ -66,5 +66,43 @@ describe('TorrentContentStorage', () => {
 
     const stat = await fileSystem.stat('file1')
     expect(stat.size).toBe(14) // 12 padding + 2 bytes
+  })
+
+  it('should expire cached failed opens so recreated folders can recover', async () => {
+    vi.useFakeTimers()
+    try {
+      const t0 = new Date('2026-01-01T00:00:00.000Z')
+      vi.setSystemTime(t0)
+
+      await contentStorage.open(
+        [{ path: 'missing-dir/file.bin', length: 10, offset: 0 }],
+        pieceLength,
+      )
+
+      const data = new Uint8Array([7])
+
+      // Initial failure caches the path.
+      await expect(contentStorage.write(0, 0, data)).rejects.toThrow(
+        'parent directory does not exist',
+      )
+
+      // Immediate retry should hit the negative cache.
+      await expect(contentStorage.write(0, 0, data)).rejects.toThrow(
+        'File open failed (cached): missing-dir/file.bin',
+      )
+
+      // Recreate the missing parent directory, but cache should still block until TTL expiry.
+      await fileSystem.mkdir('missing-dir')
+      await expect(contentStorage.write(0, 0, data)).rejects.toThrow(
+        'File open failed (cached): missing-dir/file.bin',
+      )
+
+      // Advance beyond failed-open cache TTL and verify write now succeeds.
+      vi.setSystemTime(new Date(t0.getTime() + 60_000))
+      await contentStorage.write(0, 0, data)
+      await expect(contentStorage.read(0, 0, 1)).resolves.toEqual(data)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
