@@ -178,17 +178,11 @@ function App() {
   const roots: DownloadRoot[] =
     ioBridgeState.status === 'connected' ? (ioBridgeState.roots ?? []) : []
 
-  // Auto-select first accessible root as default when roots become available but no default is set.
+  // Auto-select first accessible root as default when roots are available but no default is set.
   // This ensures the badge shows "Ready" (not "Setup") immediately when roots exist,
   // rather than waiting for engine init to set defaultRootKey.
-  useEffect(() => {
-    if (roots.length > 0 && defaultRootKey == null) {
-      const firstUsable = roots.find((r) => r.last_stat_ok !== false)
-      if (firstUsable) {
-        setDefaultRootKey(firstUsable.key)
-      }
-    }
-  }, [roots, defaultRootKey])
+  const effectiveDefaultRootKey =
+    defaultRootKey ?? roots.find((r) => r.last_stat_ok !== false)?.key ?? null
 
   // Check if there are pending torrents (torrents added but not downloading)
   const hasPendingTorrents = engine
@@ -199,7 +193,7 @@ function App() {
   const systemBridge = useSystemBridge({
     state: ioBridgeState as Parameters<typeof useSystemBridge>[0]['state'],
     roots,
-    defaultRootKey,
+    defaultRootKey: effectiveDefaultRootKey,
     hasPendingTorrents,
     extensionVersion: channel.getVersion(),
     getStats,
@@ -306,7 +300,7 @@ function App() {
                   versionStatus={systemBridge.versionStatus}
                   appVersion={channel.getVersion()}
                   roots={roots}
-                  defaultRootKey={defaultRootKey}
+                  defaultRootKey={effectiveDefaultRootKey}
                   hasEverConnected={chromeosHasEverConnected}
                   onClose={systemBridge.closePanel}
                   onLaunch={chromeosBootstrap.openIntent}
@@ -333,7 +327,7 @@ function App() {
                   daemonVersion={systemBridge.daemonVersion}
                   appVersion={channel.getVersion()}
                   roots={roots}
-                  defaultRootKey={defaultRootKey}
+                  defaultRootKey={effectiveDefaultRootKey}
                   hasEverConnected={hasEverConnected}
                   rootsManageable={engineManager.rootsManageable}
                   onRetry={retry}
