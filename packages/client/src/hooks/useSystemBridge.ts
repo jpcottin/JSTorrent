@@ -45,6 +45,7 @@ function getReadiness(
   versionStatus: VersionStatus,
   roots: DownloadRoot[],
   _hasPendingTorrents: boolean,
+  defaultRootKey: string | null,
 ): ReadinessStatus {
   const issues: Array<'not_connected' | 'update_required' | 'no_root'> = []
 
@@ -57,7 +58,11 @@ function getReadiness(
     issues.push('update_required')
   }
 
-  const hasRoot = roots.length > 0
+  // Check for a usable root: must have at least one accessible root with a valid default selected
+  const usableRoots = roots.filter((r) => r.last_stat_ok !== false)
+  const hasUsableRoot = usableRoots.length > 0
+  const hasValidDefault = defaultRootKey != null && roots.some((r) => r.key === defaultRootKey)
+  const hasRoot = hasUsableRoot && hasValidDefault
   if (isConnected && !hasRoot) {
     issues.push('no_root')
   }
@@ -211,7 +216,7 @@ export interface UseSystemBridgeResult {
  * and manages panel open/closed state.
  */
 export function useSystemBridge(config: UseSystemBridgeConfig): UseSystemBridgeResult {
-  const { state, roots, hasPendingTorrents, extensionVersion } = config
+  const { state, roots, defaultRootKey, hasPendingTorrents, extensionVersion } = config
 
   const [panelOpen, setPanelOpen] = useState(false)
 
@@ -224,8 +229,8 @@ export function useSystemBridge(config: UseSystemBridgeConfig): UseSystemBridgeR
 
   // Compute readiness
   const readiness = useMemo(
-    () => getReadiness(state, versionStatus, roots, hasPendingTorrents),
-    [state, versionStatus, roots, hasPendingTorrents],
+    () => getReadiness(state, versionStatus, roots, hasPendingTorrents, defaultRootKey),
+    [state, versionStatus, roots, hasPendingTorrents, defaultRootKey],
   )
 
   // Panel actions

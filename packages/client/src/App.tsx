@@ -178,6 +178,18 @@ function App() {
   const roots: DownloadRoot[] =
     ioBridgeState.status === 'connected' ? (ioBridgeState.roots ?? []) : []
 
+  // Auto-select first accessible root as default when roots become available but no default is set.
+  // This ensures the badge shows "Ready" (not "Setup") immediately when roots exist,
+  // rather than waiting for engine init to set defaultRootKey.
+  useEffect(() => {
+    if (roots.length > 0 && defaultRootKey == null) {
+      const firstUsable = roots.find((r) => r.last_stat_ok !== false)
+      if (firstUsable) {
+        setDefaultRootKey(firstUsable.key)
+      }
+    }
+  }, [roots, defaultRootKey])
+
   // Check if there are pending torrents (torrents added but not downloading)
   const hasPendingTorrents = engine
     ? engine.torrents.some((t) => t.userState === 'active' && !t.hasMetadata)
