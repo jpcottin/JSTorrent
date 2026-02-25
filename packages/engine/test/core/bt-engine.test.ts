@@ -272,6 +272,89 @@ describe('BtEngine', () => {
       expect(await fileSystem.exists('Movie/subs/en.srt')).toBe(false)
     })
 
+    it('should delete multi-file torrent even when first file is missing', async () => {
+      const info = {
+        name: 'Movie',
+        'piece length': 16384,
+        pieces: new Uint8Array(20),
+        files: [
+          { length: 500, path: ['movie.mkv'] },
+          { length: 300, path: ['extras', 'trailer.mkv'] },
+          { length: 200, path: ['subs', 'en.srt'] },
+        ],
+      }
+      const buffer = Bencode.encode({ info })
+
+      const { torrent } = await client.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      // Create the folder and some files, but NOT the first file
+      await fileSystem.mkdir('Movie')
+      await fileSystem.mkdir('Movie/extras')
+      await fileSystem.mkdir('Movie/subs')
+      // Skip creating Movie/movie.mkv (the first file)
+      for (const path of ['Movie/extras/trailer.mkv', 'Movie/subs/en.srt']) {
+        const h = await fileSystem.open(path, 'w')
+        await h.write(new Uint8Array(100), 0, 100, 0)
+        await h.close()
+      }
+      expect(await fileSystem.exists('Movie')).toBe(true)
+      expect(await fileSystem.exists('Movie/movie.mkv')).toBe(false)
+      expect(await fileSystem.exists('Movie/extras/trailer.mkv')).toBe(true)
+
+      const result = await client.removeTorrentWithData(torrent)
+      expect(result.success).toBe(true)
+      expect(result.errors).toEqual([])
+      expect(await fileSystem.exists('Movie/extras/trailer.mkv')).toBe(false)
+      expect(await fileSystem.exists('Movie/subs/en.srt')).toBe(false)
+      expect(await fileSystem.exists('Movie')).toBe(false)
+    })
+
+    it('should skip deletion gracefully when multi-file folder does not exist', async () => {
+      const info = {
+        name: 'GoneTorrent',
+        'piece length': 16384,
+        pieces: new Uint8Array(20),
+        files: [
+          { length: 500, path: ['file1.txt'] },
+          { length: 300, path: ['file2.txt'] },
+        ],
+      }
+      const buffer = Bencode.encode({ info })
+
+      const { torrent } = await client.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      // Don't create any files or folders — torrent data never existed
+      expect(await fileSystem.exists('GoneTorrent')).toBe(false)
+
+      const result = await client.removeTorrentWithData(torrent)
+      expect(result.success).toBe(true)
+      expect(result.errors).toEqual([])
+      expect(client.torrents).not.toContain(torrent)
+    })
+
+    it('should skip deletion gracefully when single-file does not exist', async () => {
+      const info = {
+        name: 'missing-file.txt',
+        'piece length': 16384,
+        pieces: new Uint8Array(20),
+        length: 1000,
+      }
+      const buffer = Bencode.encode({ info })
+
+      const { torrent } = await client.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      // Don't create the file
+      expect(await fileSystem.exists('missing-file.txt')).toBe(false)
+
+      const result = await client.removeTorrentWithData(torrent)
+      expect(result.success).toBe(true)
+      expect(result.errors).toEqual([])
+      expect(client.torrents).not.toContain(torrent)
+    })
+
     it('should delete content even when exists() throws', async () => {
       const info = {
         name: 'test-exists-throw.txt',

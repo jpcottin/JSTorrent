@@ -916,13 +916,12 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
         const isMultiFile = firstSlash >= 0
         const torrentRootDir = isMultiFile ? files[0].path.substring(0, firstSlash) : ''
 
-        // Early bail: check if any content exists on disk
-        // Use the first file's path (not the directory) since exists() may not
-        // recognize directories on all backends (e.g., InMemoryFileSystem)
-        const rootCheckPath = files[0].path
+        // Early bail: check if torrent content exists on disk
         let rootExists = true
         try {
-          rootExists = await fs.exists(rootCheckPath)
+          rootExists = isMultiFile
+            ? await fs.exists(torrentRootDir)
+            : await fs.exists(files[0].path)
         } catch {
           // If exists() throws, proceed anyway — batchDelete handles missing entries
         }
