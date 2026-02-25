@@ -4,6 +4,30 @@ All notable changes to the Chrome extension are documented here.
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-02-25
+
+### Added
+- Batch file deletion for faster torrent data removal
+- Loading state in confirmation dialog during torrent data removal
+- Profile removal in Settings > Profiles tab
+- Engine state, usage metrics, and daemon uptime in bug reports
+- Periodic desktop version refresh from rpc-info.json
+
+### Fixed
+- Torrent data deletion skipping multi-file torrents
+- Torrent data deletion checking wrong root directory
+- System bridge showing Ready when no usable download location exists
+- UDP hostname resolution failing on IPv4-bound sockets
+- Duplicate update dialogs in Tauri app
+- UPnP status display
+- Desktop app update verification timeout
+
+### Changed
+- Stop torrent network immediately on removal (faster cleanup)
+- Simplified desktop version reporting and update UX
+- Minimum backend versions: Tauri App v0.1.28, Android v1.0.22
+- Refactored daemon bridge into smaller, testable modules
+
 ## [1.0.4] - 2026-02-16
 
 ### Changed
