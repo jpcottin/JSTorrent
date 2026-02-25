@@ -15,6 +15,7 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 private const val TAG = "FileManagerImpl"
+private const val SAF_VALIDATION_INTERVAL_MS = 10_000L
 
 /**
  * Pooled file handle using FileChannel for lock-free positioned I/O.
@@ -90,6 +91,9 @@ private class PooledSafHandle(
     val pfd: android.os.ParcelFileDescriptor,
     @Volatile var lastAccessTime: Long = System.currentTimeMillis()
 ) {
+    /** Last time we verified the file still exists at this path (to detect stale SAF handles) */
+    @Volatile var lastValidationTime: Long = System.currentTimeMillis()
+
     // Separate streams for read and write operations
     // FileOutputStream channel is write-only, FileInputStream channel is read-only
     private val fos = FileOutputStream(pfd.fileDescriptor)
@@ -156,13 +160,17 @@ class FileManagerImpl(
     private val maxFileHandles: Int = 32,
     private val handleIdleTimeoutMs: Long = 30_000L
 ) : FileManager {
+    private data class CachedDocumentFile(
+        val document: DocumentFile,
+        @Volatile var lastValidationTime: Long = System.currentTimeMillis()
+    )
 
     /**
      * LRU cache for DocumentFile references to avoid repeated SAF traversals.
      * Key format: "$rootUri|$relativePath"
      */
-    private val documentFileCache = object : LinkedHashMap<String, DocumentFile>(100, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, DocumentFile>?): Boolean {
+    private val documentFileCache = object : LinkedHashMap<String, CachedDocumentFile>(100, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedDocumentFile>?): Boolean {
             return size > maxCacheSize
         }
     }
@@ -277,6 +285,18 @@ class FileManagerImpl(
     override fun clearCache() {
         synchronized(cacheLock) {
             documentFileCache.clear()
+        }
+    }
+
+    /**
+     * Invalidate a cached path and any descendants.
+     */
+    private fun invalidateDocumentCachePath(rootUri: Uri, relativePath: String) {
+        val cachePrefix = "$rootUri|$relativePath"
+        synchronized(cacheLock) {
+            documentFileCache.keys.removeAll {
+                it == cachePrefix || it.startsWith("$cachePrefix/")
+            }
         }
     }
 
@@ -443,9 +463,7 @@ class FileManagerImpl(
         if (deleted) {
             // Invalidate cache entries for this path and descendants
             val cachePrefix = "$rootUri|$relativePath"
-            synchronized(cacheLock) {
-                documentFileCache.keys.removeAll { it.startsWith(cachePrefix) }
-            }
+            invalidateDocumentCachePath(rootUri, relativePath)
             // Also close any handles for descendants
             safHandleLock.withLock {
                 val toClose = safHandlePool.keys.filter { it.startsWith(cachePrefix) }
@@ -508,9 +526,7 @@ class FileManagerImpl(
                 failed.add(entry)
             } else {
                 // Invalidate cache
-                synchronized(cacheLock) {
-                    documentFileCache.keys.removeAll { it.startsWith(cacheKey) }
-                }
+                invalidateDocumentCachePath(rootUri, if (directory.isEmpty()) entry else "$directory/$entry")
             }
         }
         return failed
@@ -526,20 +542,51 @@ class FileManagerImpl(
      */
     private fun getCachedFile(rootUri: Uri, relativePath: String): DocumentFile? {
         val cacheKey = "$rootUri|$relativePath"
+        val now = System.currentTimeMillis()
 
         // Get cached entry without holding lock during SAF calls
-        val cached = synchronized(cacheLock) {
+        val cachedEntry = synchronized(cacheLock) {
             documentFileCache[cacheKey]
         }
+        val cached = cachedEntry?.document
 
-        // Verify it still exists (SAF call - do NOT hold lock)
+        // Cache hit
         if (cached != null) {
-            if (cached.exists()) {
-                return cached
-            } else {
+            if (!cached.exists()) {
                 // Stale entry - remove from cache
                 synchronized(cacheLock) {
                     documentFileCache.remove(cacheKey)
+                }
+            } else {
+                // Periodically re-resolve canonical path to detect stale mappings
+                // where a cache key points at a deduplicated sibling URI.
+                val needsValidation = now - (cachedEntry?.lastValidationTime ?: 0L) > SAF_VALIDATION_INTERVAL_MS
+                if (!needsValidation) {
+                    return cached
+                }
+
+                val resolved = resolveFile(rootUri, relativePath)
+                when {
+                    resolved == null -> {
+                        synchronized(cacheLock) {
+                            documentFileCache.remove(cacheKey)
+                        }
+                    }
+                    resolved.uri == cached.uri -> {
+                        synchronized(cacheLock) {
+                            documentFileCache[cacheKey]?.lastValidationTime = now
+                        }
+                        return cached
+                    }
+                    else -> {
+                        synchronized(cacheLock) {
+                            documentFileCache[cacheKey] = CachedDocumentFile(
+                                document = resolved,
+                                lastValidationTime = now
+                            )
+                        }
+                        return resolved
+                    }
                 }
             }
         }
@@ -548,7 +595,10 @@ class FileManagerImpl(
         val file = resolveFile(rootUri, relativePath)
         if (file != null) {
             synchronized(cacheLock) {
-                documentFileCache[cacheKey] = file
+                documentFileCache[cacheKey] = CachedDocumentFile(
+                    document = file,
+                    lastValidationTime = now
+                )
             }
         }
         return file
@@ -560,7 +610,7 @@ class FileManagerImpl(
     private fun cacheFile(rootUri: Uri, relativePath: String, file: DocumentFile) {
         val cacheKey = "$rootUri|$relativePath"
         synchronized(cacheLock) {
-            documentFileCache[cacheKey] = file
+            documentFileCache[cacheKey] = CachedDocumentFile(document = file)
         }
     }
 
@@ -611,7 +661,32 @@ class FileManagerImpl(
                 when {
                     existing != null && existing.isDirectory -> existing
                     existing != null -> null
-                    else -> parent.createDirectory(segment)
+                    else -> {
+                        val created = parent.createDirectory(segment) ?: return@withLock null
+
+                        // Prefer canonical path segment if provider deduplicated to "name (1)".
+                        if (created.isDirectory && created.name == segment) {
+                            return@withLock created
+                        }
+
+                        val canonical = parent.findFile(segment)
+                        if (canonical != null && canonical.isDirectory) {
+                            // Best-effort cleanup of accidental deduplicated empty sibling.
+                            if (created.isDirectory && created.name != segment) {
+                                try {
+                                    if (created.listFiles().isEmpty()) {
+                                        created.delete()
+                                    }
+                                } catch (_: Exception) {
+                                    // Ignore cleanup failures.
+                                }
+                            }
+                            canonical
+                        } else {
+                            // Fallback in case provider normalization changed display name.
+                            if (created.isDirectory) created else null
+                        }
+                    }
                 }
             }
         } finally {
@@ -679,10 +754,28 @@ class FileManagerImpl(
      */
     private fun getPooledSafHandle(rootUri: Uri, relativePath: String): PooledSafHandle {
         val cacheKey = "$rootUri|$relativePath"
+        val now = System.currentTimeMillis()
 
         safHandleLock.withLock {
             // Check if already in pool
-            safHandlePool[cacheKey]?.let { return it }
+            val cached = safHandlePool[cacheKey]
+            if (cached != null) {
+                val needsValidation = now - cached.lastValidationTime > SAF_VALIDATION_INTERVAL_MS
+                if (!needsValidation) {
+                    return cached
+                }
+
+                val resolved = resolveFile(rootUri, relativePath)
+                if (resolved != null) {
+                    cached.lastValidationTime = now
+                    return cached
+                }
+
+                // Stale handle for path that no longer resolves.
+                Log.d(TAG, "Closing stale SAF handle for missing path: $relativePath")
+                safHandlePool.remove(cacheKey)?.close()
+                invalidateDocumentCachePath(rootUri, relativePath)
+            }
 
             // Evict idle handles if pool is full
             maybeEvictSafHandles()
@@ -735,10 +828,27 @@ class FileManagerImpl(
      */
     private fun getPooledSafHandleForRead(rootUri: Uri, relativePath: String): PooledSafHandle {
         val cacheKey = "$rootUri|$relativePath"
+        val now = System.currentTimeMillis()
 
         safHandleLock.withLock {
             // Check if already in pool
-            safHandlePool[cacheKey]?.let { return it }
+            val cached = safHandlePool[cacheKey]
+            if (cached != null) {
+                val needsValidation = now - cached.lastValidationTime > SAF_VALIDATION_INTERVAL_MS
+                if (!needsValidation) {
+                    return cached
+                }
+
+                val resolved = resolveFile(rootUri, relativePath)
+                if (resolved != null) {
+                    cached.lastValidationTime = now
+                    return cached
+                }
+
+                Log.d(TAG, "Closing stale SAF read handle for missing path: $relativePath")
+                safHandlePool.remove(cacheKey)?.close()
+                invalidateDocumentCachePath(rootUri, relativePath)
+            }
 
             // Evict idle handles if pool is full
             maybeEvictSafHandles()

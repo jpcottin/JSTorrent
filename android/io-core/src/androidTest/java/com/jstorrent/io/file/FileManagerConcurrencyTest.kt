@@ -377,6 +377,76 @@ class FileManagerConcurrencyTest {
     }
 
     /**
+     * Same race as above, but with two independent FileManagerImpl instances.
+     *
+     * This simulates callers that don't share in-memory locks. Even if SAF
+     * deduplicates one createDirectory call to "name (1)", writes must still
+     * resolve back to the canonical "name" directory.
+     */
+    @Test
+    fun saf_concurrentWritesAcrossTwoManagers_noDuplicates() {
+        cleanSafTestDir()
+
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val managerA = FileManagerImpl(context)
+        val managerB = FileManagerImpl(context)
+
+        val dirName = "CrossManagerRace"
+        val threadCount = 12
+        val testData = ByteArray(64) { it.toByte() }
+
+        val executor = Executors.newFixedThreadPool(threadCount)
+        val startLatch = CountDownLatch(1)
+        val doneLatch = CountDownLatch(threadCount)
+        val errors = ConcurrentLinkedQueue<Throwable>()
+
+        for (t in 0 until threadCount) {
+            executor.submit {
+                try {
+                    startLatch.await(5, TimeUnit.SECONDS)
+                    val manager = if (t % 2 == 0) managerA else managerB
+                    manager.write(safTreeUri, "$dirName/file_$t.bin", 0L, testData)
+                } catch (e: Throwable) {
+                    Log.e(TAG, "Cross-manager SAF thread $t failed", e)
+                    errors.add(e)
+                } finally {
+                    doneLatch.countDown()
+                }
+            }
+        }
+
+        startLatch.countDown()
+        assertTrue("All threads should complete within 60s",
+            doneLatch.await(60, TimeUnit.SECONDS))
+        executor.shutdown()
+
+        managerA.closeAllHandles()
+        managerB.closeAllHandles()
+
+        assertTrue("No errors expected, got: ${errors.map { it.message }}",
+            errors.isEmpty())
+
+        val root = DocumentFile.fromTreeUri(context, safTreeUri)
+        assertNotNull("SAF root should be accessible", root)
+
+        val children = root!!.listFiles()
+        val matchingDirs = children.filter {
+            it.isDirectory && it.name?.startsWith(dirName) == true
+        }
+        assertEquals(
+            "Should have exactly one '$dirName' directory via SAF, " +
+                "found: ${matchingDirs.map { it.name }}",
+            1, matchingDirs.size
+        )
+        assertEquals("Directory name should be exact", dirName, matchingDirs[0].name)
+
+        val files = matchingDirs[0].listFiles()
+        assertEquals("All $threadCount files should be present", threadCount, files.size)
+
+        cleanSafTestDir()
+    }
+
+    /**
      * Recursively verify no directory has a SAF-style deduplicated sibling
      * like "name (1)", "name (2)", etc.
      */
