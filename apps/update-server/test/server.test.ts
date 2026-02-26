@@ -186,4 +186,17 @@ describe('other routes', () => {
     const res = await fetch(`${baseUrl}/tauri/darwin/aarch64`)
     expect(res.status).toBe(404)
   })
+
+  it('strips query strings from version in update check', async () => {
+    // With query string, version 0.1.21 should still be recognized as current
+    const res = await fetch(`${baseUrl}/tauri/darwin/aarch64/0.1.21?foo=bar`)
+    expect(res.status).toBe(204)
+  })
+
+  it('strips query strings and still detects updates', async () => {
+    const res = await fetch(`${baseUrl}/tauri/darwin/aarch64/0.1.20?t=123`)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.version).toBe('0.1.21')
+  })
 })

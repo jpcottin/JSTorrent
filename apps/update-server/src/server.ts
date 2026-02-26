@@ -81,7 +81,8 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  const segments = (req.url || '/').split('/').filter(Boolean)
+  const urlPath = (req.url || '/').split('?')[0]
+  const segments = urlPath.split('/').filter(Boolean)
 
   // GET /health
   if (segments[0] === 'health') {

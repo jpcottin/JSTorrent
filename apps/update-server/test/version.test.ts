@@ -22,4 +22,19 @@ describe('compareVersions', () => {
     expect(compareVersions('1.0', '1.0.0')).toBe(0)
     expect(compareVersions('1.0', '1.0.1')).toBe(-1)
   })
+
+  it('throws on non-numeric segments', () => {
+    expect(() => compareVersions('1.2.3?x=1', '1.2.3')).toThrow('Invalid version segment')
+    expect(() => compareVersions('1.2.3', 'abc')).toThrow('Invalid version segment')
+    expect(() => compareVersions('1.2.3-beta', '1.2.3')).toThrow('Invalid version segment')
+  })
+
+  it('throws on negative segments', () => {
+    expect(() => compareVersions('-1.0.0', '1.0.0')).toThrow('Invalid version segment')
+  })
+
+  it('throws on floating-point segments', () => {
+    expect(() => compareVersions('1.2.3', '1.2.3.4.5.6')).not.toThrow()
+    expect(() => compareVersions('1.2.5', '1.2.3')).not.toThrow()
+  })
 })
