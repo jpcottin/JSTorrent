@@ -406,9 +406,7 @@ function handleNotificationMessage(message: NotificationMessage): void {
       }
       break
     case 'notification:torrent-added':
-      incrementTorrentsAdded().catch((e) =>
-        console.error('[SW] Failed to track torrent added:', e),
-      )
+      incrementTorrentsAdded().catch((e) => console.error('[SW] Failed to track torrent added:', e))
       break
     case 'notification:duplicate-torrent':
       if (message.name) {
