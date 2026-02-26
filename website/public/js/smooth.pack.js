@@ -12,184 +12,137 @@
 
 /*--------------------------------------------------------------------------*/
 
-
-
 Scroller = {
+  // control the speed of the scroller.
 
-	// control the speed of the scroller.
+  // dont change it here directly, please use Scroller.speed=50;
 
-	// dont change it here directly, please use Scroller.speed=50;
+  speed: 10,
 
-	speed:10,
+  // returns the Y position of the div
 
+  gy: function (d) {
+    gy = d.offsetTop
 
-	// returns the Y position of the div
+    if (d.offsetParent) while ((d = d.offsetParent)) gy += d.offsetTop
 
-	gy: function (d) {
+    return gy
+  },
 
-		gy = d.offsetTop
+  // returns the current scroll position
 
-		if (d.offsetParent) while (d = d.offsetParent) gy += d.offsetTop
+  scrollTop: function () {
+    body = document.body
 
-		return gy
+    d = document.documentElement
 
-	},
+    if (body && body.scrollTop) return body.scrollTop
 
+    if (d && d.scrollTop) return d.scrollTop
 
+    if (window.pageYOffset) return window.pageYOffset
 
-	// returns the current scroll position
+    return 0
+  },
 
-	scrollTop: function (){
+  // attach an event for an element
 
-		body=document.body
+  // (element, type, function)
 
-	    d=document.documentElement
+  add: function (event, body, d) {
+    if (event.addEventListener) return event.addEventListener(body, d, false)
 
-	    if (body && body.scrollTop) return body.scrollTop
+    if (event.attachEvent) return event.attachEvent('on' + body, d)
+  },
 
-	    if (d && d.scrollTop) return d.scrollTop
+  // kill an event of an element
 
-	    if (window.pageYOffset) return window.pageYOffset
+  end: function (e) {
+    if (window.event) {
+      window.event.cancelBubble = true
 
-	    return 0
+      window.event.returnValue = false
 
-	},
+      return
+    }
 
+    if (e.preventDefault && e.stopPropagation) {
+      e.preventDefault()
 
+      e.stopPropagation()
+    }
+  },
 
-	// attach an event for an element
+  // move the scroll bar to the particular div.
 
-	// (element, type, function)
+  scroll: function (d) {
+    h = document.body.scrollHeight
 
-	add: function(event, body, d) {
+    a = Scroller.scrollTop()
 
-	    if (event.addEventListener) return event.addEventListener(body, d,false)
+    if (d > a) a += Math.ceil((d - a) / Scroller.speed)
+    else a = a + (d - a) / Scroller.speed
 
-	    if (event.attachEvent) return event.attachEvent('on'+body, d)
+    window.scrollTo(0, a)
 
-	},
+    if (a == d || Scroller.offsetTop == a) {
+      clearInterval(Scroller.interval)
+      setTimeout(function () {
+        window.location.hash = Scroller.hash
+      }, 10)
+    }
+    Scroller.offsetTop = a
+  },
 
+  // initializer that adds the renderer to the onload function of the window
 
+  init: function () {
+    Scroller.add(window, 'load', Scroller.render)
+  },
 
-	// kill an event of an element
+  // this method extracts all the anchors and validates then as # and attaches the events.
 
-	end: function(e){
-        
-		if (window.event) {
+  render: function () {
+    a = document.getElementsByTagName('a')
 
-			window.event.cancelBubble = true
+    Scroller.end(this)
 
-			window.event.returnValue = false
+    window.onscroll
 
-      		return;
+    for (i = 0; i < a.length; i++) {
+      l = a[i]
 
-    	}
-        
-	    if (e.preventDefault && e.stopPropagation) {
+      if (
+        l.href &&
+        l.href.indexOf('#') != -1 &&
+        (l.pathname == location.pathname || '/' + l.pathname == location.pathname)
+      ) {
+        Scroller.add(l, 'click', Scroller.end)
 
-	      e.preventDefault()
+        l.onclick = function () {
+          Scroller.end(this)
 
-	      e.stopPropagation()
+          l = this.hash.substr(1)
+          Scroller.hash = this.hash
 
-	    }
-	},
+          a = document.getElementsByTagName('a')
 
-	
+          for (i = 0; i < a.length; i++) {
+            if (a[i].name == l) {
+              clearInterval(Scroller.interval)
 
-	// move the scroll bar to the particular div.
-
-	scroll: function(d){
-
-		h=document.body.scrollHeight;
-
-		a = Scroller.scrollTop()
-
-		if(d>a)
-
-			a+=Math.ceil((d-a)/Scroller.speed)
-
-		else
-
-			a = a+(d-a)/Scroller.speed;
-
-		window.scrollTo(0,a)
-
-	  	if(a==d || Scroller.offsetTop==a) {
-	  	    clearInterval(Scroller.interval)
-    	    setTimeout(function(){
-        	    window.location.hash = Scroller.hash;
-            }, 10);
+              Scroller.interval = setInterval('Scroller.scroll(' + Scroller.gy(a[i]) + ')', 10)
+            }
+          }
         }
-	  	Scroller.offsetTop=a
-
-	},
-
-	// initializer that adds the renderer to the onload function of the window
-
-	init: function(){
-
-		Scroller.add(window,'load', Scroller.render)
-
-	},
-
-
-
-	// this method extracts all the anchors and validates then as # and attaches the events.
-
-	render: function(){
-
-		a = document.getElementsByTagName('a');
-
-		Scroller.end(this);
-
-		window.onscroll
-
-	    for (i=0;i<a.length;i++) {
-
-	      l = a[i];
-
-	      if(l.href && l.href.indexOf('#') != -1 && ((l.pathname==location.pathname) || ('/'+l.pathname==location.pathname)) ){
-
-	      	Scroller.add(l,'click',Scroller.end)
-
-	      		l.onclick = function(){
-
-	      			Scroller.end(this);
-
-		        	l=this.hash.substr(1);
-		        	Scroller.hash = this.hash;
-
-		        	 a = document.getElementsByTagName('a');
-
-				     for (i=0;i<a.length;i++) {
-
-				     	if(a[i].name == l){
-
-				     		clearInterval(Scroller.interval);
-
-				     		Scroller.interval=setInterval('Scroller.scroll('+Scroller.gy(a[i])+')',10);
-
-						}
-
-					}
-
-				}
-
-	      	}
-
-		}
-
-	}
-
+      }
+    }
+  },
 }
 
 // invoke the initializer of the scroller
 
-Scroller.init();
-
-
-
-
+Scroller.init()
 
 /*------------------------------------------------------------
 

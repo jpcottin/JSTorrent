@@ -1,6 +1,8 @@
 /* JSTorrent - Mobile-first responsive CSS */
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -15,7 +17,7 @@
   --color-bg-alt: #f5f7fa;
   --color-border: #e0e0e0;
   --color-accent: #ff6b35;
-  --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-stack: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 html {
@@ -158,8 +160,13 @@ ul {
 }
 
 @keyframes shimmer {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
 }
 
 .announcement-banner .container {
@@ -178,7 +185,7 @@ ul {
 .banner-header strong {
   font-size: 1.5rem;
   font-weight: 700;
-  text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .banner-subtitle {
@@ -456,7 +463,7 @@ ul {
 }
 
 .faq-item summary::before {
-  content: "+";
+  content: '+';
   display: inline-block;
   width: 1.5rem;
   font-weight: 600;
@@ -464,7 +471,7 @@ ul {
 }
 
 .faq-item[open] summary::before {
-  content: "-";
+  content: '-';
 }
 
 .faq-answer {
@@ -549,8 +556,13 @@ ul {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }
 
 .download-card h3 {
