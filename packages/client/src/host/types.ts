@@ -106,6 +106,7 @@ export type HostNotification =
   | { type: 'torrent-complete'; infoHash: string; name: string }
   | { type: 'torrent-error'; infoHash: string; name: string; error: string }
   | { type: 'duplicate-torrent'; name: string }
+  | { type: 'torrent-added' }
 
 // --- Events ---
 

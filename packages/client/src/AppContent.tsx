@@ -54,6 +54,8 @@ export interface AppContentProps {
   onOpenFolder?: (torrentHash: string) => Promise<void>
   /** Handler for duplicate torrent notification (optional) */
   onDuplicateTorrent?: (torrentName: string) => void
+  /** Handler for torrent added metric (optional) */
+  onTorrentAdded?: () => void
   /** URL for share page (defaults to https://jstorrent.com/share.html) */
   shareUrl?: string
   /** Whether to show dev-only features like test torrents */
@@ -67,6 +69,7 @@ export function AppContent({
   onCopyFilePath,
   onOpenFolder,
   onDuplicateTorrent,
+  onTorrentAdded,
   shareUrl = 'https://jstorrent.com/share.html',
   isDevMode = false,
 }: AppContentProps) {
@@ -127,7 +130,10 @@ export function AppContent({
     try {
       const buffer = await file.arrayBuffer()
       const result = await adapter.addTorrent(new Uint8Array(buffer))
-      if (!result.isDuplicate) markDesktopActivated()
+      if (!result.isDuplicate) {
+        markDesktopActivated()
+        onTorrentAdded?.()
+      }
 
       if (result.isDuplicate && result.torrent) {
         onDuplicateTorrent?.(result.torrent.name || 'Torrent')
@@ -146,7 +152,10 @@ export function AppContent({
     try {
       const result = await adapter.addTorrent(magnetInput)
       setMagnetInput('')
-      if (!result.isDuplicate) markDesktopActivated()
+      if (!result.isDuplicate) {
+        markDesktopActivated()
+        onTorrentAdded?.()
+      }
 
       if (result.isDuplicate && result.torrent) {
         onDuplicateTorrent?.(result.torrent.name || 'Torrent')
@@ -335,7 +344,10 @@ export function AppContent({
   const handleAddTestTorrent = async (magnet: string) => {
     try {
       const result = await adapter.addTorrent(magnet)
-      if (!result.isDuplicate) markDesktopActivated()
+      if (!result.isDuplicate) {
+        markDesktopActivated()
+        onTorrentAdded?.()
+      }
       if (result.isDuplicate && result.torrent) {
         onDuplicateTorrent?.(result.torrent.name || 'Torrent')
       }

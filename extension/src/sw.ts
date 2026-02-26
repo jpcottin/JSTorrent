@@ -405,6 +405,11 @@ function handleNotificationMessage(message: NotificationMessage): void {
         notificationManager.onTorrentError(message.infoHash, message.name, message.error)
       }
       break
+    case 'notification:torrent-added':
+      incrementTorrentsAdded().catch((e) =>
+        console.error('[SW] Failed to track torrent added:', e),
+      )
+      break
     case 'notification:duplicate-torrent':
       if (message.name) {
         notificationManager.onDuplicateTorrent(message.name)

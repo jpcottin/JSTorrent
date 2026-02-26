@@ -41,6 +41,7 @@ function ChromeAppContent({ onOpenLoggingSettings }: { onOpenLoggingSettings?: (
     <AppContent
       onOpenLoggingSettings={onOpenLoggingSettings}
       onDuplicateTorrent={(name) => channel.notify({ type: 'duplicate-torrent', name })}
+      onTorrentAdded={() => channel.notify({ type: 'torrent-added' })}
       isDevMode={isDevMode}
       onOpenFolder={async (torrentHash) => {
         const result = await engineManager.openTorrentFolder(torrentHash)
