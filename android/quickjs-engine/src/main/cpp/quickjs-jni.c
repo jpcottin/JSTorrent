@@ -639,14 +639,20 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeCallGlobalFunction(
     }
 
     // Build args array
-    int argc = args ? (*env)->GetArrayLength(env, args) : 0;
+    // argc must account for both string args and the binary arg position,
+    // since binaryArgIndex can be beyond the string array bounds.
+    int stringArgCount = args ? (*env)->GetArrayLength(env, args) : 0;
+    int argc = (binaryArg && binaryArgIndex >= stringArgCount)
+        ? binaryArgIndex + 1
+        : stringArgCount;
     JSValue *jsArgs = argc > 0 ? malloc(sizeof(JSValue) * argc) : NULL;
 
+    int stringIdx = 0;
     for (int i = 0; i < argc; i++) {
         if (i == binaryArgIndex && binaryArg) {
             jsArgs[i] = byte_array_to_array_buffer(ctx, env, binaryArg);
-        } else {
-            jstring jstr = (jstring)(*env)->GetObjectArrayElement(env, args, i);
+        } else if (stringIdx < stringArgCount) {
+            jstring jstr = (jstring)(*env)->GetObjectArrayElement(env, args, stringIdx);
             if (jstr) {
                 const char *str = (*env)->GetStringUTFChars(env, jstr, NULL);
                 jsArgs[i] = JS_NewString(ctx, str);
@@ -655,6 +661,9 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeCallGlobalFunction(
             } else {
                 jsArgs[i] = JS_UNDEFINED;
             }
+            stringIdx++;
+        } else {
+            jsArgs[i] = JS_UNDEFINED;
         }
     }
 
