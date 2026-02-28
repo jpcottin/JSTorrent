@@ -1,10 +1,6 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <link
-      rel="chrome-webstore-item"
-      href="https://chrome.google.com/webstore/detail/abmohcnlldaiaodkpacnldcdnjjgldfh"
-    />
 
     <script>
       ;(function (i, s, o, g, r, a, m) {
@@ -26,21 +22,6 @@
     </script>
 
     <title>JSTorrent Share Page</title>
-
-    <!-- Begin Inspectlet Embed Code -->
-    <!--script type="text/javascript" id="inspectletjs">
-  window.__insp = window.__insp || [];
-  __insp.push(['wid', 645144951]);
-  (function() {
-  function __ldinsp(){var insp = document.createElement('script'); insp.type = 'text/javascript'; insp.async = true; insp.id = "inspsync"; insp.src = ('https:' == document.location.protocol ? 'https' : 'http') + '://cdn.inspectlet.com/inspectlet.js'; var x = document.getElementsByTagName('script')[0]; x.parentNode.insertBefore(insp, x); }
-  if (window.attachEvent){
-  window.attachEvent('onload', __ldinsp);
-  }else{
-  window.addEventListener('load', __ldinsp, false);
-  }
-  })();
-</script-->
-    <!-- End Inspectlet Embed Code -->
 
     <style>
       #content {
@@ -73,32 +54,123 @@
           -webkit-transform: rotate(360deg);
         }
       }
+
+      #migration-banner {
+        background-color: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 4px;
+        padding: 1em;
+        margin: 0.5em 0;
+      }
+      #migration-banner h3 {
+        margin-top: 0;
+      }
+      #migration-banner .migration-buttons {
+        margin-top: 0.75em;
+      }
+      #migration-banner .migration-buttons a,
+      #migration-banner .migration-buttons button {
+        display: inline-block;
+        margin-right: 0.5em;
+        margin-bottom: 0.5em;
+        padding: 0.4em 0.8em;
+        border-radius: 4px;
+        text-decoration: none;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      #migration-install {
+        background-color: #4285f4;
+        color: white;
+        border: none;
+      }
+      #migration-use-legacy {
+        background-color: transparent;
+        color: #555;
+        border: 1px solid #ccc;
+      }
+
+      #install-div a.install-link {
+        display: inline-block;
+        background-color: #4285f4;
+        color: white;
+        padding: 0.5em 1em;
+        border-radius: 4px;
+        text-decoration: none;
+        font-size: 14px;
+        margin-bottom: 0.5em;
+      }
+      #legacy-toggle {
+        font-size: 12px;
+        color: #888;
+        cursor: pointer;
+      }
+      #legacy-links {
+        font-size: 12px;
+        color: #666;
+        margin-top: 0.5em;
+      }
+      #legacy-links a {
+        color: #666;
+      }
     </style>
   </head>
   <body>
     <div style="height: 400px; overflow: hidden">
-      <a href="http://jstorrent.com"
+      <a href="https://jstorrent.com"
         ><img src="/images/JS-LOGO-2x.png" width="278" height="75"
       /></a>
-      <!--img alt="JSTorrent" src="../images/JS-LOGO-1x.png"></img-->
 
       <div id="content">
         <div id="loadingIcon" data-loader="circle-side"></div>
 
-        <div id="install-status" style="display: none">
-          <span id="install-status-text">install progress</span>
-          <div style="width: 200px; height: 30px; border: 2px solid black">
-            <div id="install-status-width" style="width: 0%; background: #33c; height: 30px"></div>
+        <div id="migration-banner" style="display: none">
+          <h3>JSTorrent has a new Chrome Extension</h3>
+          <p>
+            The JSTorrent Chrome App is being retired. Install the new extension for continued
+            support and updates.
+          </p>
+          <div class="migration-buttons">
+            <a id="migration-install" href="#">Install New Extension</a>
+            <button id="migration-use-legacy">Use legacy app this time</button>
           </div>
         </div>
 
         <div id="install-div" style="display: none">
-          <a id="click-install" href="#">Install JSTorrent (free)</a>
+          <a
+            class="install-link"
+            href="https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk"
+            target="_blank"
+            >Install JSTorrent Extension</a
+          >
 
           <div>
             <span>To download </span>
             <span id="file-name">the file</span>,
-            <span> you need to install the JSTorrent Chrome App (free).</span>
+            <span> you need to install the JSTorrent Chrome Extension.</span>
+          </div>
+
+          <div style="margin-top: 1em">
+            <a id="legacy-toggle" href="#">Looking for the legacy Chrome App?</a>
+            <div id="legacy-links" style="display: none">
+              <p>These legacy versions are no longer being updated:</p>
+              <ul>
+                <li>
+                  <a
+                    href="https://chromewebstore.google.com/detail/jstorrent/anhdpjpojoipgpmfanmedjghaligalgb"
+                    target="_blank"
+                    >JSTorrent (legacy Chrome App)</a
+                  >
+                </li>
+                <li>
+                  <a
+                    href="https://chromewebstore.google.com/detail/jstorrent-lite/abmohcnlldaiaodkpacnldcdnjjgldfh"
+                    target="_blank"
+                    >JSTorrent Lite (legacy Chrome App)</a
+                  >
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
 
@@ -120,7 +192,7 @@
         <span style="font-size: 80%">
           JSTorrent is a Torrent client for Chrome that works on any computer that can run Google
           Chrome. It is fast and secure.
-          <a href="http://jstorrent.com">Learn more about JSTorrent</a>
+          <a href="https://jstorrent.com">Learn more about JSTorrent</a>
         </span>
       </div>
     </div>
