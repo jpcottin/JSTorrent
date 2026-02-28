@@ -368,6 +368,13 @@ declare global {
    */
   function __jstorrent_get_network_interfaces(): string
 
+  /**
+   * Get default gateway IP address.
+   * Returns JSON string: { ip: string, interfaceName?: string } | null
+   * Used for NAT-PMP/PCP port mapping (unicast UDP to gateway:5351).
+   */
+  function __jstorrent_get_default_gateway(): string
+
   // ============================================================
   // Hashing Functions
   // ============================================================

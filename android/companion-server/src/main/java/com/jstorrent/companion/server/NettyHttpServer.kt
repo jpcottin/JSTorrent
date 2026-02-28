@@ -52,6 +52,12 @@ private data class NetworkInterfaceInfo(
 )
 
 @Serializable
+private data class GatewayInfo(
+    val ip: String,
+    val interfaceName: String? = null
+)
+
+@Serializable
 private data class RootsResponse(
     val roots: List<DownloadRoot>
 )
@@ -259,6 +265,7 @@ private class NettyHttpHandler(
                 path == "/benchmark" && method == HttpMethod.GET -> handleBenchmark(ctx, request)
                 path.startsWith("/throughput-test/") && method == HttpMethod.GET -> handleThroughputTest(ctx, request, path)
                 path == "/network/interfaces" && method == HttpMethod.GET -> handleNetworkInterfaces(ctx, request)
+                path == "/network/gateway" && method == HttpMethod.GET -> handleDefaultGateway(ctx, request)
                 path == "/http-sink" && method == HttpMethod.POST -> handleHttpSink(ctx, request)
                 path == "/http-source" && method == HttpMethod.GET -> handleHttpSource(ctx, request)
 
@@ -342,6 +349,34 @@ private class NettyHttpHandler(
         }
 
         sendJsonResponse(ctx, request, HttpResponseStatus.OK, json.encodeToString(interfaces))
+    }
+
+    private fun handleDefaultGateway(ctx: ChannelHandlerContext, request: FullHttpRequest) {
+        val gateway = getDefaultGatewayFromProcRoute()
+        val body = if (gateway != null) json.encodeToString(gateway) else "null"
+        sendJsonResponse(ctx, request, HttpResponseStatus.OK, body)
+    }
+
+    private fun getDefaultGatewayFromProcRoute(): GatewayInfo? {
+        try {
+            val lines = java.io.File("/proc/net/route").readLines()
+            for (line in lines.drop(1)) { // Skip header
+                val parts = line.split(Regex("\\s+"))
+                if (parts.size >= 3 && parts[1] == "00000000") {
+                    val hex = parts[2]
+                    if (hex.length < 8 || hex == "00000000") continue
+                    // /proc/net/route stores IPs in little-endian hex
+                    val b0 = hex.substring(6, 8).toInt(16)
+                    val b1 = hex.substring(4, 6).toInt(16)
+                    val b2 = hex.substring(2, 4).toInt(16)
+                    val b3 = hex.substring(0, 2).toInt(16)
+                    return GatewayInfo(ip = "$b0.$b1.$b2.$b3", interfaceName = parts[0])
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get default gateway: ${e.message}")
+        }
+        return null
     }
 
     private fun handleHttpSink(ctx: ChannelHandlerContext, request: FullHttpRequest) {

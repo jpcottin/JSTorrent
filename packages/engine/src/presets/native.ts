@@ -17,7 +17,7 @@ import { NativeFileHandle } from '../adapters/native/native-file-handle'
 import { StorageRootManager, StorageRoot } from '../storage/storage-root-manager'
 import { Socks5SocketFactory } from '../proxy'
 import type { ISocketFactory } from '../interfaces/socket'
-import type { NetworkInterface } from '../interfaces/network'
+import type { NetworkInterface, GatewayInfo } from '../interfaces/network'
 import type { LogEntry } from '../logging/logger'
 import type { ConfigHub } from '../config/config-hub'
 
@@ -38,6 +38,22 @@ async function getNetworkInterfaces(): Promise<NetworkInterface[]> {
     return JSON.parse(json) as NetworkInterface[]
   } catch {
     return []
+  }
+}
+
+/**
+ * Get the default gateway IP from the native layer.
+ * Used for NAT-PMP/PCP port mapping.
+ */
+async function getDefaultGateway(): Promise<GatewayInfo | null> {
+  if (typeof __jstorrent_get_default_gateway !== 'function') {
+    return null
+  }
+  try {
+    const json = __jstorrent_get_default_gateway()
+    return JSON.parse(json) as GatewayInfo | null
+  } catch {
+    return null
   }
 }
 
@@ -138,6 +154,7 @@ export function createNativeEngine(config: NativeEngineConfig): BtEngine {
     startSuspended: config.startSuspended,
     config: config.config,
     getNetworkInterfaces,
+    getDefaultGateway,
     onEndOfTick: () => {
       flushBatchedWrites()
       flushPendingReads()

@@ -1,4 +1,4 @@
-import type { NetworkInterface } from '../../interfaces/network'
+import type { NetworkInterface, GatewayInfo } from '../../interfaces/network'
 import { type Logger, basicLogger } from '../../logging/logger'
 
 export interface IDaemonConnection {
@@ -578,5 +578,13 @@ export class DaemonConnection {
    */
   async getNetworkInterfaces(): Promise<NetworkInterface[]> {
     return this.request<NetworkInterface[]>('GET', '/network/interfaces')
+  }
+
+  /**
+   * Get the default gateway from the daemon.
+   * Used for NAT-PMP/PCP port mapping (unicast UDP to gateway:5351).
+   */
+  async getDefaultGateway(): Promise<GatewayInfo | null> {
+    return this.request<GatewayInfo | null>('GET', '/network/gateway')
   }
 }

@@ -296,6 +296,7 @@ export class DaemonEngineManager implements IEngineManager {
       port: configHub.listeningPortAuto.get() ? 0 : configHub.listeningPort.get(),
       startSuspended: true,
       getNetworkInterfaces: () => this.daemonConnection!.getNetworkInterfaces(),
+      getDefaultGateway: () => this.daemonConnection!.getDefaultGateway(),
       config: configHub,
       // Adaptive batching only supported by Android companion (ChromeOS)
       useAdaptiveBatching: isChromeos,

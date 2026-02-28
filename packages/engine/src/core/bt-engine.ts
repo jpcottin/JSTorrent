@@ -19,7 +19,7 @@ import {
   globalLogStore,
 } from '../logging/logger'
 import { PortMappingManager } from '../port-mapping'
-import type { NetworkInterface } from '../interfaces/network'
+import type { NetworkInterface, GatewayInfo } from '../interfaces/network'
 
 import { ISessionStore } from '../interfaces/session-store'
 import { IHasher, Sha1Reason } from '../interfaces/hasher'
@@ -130,6 +130,12 @@ export interface BtEngineOptions {
    * Required for UPnP to determine local address for port mapping.
    */
   getNetworkInterfaces?: () => Promise<NetworkInterface[]>
+
+  /**
+   * Function to get the default gateway IP.
+   * Required for NAT-PMP/PCP port mapping (unicast UDP to gateway:5351).
+   */
+  getDefaultGateway?: () => Promise<GatewayInfo | null>
 
   /**
    * MSE/PE encryption policy for peer connections.
@@ -254,6 +260,8 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   private portMappingManager?: PortMappingManager
   private _upnpStatus: UPnPStatus = 'disabled'
   private getNetworkInterfaces?: () => Promise<NetworkInterface[]>
+  // @ts-expect-error Stored for Phase 5: NAT-PMP/PCP gateway detection
+  private _getDefaultGateway?: () => Promise<GatewayInfo | null>
 
   // === Incoming Connection Tracking ===
   /** Whether we've ever received a successful incoming connection this session */
@@ -382,8 +390,9 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     this.filterFn = createFilter(options.logging ?? { level: 'info' })
     this._suspended = options.startSuspended ?? false
 
-    // Save network interface getter for port mapping
+    // Save network callbacks for port mapping
     this.getNetworkInterfaces = options.getNetworkInterfaces
+    this._getDefaultGateway = options.getDefaultGateway
 
     // Create ConfigHub if not provided, mapping individual options as overrides
     if (options.config) {

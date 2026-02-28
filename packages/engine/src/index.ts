@@ -118,7 +118,7 @@ export {
   GatewayDevice,
 } from './port-mapping'
 export type { PortMapping, PortMapping as UPnPMapping, SSDPDevice } from './port-mapping'
-export type { NetworkInterface } from './interfaces/network'
+export type { NetworkInterface, GatewayInfo } from './interfaces/network'
 
 // LPD (Local Peer Discovery)
 export { LPDService } from './lpd'

@@ -10,8 +10,66 @@ import { Socks5SocketFactory } from '../proxy'
 import type { ISocketFactory } from '../interfaces/socket'
 import { ISessionStore } from '../interfaces/session-store'
 import { LogEntry } from '../logging/logger'
+import type { NetworkInterface, GatewayInfo } from '../interfaces/network'
 import * as path from 'path'
 import * as fs from 'fs'
+import { exec } from 'child_process'
+import * as os from 'os'
+
+function getNetworkInterfaces(): Promise<NetworkInterface[]> {
+  const ifaces = os.networkInterfaces()
+  const result: NetworkInterface[] = []
+  for (const [name, addrs] of Object.entries(ifaces)) {
+    if (!addrs) continue
+    for (const addr of addrs) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        result.push({ name, address: addr.address, prefixLength: addr.cidr ? parseInt(addr.cidr.split('/')[1]) : 24 })
+      }
+    }
+  }
+  return Promise.resolve(result)
+}
+
+function execCommand(cmd: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    exec(cmd, { timeout: 5000 }, (err, stdout) => {
+      if (err) reject(err)
+      else resolve(stdout)
+    })
+  })
+}
+
+async function getDefaultGateway(): Promise<GatewayInfo | null> {
+  try {
+    const platform = os.platform()
+    if (platform === 'darwin') {
+      const output = await execCommand('route -n get default')
+      const match = output.match(/gateway:\s+(\S+)/)
+      if (match) {
+        const ifaceMatch = output.match(/interface:\s+(\S+)/)
+        return { ip: match[1], interfaceName: ifaceMatch?.[1] }
+      }
+    } else if (platform === 'linux') {
+      const output = await execCommand('ip route show default')
+      const match = output.match(/default via (\S+) dev (\S+)/)
+      if (match) {
+        return { ip: match[1], interfaceName: match[2] }
+      }
+    } else if (platform === 'win32') {
+      // PowerShell is more reliable than ipconfig for parsing
+      const output = await execCommand(
+        'powershell -Command "(Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Select-Object -First 1).NextHop"',
+      )
+      const ip = output.trim()
+      if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
+        return { ip }
+      }
+    }
+  } catch {
+    // Command failed — gateway detection unavailable
+  }
+  return null
+}
 
 export interface NodeEngineConfig extends Partial<BtEngineOptions> {
   downloadPath: string
@@ -77,5 +135,7 @@ export function createNodeEngine(config: NodeEngineConfig): BtEngine {
     ...config, // Pass through other options like maxConnections, peerId, etc.
     port: config.port,
     onLog: config.onLog,
+    getNetworkInterfaces,
+    getDefaultGateway,
   })
 }

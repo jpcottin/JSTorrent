@@ -3,3 +3,8 @@ export interface NetworkInterface {
   address: string
   prefixLength: number
 }
+
+export interface GatewayInfo {
+  ip: string
+  interfaceName?: string
+}
