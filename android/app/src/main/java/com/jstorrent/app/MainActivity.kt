@@ -419,7 +419,12 @@ private fun CompanionMainScreen(
                                     )
                                 )
                             } catch (e: Exception) {
-                                context.startActivity(Intent(Settings.ACTION_DATA_USAGE_SETTINGS))
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.parse("package:${context.packageName}")
+                                    )
+                                )
                             }
                         }
                         .padding(horizontal = 16.dp, vertical = 10.dp)

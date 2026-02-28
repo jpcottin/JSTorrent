@@ -612,8 +612,13 @@ private fun TorrentListContent(
                                 )
                             )
                         } catch (e: Exception) {
-                            // Fallback to general data usage settings
-                            context.startActivity(Intent(Settings.ACTION_DATA_USAGE_SETTINGS))
+                            // Fallback to app info (has "Mobile data & Wi-Fi" on ChromeOS)
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                            )
                         }
                     }
                     .padding(horizontal = 16.dp, vertical = 10.dp)
