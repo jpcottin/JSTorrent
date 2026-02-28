@@ -1,4 +1,4 @@
-import type { NetworkInterface } from '../../upnp/upnp-manager'
+import type { NetworkInterface } from '../../interfaces/network'
 import { type Logger, basicLogger } from '../../logging/logger'
 
 export interface IDaemonConnection {

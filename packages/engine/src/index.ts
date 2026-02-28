@@ -110,9 +110,15 @@ export {
   type DiskQueueConfig,
 } from './core/disk-queue'
 
-// UPnP
-export { UPnPManager, SSDPClient, GatewayDevice } from './upnp'
-export type { NetworkInterface, UPnPMapping, SSDPDevice } from './upnp'
+// Port Mapping (UPnP / NAT-PMP / PCP)
+export {
+  PortMappingManager,
+  PortMappingManager as UPnPManager,
+  SSDPClient,
+  GatewayDevice,
+} from './port-mapping'
+export type { PortMapping, PortMapping as UPnPMapping, SSDPDevice } from './port-mapping'
+export type { NetworkInterface } from './interfaces/network'
 
 // LPD (Local Peer Discovery)
 export { LPDService } from './lpd'

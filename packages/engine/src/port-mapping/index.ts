@@ -1,0 +1,5 @@
+export { PortMappingManager, PortMappingManager as UPnPManager } from './port-mapping-manager'
+export type { PortMapping, PortMapping as UPnPMapping } from './port-mapping-manager'
+export { SSDPClient } from './ssdp-client'
+export type { SSDPDevice } from './ssdp-client'
+export { GatewayDevice } from './gateway-device'

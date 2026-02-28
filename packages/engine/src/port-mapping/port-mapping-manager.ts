@@ -1,29 +1,27 @@
 import { ISocketFactory } from '../interfaces/socket'
+import type { NetworkInterface } from '../interfaces/network'
 import { Logger } from '../logging/logger'
 import { SSDPClient } from './ssdp-client'
 import { GatewayDevice } from './gateway-device'
 
-/** UPnP lease duration in seconds. 0 = permanent, which causes orphaned mappings on restart. */
+/** Lease duration in seconds. 0 = permanent, which causes orphaned mappings on restart. */
 const LEASE_DURATION_SECONDS = 3600 // 1 hour
 
 /** Renewal interval - renew at half the lease duration to ensure mappings don't expire */
 const RENEWAL_INTERVAL_MS = (LEASE_DURATION_SECONDS / 2) * 1000 // 30 minutes
 
-export interface NetworkInterface {
-  name: string
-  address: string
-  prefixLength: number
-}
-
-export interface UPnPMapping {
+export interface PortMapping {
   externalPort: number
   internalPort: number
   protocol: 'TCP' | 'UDP'
 }
 
-export class UPnPManager {
+/** @deprecated Use PortMapping */
+export type UPnPMapping = PortMapping
+
+export class PortMappingManager {
   private gateway: GatewayDevice | null = null
-  private mappings: UPnPMapping[] = []
+  private mappings: PortMapping[] = []
   private localAddress: string | null = null
   private renewalInterval: ReturnType<typeof setInterval> | null = null
 
@@ -31,6 +29,7 @@ export class UPnPManager {
     private socketFactory: ISocketFactory,
     private getNetworkInterfaces: () => Promise<NetworkInterface[]>,
     private logger?: Logger,
+    private description: string = 'JSTorrent',
   ) {}
 
   async discover(): Promise<boolean> {
@@ -108,7 +107,7 @@ export class UPnPManager {
       port,
       this.localAddress,
       protocol,
-      'JSTorrent',
+      this.description,
       LEASE_DURATION_SECONDS,
     )
 
@@ -141,7 +140,7 @@ export class UPnPManager {
         mapping.internalPort,
         this.localAddress,
         mapping.protocol,
-        'JSTorrent',
+        this.description,
         LEASE_DURATION_SECONDS,
       )
 
@@ -188,3 +187,8 @@ export class UPnPManager {
     return this.gateway !== null
   }
 }
+
+/** @deprecated Use PortMappingManager */
+export const UPnPManager = PortMappingManager
+/** @deprecated Use PortMappingManager */
+export type UPnPManager = PortMappingManager

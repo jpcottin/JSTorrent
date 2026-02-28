@@ -17,7 +17,7 @@ import { NativeFileHandle } from '../adapters/native/native-file-handle'
 import { StorageRootManager, StorageRoot } from '../storage/storage-root-manager'
 import { Socks5SocketFactory } from '../proxy'
 import type { ISocketFactory } from '../interfaces/socket'
-import type { NetworkInterface } from '../upnp/upnp-manager'
+import type { NetworkInterface } from '../interfaces/network'
 import type { LogEntry } from '../logging/logger'
 import type { ConfigHub } from '../config/config-hub'
 
