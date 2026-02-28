@@ -617,6 +617,7 @@ var MIGRATE_ON_INSTALLED = true     // nag on chrome.runtime.onInstalled (CWS up
 var MIGRATE_ON_LAUNCHED = true      // nag on chrome.app.runtime.onLaunched — dead on Chrome 144+ but kept for old Chrome
 var MIGRATE_USE_ALARM = true        // set repeating alarm to nag periodically
 var MIGRATE_ALARM_MINUTES = 10      // alarm interval in minutes
+var MIGRATE_SNOOZE_HOURS = 24       // how long "remind me later" suppresses nags
 var MIGRATE_SET_UNINSTALL_URL = true
 var MIGRATE_UNINSTALL_URL = 'https://jstorrent.com/comingsoon.html?ref=uninstall'
 
@@ -627,9 +628,15 @@ chrome.runtime.getPlatformInfo(function(info) { PLATFORM_OS = info.os })
 // -- Functions ----------------------------------------------------------------
 
 function showMigrationNags(reason) {
-    console.log('showMigrationNags', reason)
-    showMigrationNotification(reason)
-    showMigrateWindow()
+    chrome.storage.local.get('migrationSnoozedUntil', function(data) {
+        if (data.migrationSnoozedUntil && Date.now() < data.migrationSnoozedUntil) {
+            console.log('migration nags snoozed, skipping [' + reason + ']')
+            return
+        }
+        console.log('showMigrationNags', reason)
+        showMigrationNotification(reason)
+        showMigrateWindow()
+    })
 }
 
 function showMigrationNotification(reason) {
