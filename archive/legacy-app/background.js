@@ -601,105 +601,102 @@ if (chrome.runtime.setUninstallURL && ! DEVMODE) {
 
 
 // =============================================================================
-// Migration Notice (December 2025)
-// Chrome Apps are being retired. Notify users about the new version.
+// Migration Nag System
+// Chrome Apps are dead. Nag users to install the new Chrome Extension.
+// All flags on = maximum aggressiveness. Dial back during testing.
 // =============================================================================
 
-const COMING_SOON_URL = 'https://new.jstorrent.com/comingsoon.html'
-const EXTENSION_CWS_URL = 'https://chromewebstore.google.com/detail/jstorrent-helper-extensio/bnceafpojmnimbnhamaeedgomdcgnbjk'
+var NEW_EXTENSION_ID = 'dbokmlpefliilbjldladbimlcfgbolhk'
+var NEW_EXTENSION_CWS_URL = 'https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk'
 
-// Feature flag - set to true when extension passes review
-const EXTENSION_AVAILABLE = false
+// Migration nag configuration
+// Each trigger calls showMigrationNags() which shows both notification + migrate window
+var MIGRATE_ON_SCRIPT_LOAD = true   // nag every time the event page loads (any event)
+var MIGRATE_ON_STARTUP = true       // nag on chrome.runtime.onStartup (browser boot)
+var MIGRATE_ON_INSTALLED = true     // nag on chrome.runtime.onInstalled (CWS update push)
+var MIGRATE_ON_LAUNCHED = true      // nag on chrome.app.runtime.onLaunched — dead on Chrome 144+ but kept for old Chrome
+var MIGRATE_USE_ALARM = true        // set repeating alarm to nag periodically
+var MIGRATE_ALARM_MINUTES = 10      // alarm interval in minutes
+var MIGRATE_SET_UNINSTALL_URL = true
+var MIGRATE_UNINSTALL_URL = 'https://jstorrent.com/comingsoon.html?ref=uninstall'
 
-chrome.runtime.onInstalled.addListener(function(details) {
-    if (details.reason === 'update') {
-        chrome.storage.local.set({ migrationNoticePending: true })
+// Cache platform for sync access in notification messages
+var PLATFORM_OS = null
+chrome.runtime.getPlatformInfo(function(info) { PLATFORM_OS = info.os })
+
+// -- Functions ----------------------------------------------------------------
+
+function showMigrationNags(reason) {
+    console.log('showMigrationNags', reason)
+    showMigrationNotification(reason)
+    showMigrateWindow()
+}
+
+function showMigrationNotification(reason) {
+    var msg
+    if (PLATFORM_OS === 'cros') {
+        msg = 'The JSTorrent app icon no longer works. Install the new Chrome Extension to keep using JSTorrent.'
+    } else {
+        msg = 'Chrome Apps are no longer supported. Install the new JSTorrent Chrome Extension.'
     }
+    if (reason) msg += ' [' + reason + ']'
+
+    chrome.notifications.create('migration', {
+        type: 'basic',
+        title: 'JSTorrent has moved!',
+        message: msg,
+        iconUrl: 'js-128.png',
+        priority: 2,
+        requireInteraction: true
+    })
+}
+
+var migrateWindowCreating = false
+function showMigrateWindow() {
+    if (PLATFORM_OS !== null && PLATFORM_OS !== 'cros') return
+    if (migrateWindowCreating) return
+    var existing = chrome.app.window.get('migrate')
+    if (existing) { existing.show(); existing.focus(); return }
+    migrateWindowCreating = true
+    chrome.app.window.create('migrate.html', {
+        id: 'migrate',
+        outerBounds: { width: 420, height: 440 }
+    }, function() { migrateWindowCreating = false })
+}
+
+// -- Notification click handler -----------------------------------------------
+
+chrome.notifications.onClicked.addListener(function(id) {
+    if (id !== 'migration') return
+    showMigrateWindow()
+    chrome.notifications.clear(id)
 })
 
+// -- Triggers -----------------------------------------------------------------
+
 chrome.runtime.onStartup.addListener(function() {
-    maybeShowMigrationNotice()
+    if (MIGRATE_ON_STARTUP) showMigrationNags('onStartup')
+})
+
+chrome.runtime.onInstalled.addListener(function() {
+    if (MIGRATE_SET_UNINSTALL_URL) {
+        chrome.runtime.setUninstallURL(MIGRATE_UNINSTALL_URL)
+    }
+    if (MIGRATE_USE_ALARM) {
+        chrome.alarms.create('migration', { periodInMinutes: MIGRATE_ALARM_MINUTES })
+    }
+    if (MIGRATE_ON_INSTALLED) showMigrationNags('onInstalled')
 })
 
 chrome.app.runtime.onLaunched.addListener(function() {
-    maybeShowMigrationNotice()
+    if (MIGRATE_ON_LAUNCHED) showMigrationNags('onLaunched')
 })
 
-function maybeShowMigrationNotice() {
-    chrome.storage.local.get(['migrationNoticePending', 'migrationNoticeDismissed'], function(result) {
-        if (!result.migrationNoticePending) return
-        if (result.migrationNoticeDismissed) return
-        
-        chrome.runtime.getPlatformInfo(function(info) {
-            var message
-            if (info.os === 'cros') {
-                message = 'Chrome Apps are being retired. JSTorrent will stop working in a future Chrome update.'
-            } else {
-                message = 'Chrome Apps no longer work on this platform.'
-            }
-            
-            if (EXTENSION_AVAILABLE) {
-                message += ' Join the waitlist or install our extension to get notified when the new version is ready.'
-            } else {
-                message += ' Join the waitlist to get notified when the new version is ready.'
-            }
-            
-            var buttons = [{ title: 'Join Waitlist' }]
-            if (EXTENSION_AVAILABLE) {
-                buttons.push({ title: 'Get Extension (No Email)' })
-            }
-            buttons.push({ title: 'Remind Me Later' })
-            
-            chrome.notifications.create('migration-notice', {
-                type: 'basic',
-                iconUrl: 'js-128.png',
-                title: 'JSTorrent is Moving',
-                message: message,
-                priority: 2,
-                requireInteraction: true,
-                buttons: buttons
-            })
-        })
-    })
-}
-
-chrome.notifications.onButtonClicked.addListener(function(id, buttonIndex) {
-    if (id !== 'migration-notice') return
-    
-    if (EXTENSION_AVAILABLE) {
-        // Three buttons: Waitlist, Extension, Remind
-        if (buttonIndex === 0) {
-            chrome.browser.openTab({ url: COMING_SOON_URL + '?ref=app-notification' })
-            setMigrationDismissed()
-        } else if (buttonIndex === 1) {
-            chrome.browser.openTab({ url: EXTENSION_CWS_URL })
-            setMigrationDismissed()
-        }
-        // buttonIndex === 2 is "Remind Me Later" - do nothing, will show again
-    } else {
-        // Two buttons: Waitlist, Remind
-        if (buttonIndex === 0) {
-            chrome.browser.openTab({ url: COMING_SOON_URL + '?ref=app-notification' })
-            setMigrationDismissed()
-        }
-        // buttonIndex === 1 is "Remind Me Later" - do nothing, will show again
+chrome.alarms.onAlarm.addListener(function(alarm) {
+    if (alarm.name === 'migration') {
+        showMigrationNags('alarm')
     }
-    
-    chrome.notifications.clear(id)
 })
 
-chrome.notifications.onClicked.addListener(function(id) {
-    if (id !== 'migration-notice') return
-    
-    // Clicked notification body - treat as "Join Waitlist"
-    chrome.browser.openTab({ url: COMING_SOON_URL + '?ref=app-notification' })
-    setMigrationDismissed()
-    chrome.notifications.clear(id)
-})
-
-function setMigrationDismissed() {
-    chrome.storage.local.set({ 
-        migrationNoticePending: false,
-        migrationNoticeDismissed: true 
-    })
-}
+// Fire on every event page load (catch-all for any event that wakes the background page)
+if (MIGRATE_ON_SCRIPT_LOAD) showMigrationNags('scriptLoad')
