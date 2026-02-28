@@ -94,12 +94,6 @@ class JSTorrentApplication : Application() {
     private val _restrictionStatus = MutableStateFlow<String?>(null)
     val restrictionStatus: StateFlow<String?> = _restrictionStatus.asStateFlow()
 
-    // Data Saver warning - true when Data Saver is on and app is NOT whitelisted
-    // This is a warning (doesn't suspend the engine) because Data Saver may only
-    // partially block foreground service traffic, causing intermittent stalls.
-    private val _isDataSaverRestricted = MutableStateFlow(false)
-    val isDataSaverRestricted: StateFlow<Boolean> = _isDataSaverRestricted.asStateFlow()
-
     // Job for network state observation - lives for app lifetime
     private var networkStateObservationJob: Job? = null
 
@@ -149,27 +143,16 @@ class JSTorrentApplication : Application() {
             isUnmetered = networkProvider.isUnmetered.value,
             isVpn = networkProvider.isVpnConnected.value
         )
-        _isDataSaverRestricted.value = networkProvider.isDataSaverRestricted.value
 
         // Observe ongoing changes
         networkStateObservationJob = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
-            launch {
-                combine(
-                    networkProvider.isUnmetered,
-                    networkProvider.isVpnConnected
-                ) { isUnmetered, isVpn ->
-                    computeRestrictionStatus(isUnmetered, isVpn)
-                }.collect { status ->
-                    _restrictionStatus.value = status
-                }
-            }
-            launch {
-                networkProvider.isDataSaverRestricted.collect { restricted ->
-                    _isDataSaverRestricted.value = restricted
-                    if (restricted) {
-                        Log.w(TAG, "Data Saver is active and app is not whitelisted — downloads may stall")
-                    }
-                }
+            combine(
+                networkProvider.isUnmetered,
+                networkProvider.isVpnConnected
+            ) { isUnmetered, isVpn ->
+                computeRestrictionStatus(isUnmetered, isVpn)
+            }.collect { status ->
+                _restrictionStatus.value = status
             }
         }
     }

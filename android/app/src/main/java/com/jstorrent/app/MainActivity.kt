@@ -6,14 +6,12 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -28,9 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -391,53 +387,14 @@ private fun CompanionMainScreen(
             )
         }
     ) { innerPadding ->
-        val context = LocalContext.current
-        val app = context.applicationContext as? JSTorrentApplication
-        val isDataSaverRestricted by (app?.isDataSaverRestricted
-            ?: kotlinx.coroutines.flow.MutableStateFlow(false)).collectAsState()
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            // Data Saver warning banner
-            if (isDataSaverRestricted) {
-                Text(
-                    text = stringResource(R.string.data_saver_warning),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.errorContainer)
-                        .clickable {
-                            try {
-                                context.startActivity(
-                                    Intent(
-                                        Settings.ACTION_IGNORE_BACKGROUND_DATA_RESTRICTIONS_SETTINGS,
-                                        Uri.parse("package:${context.packageName}")
-                                    )
-                                )
-                            } catch (e: Exception) {
-                                context.startActivity(
-                                    Intent(
-                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                        Uri.parse("package:${context.packageName}")
-                                    )
-                                )
-                            }
-                        }
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                )
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
             if (isPaired) {
                 // Paired state header
                 Text(
@@ -521,7 +478,6 @@ private fun CompanionMainScreen(
                 Button(onClick = onBackToJSTorrent) {
                     Text("Open JSTorrent")
                 }
-            }
             }
         }
     }

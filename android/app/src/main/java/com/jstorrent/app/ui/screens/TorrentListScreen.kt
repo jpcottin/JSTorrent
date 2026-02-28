@@ -1,8 +1,5 @@
 package com.jstorrent.app.ui.screens
 
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
 import android.util.Base64
 import android.util.Log
 import android.widget.Toast
@@ -10,8 +7,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
@@ -128,8 +123,6 @@ fun TorrentListScreen(
     val app = context.applicationContext as? JSTorrentApplication
     val networkWaitingStatus by (app?.restrictionStatus
         ?: kotlinx.coroutines.flow.MutableStateFlow<String?>(null)).collectAsState()
-    val isDataSaverRestricted by (app?.isDataSaverRestricted
-        ?: kotlinx.coroutines.flow.MutableStateFlow(false)).collectAsState()
 
     // Lifecycle-aware subscriptions: pause when screen is not visible (e.g., navigated
     // to detail view or app backgrounded), resume when screen becomes visible again.
@@ -464,7 +457,6 @@ fun TorrentListScreen(
                         pendingRemovalTorrents = pendingRemovalTorrents,
                         isLive = state.isLive,
                         networkWaitingStatus = networkWaitingStatus,
-                        isDataSaverRestricted = isDataSaverRestricted,
                         highlightedTorrent = highlightedTorrent,
                         onHighlightShown = { viewModel.clearHighlight() },
                         lazyListState = lazyListState,
@@ -585,46 +577,12 @@ private fun TorrentListContent(
     pendingRemovalTorrents: Set<String>,
     isLive: Boolean,
     networkWaitingStatus: String? = null,
-    isDataSaverRestricted: Boolean = false,
     highlightedTorrent: String? = null,
     onHighlightShown: () -> Unit = {},
     lazyListState: LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-
     Column(modifier = modifier.fillMaxSize()) {
-        // Data Saver warning banner
-        if (isDataSaverRestricted) {
-            Text(
-                text = stringResource(R.string.data_saver_warning),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.errorContainer)
-                    .clickable {
-                        try {
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_IGNORE_BACKGROUND_DATA_RESTRICTIONS_SETTINGS,
-                                    Uri.parse("package:${context.packageName}")
-                                )
-                            )
-                        } catch (e: Exception) {
-                            // Fallback to app info (has "Mobile data & Wi-Fi" on ChromeOS)
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                    Uri.parse("package:${context.packageName}")
-                                )
-                            )
-                        }
-                    }
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
-            )
-        }
-
         // Filter tabs
         FilterTabRow(
             currentFilter = currentFilter,

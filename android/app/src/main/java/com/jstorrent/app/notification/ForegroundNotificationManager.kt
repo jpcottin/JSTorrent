@@ -39,9 +39,7 @@ class ForegroundNotificationManager(private val context: Context) {
         // For single-torrent display
         val singleTorrent: TorrentSummary? = null,
         // Network restriction status ("waiting_wifi", "waiting_vpn", or null)
-        val restrictionStatus: String? = null,
-        // Whether Data Saver is active and app is not whitelisted
-        val isDataSaverRestricted: Boolean = false
+        val restrictionStatus: String? = null
     )
 
     /**
@@ -51,9 +49,8 @@ class ForegroundNotificationManager(private val context: Context) {
         // Get restriction status from enforcer
         val app = context.applicationContext as? JSTorrentApplication
         val restrictionStatus = app?.networkRestrictionEnforcer?.getRestrictionStatus()
-        val isDataSaverRestricted = app?.isDataSaverRestricted?.value == true
 
-        val state = computeState(torrents, restrictionStatus, isDataSaverRestricted)
+        val state = computeState(torrents, restrictionStatus)
         return createNotification(state)
     }
 
@@ -69,7 +66,7 @@ class ForegroundNotificationManager(private val context: Context) {
     /**
      * Compute notification state from torrent list.
      */
-    private fun computeState(torrents: List<TorrentSummary>, restrictionStatus: String? = null, isDataSaverRestricted: Boolean = false): NotificationState {
+    private fun computeState(torrents: List<TorrentSummary>, restrictionStatus: String? = null): NotificationState {
         var downloading = 0
         var seeding = 0
         var totalDown = 0L
@@ -112,8 +109,7 @@ class ForegroundNotificationManager(private val context: Context) {
             uploadSpeed = totalUp,
             hasActiveTorrents = hasActive,
             singleTorrent = singleTorrent,
-            restrictionStatus = restrictionStatus,
-            isDataSaverRestricted = isDataSaverRestricted
+            restrictionStatus = restrictionStatus
         )
     }
 
@@ -156,11 +152,6 @@ class ForegroundNotificationManager(private val context: Context) {
             if (speedLine.isNotEmpty()) {
                 builder.setContentText(speedLine)
             }
-        }
-
-        // Show Data Saver warning as subtext when active
-        if (state.isDataSaverRestricted) {
-            builder.setSubText("Data Saver may stall downloads")
         }
 
         // Add action buttons

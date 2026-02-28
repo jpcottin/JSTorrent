@@ -36,12 +36,6 @@ class NetworkStateProvider(context: Context) {
      */
     val isConnected: StateFlow<Boolean> = networkMonitor.isConnected
 
-    /**
-     * Whether Data Saver is enabled and the app is NOT whitelisted.
-     * When true, Android restricts background data which can stall torrent downloads.
-     */
-    val isDataSaverRestricted: StateFlow<Boolean> = networkMonitor.isDataSaverRestricted
-
     init {
         // Start monitoring immediately
         networkMonitor.start()
