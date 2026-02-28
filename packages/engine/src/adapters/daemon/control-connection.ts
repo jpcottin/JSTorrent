@@ -18,6 +18,7 @@ const OP_AUTH_RESULT = 0x04
 const OP_CTRL_ROOTS_CHANGED = 0xe0
 const OP_CTRL_EVENT = 0xe1
 const OP_CTRL_OPEN_FOLDER_PICKER = 0xe2
+const OP_CTRL_POWER_HINT = 0xeb
 
 export interface ControlRoot {
   key: string
@@ -154,6 +155,19 @@ export class ControlConnection {
     }
     console.log('[ControlConnection] Requesting folder picker')
     this.ws.send(this.buildFrame(OP_CTRL_OPEN_FOLDER_PICKER, 0, new Uint8Array(0)))
+  }
+
+  /**
+   * Send a power hint to the companion, indicating how many downloads are active.
+   * The companion uses this to acquire/release wake locks (prevents ARCVM Doze on ChromeOS).
+   */
+  sendPowerHint(activeDownloads: number): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return
+    }
+    const encoder = new TextEncoder()
+    const payload = encoder.encode(JSON.stringify({ activeDownloads }))
+    this.ws.send(this.buildFrame(OP_CTRL_POWER_HINT, 0, payload))
   }
 
   /**

@@ -53,6 +53,7 @@ class JavaWebSocketServer(
     // Control session management callbacks
     private var onControlSessionRegistered: ((ControlWebSocketHandler) -> Unit)? = null
     private var onControlSessionUnregistered: ((ControlWebSocketHandler) -> Unit)? = null
+    private var onPowerHintReceived: ((ControlWebSocketHandler, Int) -> Unit)? = null
 
     val port: Int get() = server?.port ?: 0
     val isRunning: Boolean get() = server != null
@@ -63,10 +64,12 @@ class JavaWebSocketServer(
      */
     fun setControlSessionCallbacks(
         onRegistered: (ControlWebSocketHandler) -> Unit,
-        onUnregistered: (ControlWebSocketHandler) -> Unit
+        onUnregistered: (ControlWebSocketHandler) -> Unit,
+        onPowerHint: ((ControlWebSocketHandler, Int) -> Unit)? = null
     ) {
         onControlSessionRegistered = onRegistered
         onControlSessionUnregistered = onUnregistered
+        onPowerHintReceived = onPowerHint
     }
 
     /**
@@ -92,7 +95,8 @@ class JavaWebSocketServer(
                     fileManager,
                     scope,
                     onControlSessionRegistered,
-                    onControlSessionUnregistered
+                    onControlSessionUnregistered,
+                    onPowerHintReceived
                 )
                 s.isReuseAddr = true
                 s.connectionLostTimeout = 60
@@ -152,7 +156,8 @@ private class InnerServer(
     private val fileManager: FileManager,
     private val scope: CoroutineScope,
     private val onControlSessionRegistered: ((ControlWebSocketHandler) -> Unit)?,
-    private val onControlSessionUnregistered: ((ControlWebSocketHandler) -> Unit)?
+    private val onControlSessionUnregistered: ((ControlWebSocketHandler) -> Unit)?,
+    private val onPowerHintReceived: ((ControlWebSocketHandler, Int) -> Unit)?
 ) : WebSocketServer(InetSocketAddress(port)) {
 
     val startLatch = CountDownLatch(1)
@@ -280,7 +285,8 @@ private class InnerServer(
                     wsSession,
                     deps,
                     onSessionRegistered = { onControlSessionRegistered?.invoke(it) },
-                    onSessionUnregistered = { onControlSessionUnregistered?.invoke(it) }
+                    onSessionUnregistered = { onControlSessionUnregistered?.invoke(it) },
+                    onPowerHintReceived = { session, count -> onPowerHintReceived?.invoke(session, count) }
                 )
 
                 controlSessions[conn] = ControlSessionState(wsSession, handler)

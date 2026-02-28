@@ -65,6 +65,9 @@ object Protocol {
     const val OP_CTRL_OPEN_FILE: Byte = 0xE9.toByte()
     const val OP_CTRL_OPEN_FOLDER: Byte = 0xEA.toByte()
 
+    // Power management opcodes (0xEB)
+    const val OP_CTRL_POWER_HINT: Byte = 0xEB.toByte()
+
     // Opcode sets for route validation
     val HANDSHAKE_OPCODES = setOf(
         OP_CLIENT_HELLO, OP_SERVER_HELLO, OP_AUTH, OP_AUTH_RESULT, OP_ERROR
@@ -82,7 +85,8 @@ object Protocol {
     val CONTROL_OPCODES = HANDSHAKE_OPCODES + setOf(
         OP_CTRL_ROOTS_CHANGED, OP_CTRL_EVENT, OP_CTRL_OPEN_FOLDER_PICKER,
         OP_KV_GET, OP_KV_GET_MULTI, OP_KV_SET, OP_KV_DELETE, OP_KV_KEYS, OP_KV_CLEAR,
-        OP_CTRL_OPEN_FILE, OP_CTRL_OPEN_FOLDER
+        OP_CTRL_OPEN_FILE, OP_CTRL_OPEN_FOLDER,
+        OP_CTRL_POWER_HINT
     )
 
     /**

@@ -86,6 +86,27 @@ class SettingsStore(context: Context) {
         set(value) = prefs.edit { putString(KEY_WHEN_DOWNLOADS_COMPLETE, value) }
 
     // =========================================================================
+    // Companion Mode (ChromeOS)
+    // =========================================================================
+
+    /**
+     * Whether to auto-close the companion background service when idle.
+     * Idle = no extension connected for companionAutoCloseMinutes.
+     * OFF by default.
+     */
+    var companionAutoCloseEnabled: Boolean
+        get() = prefs.getBoolean(KEY_COMPANION_AUTO_CLOSE_ENABLED, false)
+        set(value) = prefs.edit { putBoolean(KEY_COMPANION_AUTO_CLOSE_ENABLED, value) }
+
+    /**
+     * Minutes of idle (no extension connected) before auto-closing the companion service.
+     * Range: 5-120 minutes. Default: 30.
+     */
+    var companionAutoCloseMinutes: Int
+        get() = prefs.getInt(KEY_COMPANION_AUTO_CLOSE_MINUTES, 30)
+        set(value) = prefs.edit { putInt(KEY_COMPANION_AUTO_CLOSE_MINUTES, value.coerceIn(5, 120)) }
+
+    // =========================================================================
     // Language & Appearance (Android-only)
     // =========================================================================
 
@@ -150,6 +171,10 @@ class SettingsStore(context: Context) {
 
         // Standalone behavior
         private const val KEY_WHEN_DOWNLOADS_COMPLETE = "when_downloads_complete"
+
+        // Companion mode
+        private const val KEY_COMPANION_AUTO_CLOSE_ENABLED = "companion_auto_close_enabled"
+        private const val KEY_COMPANION_AUTO_CLOSE_MINUTES = "companion_auto_close_minutes"
 
         // Language & Appearance
         private const val KEY_APP_LOCALE = "app_locale"

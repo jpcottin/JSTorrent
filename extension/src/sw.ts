@@ -389,6 +389,7 @@ function handleNotificationMessage(message: NotificationMessage): void {
         }
         notificationManager.updateProgress(message.stats)
         powerManager.updateActiveDownloads(message.stats.activeCount)
+        bridge.sendPowerHint(message.stats.activeCount)
       }
       break
     case 'notification:torrent-complete':

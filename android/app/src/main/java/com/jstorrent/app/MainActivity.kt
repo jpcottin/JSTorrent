@@ -33,6 +33,7 @@ import androidx.lifecycle.lifecycleScope
 import com.jstorrent.app.auth.TokenStore
 import com.jstorrent.app.mode.ModeDetector
 import com.jstorrent.app.service.IoDaemonService
+import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.app.ui.screens.SectionHeader
 import com.jstorrent.app.ui.screens.SettingToggleRow
 import com.jstorrent.app.ui.theme.JSTorrentTheme
@@ -45,10 +46,13 @@ private const val CHROME_WEB_STORE_URL = "https://chrome.google.com/webstore/det
 class MainActivity : AppCompatActivity() {
 
     private lateinit var tokenStore: TokenStore
+    private lateinit var settingsStore: SettingsStore
     private var isPaired = mutableStateOf(false)
     private var backgroundModeEnabled = mutableStateOf(false)
     private var hasNotificationPermission = mutableStateOf(false)
     private var preferStandaloneOnChromebook = mutableStateOf(false)
+    private var autoCloseEnabled = mutableStateOf(false)
+    private var autoCloseMinutes = mutableStateOf(30)
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -72,10 +76,13 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
 
         tokenStore = TokenStore(this)
+        settingsStore = (application as JSTorrentApplication).settingsStore
         isPaired.value = tokenStore.hasToken()
         backgroundModeEnabled.value = tokenStore.backgroundModeEnabled
         hasNotificationPermission.value = checkNotificationPermission()
         preferStandaloneOnChromebook.value = tokenStore.preferStandaloneOnChromebook
+        autoCloseEnabled.value = settingsStore.companionAutoCloseEnabled
+        autoCloseMinutes.value = settingsStore.companionAutoCloseMinutes
 
         // Check if running on Chromebook
         val isChromebook = ModeDetector.isChromebook(this)
@@ -115,6 +122,8 @@ class MainActivity : AppCompatActivity() {
                     backgroundModeEnabled = backgroundModeEnabled.value,
                     hasNotificationPermission = hasNotificationPermission.value,
                     preferStandaloneOnChromebook = preferStandaloneOnChromebook.value,
+                    autoCloseEnabled = autoCloseEnabled.value,
+                    autoCloseMinutes = autoCloseMinutes.value,
                     onBackgroundModeToggle = { enabled ->
                         if (enabled) {
                             // Request permission when enabling
@@ -129,6 +138,14 @@ class MainActivity : AppCompatActivity() {
                     onPreferStandaloneChange = { prefer ->
                         tokenStore.preferStandaloneOnChromebook = prefer
                         preferStandaloneOnChromebook.value = prefer
+                    },
+                    onAutoCloseToggle = { enabled ->
+                        autoCloseEnabled.value = enabled
+                        IoDaemonService.instance?.setAutoCloseEnabled(enabled)
+                    },
+                    onAutoCloseMinutesChange = { minutes ->
+                        autoCloseMinutes.value = minutes
+                        IoDaemonService.instance?.setAutoCloseMinutes(minutes)
                     },
                     onLaunchStandalone = {
                         // Always use native standalone on Chromebook
@@ -277,8 +294,12 @@ fun MainScreen(
     backgroundModeEnabled: Boolean,
     hasNotificationPermission: Boolean,
     preferStandaloneOnChromebook: Boolean,
+    autoCloseEnabled: Boolean,
+    autoCloseMinutes: Int,
     onBackgroundModeToggle: (Boolean) -> Unit,
     onPreferStandaloneChange: (Boolean) -> Unit,
+    onAutoCloseToggle: (Boolean) -> Unit,
+    onAutoCloseMinutesChange: (Int) -> Unit,
     onLaunchStandalone: () -> Unit,
     onBackToJSTorrent: () -> Unit,
     onUnpair: () -> Unit,
@@ -295,8 +316,12 @@ fun MainScreen(
             backgroundModeEnabled = backgroundModeEnabled,
             hasNotificationPermission = hasNotificationPermission,
             preferStandaloneOnChromebook = preferStandaloneOnChromebook,
+            autoCloseEnabled = autoCloseEnabled,
+            autoCloseMinutes = autoCloseMinutes,
             onBackgroundModeToggle = onBackgroundModeToggle,
             onPreferStandaloneChange = onPreferStandaloneChange,
+            onAutoCloseToggle = onAutoCloseToggle,
+            onAutoCloseMinutesChange = onAutoCloseMinutesChange,
             onLaunchStandalone = {
                 showSettings = false
                 onLaunchStandalone()
@@ -490,8 +515,12 @@ private fun CompanionSettingsScreen(
     backgroundModeEnabled: Boolean,
     hasNotificationPermission: Boolean,
     preferStandaloneOnChromebook: Boolean,
+    autoCloseEnabled: Boolean,
+    autoCloseMinutes: Int,
     onBackgroundModeToggle: (Boolean) -> Unit,
     onPreferStandaloneChange: (Boolean) -> Unit,
+    onAutoCloseToggle: (Boolean) -> Unit,
+    onAutoCloseMinutesChange: (Int) -> Unit,
     onLaunchStandalone: () -> Unit,
     onOpenExtensionPage: () -> Unit,
     onQuit: () -> Unit
@@ -523,6 +552,25 @@ private fun CompanionSettingsScreen(
                 onCheckedChange = onBackgroundModeToggle,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
+
+            val bgActive = backgroundModeEnabled && hasNotificationPermission
+
+            SettingToggleRow(
+                label = "Auto-close when idle",
+                description = "Stop background service when extension disconnects",
+                checked = autoCloseEnabled,
+                onCheckedChange = onAutoCloseToggle,
+                enabled = bgActive,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
+            if (autoCloseEnabled && bgActive) {
+                AutoCloseMinutesSelector(
+                    selectedMinutes = autoCloseMinutes,
+                    onMinutesChange = onAutoCloseMinutesChange,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -635,6 +683,51 @@ private fun CompanionSettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(16.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun AutoCloseMinutesSelector(
+    selectedMinutes: Int,
+    onMinutesChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val options = listOf(15, 30, 60, 120)
+    var expanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Close after",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        Box {
+            OutlinedButton(onClick = { expanded = true }) {
+                val label = if (selectedMinutes >= 60) "${selectedMinutes / 60} hour${if (selectedMinutes > 60) "s" else ""}" else "$selectedMinutes min"
+                Text(label)
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                options.forEach { minutes ->
+                    val label = if (minutes >= 60) "${minutes / 60} hour${if (minutes > 60) "s" else ""}" else "$minutes min"
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = {
+                            onMinutesChange(minutes)
+                            expanded = false
+                        }
+                    )
+                }
+            }
         }
     }
 }

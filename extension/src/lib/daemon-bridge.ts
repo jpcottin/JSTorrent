@@ -267,6 +267,17 @@ export class DaemonBridge {
   }
 
   /**
+   * Send a power hint to the companion, indicating how many downloads are active.
+   * The companion uses this to acquire/release wake locks (prevents ARCVM Doze on ChromeOS).
+   * Only effective on ChromeOS when connected via WebSocket.
+   */
+  sendPowerHint(activeDownloads: number): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    const payload = new TextEncoder().encode(JSON.stringify({ activeDownloads }))
+    this.ws.send(buildControlFrame(0xeb, 0, payload))
+  }
+
+  /**
    * Read a .torrent file via the native host.
    * Desktop only — returns error on ChromeOS.
    */

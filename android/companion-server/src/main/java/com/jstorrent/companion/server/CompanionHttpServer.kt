@@ -46,6 +46,13 @@ class CompanionHttpServer(
     // Connected WebSocket sessions for control broadcasts
     private val controlSessions = CopyOnWriteArrayList<ControlWebSocketHandler>()
 
+    // Per-session active download counts from power hints
+    private val sessionDownloadCounts = java.util.concurrent.ConcurrentHashMap<ControlWebSocketHandler, Int>()
+
+    // Callbacks for service-level power and connection lifecycle management
+    var onPowerHintChanged: ((hasActiveDownloads: Boolean) -> Unit)? = null
+    var onControlSessionCountChanged: ((sessionCount: Int) -> Unit)? = null
+
     val port: Int get() = httpServer?.boundPort ?: 0
     val ioPort: Int get() = wsServer?.port ?: -1
     val streamingPort: Int get() = streamingServer?.let { if (it.isRunning()) httpServer?.boundPort?.plus(2) ?: 0 else 0 } ?: 0
@@ -80,7 +87,8 @@ class CompanionHttpServer(
             // Wire up control session callbacks so broadcasts work
             ws.setControlSessionCallbacks(
                 onRegistered = { session -> registerControlSession(session) },
-                onUnregistered = { session -> unregisterControlSession(session) }
+                onUnregistered = { session -> unregisterControlSession(session) },
+                onPowerHint = { session, count -> onPowerHintReceived(session, count) }
             )
             ws.start(preferredPort = httpPort + 1)
             wsServer = ws
@@ -124,8 +132,9 @@ class CompanionHttpServer(
         httpServer?.stop()
         httpServer = null
 
-        // Clear control sessions
+        // Clear control sessions and power state
         controlSessions.clear()
+        sessionDownloadCounts.clear()
 
         Log.i(TAG, "Server stopped")
     }
@@ -136,12 +145,27 @@ class CompanionHttpServer(
 
     private fun registerControlSession(session: ControlWebSocketHandler) {
         controlSessions.add(session)
-        Log.d(TAG, "Control session registered, total: ${controlSessions.size}")
+        val count = controlSessions.size
+        Log.d(TAG, "Control session registered, total: $count")
+        onControlSessionCountChanged?.invoke(count)
     }
 
     private fun unregisterControlSession(session: ControlWebSocketHandler) {
         controlSessions.remove(session)
-        Log.d(TAG, "Control session unregistered, total: ${controlSessions.size}")
+        sessionDownloadCounts.remove(session)
+        val count = controlSessions.size
+        Log.d(TAG, "Control session unregistered, total: $count")
+        onControlSessionCountChanged?.invoke(count)
+        // Re-evaluate power state after session removal
+        val hasActive = sessionDownloadCounts.values.any { it > 0 }
+        onPowerHintChanged?.invoke(hasActive)
+    }
+
+    private fun onPowerHintReceived(session: ControlWebSocketHandler, activeDownloads: Int) {
+        sessionDownloadCounts[session] = activeDownloads
+        val hasActive = sessionDownloadCounts.values.any { it > 0 }
+        Log.d(TAG, "Power hint: session=$activeDownloads, aggregate hasActive=$hasActive")
+        onPowerHintChanged?.invoke(hasActive)
     }
 
     /**

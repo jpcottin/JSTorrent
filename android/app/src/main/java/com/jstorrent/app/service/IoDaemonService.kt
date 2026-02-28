@@ -7,18 +7,31 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.jstorrent.app.CompanionServerDepsImpl
+import com.jstorrent.app.JSTorrentApplication
 import com.jstorrent.app.MainActivity
 import com.jstorrent.app.R
 import com.jstorrent.app.auth.TokenStore
+import com.jstorrent.app.power.DozeMonitor
+import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.app.storage.RootStore
 import com.jstorrent.companion.server.CompanionHttpServer
 import com.jstorrent.quickjs.storage.SqliteKVStore
 import com.jstorrent.companion.server.DownloadRoot
 import com.jstorrent.io.file.FileManagerImpl
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -34,6 +47,21 @@ class IoDaemonService : Service() {
     private lateinit var kvStore: SqliteKVStore
     private var httpServer: CompanionHttpServer? = null
 
+    // Doze mode monitoring for debugging power state transitions
+    private var dozeMonitor: DozeMonitor? = null
+
+    // Wake locks to prevent deep sleep and WiFi throttling while extension has active downloads
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+    private var hasActiveDownloads = false
+
+    // Idle timeout for auto-close
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var idleTimeoutJob: Job? = null
+
+    private val settingsStore: SettingsStore
+        get() = (application as JSTorrentApplication).settingsStore
+
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "Service created")
@@ -42,6 +70,8 @@ class IoDaemonService : Service() {
         rootStore = RootStore(this)
         kvStore = SqliteKVStore(this)
         createNotificationChannel()
+
+        dozeMonitor = DozeMonitor(this)
 
         // Set singleton for static access
         instance = this
@@ -66,13 +96,29 @@ class IoDaemonService : Service() {
             Log.i(TAG, "Background mode disabled, removed foreground status")
         }
 
+        // Start Doze monitoring for diagnostics
+        dozeMonitor?.start()
+
         return START_STICKY
     }
 
     override fun onDestroy() {
         Log.i(TAG, "Service destroying")
         instance = null
+
+        // Stop idle timeout
+        idleTimeoutJob?.cancel()
+        idleTimeoutJob = null
+
+        // Stop Doze monitoring
+        dozeMonitor?.stop()
+        dozeMonitor = null
+
+        // Release wake locks
+        releaseWakeLocks()
+
         stopServer()
+        ioScope.cancel()
         super.onDestroy()
     }
 
@@ -86,7 +132,17 @@ class IoDaemonService : Service() {
 
         val deps = CompanionServerDepsImpl(this, tokenStore, rootStore, kvStore)
         val fileManager = FileManagerImpl(this)
-        httpServer = CompanionHttpServer(deps, fileManager)
+        httpServer = CompanionHttpServer(deps, fileManager).also { server ->
+            // Wire power hint callback for wake lock management
+            server.onPowerHintChanged = { hasActive ->
+                onPowerHintChanged(hasActive)
+            }
+
+            // Wire connection count callback for idle timeout management
+            server.onControlSessionCountChanged = { count ->
+                onControlSessionCountChanged(count)
+            }
+        }
 
         try {
             httpServer?.start()
@@ -97,8 +153,135 @@ class IoDaemonService : Service() {
     }
 
     private fun stopServer() {
+        httpServer?.onPowerHintChanged = null
+        httpServer?.onControlSessionCountChanged = null
         httpServer?.stop()
         httpServer = null
+    }
+
+    // =========================================================================
+    // Power Hint — Wake Lock Management
+    // =========================================================================
+
+    /**
+     * Called when the extension signals a change in active download count.
+     * Acquires wake locks when downloads are active, releases when idle.
+     */
+    private fun onPowerHintChanged(hasActive: Boolean) {
+        if (hasActive == hasActiveDownloads) return
+        hasActiveDownloads = hasActive
+
+        if (hasActive) {
+            Log.i(TAG, "Extension reports active downloads - acquiring wake locks")
+            acquireWakeLocks()
+        } else {
+            Log.i(TAG, "Extension reports no active downloads - releasing wake locks")
+            releaseWakeLocks()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun acquireWakeLocks() {
+        if (wakeLock == null) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "JSTorrent::CompanionWakeLock"
+            ).apply { acquire() }
+            Log.i(TAG, "CPU wake lock acquired")
+        }
+
+        if (wifiLock == null) {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val wifiMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            }
+            wifiLock = wifiManager.createWifiLock(wifiMode, "JSTorrent::CompanionWifiLock").apply {
+                acquire()
+            }
+            Log.i(TAG, "WiFi wake lock acquired")
+        }
+    }
+
+    private fun releaseWakeLocks() {
+        wakeLock?.let {
+            if (it.isHeld) {
+                it.release()
+                Log.i(TAG, "CPU wake lock released")
+            }
+        }
+        wakeLock = null
+
+        wifiLock?.let {
+            if (it.isHeld) {
+                it.release()
+                Log.i(TAG, "WiFi wake lock released")
+            }
+        }
+        wifiLock = null
+    }
+
+    // =========================================================================
+    // Idle Timeout — Auto-Close
+    // =========================================================================
+
+    /**
+     * Called when the number of connected control sessions changes.
+     * Starts/cancels idle timeout accordingly.
+     */
+    private fun onControlSessionCountChanged(sessionCount: Int) {
+        if (sessionCount > 0) {
+            // Extension connected — cancel any pending idle timeout
+            cancelIdleTimeout()
+        } else {
+            // All extensions disconnected — start idle timeout if enabled
+            startIdleTimeoutIfEnabled()
+        }
+    }
+
+    private fun startIdleTimeoutIfEnabled() {
+        if (!settingsStore.companionAutoCloseEnabled) return
+        if (!tokenStore.backgroundModeEnabled) return
+
+        val minutes = settingsStore.companionAutoCloseMinutes
+        Log.i(TAG, "No active connections - auto-close in $minutes minutes")
+
+        idleTimeoutJob?.cancel()
+        idleTimeoutJob = ioScope.launch {
+            delay(minutes * 60_000L)
+            Log.i(TAG, "Idle timeout fired after $minutes minutes - stopping service")
+            stop(this@IoDaemonService)
+        }
+    }
+
+    private fun cancelIdleTimeout() {
+        idleTimeoutJob?.let {
+            it.cancel()
+            Log.d(TAG, "Idle timeout cancelled - extension reconnected")
+        }
+        idleTimeoutJob = null
+    }
+
+    /**
+     * Update auto-close settings at runtime.
+     */
+    fun setAutoCloseEnabled(enabled: Boolean) {
+        settingsStore.companionAutoCloseEnabled = enabled
+        if (!enabled) {
+            cancelIdleTimeout()
+        } else if (!hasActiveControlConnection()) {
+            startIdleTimeoutIfEnabled()
+        }
+    }
+
+    fun setAutoCloseMinutes(minutes: Int) {
+        settingsStore.companionAutoCloseMinutes = minutes
+        // Restart timeout with new duration if currently counting down
+        if (idleTimeoutJob?.isActive == true) {
+            startIdleTimeoutIfEnabled()
+        }
     }
 
     // =========================================================================
@@ -116,6 +299,7 @@ class IoDaemonService : Service() {
             Log.i(TAG, "Foreground mode enabled")
         } else {
             stopForeground(STOP_FOREGROUND_REMOVE)
+            cancelIdleTimeout()
             Log.i(TAG, "Foreground mode disabled")
         }
     }
@@ -190,8 +374,8 @@ class IoDaemonService : Service() {
      * Send a MagnetAdded event to the extension.
      */
     fun sendMagnetAdded(magnet: String) {
-        val payload = kotlinx.serialization.json.buildJsonObject {
-            put("link", kotlinx.serialization.json.JsonPrimitive(magnet))
+        val payload = buildJsonObject {
+            put("link", JsonPrimitive(magnet))
         }
         broadcastEvent("MagnetAdded", payload)
     }
@@ -200,9 +384,9 @@ class IoDaemonService : Service() {
      * Send a TorrentAdded event to the extension.
      */
     fun sendTorrentAdded(name: String, contentsBase64: String) {
-        val payload = kotlinx.serialization.json.buildJsonObject {
-            put("name", kotlinx.serialization.json.JsonPrimitive(name))
-            put("contentsBase64", kotlinx.serialization.json.JsonPrimitive(contentsBase64))
+        val payload = buildJsonObject {
+            put("name", JsonPrimitive(name))
+            put("contentsBase64", JsonPrimitive(contentsBase64))
         }
         broadcastEvent("TorrentAdded", payload)
     }

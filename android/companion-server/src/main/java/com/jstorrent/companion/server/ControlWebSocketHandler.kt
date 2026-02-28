@@ -28,7 +28,8 @@ class ControlWebSocketHandler(
     private val session: WebSocketSession,
     private val deps: CompanionServerDeps,
     private val onSessionRegistered: (ControlWebSocketHandler) -> Unit,
-    private val onSessionUnregistered: (ControlWebSocketHandler) -> Unit
+    private val onSessionUnregistered: (ControlWebSocketHandler) -> Unit,
+    private val onPowerHintReceived: (ControlWebSocketHandler, Int) -> Unit = { _, _ -> }
 ) {
     private var authenticated = false
     private var isExtensionAuth = false
@@ -193,6 +194,7 @@ class ControlWebSocketHandler(
             Protocol.OP_KV_CLEAR -> handleKvClear(envelope, payload)
             Protocol.OP_CTRL_OPEN_FILE -> handleOpenFile(envelope, payload)
             Protocol.OP_CTRL_OPEN_FOLDER -> handleOpenFolder(envelope, payload)
+            Protocol.OP_CTRL_POWER_HINT -> handlePowerHint(envelope, payload)
             else -> {
                 sendError(envelope.requestId, "Unknown opcode: ${envelope.opcode}")
             }
@@ -241,6 +243,21 @@ class ControlWebSocketHandler(
         }
         val payload = response.toString().toByteArray()
         send(Protocol.createMessage(opcode, requestId, payload))
+    }
+
+    // ==========================================================================
+    // Power hint handler
+    // ==========================================================================
+
+    private fun handlePowerHint(envelope: Protocol.Envelope, payload: ByteArray) {
+        try {
+            val request = json.parseToJsonElement(String(payload)).jsonObject
+            val activeDownloads = request["activeDownloads"]?.jsonPrimitive?.int ?: 0
+            Log.d(TAG, "Power hint received: activeDownloads=$activeDownloads")
+            onPowerHintReceived(this, activeDownloads)
+        } catch (e: Exception) {
+            Log.e(TAG, "POWER_HINT error: ${e.message}")
+        }
     }
 
     // ==========================================================================
