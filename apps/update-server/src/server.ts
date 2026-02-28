@@ -6,6 +6,7 @@ import { fetchReleases, findPlatformUpdate, aggregateNotes } from './github.js'
 import type { LatestJson } from './github.js'
 import { AnalyticsLogger } from './analytics.js'
 import { compareVersions } from './version.js'
+import { generateStatsHtml } from './stats.js'
 
 const notesStore = new NotesStore(config.notesCacheFile)
 
@@ -87,6 +88,15 @@ const server = http.createServer(async (req, res) => {
   // GET /health
   if (segments[0] === 'health') {
     sendJson(res, 200, { ok: true })
+    return
+  }
+
+  // GET /stats
+  if (segments[0] === 'stats') {
+    // Auth is handled by Caddy (basicauth on /stats*)
+    const html = generateStatsHtml(config.logDir)
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end(html)
     return
   }
 
