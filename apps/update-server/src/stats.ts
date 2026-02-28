@@ -73,7 +73,10 @@ function loadStats(logDir: string): Record<string, DayStats> {
   // Find all log files
   let files: string[]
   try {
-    files = fs.readdirSync(logDir).filter((f) => f.endsWith('.ndjson')).sort()
+    files = fs
+      .readdirSync(logDir)
+      .filter((f) => f.endsWith('.ndjson'))
+      .sort()
   } catch {
     return cache.days
   }
