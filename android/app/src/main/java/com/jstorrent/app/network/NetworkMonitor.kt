@@ -1,6 +1,9 @@
 package com.jstorrent.app.network
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -14,7 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * Monitors network connectivity and type changes.
  * Exposes unmetered connectivity state as a StateFlow for WiFi-only mode.
  */
-class NetworkMonitor(context: Context) {
+class NetworkMonitor(private val context: Context) {
 
     companion object {
         private const val TAG = "NetworkMonitor"
@@ -32,7 +35,15 @@ class NetworkMonitor(context: Context) {
     private val _isConnected = MutableStateFlow(checkCurrentConnectionState())
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
+    /**
+     * Whether Data Saver is enabled AND the app is NOT whitelisted.
+     * When true, Android may restrict background data usage which can stall downloads.
+     */
+    private val _isDataSaverRestricted = MutableStateFlow(checkDataSaverState())
+    val isDataSaverRestricted: StateFlow<Boolean> = _isDataSaverRestricted.asStateFlow()
+
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var dataSaverReceiver: BroadcastReceiver? = null
 
     /**
      * Start monitoring network changes.
@@ -70,9 +81,22 @@ class NetworkMonitor(context: Context) {
         connectivityManager.registerNetworkCallback(request, callback)
         networkCallback = callback
 
+        // Register for Data Saver changes
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                Log.d(TAG, "Data Saver state changed")
+                _isDataSaverRestricted.value = checkDataSaverState()
+            }
+        }
+        context.registerReceiver(
+            receiver,
+            IntentFilter(ConnectivityManager.ACTION_RESTRICT_BACKGROUND_CHANGED)
+        )
+        dataSaverReceiver = receiver
+
         // Update initial state
         updateNetworkState()
-        Log.i(TAG, "NetworkMonitor started, unmetered=${_isUnmetered.value}")
+        Log.i(TAG, "NetworkMonitor started, unmetered=${_isUnmetered.value}, dataSaverRestricted=${_isDataSaverRestricted.value}")
     }
 
     /**
@@ -86,6 +110,14 @@ class NetworkMonitor(context: Context) {
                 Log.w(TAG, "Failed to unregister network callback", e)
             }
             networkCallback = null
+        }
+        dataSaverReceiver?.let { receiver ->
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to unregister data saver receiver", e)
+            }
+            dataSaverReceiver = null
         }
         Log.i(TAG, "NetworkMonitor stopped")
     }
@@ -113,5 +145,14 @@ class NetworkMonitor(context: Context) {
         val network = connectivityManager.activeNetwork ?: return false
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
         return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    /**
+     * Check if Data Saver is enabled and the app is NOT whitelisted.
+     * Returns true when the app's background data is restricted.
+     */
+    private fun checkDataSaverState(): Boolean {
+        return connectivityManager.restrictBackgroundStatus ==
+            ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED
     }
 }
