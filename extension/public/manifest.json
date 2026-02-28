@@ -23,6 +23,11 @@
   },
   "host_permissions": ["http://100.115.92.2/*"],
   "externally_connectable": {
+    "ids": [
+      "anhdpjpojoipgpmfanmedjghaligalgb",
+      "abmohcnlldaiaodkpacnldcdnjjgldfh",
+      "bnceafpojmnimbnhamaeedgomdcgnbjk"
+    ],
     "matches": [
       "https://new.jstorrent.com/*",
       "https://jstorrent.com/*",
