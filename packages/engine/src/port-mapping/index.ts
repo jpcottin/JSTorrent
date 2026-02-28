@@ -3,3 +3,5 @@ export type { PortMapping, PortMapping as UPnPMapping } from './port-mapping-man
 export { SSDPClient } from './ssdp-client'
 export type { SSDPDevice } from './ssdp-client'
 export { GatewayDevice } from './gateway-device'
+export { NatPmpClient, NatPmpError, NatPmpResultCode, NATPMP_GATEWAY_PORT } from './nat-pmp-client'
+export type { NatPmpMapping } from './nat-pmp-client'
