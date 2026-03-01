@@ -23,7 +23,11 @@ function getNetworkInterfaces(): Promise<NetworkInterface[]> {
     if (!addrs) continue
     for (const addr of addrs) {
       if (addr.family === 'IPv4' && !addr.internal) {
-        result.push({ name, address: addr.address, prefixLength: addr.cidr ? parseInt(addr.cidr.split('/')[1]) : 24 })
+        result.push({
+          name,
+          address: addr.address,
+          prefixLength: addr.cidr ? parseInt(addr.cidr.split('/')[1]) : 24,
+        })
       }
     }
   }
