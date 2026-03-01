@@ -192,9 +192,13 @@ chrome.runtime.onConnectExternal.addListener((port) => {
 // ============================================================================
 const bridge = getDaemonBridge()
 
-// Start connection attempt
+// Start connection attempt — start idle timer so native host gets cleaned up
+// if no UI page connects within IDLE_TIMEOUT_MS
 bridge.connect().then((success) => {
   console.log(`[SW] Initial connection: ${success ? 'success' : 'failed'}`)
+  if (!primaryUIPort) {
+    startIdleTimer()
+  }
 })
 
 // Forward native events to UI
@@ -1165,6 +1169,11 @@ async function handleStatusRequest(
       })
     } else {
       sendResponse(baseResponse)
+    }
+
+    // Start idle timer if no UI is open, so native host gets cleaned up
+    if (!primaryUIPort) {
+      startIdleTimer()
     }
   } catch {
     sendResponse(baseResponse)
