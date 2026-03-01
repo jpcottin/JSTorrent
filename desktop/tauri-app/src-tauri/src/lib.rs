@@ -1012,12 +1012,8 @@ pub fn run() {
                     let _ = window.hide();
                     api.prevent_close();
                 } else {
-                    // Window closing, downloads will stop — clear stale tray stats
-                    if let Some(tray) = window.app_handle().tray_by_id("tray") {
-                        let _ = tray.set_tooltip(Some("JSTorrent"));
-                        #[cfg(target_os = "macos")]
-                        let _ = tray.set_title(Some(""));
-                    }
+                    // "Run in Background" is off — user intends to fully quit
+                    window.app_handle().exit(0);
                 }
             }
         })
