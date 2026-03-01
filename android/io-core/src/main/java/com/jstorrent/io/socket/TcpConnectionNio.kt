@@ -45,8 +45,11 @@ internal class TcpConnectionNio(
     companion object {
         private const val TAG = "TcpConnectionNio"
 
-        // NIO can read larger chunks than InputStream (no 128KB cap)
-        private const val READ_BUFFER_SIZE = 1024 * 1024  // 1MB direct buffer
+        // NIO isn't capped like InputStream, but we limit allocation size
+        // to control heap pressure when many connections read concurrently.
+        // 128KB is plenty for BitTorrent (16KB blocks) and keeps per-frame
+        // heap allocations bounded.
+        private const val READ_BUFFER_SIZE = 128 * 1024  // 128KB direct buffer
 
         private const val WRITE_BUFFER_SIZE = 64 * 1024
         private const val FLUSH_THRESHOLD = 32 * 1024

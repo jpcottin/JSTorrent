@@ -66,9 +66,13 @@ class IoWebSocketHandler(
     private val activeServerIds = ConcurrentHashMap.newKeySet<Int>()     // serverIds with active listeners
     private val activeUdpSockets = ConcurrentHashMap.newKeySet<Int>()    // socketIds with active UDP bindings
 
-    // Outgoing message queue - large buffer for high throughput
-    // At 65KB frames, 2000 frames = ~130MB buffer capacity
-    private val outgoing = Channel<ByteArray>(2000)
+    // Outgoing message queue - sized to limit memory pressure.
+    // At 128KB max frame size, 500 frames = ~64MB worst case.
+    private val outgoing = Channel<ByteArray>(500)
+
+    // Backpressure state for TCP read pausing
+    @Volatile
+    private var readsPaused = false
 
     // Session statistics
     private val dropCount = AtomicLong(0)
@@ -87,6 +91,8 @@ class IoWebSocketHandler(
 
     companion object {
         private const val ENABLE_SEND_LOGGING = true
+        private const val QUEUE_PAUSE_THRESHOLD = 300   // Pause TCP reads when queue exceeds this
+        private const val QUEUE_RESUME_THRESHOLD = 100  // Resume TCP reads when queue drops below this
     }
 
     init {
@@ -116,6 +122,14 @@ class IoWebSocketHandler(
             try {
                 for (data in outgoing) {
                     val depth = queueDepth.decrementAndGet()
+
+                    // Backpressure: resume TCP reads when queue drains
+                    if (readsPaused && depth < QUEUE_RESUME_THRESHOLD) {
+                        readsPaused = false
+                        tcpService.resumeAllReads()
+                        Log.i(TAG, "Queue drained to $depth, resuming TCP reads")
+                    }
+
                     val t0 = System.nanoTime()
                     session.send(data)
                     val sendTimeNs = System.nanoTime() - t0
@@ -985,6 +999,14 @@ class IoWebSocketHandler(
             while (depth > currentMax && !maxQueueDepth.compareAndSet(currentMax, depth)) {
                 currentMax = maxQueueDepth.get()
             }
+
+            // Backpressure: pause TCP reads when queue is building up
+            if (!readsPaused && depth > QUEUE_PAUSE_THRESHOLD) {
+                readsPaused = true
+                tcpService.pauseAllReads()
+                Log.w(TAG, "Queue depth $depth > $QUEUE_PAUSE_THRESHOLD, pausing TCP reads")
+            }
+
             // Log when queue is building up
             if (depth > 100 && depth % 100 == 0) {
                 val opcode = if (data.size >= 2) data[1].toInt() and 0xFF else -1
