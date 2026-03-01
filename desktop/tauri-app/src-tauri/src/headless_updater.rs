@@ -28,8 +28,8 @@ pub fn run(auto_update: bool, context: tauri::Context) {
             // Register the updater plugin with CFU ID and reason headers
             #[cfg(desktop)]
             {
-                let mut builder = tauri_plugin_updater::Builder::new()
-                    .header("X-Check-Reason", "host")?;
+                let mut builder =
+                    tauri_plugin_updater::Builder::new().header("X-Check-Reason", "host")?;
                 if let Some(cfu_id) = jstorrent_common::get_or_create_cfu_id() {
                     builder = builder.header("X-CFU-Id", &cfu_id)?;
                 }
