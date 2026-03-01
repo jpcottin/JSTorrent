@@ -224,6 +224,7 @@ export class DaemonBridge {
       return true
     } catch (e) {
       const error = e instanceof Error ? e.message : 'Unknown error'
+      this.cleanup()
       this.updateState({ status: 'disconnected', lastError: error })
       return false
     }
