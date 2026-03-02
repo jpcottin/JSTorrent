@@ -2,8 +2,8 @@
 # Take a screenshot of the Chromebook and save it locally.
 #
 # Usage:
-#   ./screenshot.sh              # saves to /tmp/chromebook-screenshot.png and opens it
-#   ./screenshot.sh output.png   # saves to output.png
+#   ./screenshot.sh              # saves to /tmp/chromebook-screenshot.png, prints path
+#   ./screenshot.sh output.png   # saves to output.png, prints path
 #
 # Prerequisites:
 #   - SSH access to "chromeroot" (key-based, no password prompt)
@@ -33,11 +33,7 @@ import sys, json, base64
 r = json.load(sys.stdin)
 sys.stdout.buffer.write(base64.b64decode(r['image']))
 " > "$OUTPUT"
-  echo "Screenshot saved to $OUTPUT"
-  # Open on macOS
-  if [[ "$(uname)" == "Darwin" ]]; then
-    open "$OUTPUT"
-  fi
+  echo "$OUTPUT"
 else
   ERROR=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error','Unknown error'))" 2>/dev/null || echo "No response from client")
   echo "Error: $ERROR" >&2
