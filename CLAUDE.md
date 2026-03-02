@@ -503,6 +503,19 @@ ext_screenshot
 
 Default extension ID is `dbokmlpefliilbjldladbimlcfgbolhk` (unpacked from extension/dist/).
 
+### Standalone Screenshot Script
+
+**Location:** `chromeos-testbed/chromeos-mcp/screenshot.sh`
+
+Takes a screenshot of the Chromebook without MCP. Auto-deploys `client.py`, triggers Search+F5, and saves the PNG locally. Prints the output path to stdout.
+
+```bash
+chromeos-testbed/chromeos-mcp/screenshot.sh              # saves to /tmp/chromebook-screenshot.png
+chromeos-testbed/chromeos-mcp/screenshot.sh output.png   # saves to output.png
+```
+
+Requires SSH access to `chromeroot`. Set `CHROMEBOOK_HOST` env var to override.
+
 ### chromeos - ChromeOS Device Control
 
 **Location:** `chromeos-testbed/chromeos-mcp/mcp_chromeos.py`
