@@ -228,14 +228,17 @@ async fn do_handshake(
 
     // 2. Resolve profile
     let (resolved_profile_id, display_name, created) = if let Some(ref pid) = profile_id {
-        // Explicit profile_id: must find it
         let profile = unified.profiles.iter().find(|p| &p.profile_id == pid);
         match profile {
             Some(p) => (p.profile_id.clone(), p.display_name.clone(), p.created),
             None => {
-                return Err(anyhow::anyhow!(
-                    "Invalid profile ID: {pid}. Profile not found."
-                ));
+                // Profile not found (stale localStorage, config reset, upgrade, etc.)
+                // Fall through to create a new profile instead of returning an error.
+                log!("Profile ID {pid} not found — creating new profile");
+                let new_id = uuid::Uuid::new_v4().to_string();
+                let count = unified.profiles.len() + 1;
+                let name = format!("Profile {count}");
+                (new_id, name, now)
             }
         }
     } else {

@@ -187,10 +187,22 @@ export class TauriChannel implements HostChannel {
           profileInUseInfo: { clientType, clientVersion, browserName, pid, started },
         })
       } else {
+        const error = response.error ?? 'Handshake failed'
+        // If the stored profileId is stale (e.g. config reset, upgrade), clear it
+        // and retry once so the host creates a fresh profile.
+        if (storedProfileId && error.includes('Invalid profile ID')) {
+          console.warn('[TauriChannel] Stale profileId, clearing and retrying')
+          try {
+            localStorage.removeItem('jstorrent:profileId')
+          } catch {
+            // localStorage may not be available
+          }
+          return this.connect()
+        }
         this.updateState({
           ...this.currentState,
           status: 'disconnected',
-          lastError: response.error ?? 'Handshake failed',
+          lastError: error,
         })
       }
 

@@ -528,7 +528,7 @@ fn test_multiple_independent_profiles() {
     shutdown_host(host_b);
 }
 
-/// Explicit bad profile_id → error. Then handshake with None → creates new profile.
+/// Explicit bad profile_id → auto-creates a new profile (self-recovery).
 #[test]
 fn test_invalid_profile_id() {
     assert_daemon_binary_exists();
@@ -542,20 +542,14 @@ fn test_invalid_profile_id() {
         Some("nonexistent-uuid-12345"),
     );
     assert_eq!(
-        response["ok"], false,
-        "should fail for invalid profileId: {response}"
+        response["ok"], true,
+        "invalid profileId should auto-create new profile: {response}"
     );
-    let error = response["error"].as_str().unwrap();
-    assert!(
-        error.contains("Invalid profile ID") || error.contains("not found"),
-        "error should mention invalid profile: {error}"
-    );
-
-    // Host should still be alive — send a valid handshake
-    let response2 = handshake(&mut host, "ext-invalid-test", None);
-    assert_eq!(
-        response2["ok"], true,
-        "handshake with None should succeed: {response2}"
+    // The returned profileId should NOT be the stale one
+    let new_profile_id = response["payload"]["profileId"].as_str().unwrap();
+    assert_ne!(
+        new_profile_id, "nonexistent-uuid-12345",
+        "should have created a new profile, not reused the invalid one"
     );
 
     shutdown_host(host);
