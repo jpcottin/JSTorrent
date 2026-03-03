@@ -2,6 +2,14 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.29]
+
+- Publish standalone io-daemon Linux binaries to GitHub Releases for ChromeOS Crostini
+- Add Crostini install script (`curl -fsSL https://jstorrent.com/install-crostini.sh | bash`)
+- Add default gateway detection across all backends (port-mapping)
+- Fix stale profileId causing permanent "Connection Lost" on desktop
+- Fix app not fully quitting on window close when "Run in Background" is off
+
 ## [0.1.28]
 
 - Add batchDelete endpoint to io-daemon for faster torrent data removal

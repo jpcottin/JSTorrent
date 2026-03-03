@@ -1,8 +1,8 @@
 # ChromeOS Flex Support
 
-**Status:** Roadmap
+**Status:** Implemented (CI + install script)
 **Priority:** Low effort, nice-to-have
-**Audience:** ChromeOS Flex users (no ARC / Play Store)
+**Audience:** ChromeOS users without ARC / Play Store (ChromeOS Flex, rare devices without ARC)
 
 ---
 
@@ -19,15 +19,23 @@ Crostini gives us a full Linux environment. The io-daemon binary already support
 ### One-liner install
 
 ```bash
-curl -sSL https://jstorrent.com/install-crostini.sh | bash
+curl -fsSL https://jstorrent.com/install-crostini.sh | bash
 ```
 
+**Script:** `website/public/install-crostini.sh`
+
 The script:
-1. Downloads the `io-daemon` Linux binary from GitHub Releases
-2. Places it in `~/.local/bin/`
-3. Creates a systemd user service (`~/.config/systemd/user/jstorrent-io.service`)
-4. Enables lingering (`loginctl enable-linger $USER`) so the service survives terminal close
-5. Starts the service
+1. Detects architecture (x86_64 or aarch64)
+2. Fetches the latest release tag from GitHub API
+3. Downloads the `io-daemon` Linux binary from GitHub Releases
+4. Places it in `~/.local/bin/`
+5. Creates a systemd user service (`~/.config/systemd/user/jstorrent-io.service`)
+6. Enables lingering (`loginctl enable-linger $USER`) so the service survives terminal close
+7. Starts the service and verifies health
+
+Supports `--uninstall` and `--version X` flags. Idempotent — running again updates the binary.
+
+**CI:** The `tauri-app-ci.yml` workflow uploads standalone `jstorrent-io-daemon-{triple}` binaries to each Tauri App GitHub Release (Linux x86_64 and ARM64).
 
 ### systemd service
 
@@ -48,8 +56,10 @@ With `enable-linger`, the user service manager starts at boot (when Crostini is 
 
 ### Extension integration
 
-The extension detects ChromeOS Flex (ChromeOS without ARC) and shows a setup card:
-- One-liner install command to copy
+The extension already probes `penguin.linux.test` (Crostini hostname) as a fallback after the ARC host (`100.115.92.2`) fails. Once the daemon is running in Crostini, the extension auto-pairs and connects with no additional user interaction.
+
+**TODO:** Add UI in `SystemBridgePanelChromeos` to surface the Crostini install option when ARC probing fails:
+- "No Play Store?" expandable section with the one-liner install command
 - Connection status indicator (daemon reachable or not)
 - "Start Crostini" hint if the daemon isn't reachable
 
@@ -59,4 +69,4 @@ Crostini itself must be running. After a full reboot, the container doesn't auto
 
 ## Effort
 
-Minimal — the io-daemon binary and standalone WebSocket mode already exist. New work is just the install script and extension detection/UI for the setup flow.
+Minimal — the io-daemon binary and standalone WebSocket mode already exist. The install script and CI binary upload are done. Remaining work is extension UI to surface the Crostini option.

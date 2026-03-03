@@ -201,6 +201,19 @@ jobs:
             ${{ matrix.args }}
             ${{ matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_SECRET != '' && '--config ''{"bundle":{"windows":{"signCommand":"trusted-signing-cli -e https://eus.codesigning.azure.net -a kylegraehl -c jstorrent-profile %1"}}}''' || '' }}
 
+      # --- Upload standalone io-daemon binary (Crostini / ChromeOS Flex) ---
+      - name: Upload standalone io-daemon binary
+        if: runner.os == 'Linux' && startsWith(github.ref, 'refs/tags/tauri-app-v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#tauri-app-v}"
+          TRIPLE="$(rustc --print host-tuple)"
+          ASSET_NAME="jstorrent-io-daemon-${TRIPLE}"
+          cp "desktop/target/release/jstorrent-io-daemon" "${ASSET_NAME}"
+          chmod +x "${ASSET_NAME}"
+          gh release upload "tauri-app-v${VERSION}" "${ASSET_NAME}" --clobber
+
       # --- Diagnose flaky DMG bundling ---
       - name: Check for flaky DMG bundling failure
         if: failure() && matrix.platform == 'macos-latest'
@@ -301,6 +314,16 @@ jobs:
             echo "| Windows | [.exe](${BASE}/JSTorrent_${VERSION}_x64-setup.exe) · [.msi](${BASE}/JSTorrent_${VERSION}_x64_en-US.msi) |"
             echo "| Linux x86_64 | [.deb](${BASE}/JSTorrent_${VERSION}_amd64.deb) · [.AppImage](${BASE}/JSTorrent_${VERSION}_amd64.AppImage) · [.rpm](${BASE}/JSTorrent-${VERSION}-1.x86_64.rpm) |"
             echo "| Linux ARM64 | [.deb](${BASE}/JSTorrent_${VERSION}_arm64.deb) · [.AppImage](${BASE}/JSTorrent_${VERSION}_aarch64.AppImage) · [.rpm](${BASE}/JSTorrent-${VERSION}-1.aarch64.rpm) |"
+            echo ""
+            echo "### ChromeOS (Crostini)"
+            echo ""
+            echo 'For ChromeOS devices without Play Store, install the I/O daemon in the Linux container:'
+            echo ""
+            echo '```'
+            echo 'curl -fsSL https://jstorrent.com/install-crostini.sh | bash'
+            echo '```'
+            echo ""
+            echo "Standalone binaries: [x86_64](${BASE}/jstorrent-io-daemon-x86_64-unknown-linux-gnu) · [ARM64](${BASE}/jstorrent-io-daemon-aarch64-unknown-linux-gnu)"
           } > /tmp/release-body.md
 
           gh release edit "$TAG" --notes-file /tmp/release-body.md
