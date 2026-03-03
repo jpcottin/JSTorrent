@@ -2,6 +2,13 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.30]
+
+- Add auto-updater hardening tests and CI gates
+- Fix plugin-opener resolution and daemon handshake
+- Fix Crostini standalone daemon serializing snake_case keys for /status
+- Route Report Bug button to feedback.html instead of GitHub
+
 ## [0.1.29]
 
 - Publish standalone io-daemon Linux binaries to GitHub Releases for ChromeOS Crostini
