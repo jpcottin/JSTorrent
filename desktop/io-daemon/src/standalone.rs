@@ -68,6 +68,7 @@ pub struct StatusRequest {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StatusResponse {
     pub port: u16,
     pub paired: bool,
