@@ -2425,7 +2425,7 @@ dependencies = [
 
 [[package]]
 name = "jstorrent-common"
-version = "0.1.29"
+version = "0.1.30"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -2439,7 +2439,7 @@ dependencies = [
 
 [[package]]
 name = "jstorrent-desktop"
-version = "0.1.29"
+version = "0.1.30"
 dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",
@@ -2470,7 +2470,7 @@ dependencies = [
 
 [[package]]
 name = "jstorrent-host"
-version = "0.1.29"
+version = "0.1.30"
 dependencies = [
  "anyhow",
  "axum",
@@ -2502,7 +2502,7 @@ dependencies = [
 
 [[package]]
 name = "jstorrent-io-daemon"
-version = "0.1.29"
+version = "0.1.30"
 dependencies = [
  "anyhow",
  "axum",
