@@ -126,7 +126,11 @@ function compareVersions(a: string, b: string): number {
 /** Determine which backend type based on platform. */
 function getBackendType(state: DaemonBridgeState): BackendType {
   if (state.platform === 'tauri') return 'self'
-  if (state.platform === 'chromeos') return 'android'
+  if (state.platform === 'chromeos') {
+    // Crostini standalone daemon is the desktop io-daemon, not the Android companion
+    if (state.daemonInfo?.host === 'penguin.linux.test') return 'desktop'
+    return 'android'
+  }
   return 'desktop'
 }
 
