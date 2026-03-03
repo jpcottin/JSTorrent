@@ -145,7 +145,6 @@ export class TauriChannel implements HostChannel {
       }
       const response = await tauriInvoke<{
         ok: boolean
-        type?: string
         payload?: {
           port: number
           token: string
@@ -161,7 +160,9 @@ export class TauriChannel implements HostChannel {
         error?: string
       }>('host_handshake', { profileId: storedProfileId })
 
-      if (response.ok && response.type === 'DaemonInfo' && response.payload) {
+      // Note: response.type ('DaemonInfo') is missing due to serde #[serde(flatten)]
+      // dropping the tag from adjacently-tagged enums. Check payload fields instead.
+      if (response.ok && response.payload?.port) {
         const { port, token, version, roots, profileId } = response.payload
         this.daemonInfo = { port, token }
         if (profileId) {

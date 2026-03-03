@@ -5,30 +5,25 @@
  * Tauri opener plugin to launch the system browser. In browser/extension
  * contexts, `window.open()` works normally.
  *
- * The Tauri plugin is dynamically imported so `@jstorrent/client` doesn't
- * need it as a dependency; it only resolves inside the Tauri app where
- * `@tauri-apps/plugin-opener` is installed.
+ * The Tauri app registers its opener at startup via `registerExternalUrlOpener`,
+ * so `@jstorrent/client` doesn't need `@tauri-apps/plugin-opener` as a dependency.
  */
 
-function isTauriContext(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+let registeredOpener: ((url: string) => Promise<void>) | null = null
+
+export function registerExternalUrlOpener(opener: (url: string) => Promise<void>) {
+  registeredOpener = opener
 }
 
 /**
  * Open a URL in the user's default browser.
  *
- * - Tauri: delegates to `@tauri-apps/plugin-opener` → system browser
+ * - Tauri: uses the opener registered at startup (plugin-opener)
  * - Browser/extension: delegates to `window.open(url, '_blank')`
  */
 export async function openExternalUrl(url: string): Promise<void> {
-  if (isTauriContext()) {
-    // Variable specifier bypasses compile-time module resolution.
-    // This module only exists at runtime in the Tauri app.
-    const mod = '@tauri-apps/plugin-opener'
-    const { openUrl }: { openUrl: (url: string) => Promise<void> } = await import(
-      /* @vite-ignore */ mod
-    )
-    await openUrl(url)
+  if (registeredOpener) {
+    await registeredOpener(url)
   } else {
     window.open(url, '_blank')
   }
