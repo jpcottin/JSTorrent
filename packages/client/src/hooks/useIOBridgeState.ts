@@ -73,11 +73,13 @@ export function useIOBridgeState(config: UseIOBridgeStateConfig = {}): UseIOBrid
     // Re-read current state after subscribing to catch transitions that
     // happened between the initial useState and this useEffect (e.g. Tauri
     // connect() resolves before React's first effect flush).
-    const current = channel.getState()
-    if (current.status !== 'connecting') {
-      setState(current)
-      if (current.status === 'connected') setHasEverConnected(true)
-    }
+    queueMicrotask(() => {
+      const current = channel.getState()
+      if (current.status !== 'connecting') {
+        setState(current)
+        if (current.status === 'connected') setHasEverConnected(true)
+      }
+    })
 
     const unsubEvent = channel.onEvent((event) => {
       if (onNativeEventRef.current) {
