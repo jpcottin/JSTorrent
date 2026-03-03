@@ -4,6 +4,32 @@ All notable changes to the Chrome extension are documented here.
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-03-03
+
+### Added
+- Crostini mode UI for ChromeOS without ARC (io-daemon in Linux container)
+- NAT-PMP (RFC 6886) and PCP (RFC 6887) port mapping clients
+- Default gateway detection across all backends
+- Legacy migration snooze support and aggressive nag system
+- Legacy app/extension IDs in externally_connectable for bidirectional detection
+- Torrents-added usage metric tracking
+
+### Fixed
+- Tauri 10s startup delay from unnecessary backend-ready synchronization
+- Tauri startup race: wait for backend-ready event before IPC
+- TauriChannel handshake retry for setup race condition
+- Stale profileId causing permanent "Connection Lost" on desktop
+- Native host and io-daemon lingering when no extension UI is open
+- Native port cleanup on failed handshake
+- Version check for Crostini: treat as desktop backend, not Android
+- Tauri desktop app plugin-opener resolution and daemon handshake
+
+### Changed
+- Report Bug button routes to feedback.html instead of GitHub
+- Replaced new.jstorrent.com URLs with jstorrent.com
+- Removed chromeos-testbed/ and extension/tools/ (moved to standalone repo)
+- Renamed upnp/ to port-mapping/ for NAT-PMP and PCP support
+
 ## [1.0.5] - 2026-02-25
 
 ### Added
