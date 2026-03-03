@@ -136,27 +136,29 @@ export class TauriChannel implements HostChannel {
   // --- Lifecycle ---
 
   async connect(): Promise<void> {
-    // Retry handshake to handle race with Tauri setup (HostBridge state may not
-    // be managed yet when the webview JS runs).
-    const MAX_RETRIES = 5
-    const RETRY_DELAY_MS = 500
+    // Wait for Tauri backend to signal that HostBridge state is managed.
+    // The webview JS runs before .setup() completes, so tauriInvoke calls
+    // would hang indefinitely without this synchronization.
+    try {
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, 10000) // fallback if event was missed
+        tauriListen('backend-ready', () => {
+          clearTimeout(timeout)
+          resolve()
+        }).catch(() => resolve()) // if listen fails, proceed anyway
+      })
+    } catch {
+      // proceed anyway
+    }
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        return await this.doConnect()
-      } catch (e) {
-        if (attempt < MAX_RETRIES) {
-          console.warn(`[TauriChannel] connect attempt ${attempt + 1} failed, retrying...`, e)
-          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
-        } else {
-          console.error(`[TauriChannel] connect failed after ${MAX_RETRIES + 1} attempts:`, e)
-          this.updateState({
-            ...this.currentState,
-            status: 'disconnected',
-            lastError: String(e),
-          })
-        }
-      }
+    try {
+      await this.doConnect()
+    } catch (e) {
+      this.updateState({
+        ...this.currentState,
+        status: 'disconnected',
+        lastError: String(e),
+      })
     }
   }
 

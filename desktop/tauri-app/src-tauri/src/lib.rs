@@ -1379,6 +1379,11 @@ pub fn run() {
 
             app.manage(bridge.clone());
 
+            // Signal the frontend that the HostBridge is ready for IPC commands.
+            // The webview JS can run before setup() completes, so tauriInvoke calls
+            // would hang until this point. The frontend waits for this event.
+            app.emit("backend-ready", ()).ok();
+
             // Background stdout reader on a dedicated OS thread.
             // When stdout closes (sidecar died, e.g. killed by extension TakeOver),
             // exit the Tauri app so it doesn't linger as a headless window.
