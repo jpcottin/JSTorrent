@@ -332,7 +332,7 @@ export async function updateUninstallUrl(): Promise<void> {
       devices: String(metrics.deviceIds.length),
     })
 
-    const url = `https://new.jstorrent.com/uninstall.html?${params.toString()}`
+    const url = `https://jstorrent.com/uninstall.html?${params.toString()}`
     chrome.runtime.setUninstallURL(url)
 
     console.log('[Metrics] Updated uninstall URL:', url)

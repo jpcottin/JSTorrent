@@ -370,7 +370,7 @@ fn read_rpc_info() -> RpcInfo {
 /// Get the launch URL, checking env file override first.
 fn get_launch_url() -> String {
     jstorrent_common::read_env_value("LAUNCH_URL")
-        .unwrap_or_else(|| "https://new.jstorrent.com/launch".to_string())
+        .unwrap_or_else(|| "https://jstorrent.com/launch".to_string())
 }
 
 /// Determine whether a deep link should be routed to the browser extension.
@@ -781,7 +781,7 @@ fn handle_menu_event(app: &tauri::AppHandle, event_id: &str) {
         "open-extension" => {
             let _ = app
                 .opener()
-                .open_url("https://new.jstorrent.com/launch", None::<&str>);
+                .open_url("https://jstorrent.com/launch", None::<&str>);
         }
         "check-updates" => {
             show_main_window(app);

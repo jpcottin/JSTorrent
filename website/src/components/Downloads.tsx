@@ -255,7 +255,7 @@ export default function Downloads({ tauriAppTag }: DownloadsProps) {
   }, [])
 
   const copyToClipboard = () => {
-    const command = 'curl -fsSL https://new.jstorrent.com/install.sh | bash'
+    const command = 'curl -fsSL https://jstorrent.com/install.sh | bash'
     navigator.clipboard.writeText(command).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
@@ -346,7 +346,7 @@ export default function Downloads({ tauriAppTag }: DownloadsProps) {
               <>
                 <p>Install via terminal (auto-detects .deb / .rpm / AppImage):</p>
                 <div className="command-box">
-                  <code>curl -fsSL https://new.jstorrent.com/install.sh | bash</code>
+                  <code>curl -fsSL https://jstorrent.com/install.sh | bash</code>
                   <button
                     className="copy-btn"
                     onClick={copyToClipboard}

@@ -40,7 +40,7 @@ import com.jstorrent.app.ui.theme.JSTorrentTheme
 import kotlinx.coroutines.launch
 
 private const val TAG = "MainActivity"
-private const val FALLBACK_URL = "https://new.jstorrent.com/launch"
+private const val FALLBACK_URL = "https://jstorrent.com/launch"
 private const val CHROME_WEB_STORE_URL = "https://chrome.google.com/webstore/detail/jstorrent/anhdpjpojoipgpmfanmedjghaligalgb"
 
 class MainActivity : AppCompatActivity() {

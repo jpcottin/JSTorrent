@@ -12,7 +12,7 @@ import com.jstorrent.app.mode.ModeDetector
 import com.jstorrent.app.service.IoDaemonService
 
 private const val TAG = "LinkHandlerActivity"
-private const val EXTENSION_URL = "https://new.jstorrent.com/launch"
+private const val EXTENSION_URL = "https://jstorrent.com/launch"
 
 /**
  * Unified link handler for magnet links and torrent files.

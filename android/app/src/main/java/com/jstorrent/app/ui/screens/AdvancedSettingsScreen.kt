@@ -382,7 +382,7 @@ private fun ReportBugButton(
 }
 
 private fun buildFeedbackUrl(): String {
-    val baseUrl = "https://new.jstorrent.com/feedback.html"
+    val baseUrl = "https://jstorrent.com/feedback.html"
     val params = buildString {
         append("?platform=android")
         append("&v=${BuildConfig.VERSION_NAME}")

@@ -371,7 +371,7 @@ export function SystemBridgePanel({
               )}
             </div>
             <a
-              href="https://new.jstorrent.com"
+              href="https://jstorrent.com"
               target="_blank"
               rel="noopener noreferrer"
               style={{
@@ -597,7 +597,7 @@ export function SystemBridgePanel({
             <>
               {isFirstTime ? (
                 <a
-                  href="https://new.jstorrent.com"
+                  href="https://jstorrent.com"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
@@ -613,7 +613,7 @@ export function SystemBridgePanel({
                 </a>
               ) : (
                 <a
-                  href="https://new.jstorrent.com"
+                  href="https://jstorrent.com"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{

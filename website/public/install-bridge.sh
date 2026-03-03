@@ -3,7 +3,7 @@ set -e
 
 # JSTorrent System Bridge installer for Linux (legacy)
 # For the newer Tauri desktop app installer, use:
-#   curl -fsSL https://new.jstorrent.com/install.sh | bash
+#   curl -fsSL https://jstorrent.com/install.sh | bash
 
 FALLBACK_TAG="v0.1.12"
 

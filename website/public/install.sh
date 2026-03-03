@@ -2,7 +2,7 @@
 set -e
 
 # JSTorrent Desktop App installer for Linux
-# Usage: curl -fsSL https://new.jstorrent.com/install.sh | bash
+# Usage: curl -fsSL https://jstorrent.com/install.sh | bash
 #
 # Installs the Tauri desktop app and registers the native messaging host
 # for Chrome/Chromium browsers so the JSTorrent extension can communicate
@@ -34,7 +34,7 @@ error() { echo -e "${RED}error:${NC} $*" >&2; }
 # --- OS check ---
 if [[ "$(uname -s)" != "Linux" ]]; then
     error "This script is for Linux only."
-    echo "For Windows and macOS, download from: https://new.jstorrent.com"
+    echo "For Windows and macOS, download from: https://jstorrent.com"
     exit 1
 fi
 
