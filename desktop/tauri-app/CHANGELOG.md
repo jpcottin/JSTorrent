@@ -2,6 +2,15 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.1.31]
+
+- Fix 10-second startup delay by removing unnecessary backend-ready synchronization
+- Fix startup race condition: wait for backend-ready event before IPC
+- Add retry logic to TauriChannel handshake for setup race condition
+- Add Crostini mode UI and ensure download root exists
+- Fix version check for Crostini: treat as desktop backend, not Android
+- Fix Crostini standalone daemon /status response for extension compatibility
+
 ## [0.1.30]
 
 - Add auto-updater hardening tests and CI gates
