@@ -46,7 +46,7 @@ function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>
 }
 
 /** Fire-and-forget log to Rust stderr via js_log command. */
-function jsLog(msg: string): void {
+export function jsLog(msg: string): void {
   tauriInvoke('js_log', { msg }).catch(() => {})
 }
 
