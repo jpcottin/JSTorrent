@@ -11,8 +11,8 @@
     </p>
 
     <div class="faq">
-      <details class="faq-item">
-        <summary>What platforms are supported?</summary>
+      <details class="faq-item" id="platforms">
+        <summary><a href="#platforms" class="faq-anchor" aria-hidden="true">#</a>What platforms are supported?</summary>
         <div class="faq-answer">
           <p>JSTorrent runs on Windows, Mac, Linux, ChromeOS, and Android.</p>
           <ul>
@@ -32,8 +32,8 @@
         </div>
       </details>
 
-      <details class="faq-item">
-        <summary>Do I need the Chrome extension?</summary>
+      <details class="faq-item" id="chrome-extension">
+        <summary><a href="#chrome-extension" class="faq-anchor" aria-hidden="true">#</a>Do I need the Chrome extension?</summary>
         <div class="faq-answer">
           <p>
             No. The desktop app and Android app both work standalone without the extension. The
@@ -43,8 +43,8 @@
         </div>
       </details>
 
-      <details class="faq-item">
-        <summary>How do I add a torrent?</summary>
+      <details class="faq-item" id="add-torrent">
+        <summary><a href="#add-torrent" class="faq-anchor" aria-hidden="true">#</a>How do I add a torrent?</summary>
         <div class="faq-answer">
           <p>Find a torrent file or magnet link on the web, then either:</p>
           <ul>
@@ -55,8 +55,8 @@
         </div>
       </details>
 
-      <details class="faq-item">
-        <summary>Where do the files download to?</summary>
+      <details class="faq-item" id="download-location">
+        <summary><a href="#download-location" class="faq-anchor" aria-hidden="true">#</a>Where do the files download to?</summary>
         <div class="faq-answer">
           <p>
             On desktop, files download to your configured download folder (defaults to your
@@ -66,8 +66,8 @@
         </div>
       </details>
 
-      <details class="faq-item">
-        <summary>My torrent isn't downloading!</summary>
+      <details class="faq-item" id="not-downloading">
+        <summary><a href="#not-downloading" class="faq-anchor" aria-hidden="true">#</a>My torrent isn't downloading!</summary>
         <div class="faq-answer">
           <p>
             Check that you have peers available for the torrent. Some torrents have very few
@@ -80,8 +80,8 @@
         </div>
       </details>
 
-      <details class="faq-item">
-        <summary>Is JSTorrent safe to install?</summary>
+      <details class="faq-item" id="safe">
+        <summary><a href="#safe" class="faq-anchor" aria-hidden="true">#</a>Is JSTorrent safe to install?</summary>
         <div class="faq-answer">
           <p>
             Yes. JSTorrent is
@@ -120,8 +120,8 @@
         </div>
       </details>
 
-      <details class="faq-item">
-        <summary>Does this work with private trackers?</summary>
+      <details class="faq-item" id="private-trackers">
+        <summary><a href="#private-trackers" class="faq-anchor" aria-hidden="true">#</a>Does this work with private trackers?</summary>
         <div class="faq-answer">
           <p>
             Yes. Download the .torrent file from your tracker's website first, then load it
@@ -131,8 +131,8 @@
         </div>
       </details>
 
-      <details class="faq-item">
-        <summary>How does ChromeOS work?</summary>
+      <details class="faq-item" id="chromeos">
+        <summary><a href="#chromeos" class="faq-anchor" aria-hidden="true">#</a>How does ChromeOS work?</summary>
         <div class="faq-answer">
           <p>
             On ChromeOS, you can use the Android app from the Play Store as a standalone torrent
@@ -147,8 +147,8 @@
         </div>
       </details>
 
-      <details class="faq-item">
-        <summary>My Chromebook doesn't have the Play Store. Can I still use JSTorrent?</summary>
+      <details class="faq-item" id="no-play-store">
+        <summary><a href="#no-play-store" class="faq-anchor" aria-hidden="true">#</a>My Chromebook doesn't have the Play Store. Can I still use JSTorrent?</summary>
         <div class="faq-answer">
           <p>
             Yes! Some Chromebooks (especially those running ChromeOS Flex) don't have access to the
@@ -180,3 +180,17 @@
     </div>
   </div>
 </section>
+
+<script>
+  function openFaqFromHash() {
+    const hash = location.hash.slice(1);
+    if (!hash) return;
+    const el = document.getElementById(hash);
+    if (el instanceof HTMLDetailsElement && el.classList.contains('faq-item')) {
+      el.open = true;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+  openFaqFromHash();
+  window.addEventListener('hashchange', openFaqFromHash);
+</script>

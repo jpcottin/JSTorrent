@@ -41,6 +41,14 @@ const ogImageURL = ogImage
     <meta name="twitter:image" content={ogImageURL} />
     <!-- RSS -->
     <link rel="alternate" type="application/rss+xml" title="JSTorrent Dev Blog" href="/blog/rss.xml" />
+    <!-- Theme: set before first paint to prevent flash -->
+    <script is:inline>
+      (function() {
+        var stored = localStorage.getItem('theme');
+        var theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
   </head>
   <body>
     <slot />
