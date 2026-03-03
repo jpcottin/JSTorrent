@@ -78,6 +78,8 @@ pub struct StatusResponse {
     pub token_valid: Option<bool>,
     /// Capabilities for UI adaptation
     pub capabilities: Option<Capabilities>,
+    /// WebSocket port for /control endpoint (same as port in standalone mode)
+    pub io_port: Option<u16>,
 }
 
 #[derive(Serialize)]
@@ -149,6 +151,7 @@ async fn status_handler(
         capabilities: Some(Capabilities {
             roots_manageable: false, // Standalone mode has fixed root
         }),
+        io_port: Some(state.port),
     })
 }
 
@@ -279,5 +282,37 @@ pub fn create_download_root(path: &std::path::Path) -> jstorrent_common::Downloa
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_response_uses_camel_case_keys() {
+        let response = StatusResponse {
+            port: 7800,
+            paired: true,
+            extension_id: Some("dbokml".into()),
+            install_id: Some("176d95f1".into()),
+            version: Some("0.1.29".into()),
+            token_valid: Some(true),
+            capabilities: Some(Capabilities {
+                roots_manageable: false,
+            }),
+            io_port: Some(7800),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        // Must use camelCase to match what the Chrome extension expects
+        assert!(json.contains("\"extensionId\""), "expected camelCase extensionId, got: {json}");
+        assert!(json.contains("\"installId\""), "expected camelCase installId, got: {json}");
+        assert!(json.contains("\"tokenValid\""), "expected camelCase tokenValid, got: {json}");
+        assert!(json.contains("\"ioPort\""), "expected camelCase ioPort, got: {json}");
+        // Must NOT contain snake_case variants
+        assert!(!json.contains("\"extension_id\""), "unexpected snake_case extension_id in: {json}");
+        assert!(!json.contains("\"install_id\""), "unexpected snake_case install_id in: {json}");
+        assert!(!json.contains("\"token_valid\""), "unexpected snake_case token_valid in: {json}");
+        assert!(!json.contains("\"io_port\""), "unexpected snake_case io_port in: {json}");
     }
 }
