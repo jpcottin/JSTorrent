@@ -106,6 +106,37 @@
           </p>
         </div>
       </details>
+
+      <details class="faq-item">
+        <summary>My Chromebook doesn't have the Play Store. Can I still use JSTorrent?</summary>
+        <div class="faq-answer">
+          <p>
+            Yes! Some Chromebooks (especially those running ChromeOS Flex) don't have access to the
+            Google Play Store. You can use JSTorrent by installing the Chrome extension paired with
+            a lightweight background daemon running in Linux (Crostini).
+          </p>
+          <ol>
+            <li>
+              Enable Linux on your Chromebook: go to
+              <strong>Chrome Settings &rarr; About ChromeOS &rarr; Linux development environment</strong>
+              and follow the prompts to set it up.
+            </li>
+            <li>
+              Open the Linux terminal and run:
+              <pre><code>curl -fsSL https://jstorrent.com/install-crostini.sh | bash</code></pre>
+            </li>
+            <li>
+              Install the
+              <a href="https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk">Chrome extension</a>
+              from the Chrome Web Store. It will automatically connect to the daemon.
+            </li>
+          </ol>
+          <p>
+            Files download to your Linux <code>~/Downloads</code> folder by default. To uninstall
+            the daemon later, run the same script with <code>--uninstall</code>.
+          </p>
+        </div>
+      </details>
     </div>
   </div>
 </section>
