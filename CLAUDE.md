@@ -214,8 +214,7 @@ When working with Python projects:
 Python projects in this repo:
 - `desktop/` - Native host verification tests
 - `packages/engine/integration/python/` - Engine integration tests
-- `extension/tools/` - Extension debugging tools
-- `chromeos-testbed/chromeos-mcp/` - ChromeOS MCP server
+
 
 ## Rust Editing Workflow (desktop/)
 
@@ -424,146 +423,15 @@ Requires upload keystore at `android/app/signing/upload.keystore`.
 - The tag is for version tracking only; deployment is not gated by tags
 - No changelog required
 
-## MCP Servers
+## ChromeOS Device Control
 
-This project has two MCP servers for debugging and controlling Chrome/ChromeOS.
+ChromeOS testbed tools (screenshot, tap, type, accessibility tree, CDP, etc.) live in the standalone `~/code/chromeos-testbed` repo. See that repo's README and `skills/SKILL.md` for setup and usage.
 
-### Setup
-
-To enable MCP tools, create `.mcp.json` in the project root (gitignored). Copy from the example and update paths:
+To use ChromeOS MCP tools in this project, create `.mcp.json` from the example:
 
 ```bash
 cp .mcp.json.example .mcp.json
 # Edit .mcp.json to use your actual paths (find uv path with: which uv)
-```
-
-**Important:** Use absolute paths and the full path to `uv` (the SDK spawns processes without a shell, so PATH isn't available).
-
-Also add to your global Claude settings (`~/.claude/settings.json`):
-
-```json
-{
-  "enableAllProjectMcpServers": true
-}
-```
-
-Restart Claude Code session after setup.
-
-### ext-debug - Extension Debugging (CDP)
-
-**Location:** `extension/tools/mcp_extension_debug.py`
-
-Debug Chrome extensions via Chrome DevTools Protocol. Supports multiple connections (local Chrome, Chromebook via SSH tunnel).
-
-**Tools:**
-- `ext_status` - Check CDP connectivity and extension state
-- `ext_reload` - Reload extension via `chrome.runtime.reload()`
-- `ext_evaluate` - Run JavaScript in service worker or extension page
-- `ext_get_storage` - Read from `chrome.storage` (local/sync/session)
-- `ext_start_logs` / `ext_get_logs` - Collect and filter console logs
-- `ext_screenshot` - Capture extension page screenshot with OCR
-- `ext_list_connections` - List configured connections
-- `ext_list_targets` - List debuggable targets
-
-**Configuration:** `~/.config/ext-debug/config.json` or `./ext-debug.json`
-
-```json
-{
-  "connections": {
-    "local": { "port": 9223, "extension_id": "dbokmlpefliilbjldladbimlcfgbolhk" },
-    "chromebook": { "port": 9222, "extension_id": "dbokmlpefliilbjldladbimlcfgbolhk" }
-  },
-  "default": "local"
-}
-```
-
-**Usage:**
-
-```
-# Always start with status check
-ext_status
-
-# After code changes:
-cd extension && pnpm build
-ext_reload
-
-# Check logs for errors
-ext_get_logs level="error"
-
-# Inspect engine state
-ext_evaluate expression="globalThis.engine?.torrents?.length"
-ext_evaluate expression="ioBridge.getState()"
-
-# Check storage
-ext_get_storage keys=["settings", "torrents"]
-
-# Screenshot extension page
-ext_screenshot
-```
-
-Default extension ID is `dbokmlpefliilbjldladbimlcfgbolhk` (unpacked from extension/dist/).
-
-### Standalone Screenshot Script
-
-**Location:** `chromeos-testbed/chromeos-mcp/screenshot.sh`
-
-Takes a screenshot of the Chromebook without MCP. Auto-deploys `client.py`, triggers Search+F5, and saves the PNG locally. Prints the output path to stdout.
-
-```bash
-chromeos-testbed/chromeos-mcp/screenshot.sh              # saves to /tmp/chromebook-screenshot.png
-chromeos-testbed/chromeos-mcp/screenshot.sh output.png   # saves to output.png
-```
-
-Requires SSH access to `chromeroot`. Set `CHROMEBOOK_HOST` env var to override.
-
-### chromeos - ChromeOS Device Control
-
-**Location:** `chromeos-testbed/chromeos-mcp/mcp_chromeos.py`
-
-Control ChromeOS devices via SSH. Raw touchscreen and keyboard input via evdev.
-
-**Tools:**
-- `screenshot` - Capture full ChromeOS screen
-- `tap` - Tap at raw touchscreen coordinates
-- `swipe` - Swipe between raw touchscreen coordinates
-- `type_text` - Type text (keyboard layout-aware, handles Dvorak)
-- `press_keys` - Press key combination by Linux keycodes
-- `shortcut` - Keyboard shortcut with modifier remapping (handles Ctrl↔Search swap)
-- `chromeos_info` - Get touchscreen range, keyboard layout, modifier remappings
-- `reload_keyboard_config` - Reload keyboard settings if changed
-
-**Prerequisites:**
-1. SSH access to Chromebook configured (host: `chromeroot`)
-2. Client auto-deploys to `/mnt/stateful_partition/c2/client.py`
-
-**Coordinate System - Visual Percentage Estimation:**
-
-Use visual estimation to tap on UI elements. This approach is more reliable than pixel calculations.
-
-1. Take a `screenshot` to see the current UI
-2. Visually estimate the target element's position as a percentage:
-   - X: 0% = left edge, 100% = right edge
-   - Y: 0% = top edge, 100% = bottom edge
-3. Get `touch_max` from `chromeos_info`: [max_x, max_y]
-4. Convert percentages to touch coordinates:
-   - `touch_x = percent_x * max_x / 100`
-   - `touch_y = percent_y * max_y / 100`
-5. Call `tap(touch_x, touch_y)`
-
-**Usage:**
-
-```
-chromeos_info   # Get touch_max (e.g., [3492, 1968])
-screenshot      # View the UI
-
-# Example: Button appears at roughly 75% across, 85% down
-# touch_x = 75 * 3492 / 100 = 2619
-# touch_y = 85 * 1968 / 100 = 1673
-tap x=2619 y=1673
-
-type_text text="hello world"
-shortcut key="t" modifiers=["ctrl"]  # Handles modifier remapping
-press_keys keys=[29, 20]  # Raw keycodes (no remapping)
 ```
 
 ## ChromeOS Development

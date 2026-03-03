@@ -186,7 +186,7 @@ For testing on ChromeOS with the Android daemon:
    - App shows pairing confirmation
    - Extension connects via HTTP to `100.115.92.2`
 
-See `chromeos-testbed/README.md` for detailed ChromeOS testing setup.
+See `~/code/chromeos-testbed/README.md` for detailed ChromeOS testing setup.
 
 ### Android SDK Setup (for Chromebook/Crostini)
 

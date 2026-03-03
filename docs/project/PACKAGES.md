@@ -18,7 +18,7 @@ jstorrent-monorepo/
 ├── android/           ← Kotlin Android app (ChromeOS companion + standalone)
 ├── website/           ← jstorrent.com landing/launch page
 │
-├── chromeos-testbed/  ← ChromeOS testing infrastructure
+
 ├── legacy-app/        ← Original Chrome App (deprecated, still published)
 ├── legacy-extension/  ← Helper extension for Chrome App
 ├── test_torrents/     ← Test torrent files for development
