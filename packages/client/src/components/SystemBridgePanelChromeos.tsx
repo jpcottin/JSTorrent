@@ -4,7 +4,7 @@ import type {
   BootstrapState,
   BootstrapProblem,
 } from '../../../../extension/src/lib/chromeos-bootstrap'
-import type { DaemonStats, VersionStatus } from './SystemBridgePanel'
+import type { BackendType, DaemonStats, VersionStatus } from './SystemBridgePanel'
 
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.jstorrent.app'
 
@@ -26,6 +26,14 @@ export interface SystemBridgePanelChromeosProps {
   anchorRef?: RefObject<HTMLElement | null>
   /** Optional callback to fetch daemon stats */
   onFetchStats?: () => Promise<DaemonStats | null>
+  /** Backend type — 'desktop' when connected via Crostini daemon */
+  backendType?: BackendType
+  /** Whether the daemon bridge (not bootstrap) is connected */
+  ioBridgeConnected?: boolean
+  /** Daemon host (e.g. 'penguin.linux.test' for Crostini) */
+  daemonHost?: string
+  /** Daemon port */
+  daemonPort?: number
 }
 
 interface StateDisplay {
@@ -136,9 +144,14 @@ export function SystemBridgePanelChromeos({
   appVersion,
   anchorRef,
   onFetchStats,
+  backendType,
+  ioBridgeConnected,
+  daemonHost,
+  daemonPort,
 }: SystemBridgePanelChromeosProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const display = getStateDisplay(state.phase, state.problem, hasEverConnected)
+  const isCrostini = backendType === 'desktop' && ioBridgeConnected
 
   // Click-outside to close
   useEffect(() => {
@@ -171,7 +184,7 @@ export function SystemBridgePanelChromeos({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
-  const isConnected = state.phase === 'connected'
+  const isConnected = state.phase === 'connected' || isCrostini
 
   return (
     <div
@@ -220,7 +233,8 @@ export function SystemBridgePanelChromeos({
       <div style={{ padding: '16px' }}>
         {isConnected ? (
           <ConnectedContent
-            port={state.port!}
+            port={isCrostini ? (daemonPort ?? state.port!) : state.port!}
+            host={isCrostini ? (daemonHost ?? 'penguin.linux.test') : undefined}
             daemonVersion={daemonVersion}
             versionStatus={versionStatus}
             appVersion={appVersion}
@@ -230,6 +244,7 @@ export function SystemBridgePanelChromeos({
             onOpenSettings={onOpenSettings}
             onClose={onClose}
             onFetchStats={onFetchStats}
+            isCrostini={isCrostini}
           />
         ) : (
           <DisconnectedContent
@@ -332,6 +347,7 @@ function DisconnectedContent({
 
 function ConnectedContent({
   port,
+  host,
   daemonVersion,
   versionStatus,
   appVersion,
@@ -341,8 +357,10 @@ function ConnectedContent({
   onOpenSettings,
   onClose,
   onFetchStats,
+  isCrostini,
 }: {
   port: number
+  host?: string
   daemonVersion?: string
   versionStatus: VersionStatus
   appVersion?: string | null
@@ -352,6 +370,7 @@ function ConnectedContent({
   onOpenSettings?: () => void
   onClose: () => void
   onFetchStats?: () => Promise<DaemonStats | null>
+  isCrostini?: boolean
 }) {
   const [showStats, setShowStats] = useState(false)
   const [stats, setStats] = useState<DaemonStats | null>(null)
@@ -417,7 +436,7 @@ function ConnectedContent({
 
   return (
     <>
-      {versionStatus === 'update_required' && (
+      {!isCrostini && versionStatus === 'update_required' && (
         <div
           style={{
             padding: '12px',
@@ -452,7 +471,7 @@ function ConnectedContent({
         </div>
       )}
 
-      {versionStatus === 'update_suggested' && (
+      {!isCrostini && versionStatus === 'update_suggested' && (
         <div
           style={{
             padding: '8px',
@@ -471,10 +490,14 @@ function ConnectedContent({
       )}
 
       <div style={{ marginBottom: '16px' }}>
-        <div style={{ fontWeight: 500, marginBottom: '8px' }}>Android App</div>
+        <div style={{ fontWeight: 500, marginBottom: '8px' }}>
+          {isCrostini ? 'Crostini Daemon' : 'Android App'}
+        </div>
         <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
           <div>&#x25CF; Connected {daemonVersion && `— v${daemonVersion}`}</div>
-          <div style={{ marginTop: '4px' }}>100.115.92.2:{port}</div>
+          <div style={{ marginTop: '4px' }}>
+            {host ?? '100.115.92.2'}:{port}
+          </div>
           {appVersion && <div style={{ marginTop: '4px' }}>Extension v{appVersion}</div>}
         </div>
       </div>
@@ -483,7 +506,7 @@ function ConnectedContent({
         <div style={{ fontWeight: 500, marginBottom: '4px' }}>Download Location</div>
         {roots.length === 0 ? (
           <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            No download folder configured.
+            {isCrostini ? 'Set via --download-root flag' : 'No download folder configured.'}
           </div>
         ) : (
           <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
@@ -491,12 +514,14 @@ function ConnectedContent({
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
-          <button
-            onClick={onAddFolder}
-            style={{ padding: '6px 12px', fontSize: '13px', cursor: 'pointer' }}
-          >
-            Add Folder...
-          </button>
+          {!isCrostini && (
+            <button
+              onClick={onAddFolder}
+              style={{ padding: '6px 12px', fontSize: '13px', cursor: 'pointer' }}
+            >
+              Add Folder...
+            </button>
+          )}
           {onOpenSettings && (
             <button
               onClick={() => {

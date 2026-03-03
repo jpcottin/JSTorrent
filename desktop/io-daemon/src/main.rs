@@ -273,6 +273,12 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
 
     tracing::info!("Standalone mode: download root = {:?}", download_root_path);
 
+    // Ensure download root directory exists
+    if !download_root_path.exists() {
+        std::fs::create_dir_all(&download_root_path)?;
+        tracing::info!("Created download root directory: {:?}", download_root_path);
+    }
+
     // Create download root entry
     let root = standalone::create_download_root(&download_root_path);
     let roots = vec![root];

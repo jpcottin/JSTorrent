@@ -319,6 +319,10 @@ function App() {
                   onOpenSettings={() => setSettingsOpen(true)}
                   anchorRef={indicatorRef}
                   onFetchStats={getStats}
+                  backendType={systemBridge.backendType}
+                  ioBridgeConnected={ioBridgeState.status === 'connected'}
+                  daemonHost={ioBridgeState.daemonInfo?.host ?? undefined}
+                  daemonPort={ioBridgeState.daemonInfo?.port}
                 />
               ) : (
                 <SystemBridgePanel
