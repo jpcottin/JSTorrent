@@ -1635,4 +1635,72 @@ mod tests {
             None
         );
     }
+
+    // -- Auto-updater config validation --
+    // These tests catch accidental breakage of the updater config in tauri.conf.json.
+    // If any of these fail, auto-updates would be silently broken for all users.
+
+    fn load_tauri_conf() -> serde_json::Value {
+        serde_json::from_str(include_str!("../tauri.conf.json"))
+            .expect("tauri.conf.json must be valid JSON")
+    }
+
+    #[test]
+    fn test_updater_config_endpoint_valid() {
+        let conf = load_tauri_conf();
+        let endpoint = conf["plugins"]["updater"]["endpoints"][0]
+            .as_str()
+            .expect("updater endpoint must be a string");
+
+        assert!(
+            endpoint.starts_with("https://"),
+            "updater endpoint must use HTTPS: {endpoint}"
+        );
+        assert!(
+            endpoint.contains("{{target}}"),
+            "updater endpoint missing {{{{target}}}} placeholder: {endpoint}"
+        );
+        assert!(
+            endpoint.contains("{{arch}}"),
+            "updater endpoint missing {{{{arch}}}} placeholder: {endpoint}"
+        );
+        assert!(
+            endpoint.contains("{{current_version}}"),
+            "updater endpoint missing {{{{current_version}}}} placeholder: {endpoint}"
+        );
+    }
+
+    #[test]
+    fn test_updater_config_pubkey_valid() {
+        use base64::Engine;
+
+        let conf = load_tauri_conf();
+        let pubkey = conf["plugins"]["updater"]["pubkey"]
+            .as_str()
+            .expect("updater pubkey must be a string");
+
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(pubkey)
+            .expect("updater pubkey must be valid base64");
+
+        // A minisign public key (with untrusted comment + key line) is ~74 bytes.
+        assert!(
+            decoded.len() > 32,
+            "updater pubkey suspiciously short ({} bytes) — may be corrupted",
+            decoded.len()
+        );
+    }
+
+    #[test]
+    fn test_updater_artifacts_enabled() {
+        let conf = load_tauri_conf();
+        let value = &conf["bundle"]["createUpdaterArtifacts"];
+        // Can be bool `true` or string `"v2"` depending on Tauri version
+        let enabled = value.as_bool().unwrap_or(false)
+            || value.as_str().is_some_and(|s| s == "true" || s == "v2");
+        assert!(
+            enabled,
+            "bundle.createUpdaterArtifacts must be true — updater artifacts won't be generated in CI"
+        );
+    }
 }

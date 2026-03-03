@@ -1,9 +1,9 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use tauri_plugin_updater::UpdaterExt;
 
 /// Result written to `update-check-result.json` in the app data directory.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 struct UpdateCheckResult {
     available: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -180,15 +180,89 @@ fn write_result(_handle: &tauri::AppHandle, result: &UpdateCheckResult) {
 fn write_result_to_shared_dir(result: &UpdateCheckResult) {
     let dir = dirs::config_dir().map(|d| d.join("jstorrent-native"));
     if let Some(dir) = dir {
-        std::fs::create_dir_all(&dir).ok();
-        let path = dir.join(RESULT_FILENAME);
-        if let Ok(json) = serde_json::to_string_pretty(result) {
-            if let Err(e) = std::fs::write(&path, json) {
-                eprintln!(
-                    "headless-updater: failed to write result to {}: {e}",
-                    path.display()
-                );
-            }
+        write_result_to_dir(result, &dir);
+    }
+}
+
+/// Write result JSON to a specific directory.
+fn write_result_to_dir(result: &UpdateCheckResult, dir: &std::path::Path) {
+    std::fs::create_dir_all(dir).ok();
+    let path = dir.join(RESULT_FILENAME);
+    if let Ok(json) = serde_json::to_string_pretty(result) {
+        if let Err(e) = std::fs::write(&path, json) {
+            eprintln!(
+                "headless-updater: failed to write result to {}: {e}",
+                path.display()
+            );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_update_check_result_serialization() {
+        // Full result with all fields
+        let result = UpdateCheckResult {
+            available: true,
+            version: Some("1.0.0".to_string()),
+            current_version: Some("0.9.0".to_string()),
+            body: Some("Release notes".to_string()),
+            error: None,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let parsed: UpdateCheckResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(result, parsed);
+
+        // "error" field should be omitted when None (skip_serializing_if)
+        assert!(!json.contains("error"));
+
+        // Minimal result (no update available)
+        let minimal = UpdateCheckResult {
+            available: false,
+            version: None,
+            current_version: None,
+            body: None,
+            error: None,
+        };
+        let json = serde_json::to_string(&minimal).unwrap();
+        assert!(!json.contains("version"));
+        assert!(!json.contains("body"));
+
+        // Error result
+        let error = UpdateCheckResult {
+            available: false,
+            version: None,
+            current_version: None,
+            body: None,
+            error: Some("connection refused".to_string()),
+        };
+        let json = serde_json::to_string(&error).unwrap();
+        assert!(json.contains("connection refused"));
+        let parsed: UpdateCheckResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(error, parsed);
+    }
+
+    #[test]
+    fn test_write_result_to_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = UpdateCheckResult {
+            available: true,
+            version: Some("2.0.0".to_string()),
+            current_version: Some("1.5.0".to_string()),
+            body: Some("New features".to_string()),
+            error: None,
+        };
+
+        write_result_to_dir(&result, dir.path());
+
+        let path = dir.path().join(RESULT_FILENAME);
+        assert!(path.exists(), "result file should be created");
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let parsed: UpdateCheckResult = serde_json::from_str(&contents).unwrap();
+        assert_eq!(parsed, result);
     }
 }

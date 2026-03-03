@@ -149,6 +149,33 @@ jobs:
             fi
           fi
 
+      # --- Run Rust tests ---
+      - name: Run Rust tests
+        shell: bash
+        working-directory: desktop
+        run: |
+          # Ensure sidecar stubs exist for the host triple (needed by tauri build script
+          # when host != target, e.g. macOS aarch64 building for x86_64)
+          TRIPLE="$(rustc --print host-tuple)"
+          for bin in jstorrent-host jstorrent-io-daemon; do
+            stub="tauri-app/src-tauri/binaries/${bin}-${TRIPLE}"
+            [ -f "$stub" ] || [ -f "${stub}.exe" ] || touch "$stub"
+          done
+          cargo test --workspace
+
+      # --- Verify auto-updater entry point ---
+      - name: Verify auto-updater entry point
+        shell: bash
+        run: |
+          grep -q "initUpdater()" desktop/tauri-app/src/main.tsx || {
+            echo "::error::initUpdater() not found in main.tsx — auto-updates will be disabled!"
+            exit 1
+          }
+          grep -q "from './updater'" desktop/tauri-app/src/main.tsx || {
+            echo "::error::updater module import missing from main.tsx!"
+            exit 1
+          }
+
       # --- Install frontend dependencies ---
       - name: Install frontend dependencies
         run: pnpm install
@@ -287,6 +314,29 @@ jobs:
             echo "Deleting $name"
             gh release delete-asset "$TAG" "$name" --yes
           done
+
+      - name: Validate latest.json updater artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release download "$TAG" -p "latest.json" -D /tmp/ || {
+            echo "::error::latest.json not found in release — auto-updates will not work for this version!"
+            exit 1
+          }
+          python3 -c "
+          import json, sys
+          data = json.load(open('/tmp/latest.json'))
+          assert 'version' in data, 'missing version field'
+          assert 'platforms' in data, 'missing platforms field'
+          platforms = data['platforms']
+          assert len(platforms) > 0, 'no platforms in latest.json'
+          for key, p in platforms.items():
+              assert 'url' in p, f'{key}: missing url'
+              assert 'signature' in p, f'{key}: missing signature'
+              assert len(p['signature']) > 10, f'{key}: signature suspiciously short'
+          print(f'latest.json valid: v{data[\"version\"]} with {len(platforms)} platform(s): {list(platforms.keys())}')
+          "
 
       - name: Update release body with download table
         env:
