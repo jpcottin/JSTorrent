@@ -136,108 +136,125 @@ export class TauriChannel implements HostChannel {
   // --- Lifecycle ---
 
   async connect(): Promise<void> {
-    try {
-      let storedProfileId: string | null = null
+    // Retry handshake to handle race with Tauri setup (HostBridge state may not
+    // be managed yet when the webview JS runs).
+    const MAX_RETRIES = 5
+    const RETRY_DELAY_MS = 500
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        storedProfileId = localStorage.getItem('jstorrent:profileId')
-      } catch {
-        // localStorage may not be available
+        return await this.doConnect()
+      } catch (e) {
+        if (attempt < MAX_RETRIES) {
+          console.warn(`[TauriChannel] connect attempt ${attempt + 1} failed, retrying...`, e)
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
+        } else {
+          console.error(`[TauriChannel] connect failed after ${MAX_RETRIES + 1} attempts:`, e)
+          this.updateState({
+            ...this.currentState,
+            status: 'disconnected',
+            lastError: String(e),
+          })
+        }
       }
-      const response = await tauriInvoke<{
-        ok: boolean
-        payload?: {
-          port: number
-          token: string
-          version?: string
-          roots?: DownloadRoot[]
-          profileId?: string
-          clientType?: string
-          clientVersion?: string
-          browserName?: string
-          pid?: number
-          started?: number
-        }
-        error?: string
-      }>('host_handshake', { profileId: storedProfileId })
+    }
+  }
 
-      // Note: response.type ('DaemonInfo') is missing due to serde #[serde(flatten)]
-      // dropping the tag from adjacently-tagged enums. Check payload fields instead.
-      if (response.ok && response.payload?.port) {
-        const { port, token, version, roots, profileId } = response.payload
-        this.daemonInfo = { port, token }
-        if (profileId) {
-          try {
-            localStorage.setItem('jstorrent:profileId', profileId)
-          } catch {
-            // localStorage may not be available
-          }
-        }
-        this.updateState({
-          status: 'connected',
-          platform: 'tauri',
-          daemonInfo: { port, token, version, roots: roots ?? [], host: '127.0.0.1', profileId },
-          roots: roots ?? [],
-          lastError: null,
-        })
-      } else if (response.error === 'profile_in_use' && response.payload) {
-        const { clientType, clientVersion, browserName, pid, started } = response.payload
-        this.updateState({
-          ...this.currentState,
-          status: 'disconnected',
-          lastError: 'profile_in_use',
-          profileInUseInfo: { clientType, clientVersion, browserName, pid, started },
-        })
-      } else {
-        const error = response.error ?? 'Handshake failed'
-        // If the stored profileId is stale (e.g. config reset, upgrade), clear it
-        // and retry once so the host creates a fresh profile.
-        if (storedProfileId && error.includes('Invalid profile ID')) {
-          console.warn('[TauriChannel] Stale profileId, clearing and retrying')
-          try {
-            localStorage.removeItem('jstorrent:profileId')
-          } catch {
-            // localStorage may not be available
-          }
-          return this.connect()
-        }
-        this.updateState({
-          ...this.currentState,
-          status: 'disconnected',
-          lastError: error,
-        })
+  private async doConnect(): Promise<void> {
+    let storedProfileId: string | null = null
+    try {
+      storedProfileId = localStorage.getItem('jstorrent:profileId')
+    } catch {
+      // localStorage may not be available
+    }
+    const response = await tauriInvoke<{
+      ok: boolean
+      payload?: {
+        port: number
+        token: string
+        version?: string
+        roots?: DownloadRoot[]
+        profileId?: string
+        clientType?: string
+        clientVersion?: string
+        browserName?: string
+        pid?: number
+        started?: number
       }
+      error?: string
+    }>('host_handshake', { profileId: storedProfileId })
 
-      // Listen for events from system-bridge (MagnetAdded, TorrentAdded)
-      this.eventUnlisten = await tauriListen<{ event?: string; payload?: unknown }>(
-        'host-event',
-        (event) => {
-          const data = event.payload
-          if (data?.event) {
-            const nativeEvent: NativeEvent = { event: data.event, payload: data.payload }
-            for (const cb of this.eventListeners) {
-              cb(nativeEvent)
-            }
-          }
-        },
-      )
-
-      // Retrieve any deep link events that arrived before the frontend was ready
-      // (e.g., app was launched by clicking a magnet link)
-      this.drainPendingDeepLinks()
-
-      // Load keepAwake setting from persisted config
-      this.kvGet<boolean>('keepAwake', { keyPrefix: 'config:' })
-        .then((enabled) => {
-          if (enabled) this.setKeepAwake(true)
-        })
-        .catch(() => {})
-    } catch (e) {
+    // Note: response.type ('DaemonInfo') is missing due to serde #[serde(flatten)]
+    // dropping the tag from adjacently-tagged enums. Check payload fields instead.
+    if (response.ok && response.payload?.port) {
+      const { port, token, version, roots, profileId } = response.payload
+      this.daemonInfo = { port, token }
+      if (profileId) {
+        try {
+          localStorage.setItem('jstorrent:profileId', profileId)
+        } catch {
+          // localStorage may not be available
+        }
+      }
+      this.updateState({
+        status: 'connected',
+        platform: 'tauri',
+        daemonInfo: { port, token, version, roots: roots ?? [], host: '127.0.0.1', profileId },
+        roots: roots ?? [],
+        lastError: null,
+      })
+    } else if (response.error === 'profile_in_use' && response.payload) {
+      const { clientType, clientVersion, browserName, pid, started } = response.payload
       this.updateState({
         ...this.currentState,
         status: 'disconnected',
-        lastError: String(e),
+        lastError: 'profile_in_use',
+        profileInUseInfo: { clientType, clientVersion, browserName, pid, started },
+      })
+    } else {
+      const error = response.error ?? 'Handshake failed'
+      // If the stored profileId is stale (e.g. config reset, upgrade), clear it
+      // and retry once so the host creates a fresh profile.
+      if (storedProfileId && error.includes('Invalid profile ID')) {
+        console.warn('[TauriChannel] Stale profileId, clearing and retrying')
+        try {
+          localStorage.removeItem('jstorrent:profileId')
+        } catch {
+          // localStorage may not be available
+        }
+        return this.connect()
+      }
+      this.updateState({
+        ...this.currentState,
+        status: 'disconnected',
+        lastError: error,
       })
     }
+
+    // Listen for events from system-bridge (MagnetAdded, TorrentAdded)
+    this.eventUnlisten = await tauriListen<{ event?: string; payload?: unknown }>(
+      'host-event',
+      (event) => {
+        const data = event.payload
+        if (data?.event) {
+          const nativeEvent: NativeEvent = { event: data.event, payload: data.payload }
+          for (const cb of this.eventListeners) {
+            cb(nativeEvent)
+          }
+        }
+      },
+    )
+
+    // Retrieve any deep link events that arrived before the frontend was ready
+    // (e.g., app was launched by clicking a magnet link)
+    this.drainPendingDeepLinks()
+
+    // Load keepAwake setting from persisted config
+    this.kvGet<boolean>('keepAwake', { keyPrefix: 'config:' })
+      .then((enabled) => {
+        if (enabled) this.setKeepAwake(true)
+      })
+      .catch(() => {})
   }
 
   disconnect(): void {
