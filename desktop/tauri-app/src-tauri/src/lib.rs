@@ -612,6 +612,11 @@ fn run_stdout_reader(stdout: &mut ChildStdout, bridge: &HostBridge, app_handle: 
 }
 
 #[tauri::command]
+fn js_log(msg: String) {
+    eprintln!("[webview] {msg}");
+}
+
+#[tauri::command]
 async fn host_handshake(
     state: tauri::State<'_, Arc<HostBridge>>,
     launch_args: tauri::State<'_, LaunchArgs>,
@@ -995,6 +1000,7 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
+            js_log,
             host_handshake,
             host_message,
             pick_download_folder,
@@ -1344,9 +1350,8 @@ pub fn run() {
             app.deep_link().register_all()?;
 
             // Register native messaging host manifest for all detected browsers
-            match native_host::register_native_messaging_hosts(app.handle()) {
-                Ok(count) => eprintln!("native-host: registered for {count} browser(s)"),
-                Err(e) => eprintln!("native-host: registration failed: {e}"),
+            if let Err(e) = native_host::register_native_messaging_hosts(app.handle()) {
+                eprintln!("native-host: registration failed: {e}");
             }
 
             // Spawn system-bridge sidecar
@@ -1378,11 +1383,6 @@ pub fn run() {
             });
 
             app.manage(bridge.clone());
-
-            // Signal the frontend that the HostBridge is ready for IPC commands.
-            // The webview JS can run before setup() completes, so tauriInvoke calls
-            // would hang until this point. The frontend waits for this event.
-            app.emit("backend-ready", ()).ok();
 
             // Background stdout reader on a dedicated OS thread.
             // When stdout closes (sidecar died, e.g. killed by extension TakeOver),

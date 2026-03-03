@@ -45,6 +45,11 @@ function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>
   return getTauriInternals().invoke<T>(cmd, args)
 }
 
+/** Fire-and-forget log to Rust stderr via js_log command. */
+function jsLog(msg: string): void {
+  tauriInvoke('js_log', { msg }).catch(() => {})
+}
+
 /**
  * Listen for Tauri events using the internal IPC mechanism.
  * Equivalent to `listen()` from @tauri-apps/api/event.
@@ -136,21 +141,9 @@ export class TauriChannel implements HostChannel {
   // --- Lifecycle ---
 
   async connect(): Promise<void> {
-    // Wait for Tauri backend to signal that HostBridge state is managed.
-    // The webview JS runs before .setup() completes, so tauriInvoke calls
-    // would hang indefinitely without this synchronization.
-    try {
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(resolve, 10000) // fallback if event was missed
-        tauriListen('backend-ready', () => {
-          clearTimeout(timeout)
-          resolve()
-        }).catch(() => resolve()) // if listen fails, proceed anyway
-      })
-    } catch {
-      // proceed anyway
-    }
-
+    // No synchronization needed: Tauri's setup() completes before the event
+    // loop starts, so app.manage(bridge) always happens before any tauriInvoke
+    // can be dispatched. The webview JS loads after setup returns.
     try {
       await this.doConnect()
     } catch (e) {
