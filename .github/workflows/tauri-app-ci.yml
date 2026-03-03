@@ -154,13 +154,24 @@ jobs:
         shell: bash
         working-directory: desktop
         run: |
-          # Ensure sidecar stubs exist for the host triple (needed by tauri build script
-          # when host != target, e.g. macOS aarch64 building for x86_64)
+          # When cross-compiling (host != target), the Build sidecars step only
+          # builds for the target triple. We need real binaries for the host triple
+          # so that integration tests (native_messaging) can spawn io-daemon, and
+          # sidecar stubs for the tauri build script validation.
           TRIPLE="$(rustc --print host-tuple)"
-          for bin in jstorrent-host jstorrent-io-daemon; do
-            stub="tauri-app/src-tauri/binaries/${bin}-${TRIPLE}"
-            [ -f "$stub" ] || [ -f "${stub}.exe" ] || touch "$stub"
-          done
+          TARGET="${{ matrix.rust_target }}"
+          if [ -n "$TARGET" ] && [ "$TARGET" != "$TRIPLE" ]; then
+            cargo build -p jstorrent-host -p jstorrent-io-daemon
+            for bin in jstorrent-host jstorrent-io-daemon; do
+              stub="tauri-app/src-tauri/binaries/${bin}-${TRIPLE}"
+              [ -f "$stub" ] || cp "target/debug/${bin}" "$stub"
+            done
+          else
+            for bin in jstorrent-host jstorrent-io-daemon; do
+              stub="tauri-app/src-tauri/binaries/${bin}-${TRIPLE}"
+              [ -f "$stub" ] || [ -f "${stub}.exe" ] || touch "$stub"
+            done
+          fi
           cargo test --workspace
 
       # --- Verify auto-updater entry point ---
