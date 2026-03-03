@@ -305,14 +305,38 @@ mod tests {
         };
         let json = serde_json::to_string(&response).unwrap();
         // Must use camelCase to match what the Chrome extension expects
-        assert!(json.contains("\"extensionId\""), "expected camelCase extensionId, got: {json}");
-        assert!(json.contains("\"installId\""), "expected camelCase installId, got: {json}");
-        assert!(json.contains("\"tokenValid\""), "expected camelCase tokenValid, got: {json}");
-        assert!(json.contains("\"ioPort\""), "expected camelCase ioPort, got: {json}");
+        assert!(
+            json.contains("\"extensionId\""),
+            "expected camelCase extensionId, got: {json}"
+        );
+        assert!(
+            json.contains("\"installId\""),
+            "expected camelCase installId, got: {json}"
+        );
+        assert!(
+            json.contains("\"tokenValid\""),
+            "expected camelCase tokenValid, got: {json}"
+        );
+        assert!(
+            json.contains("\"ioPort\""),
+            "expected camelCase ioPort, got: {json}"
+        );
         // Must NOT contain snake_case variants
-        assert!(!json.contains("\"extension_id\""), "unexpected snake_case extension_id in: {json}");
-        assert!(!json.contains("\"install_id\""), "unexpected snake_case install_id in: {json}");
-        assert!(!json.contains("\"token_valid\""), "unexpected snake_case token_valid in: {json}");
-        assert!(!json.contains("\"io_port\""), "unexpected snake_case io_port in: {json}");
+        assert!(
+            !json.contains("\"extension_id\""),
+            "unexpected snake_case extension_id in: {json}"
+        );
+        assert!(
+            !json.contains("\"install_id\""),
+            "unexpected snake_case install_id in: {json}"
+        );
+        assert!(
+            !json.contains("\"token_valid\""),
+            "unexpected snake_case token_valid in: {json}"
+        );
+        assert!(
+            !json.contains("\"io_port\""),
+            "unexpected snake_case io_port in: {json}"
+        );
     }
 }

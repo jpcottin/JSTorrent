@@ -271,51 +271,118 @@ fn set_window_icon(window: &tauri::WebviewWindow) {
 }
 
 /// Send `WM_SETICON` with `ICON_BIG` to set the Windows taskbar icon.
-/// Creates an HICON from raw RGBA data using the same approach as tao's
-/// `RgbaIcon::into_windows_icon`.
+/// Uses `CreateIconIndirect` with a 32-bit BGRA DIB section for proper
+/// alpha transparency support.
 #[cfg(windows)]
 fn set_icon_big(window: &tauri::WebviewWindow, image: &tauri::image::Image<'_>) {
     extern "system" {
-        fn CreateIcon(
-            hinst: isize,
+        fn CreateBitmap(
             width: i32,
             height: i32,
-            planes: u8,
-            bits_per_pixel: u8,
-            and_bits: *const u8,
-            xor_bits: *const u8,
+            planes: u32,
+            bit_count: u32,
+            bits: *const u8,
         ) -> isize;
+        fn CreateDIBSection(
+            hdc: isize,
+            pbmi: *const BitmapInfoHeader,
+            usage: u32,
+            ppv_bits: *mut *mut u8,
+            section: isize,
+            offset: u32,
+        ) -> isize;
+        fn CreateIconIndirect(piconinfo: *mut IconInfo) -> isize;
+        fn DeleteObject(obj: isize) -> i32;
         fn SendMessageW(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> isize;
     }
+
+    #[repr(C)]
+    struct BitmapInfoHeader {
+        size: u32,
+        width: i32,
+        height: i32,
+        planes: u16,
+        bit_count: u16,
+        compression: u32,
+        size_image: u32,
+        x_pels_per_meter: i32,
+        y_pels_per_meter: i32,
+        clr_used: u32,
+        clr_important: u32,
+    }
+
+    #[repr(C)]
+    struct IconInfo {
+        f_icon: i32,
+        x_hotspot: u32,
+        y_hotspot: u32,
+        hbm_mask: isize,
+        hbm_color: isize,
+    }
+
     const WM_SETICON: u32 = 0x0080;
     const ICON_BIG: usize = 1;
 
     let Ok(hwnd) = window.hwnd() else { return };
     let rgba = image.rgba();
-    let width = image.width();
-    let height = image.height();
-
-    // Convert RGBA → BGRA (Windows native byte order)
-    let mut bgra = rgba.to_vec();
-    for pixel in bgra.chunks_exact_mut(4) {
-        pixel.swap(0, 2);
-    }
-
-    // AND mask: inverted alpha (0x00 = opaque, 0xFF = transparent)
-    let and_mask: Vec<u8> = (0..(width * height) as usize)
-        .map(|i| rgba[i * 4 + 3].wrapping_sub(0xFF))
-        .collect();
+    let width = image.width() as i32;
+    let height = image.height() as i32;
 
     unsafe {
-        let hicon = CreateIcon(
-            0,
-            width as i32,
-            height as i32,
-            1,
-            32,
-            and_mask.as_ptr(),
-            bgra.as_ptr(),
-        );
+        // Monochrome AND mask (all zeros = fully opaque; alpha channel handles transparency)
+        let and_row_bytes = ((width + 31) / 32 * 4) as usize;
+        let and_mask = vec![0u8; and_row_bytes * height as usize];
+        let h_and = CreateBitmap(width, height, 1, 1, and_mask.as_ptr());
+        if h_and == 0 {
+            return;
+        }
+
+        // 32-bit top-down BGRA DIB section
+        let bmi = BitmapInfoHeader {
+            size: std::mem::size_of::<BitmapInfoHeader>() as u32,
+            width,
+            height: -height, // negative = top-down
+            planes: 1,
+            bit_count: 32,
+            compression: 0,
+            size_image: 0,
+            x_pels_per_meter: 0,
+            y_pels_per_meter: 0,
+            clr_used: 0,
+            clr_important: 0,
+        };
+
+        let mut bits_ptr: *mut u8 = std::ptr::null_mut();
+        let h_color = CreateDIBSection(0, &bmi, 0, &mut bits_ptr, 0, 0);
+        if h_color == 0 || bits_ptr.is_null() {
+            DeleteObject(h_and);
+            return;
+        }
+
+        // Copy RGBA → premultiplied BGRA (Windows expects premultiplied alpha for 32-bit icons)
+        let pixel_count = (width * height) as usize;
+        let dst = std::slice::from_raw_parts_mut(bits_ptr, pixel_count * 4);
+        for i in 0..pixel_count {
+            let a = rgba[i * 4 + 3] as u32;
+            dst[i * 4] = ((rgba[i * 4 + 2] as u32 * a) / 255) as u8; // B
+            dst[i * 4 + 1] = ((rgba[i * 4 + 1] as u32 * a) / 255) as u8; // G
+            dst[i * 4 + 2] = ((rgba[i * 4] as u32 * a) / 255) as u8; // R
+            dst[i * 4 + 3] = a as u8; // A
+        }
+
+        let mut info = IconInfo {
+            f_icon: 1, // TRUE = icon (not cursor)
+            x_hotspot: 0,
+            y_hotspot: 0,
+            hbm_mask: h_and,
+            hbm_color: h_color,
+        };
+        let hicon = CreateIconIndirect(&mut info);
+
+        // Clean up bitmaps — Windows copies them internally
+        DeleteObject(h_and);
+        DeleteObject(h_color);
+
         if hicon != 0 {
             // HWND is repr(transparent) around isize — safe to transmute_copy
             let hwnd_raw: isize = std::mem::transmute_copy(&hwnd);
@@ -325,7 +392,18 @@ fn set_icon_big(window: &tauri::WebviewWindow, image: &tauri::image::Image<'_>) 
     }
 }
 
-#[cfg(not(windows))]
+/// Set the window icon on Linux so the desktop environment uses it for
+/// the taskbar instead of falling back to the generic gear/application icon.
+/// macOS uses the .icns from the bundle, so this is a no-op there.
+#[cfg(target_os = "linux")]
+fn set_window_icon(window: &tauri::WebviewWindow) {
+    let png_bytes = include_bytes!("../icons/icon.png");
+    if let Ok(icon) = tauri::image::Image::from_bytes(png_bytes) {
+        let _ = window.set_icon(icon);
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn set_window_icon(_window: &tauri::WebviewWindow) {}
 
 /// Show, unminimize, and focus the main window.
