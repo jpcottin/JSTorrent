@@ -385,7 +385,7 @@ function App() {
                 alignItems: 'center',
                 gap: '6px',
               }}
-              title="Report a bug on GitHub"
+              title="Report a bug or send feedback"
             >
               <span style={{ fontSize: '14px' }}>&#x1F41B;</span>
               Report Bug

@@ -205,7 +205,7 @@ export interface UseSystemBridgeResult {
   daemonVersion: string | undefined
   /** Copy debug info to clipboard */
   copyDebugInfo: () => Promise<void>
-  /** Get URL for filing a bug report on GitHub (async — collects diagnostics at click time) */
+  /** Get URL for feedback.html with pre-filled diagnostics (async — collects at click time) */
   getBugReportUrl: () => Promise<string>
 }
 
@@ -255,45 +255,53 @@ export function useSystemBridge(config: UseSystemBridgeConfig): UseSystemBridgeR
     await copyTextToClipboard(text)
   }, [state, backendType, daemonVersion, versionStatus, readiness, roots])
 
-  // Generate bug report URL with pre-filled diagnostics (collected at click time)
+  // Generate feedback URL with pre-filled diagnostics (collected at click time)
   const getBugReportUrl = useCallback(async () => {
-    const extVersion = extensionVersion ?? 'unknown'
+    const url = new URL('https://jstorrent.com/feedback.html')
+    const p = url.searchParams
 
-    // Collect engine state (sync reads from window.engine)
-    const engineSection = collectEngineInfo()
+    // Environment
+    p.set('platform', state.platform)
+    p.set('v', extensionVersion ?? 'unknown')
+    p.set('backend', backendType)
+    if (daemonVersion) p.set('backendV', daemonVersion)
+    p.set('status', state.status)
 
-    // Collect daemon stats (async)
-    const daemonSection = await collectDaemonInfo(config.getStats)
+    // Chrome version from UA
+    const chromeMatch = navigator.userAgent.match(/Chrome\/(\d+)/)
+    if (chromeMatch) p.set('chrome', chromeMatch[1])
+    p.set('ua', navigator.userAgent)
 
-    // Collect usage metrics (async, extension-only — returns null on Tauri)
-    const metricsSection = await collectMetricsInfo(config.getMetrics)
+    if (state.lastError) p.set('error', state.lastError)
 
-    const body = `**Environment:**
-- Extension: v${extVersion}
-- Companion: v${daemonVersion ?? 'not connected'} (${backendType})
-- Platform: ${state.platform}
-- Status: ${state.status}
-- User-Agent: ${navigator.userAgent}
-${state.lastError ? `- Last Error: ${state.lastError}` : ''}
-${engineSection}${daemonSection}${metricsSection}
-**Description:**
-[Describe the issue here]
+    // Engine state (sync reads from window.engine)
+    const engineParams = collectEngineParams()
+    for (const [k, v] of Object.entries(engineParams)) p.set(k, v)
 
-**Steps to reproduce:**
-1.
-2.
-3.
+    // Daemon stats (async)
+    try {
+      const stats = await config.getStats()
+      if (stats) p.set('uptime', formatUptime(stats.uptime_secs))
+    } catch {
+      // ignore
+    }
 
-**Expected behavior:**
+    // Usage metrics (async, extension-only — returns null on Tauri)
+    try {
+      const m = await config.getMetrics()
+      if (m) {
+        p.set('sessions', String(m.sessionsStarted))
+        p.set('added', String(m.torrentsAdded))
+        p.set('completed', String(m.completedDownloads))
+        if (m.devices > 0) p.set('devices', String(m.devices))
+        if (m.daysInstalled != null) p.set('days', String(m.daysInstalled))
+      }
+    } catch {
+      // ignore
+    }
 
-
-**Actual behavior:**
-
-`
-    const url = new URL('https://github.com/kzahel/jstorrent/issues/new')
-    url.searchParams.set('body', body)
     return url.toString()
-  }, [state, backendType, daemonVersion, extensionVersion, config.getStats, config.getMetrics])
+  }, [state, backendType, daemonVersion, extensionVersion, config])
 
   return {
     panelOpen,
@@ -319,58 +327,22 @@ function formatUptime(secs: number): string {
   return `${h}h ${m}m`
 }
 
-function collectEngineInfo(): string {
+function collectEngineParams(): Record<string, string> {
   const engine = window.engine as BtEngine | undefined
-  if (!engine) return ''
+  if (!engine) return {}
 
   const torrents = engine.torrents
-  const total = torrents.length
   const active = torrents.filter((t) => t.userState === 'active').length
-  const completed = torrents.filter((t) => t.isComplete).length
-  const withMeta = torrents.filter((t) => t.hasMetadata).length
   const errored = torrents.filter((t) => t.errorMessage).length
 
-  const dhtInfo = engine.dhtEnabled ? `on (${engine.dhtNode?.getNodeCount() ?? '?'} nodes)` : 'off'
-  const upnpInfo =
-    engine.upnpStatus + (engine.hasReceivedIncomingConnection ? ' (incoming OK)' : '')
-
-  let section = `
-**Engine:**
-- Torrents: ${total} total, ${active} active, ${completed} complete, ${withMeta} with metadata`
-  if (errored > 0) section += `, ${errored} errored`
-  section += `
-- Peers: ${engine.numConnections}
-- DHT: ${dhtInfo}
-- UPnP: ${upnpInfo}
-- Port: ${engine.listeningPort}
-`
-  return section
-}
-
-async function collectDaemonInfo(getStats: () => Promise<DaemonStats | null>): Promise<string> {
-  try {
-    const stats = await getStats()
-    if (!stats) return ''
-    return `- Uptime: ${formatUptime(stats.uptime_secs)}
-`
-  } catch {
-    return ''
+  const params: Record<string, string> = {
+    torrents: String(torrents.length),
+    active: String(active),
+    peers: String(engine.numConnections),
+    dht: engine.dhtEnabled ? `on (${engine.dhtNode?.getNodeCount() ?? '?'} nodes)` : 'off',
+    upnp: engine.upnpStatus + (engine.hasReceivedIncomingConnection ? ' (incoming OK)' : ''),
+    port: String(engine.listeningPort),
   }
-}
-
-async function collectMetricsInfo(getMetrics: () => Promise<UsageMetrics | null>): Promise<string> {
-  try {
-    const m = await getMetrics()
-    if (!m) return ''
-
-    let section = `
-**Usage:**
-- Sessions: ${m.sessionsStarted} | Added: ${m.torrentsAdded} | Completed: ${m.completedDownloads}`
-    if (m.devices > 0) section += `\n- Devices: ${m.devices}`
-    if (m.daysInstalled != null) section += ` | Days installed: ${m.daysInstalled}`
-    section += '\n'
-    return section
-  } catch {
-    return ''
-  }
+  if (errored > 0) params.errored = String(errored)
+  return params
 }
