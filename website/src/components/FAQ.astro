@@ -81,6 +81,46 @@
       </details>
 
       <details class="faq-item">
+        <summary>Is JSTorrent safe to install?</summary>
+        <div class="faq-answer">
+          <p>
+            Yes. JSTorrent is
+            <a href="https://github.com/kzahel/jstorrent">open source</a> and every release is
+            built automatically by
+            <a href="https://github.com/kzahel/jstorrent/actions">GitHub Actions CI</a>
+            &mdash; no binaries are built on a developer&rsquo;s machine.
+          </p>
+          <ul>
+            <li>
+              <strong>macOS:</strong> Signed with an Apple Developer ID certificate and notarized
+              by Apple, so Gatekeeper trusts it on first launch.
+            </li>
+            <li>
+              <strong>Windows:</strong> Code-signed via Azure Trusted Signing, so SmartScreen
+              recognizes the publisher.
+            </li>
+            <li>
+              <strong>Android:</strong> Signed with a Play Store upload key and distributed
+              through Google Play.
+            </li>
+            <li>
+              <strong>Chrome extension:</strong> Reviewed and distributed through the Chrome Web
+              Store.
+            </li>
+            <li>
+              <strong>Auto-updates:</strong> Desktop updates are signature-verified before
+              installation.
+            </li>
+          </ul>
+          <p>
+            You can audit the full build pipeline in the
+            <a href="https://github.com/kzahel/jstorrent/tree/main/.github/workflows">CI workflows</a>
+            and verify that release artifacts match the tagged source code.
+          </p>
+        </div>
+      </details>
+
+      <details class="faq-item">
         <summary>Does this work with private trackers?</summary>
         <div class="faq-answer">
           <p>
