@@ -2,15 +2,6 @@ const SW_START_TIME = new Date().toISOString()
 console.log(`[SW] Service Worker loaded at ${SW_START_TIME}`)
 console.log('[SW] Deploy test - this log confirms deploy workflow works!')
 
-// Service Worker lifecycle events
-self.addEventListener('install', () => {
-  console.log('[SW] Install event - new version available')
-})
-
-self.addEventListener('activate', () => {
-  console.log('[SW] Activate event - now controlling pages')
-})
-
 import { getConfigDefault, isConfigExtensionOnly, type ConfigKey } from '@jstorrent/engine'
 import { getDaemonBridge, type NativeEvent, type DaemonBridgeState } from './lib/daemon-bridge'
 import { handleKVMessage } from './lib/kv-handlers'
