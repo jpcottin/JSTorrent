@@ -540,6 +540,7 @@ fn route_magnet_to_extension(app: &tauri::AppHandle, magnet: &str, add_token: Op
         Some(token) => format!("{base}#magnet={encoded}&token={token}"),
         None => format!("{base}#magnet={encoded}"),
     };
+    eprintln!("[deep-link] route_magnet_to_extension: opening URL: {}", url);
     let _ = app.opener().open_url(&url, None::<&str>);
 }
 
@@ -1315,11 +1316,15 @@ pub fn run() {
 
             // Collect any URLs that launched the app (startup deep links).
             // Route to extension or queue as pending for the frontend.
-            if let Ok(Some(urls)) = app.deep_link().get_current() {
+            let deep_link_result = app.deep_link().get_current();
+            eprintln!("[deep-link] get_current() = {:?}", deep_link_result);
+            if let Ok(Some(urls)) = deep_link_result {
                 let rpc_info = read_rpc_info();
+                eprintln!("[deep-link] Processing {} startup URL(s), route_to_ext={}", urls.len(), should_route_to_extension(&rpc_info));
 
                 for url in urls {
                     let url_str: &str = url.as_ref();
+                    eprintln!("[deep-link] URL: {}", url_str);
 
                     // jstorrent:// links always force desktop (launch page fallback).
                     // They may carry a magnet in the query string.
@@ -1373,6 +1378,7 @@ pub fn run() {
             } else {
                 determine_startup_action(startup_routed_to_extension, &read_rpc_info())
             };
+            eprintln!("[deep-link] startup_action={:?}, skip_extension_routing={}, startup_routed_to_extension={}", startup_action, skip_extension_routing, startup_routed_to_extension);
             if !matches!(startup_action, StartupAction::ShowDesktop) {
                 // Register native messaging manifests so the extension can find
                 // the native host binary (important on first install).
@@ -1380,6 +1386,7 @@ pub fn run() {
 
                 if matches!(startup_action, StartupAction::OpenExtension) {
                     let url = get_launch_url();
+                    eprintln!("[deep-link] OpenExtension: opening bare launch URL: {}", url);
                     let _ = app.opener().open_url(&url, None::<&str>);
                 }
                 // AlreadyRouted: deep links were sent to extension above.
@@ -1396,9 +1403,12 @@ pub fn run() {
             // the second instance's args to this instance and exits the duplicate.
             let deep_link_handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
+                let urls = event.urls();
+                eprintln!("[deep-link] on_open_url: {} URL(s)", urls.len());
                 let mut any_deep_link = false;
-                for url in event.urls() {
+                for url in urls {
                     let url_str: &str = url.as_ref();
+                    eprintln!("[deep-link] on_open_url URL: {}", url_str);
                     // jstorrent:// links always show desktop (launch page fallback)
                     if url_str.starts_with("jstorrent:") {
                         if let Some(magnet) = extract_magnet_from_jstorrent_url(url_str) {

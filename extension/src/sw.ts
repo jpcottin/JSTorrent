@@ -1272,6 +1272,16 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
 
   // Launch ping from website (with optional magnet/torrent routing)
   if (message.type === 'launch-ping') {
+    console.log(
+      '[SW] launch-ping details: magnet=',
+      !!message.magnet,
+      'token=',
+      !!message.token,
+      'torrentPath=',
+      !!message.torrentPath,
+      'primaryUIPort=',
+      !!primaryUIPort,
+    )
     handleLaunchPing(message, sender, sendResponse)
     return true
   }
