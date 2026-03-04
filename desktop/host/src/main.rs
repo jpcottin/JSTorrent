@@ -499,9 +499,10 @@ async fn handle_request(
                     }
                     drop(kv_guard);
                     let event_tx = event_tx.clone();
+                    let current_version = env!("CARGO_PKG_VERSION");
                     tokio::spawn(async move {
                         log!("Background update check starting");
-                        match updater::run_update_check(false).await {
+                        match updater::check_for_updates_http(current_version).await {
                             Ok(result) if result.available => {
                                 log!(
                                     "Background update check: update available ({})",

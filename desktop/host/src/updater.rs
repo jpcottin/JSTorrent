@@ -325,3 +325,147 @@ fn read_result_file() -> Result<UpdateCheckResult> {
     serde_json::from_str(&contents)
         .with_context(|| format!("Failed to parse update result file: {}", path.display()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kv_store::KvStore;
+
+    #[test]
+    fn should_auto_check_empty_kv_returns_true() {
+        let kv = KvStore::open_in_memory().unwrap();
+        assert!(should_auto_check(&kv), "empty KV should trigger check");
+    }
+
+    #[test]
+    fn should_auto_check_after_record_returns_false() {
+        let kv = KvStore::open_in_memory().unwrap();
+        record_check_time(&kv);
+        assert!(
+            !should_auto_check(&kv),
+            "immediately after recording should NOT trigger check"
+        );
+    }
+
+    #[test]
+    fn should_auto_check_stale_timestamp_returns_true() {
+        let kv = KvStore::open_in_memory().unwrap();
+        // Set timestamp to 25 hours ago
+        let stale = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - (25 * 60 * 60);
+        kv.set(KV_LAST_CHECK_KEY, &stale.to_string()).unwrap();
+        assert!(
+            should_auto_check(&kv),
+            "25h-old timestamp should trigger check"
+        );
+    }
+
+    #[test]
+    fn should_auto_check_recent_timestamp_returns_false() {
+        let kv = KvStore::open_in_memory().unwrap();
+        // Set timestamp to 23 hours ago
+        let recent = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - (23 * 60 * 60);
+        kv.set(KV_LAST_CHECK_KEY, &recent.to_string()).unwrap();
+        assert!(
+            !should_auto_check(&kv),
+            "23h-old timestamp should NOT trigger check"
+        );
+    }
+
+    #[test]
+    fn should_auto_check_exactly_24h_returns_true() {
+        let kv = KvStore::open_in_memory().unwrap();
+        let boundary = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - AUTO_CHECK_INTERVAL_SECS;
+        kv.set(KV_LAST_CHECK_KEY, &boundary.to_string()).unwrap();
+        assert!(
+            should_auto_check(&kv),
+            "exactly 24h-old timestamp should trigger check (>= comparison)"
+        );
+    }
+
+    #[test]
+    fn should_auto_check_corrupt_value_returns_true() {
+        let kv = KvStore::open_in_memory().unwrap();
+        kv.set(KV_LAST_CHECK_KEY, "not-a-number").unwrap();
+        assert!(
+            should_auto_check(&kv),
+            "corrupt value should fall back to 0 and trigger check"
+        );
+    }
+
+    #[test]
+    fn record_check_time_writes_recent_timestamp() {
+        let kv = KvStore::open_in_memory().unwrap();
+        let before = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        record_check_time(&kv);
+        let after = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let stored: u64 = kv
+            .get(KV_LAST_CHECK_KEY)
+            .unwrap()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            stored >= before && stored <= after,
+            "recorded timestamp {stored} should be between {before} and {after}"
+        );
+    }
+
+    #[test]
+    fn record_then_check_then_stale_roundtrip() {
+        let kv = KvStore::open_in_memory().unwrap();
+
+        // Fresh KV → should check
+        assert!(should_auto_check(&kv));
+
+        // Record → should NOT check
+        record_check_time(&kv);
+        assert!(!should_auto_check(&kv));
+
+        // Manually backdate → should check again
+        let old = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - (48 * 60 * 60);
+        kv.set(KV_LAST_CHECK_KEY, &old.to_string()).unwrap();
+        assert!(should_auto_check(&kv));
+    }
+
+    #[test]
+    fn update_check_result_deserialize() {
+        let json = r#"{"available":true,"version":"1.2.0","currentVersion":"1.1.0","body":"notes"}"#;
+        let result: UpdateCheckResult = serde_json::from_str(json).unwrap();
+        assert!(result.available);
+        assert_eq!(result.version.as_deref(), Some("1.2.0"));
+        assert_eq!(result.current_version.as_deref(), Some("1.1.0"));
+        assert_eq!(result.body.as_deref(), Some("notes"));
+        assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn update_check_result_no_update() {
+        let json = r#"{"available":false}"#;
+        let result: UpdateCheckResult = serde_json::from_str(json).unwrap();
+        assert!(!result.available);
+        assert!(result.version.is_none());
+    }
+}
