@@ -62,6 +62,9 @@ export interface PieceRequesterDeps {
   /** Whether network is active */
   isNetworkActive(): boolean
 
+  /** Whether verified-write backlog is currently applying backpressure. */
+  isWriteQueueBackpressured(): boolean
+
   /** Whether we have metadata */
   hasMetadata(): boolean
 
@@ -169,6 +172,7 @@ export class TorrentPieceRequester extends EngineComponent {
     // Early exit conditions
     if (!this.deps.isNetworkActive()) return
     if (this.deps.isKillSwitchEnabled()) return
+    if (this.deps.isWriteQueueBackpressured()) return
     if (peer.peerChoking) return
     if (!this.deps.hasMetadata()) return
 

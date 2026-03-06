@@ -268,6 +268,7 @@ describe('NativeBatchingDiskQueue', () => {
 
       const result = await promise
       expect(result).toEqual({ bytesWritten: 100 })
+      expect(globalThis.__jstorrent_file_write_callbacks[callbackId]).toBeUndefined()
     })
 
     it('should return a promise that rejects on hash mismatch', async () => {
@@ -320,6 +321,9 @@ describe('NativeBatchingDiskQueue', () => {
       expect(mockBatchFn).toHaveBeenCalledTimes(1)
       expect(mockBatchFn.mock.calls[0][0]).toBeInstanceOf(ArrayBuffer)
       expect(queue.pendingCount).toBe(0)
+      expect(queue.pendingBytes).toBe(0)
+      expect(queue.inFlightWrites).toBe(2)
+      expect(queue.inFlightBytes).toBe(30)
     })
 
     it('should pack data correctly', () => {
@@ -349,6 +353,47 @@ describe('NativeBatchingDiskQueue', () => {
       const secondPacked = mockBatchFn.mock.calls[1][0] as ArrayBuffer
       expect(new DataView(firstPacked).getUint32(0, true)).toBe(1)
       expect(new DataView(secondPacked).getUint32(0, true)).toBe(1)
+    })
+
+    it('should report pending and in-flight pressure stats accurately', async () => {
+      const hash = new Uint8Array(20).fill(0xab)
+      const callbacks = globalThis.__jstorrent_file_write_callbacks
+
+      const first = queue.queueVerifiedWrite('root', 'a.bin', 0, new ArrayBuffer(10), hash)
+      queue.queueVerifiedWrite('root', 'b.bin', 10, new ArrayBuffer(20), hash)
+
+      expect(queue.getPressureStats()).toEqual({
+        pendingWrites: 2,
+        pendingBytes: 30,
+        inFlightWrites: 0,
+        inFlightBytes: 0,
+        totalWrites: 2,
+        totalBytes: 30,
+      })
+
+      queue.flushPending()
+
+      expect(queue.getPressureStats()).toEqual({
+        pendingWrites: 0,
+        pendingBytes: 0,
+        inFlightWrites: 2,
+        inFlightBytes: 30,
+        totalWrites: 2,
+        totalBytes: 30,
+      })
+
+      const callbackIds = Object.keys(callbacks)
+      callbacks[callbackIds[0]](10, 0)
+      await first
+
+      expect(queue.getPressureStats()).toEqual({
+        pendingWrites: 0,
+        pendingBytes: 0,
+        inFlightWrites: 1,
+        inFlightBytes: 20,
+        totalWrites: 1,
+        totalBytes: 20,
+      })
     })
   })
 

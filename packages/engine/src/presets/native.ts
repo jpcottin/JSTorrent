@@ -11,7 +11,10 @@ import { NullFileSystem } from '../adapters/null/null-filesystem'
 import { NativeSessionStore } from '../adapters/native/native-session-store'
 import { MemorySessionStore } from '../adapters/memory/memory-session-store'
 import { NativeHasher } from '../adapters/native/native-hasher'
-import { flushBatchedWrites } from '../adapters/native/native-batching-disk-queue'
+import {
+  flushBatchedWrites,
+  getGlobalBatchingQueue,
+} from '../adapters/native/native-batching-disk-queue'
 import { flushPendingReads } from '../adapters/native/native-async-read'
 import { NativeFileHandle } from '../adapters/native/native-file-handle'
 import { StorageRootManager, StorageRoot } from '../storage/storage-root-manager'
@@ -24,6 +27,12 @@ import type { ConfigHub } from '../config/config-hub'
 // Enable async reads on Android — disk reads dispatch to Kotlin IO threads
 // instead of blocking the JS thread.
 NativeFileHandle.useAsyncReads = true
+
+// Verified-write queue pressure budget for Android/QuickJS.
+// Keep this aligned with the conservative active-piece byte budget so
+// large-piece torrents stop requesting before write backlog runs away.
+const WRITE_QUEUE_HIGH_WATER = 32 * 1024 * 1024
+const WRITE_QUEUE_LOW_WATER = 16 * 1024 * 1024
 
 /**
  * Get network interfaces from the native layer.
@@ -159,6 +168,9 @@ export function createNativeEngine(config: NativeEngineConfig): BtEngine {
       flushBatchedWrites()
       flushPendingReads()
     },
+    getWriteQueueStats: () => getGlobalBatchingQueue().getPressureStats(),
+    writeQueueBackpressureHighWater: WRITE_QUEUE_HIGH_WATER,
+    writeQueueBackpressureLowWater: WRITE_QUEUE_LOW_WATER,
     usePassthroughDiskQueue: true,
   })
 }

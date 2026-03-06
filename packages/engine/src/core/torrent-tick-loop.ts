@@ -11,6 +11,7 @@ import type { PeerSelector } from './peer-selector'
 import type { Swarm } from './swarm'
 import type { TorrentUploader } from './torrent-uploader'
 import type { IDiskQueue } from './disk-queue'
+import type { DiskWriteQueueStats } from './disk-queue'
 import type { TrafficCategory } from './bandwidth-tracker'
 import { getWriteStats, resetWriteStatsMax } from '../adapters/daemon/daemon-file-handle'
 
@@ -70,6 +71,7 @@ export interface TickLoopCallbacks {
   getUploader(): TorrentUploader
   getActivePieces(): ActivePieceManager | undefined
   getDiskQueue(): IDiskQueue
+  getWriteQueueStats?(): DiskWriteQueueStats | undefined
 
   // Bandwidth
   isDownloadRateLimited(): boolean
@@ -887,6 +889,7 @@ export class TorrentTickLoop extends EngineComponent {
     const diskSnapshot = this.callbacks.getDiskQueue().getSnapshot()
     const diskPending = diskSnapshot.pending.length
     const diskRunning = diskSnapshot.running.length
+    const writeQueueStats = this.callbacks.getWriteQueueStats?.()
 
     // Get disk write rate
     const diskRate = this.callbacks.getCategoryRate('down', 'disk')
@@ -899,6 +902,10 @@ export class TorrentTickLoop extends EngineComponent {
       `Backpressure: ${activeCount} active (${partialCount}/${maxPartials} partial, ${fullyRequestedCount} fullyReq, ${fullyRespondedCount} awaiting write), ` +
         `${bufferedMB}MB buffered, PIPE:${totalRequests}/${totalPipelineDepth} (limit=${pipelineLimit}), ` +
         `disk: ${diskPending}/${diskRunning} queue, ${diskRateMB}MB/s, ` +
+        (writeQueueStats
+          ? `writeQ: ${writeQueueStats.totalWrites} ops ${(writeQueueStats.totalBytes / (1024 * 1024)).toFixed(1)}MB ` +
+            `(${writeQueueStats.pendingWrites} pending, ${writeQueueStats.inFlightWrites} in-flight), `
+          : '') +
         `WS-writes: ${writeStats.inFlight} in-flight (max=${writeStats.maxInFlight}, sent=${writeStats.totalSent}, acked=${writeStats.totalAcked})`,
     )
 

@@ -38,6 +38,7 @@ import { PeerConnection } from './peer-connection'
 import { TorrentUserState } from './torrent-state'
 import { BandwidthTracker } from './bandwidth-tracker'
 import { TorrentQueueManager } from './torrent-queue-manager'
+import type { DiskWriteQueueStats } from './disk-queue'
 
 // New imports for refactored code
 import { parseTorrentInput } from './torrent-factory'
@@ -224,6 +225,20 @@ export interface BtEngineOptions {
   onEndOfTick?: () => void
 
   /**
+   * Optional callback returning current verified-write queue stats.
+   * Used by native hosts to apply disk-backlog backpressure.
+   */
+  getWriteQueueStats?: () => DiskWriteQueueStats | undefined
+
+  /**
+   * High/low watermarks for verified-write queue backpressure.
+   * When the queued verified-write bytes exceed the high watermark,
+   * new requests are paused until the queue drains below the low watermark.
+   */
+  writeQueueBackpressureHighWater?: number
+  writeQueueBackpressureLowWater?: number
+
+  /**
    * Use passthrough disk queue (for Android/QuickJS).
    *
    * When true, disk writes execute immediately without JS-side queuing.
@@ -276,6 +291,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   private filterFn: ShouldLogFn
   private onLogCallback?: (entry: LogEntry) => void
   private onEndOfTickCallback?: () => void
+  private getWriteQueueStatsCallback?: () => DiskWriteQueueStats | undefined
   public maxConnections: number
   public maxPeers: number
   public maxUploadSlots: number
@@ -328,6 +344,10 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   private static readonly BACKPRESSURE_LOW_WATER = 4 * 1024 * 1024
   /** Whether backpressure is currently active (reads paused on native side) */
   private backpressureActive: boolean = false
+  /** Whether verified-write backlog is currently applying backpressure. */
+  private writeQueueBackpressureActive: boolean = false
+  private readonly writeQueueBackpressureHighWater?: number
+  private readonly writeQueueBackpressureLowWater?: number
 
   // === Incoming Connection Protection ===
   /** Timeout for incoming connections to complete BT handshake (ms) */
@@ -429,6 +449,9 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     this.clientId = randomClientId()
     this.onLogCallback = options.onLog
     this.onEndOfTickCallback = options.onEndOfTick
+    this.getWriteQueueStatsCallback = options.getWriteQueueStats
+    this.writeQueueBackpressureHighWater = options.writeQueueBackpressureHighWater
+    this.writeQueueBackpressureLowWater = options.writeQueueBackpressureLowWater
     this.filterFn = createFilter(options.logging ?? { level: 'info' })
     this._suspended = options.startSuspended ?? false
 
@@ -528,6 +551,14 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   setLoggingConfig(config: EngineLoggingConfig): void {
     this.filterFn = createFilter(config)
     this.logger.info('Logging config updated', { level: config.level })
+  }
+
+  getWriteQueueStats(): DiskWriteQueueStats | undefined {
+    return this.getWriteQueueStatsCallback?.()
+  }
+
+  isWriteQueueBackpressured(): boolean {
+    return this.writeQueueBackpressureActive
   }
 
   /**
@@ -1818,18 +1849,56 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
    */
   private checkBackpressure(): void {
     const buffered = this.getTotalBufferedBytes()
+    const writeQueueStats = this.getWriteQueueStatsCallback?.()
+    const writeQueueBytes = writeQueueStats?.totalBytes ?? 0
+    const writeQueueHigh = this.writeQueueBackpressureHighWater
+    const writeQueueLow = this.writeQueueBackpressureLowWater ?? writeQueueHigh
 
-    if (!this.backpressureActive && buffered > BtEngine.BACKPRESSURE_HIGH_WATER) {
+    if (
+      writeQueueHigh !== undefined &&
+      writeQueueLow !== undefined &&
+      !this.writeQueueBackpressureActive &&
+      writeQueueBytes > writeQueueHigh
+    ) {
+      this.writeQueueBackpressureActive = true
+      this.logger.warn(
+        `Write queue backpressure ON: ${(writeQueueBytes / 1024 / 1024).toFixed(1)}MB queued ` +
+          `(${writeQueueStats?.pendingWrites ?? 0} pending, ${writeQueueStats?.inFlightWrites ?? 0} in-flight)`,
+      )
+    } else if (
+      this.writeQueueBackpressureActive &&
+      (writeQueueHigh === undefined ||
+        writeQueueLow === undefined ||
+        writeQueueBytes < writeQueueLow)
+    ) {
+      this.writeQueueBackpressureActive = false
+      this.logger.info(
+        `Write queue backpressure OFF: ${(writeQueueBytes / 1024 / 1024).toFixed(1)}MB queued`,
+      )
+    }
+
+    const shouldPauseReads =
+      buffered > BtEngine.BACKPRESSURE_HIGH_WATER || this.writeQueueBackpressureActive
+    const shouldResumeReads =
+      buffered < BtEngine.BACKPRESSURE_LOW_WATER && !this.writeQueueBackpressureActive
+
+    if (!this.backpressureActive && shouldPauseReads) {
       this.backpressureActive = true
       this.socketFactory.setBackpressure?.(true)
-      this.logger.warn(
-        `Backpressure ON: ${(buffered / 1024 / 1024).toFixed(1)}MB buffered across all peers`,
-      )
-    } else if (this.backpressureActive && buffered < BtEngine.BACKPRESSURE_LOW_WATER) {
+      const reasons: string[] = []
+      if (buffered > BtEngine.BACKPRESSURE_HIGH_WATER) {
+        reasons.push(`${(buffered / 1024 / 1024).toFixed(1)}MB peer buffered`)
+      }
+      if (this.writeQueueBackpressureActive) {
+        reasons.push(`${(writeQueueBytes / 1024 / 1024).toFixed(1)}MB write queued`)
+      }
+      this.logger.warn(`Backpressure ON: ${reasons.join(', ')}`)
+    } else if (this.backpressureActive && shouldResumeReads) {
       this.backpressureActive = false
       this.socketFactory.setBackpressure?.(false)
       this.logger.info(
-        `Backpressure OFF: ${(buffered / 1024 / 1024).toFixed(1)}MB buffered across all peers`,
+        `Backpressure OFF: ${(buffered / 1024 / 1024).toFixed(1)}MB peer buffered, ` +
+          `${(writeQueueBytes / 1024 / 1024).toFixed(1)}MB write queued`,
       )
     }
   }

@@ -11,7 +11,13 @@
  *   4. Results returned via __jstorrent_file_dispatch_batch
  */
 
-import type { IDiskQueue, DiskJob, DiskQueueSnapshot, PendingJob } from '../../core/disk-queue'
+import type {
+  IDiskQueue,
+  DiskJob,
+  DiskQueueSnapshot,
+  DiskWriteQueueStats,
+  PendingJob,
+} from '../../core/disk-queue'
 import { toHex } from '../../utils/buffer'
 import { HashMismatchError } from './native-file-handle'
 import './bindings.d.ts'
@@ -178,6 +184,9 @@ interface BatchWriteMetrics {
 
 export class NativeBatchingDiskQueue implements IDiskQueue {
   private pending: PendingVerifiedWrite[] = []
+  private _pendingBytes = 0
+  private _inFlightWrites = 0
+  private _inFlightBytes = 0
 
   /** Performance metrics for monitoring batch efficiency */
   private metrics: BatchWriteMetrics = {
@@ -212,6 +221,11 @@ export class NativeBatchingDiskQueue implements IDiskQueue {
         bytesWrittenStr: string | number,
         resultCodeStr: string | number,
       ) => {
+        delete globalThis.__jstorrent_file_write_callbacks[callbackId]
+
+        this._inFlightWrites = Math.max(0, this._inFlightWrites - 1)
+        this._inFlightBytes = Math.max(0, this._inFlightBytes - data.byteLength)
+
         const bytesWritten = Number(bytesWrittenStr)
         const resultCode = Number(resultCodeStr)
 
@@ -236,6 +250,7 @@ export class NativeBatchingDiskQueue implements IDiskQueue {
         resolve,
         reject,
       })
+      this._pendingBytes += data.byteLength
     })
   }
 
@@ -266,33 +281,44 @@ export class NativeBatchingDiskQueue implements IDiskQueue {
 
       const batch = this.pending.slice(offset, offset + batchCount)
 
-      // Time the packing phase
-      const packStart = Date.now()
-      const packed = packVerifiedWriteBatch(batch)
-      const packEnd = Date.now()
-      const packTimeMs = packEnd - packStart
+      this._pendingBytes -= batchBytes
+      this._inFlightWrites += batchCount
+      this._inFlightBytes += batchBytes
 
-      // Time the FFI call
-      const ffiStart = Date.now()
-      __jstorrent_file_write_verified_batch(packed)
-      const ffiEnd = Date.now()
-      const ffiTimeMs = ffiEnd - ffiStart
+      try {
+        // Time the packing phase
+        const packStart = Date.now()
+        const packed = packVerifiedWriteBatch(batch)
+        const packEnd = Date.now()
+        const packTimeMs = packEnd - packStart
 
-      // Update metrics
-      this.metrics.totalWrites += batchCount
-      this.metrics.totalBytes += batchBytes
-      this.metrics.totalPackTimeMs += packTimeMs
-      this.metrics.totalFfiTimeMs += ffiTimeMs
-      this.metrics.batchCount++
+        // Time the FFI call
+        const ffiStart = Date.now()
+        __jstorrent_file_write_verified_batch(packed)
+        const ffiEnd = Date.now()
+        const ffiTimeMs = ffiEnd - ffiStart
 
-      // Log individual batch if it's significant (>1 write or notable time)
-      if (batchCount > 1 || ffiTimeMs > 5) {
-        const dataMB = (batchBytes / (1024 * 1024)).toFixed(2)
-        const packedKB = (packed.byteLength / 1024).toFixed(1)
-        console.log(
-          `[BatchWrite] ${batchCount} writes, ${dataMB}MB data, packed ${packedKB}KB, ` +
-            `pack ${packTimeMs}ms, FFI ${ffiTimeMs}ms`,
-        )
+        // Update metrics
+        this.metrics.totalWrites += batchCount
+        this.metrics.totalBytes += batchBytes
+        this.metrics.totalPackTimeMs += packTimeMs
+        this.metrics.totalFfiTimeMs += ffiTimeMs
+        this.metrics.batchCount++
+
+        // Log individual batch if it's significant (>1 write or notable time)
+        if (batchCount > 1 || ffiTimeMs > 5) {
+          const dataMB = (batchBytes / (1024 * 1024)).toFixed(2)
+          const packedKB = (packed.byteLength / 1024).toFixed(1)
+          console.log(
+            `[BatchWrite] ${batchCount} writes, ${dataMB}MB data, packed ${packedKB}KB, ` +
+              `pack ${packTimeMs}ms, FFI ${ffiTimeMs}ms`,
+          )
+        }
+      } catch (error) {
+        this._pendingBytes += batchBytes
+        this._inFlightWrites -= batchCount
+        this._inFlightBytes -= batchBytes
+        throw error
       }
 
       offset += batchCount
@@ -345,7 +371,34 @@ export class NativeBatchingDiskQueue implements IDiskQueue {
    * Get total bytes in pending writes.
    */
   get pendingBytes(): number {
-    return this.pending.reduce((sum, w) => sum + w.data.byteLength, 0)
+    return this._pendingBytes
+  }
+
+  get inFlightWrites(): number {
+    return this._inFlightWrites
+  }
+
+  get inFlightBytes(): number {
+    return this._inFlightBytes
+  }
+
+  get totalQueuedWrites(): number {
+    return this.pending.length + this._inFlightWrites
+  }
+
+  get totalQueuedBytes(): number {
+    return this._pendingBytes + this._inFlightBytes
+  }
+
+  getPressureStats(): DiskWriteQueueStats {
+    return {
+      pendingWrites: this.pending.length,
+      pendingBytes: this._pendingBytes,
+      inFlightWrites: this._inFlightWrites,
+      inFlightBytes: this._inFlightBytes,
+      totalWrites: this.totalQueuedWrites,
+      totalBytes: this.totalQueuedBytes,
+    }
   }
 
   /**
@@ -399,6 +452,7 @@ export class NativeBatchingDiskQueue implements IDiskQueue {
       item.reject(new Error('Disk queue cleared (torrent stopped)'))
     }
     this.pending = []
+    this._pendingBytes = 0
   }
 
   /**

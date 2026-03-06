@@ -18,6 +18,15 @@ export interface DiskQueueSnapshot {
   draining: boolean
 }
 
+export interface DiskWriteQueueStats {
+  pendingWrites: number
+  pendingBytes: number
+  inFlightWrites: number
+  inFlightBytes: number
+  totalWrites: number
+  totalBytes: number
+}
+
 export interface IDiskQueue {
   enqueue(
     job: Omit<DiskJob, 'id' | 'status' | 'enqueuedAt'>,

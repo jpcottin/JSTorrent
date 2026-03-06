@@ -578,6 +578,7 @@ export class Torrent extends EngineComponent {
       getUploader: () => this._uploader,
       getActivePieces: () => this.activePieces,
       getDiskQueue: () => this._diskQueue,
+      getWriteQueueStats: () => this.btEngine.getWriteQueueStats(),
 
       // Bandwidth
       isDownloadRateLimited: () => this.btEngine.bandwidthTracker.isDownloadRateLimited(),
@@ -2436,6 +2437,7 @@ export class Torrent extends EngineComponent {
       getBitfield: () => this._bitfield,
       isKillSwitchEnabled: () => this.isKillSwitchEnabled,
       isNetworkActive: () => this._networkActive,
+      isWriteQueueBackpressured: () => this.btEngine.isWriteQueueBackpressured(),
       hasMetadata: () => this.hasMetadata,
       getConnectedPeerCount: () => this.connectedPeers.length,
       getCompletedPieceCount: () => this.completedPiecesCount,
