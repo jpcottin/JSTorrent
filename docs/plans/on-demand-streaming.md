@@ -2,6 +2,8 @@
 
 Stream video from an in-progress torrent with instant seek, codec transcoding, and no HTTP server.
 
+See also: [streaming-ui-vision.md](streaming-ui-vision.md) for the UI vision (overlay vs standalone web page, RPC protocol, `jstorrent.com/watch`, package structure, phased rollout).
+
 ## Motivation
 
 The legacy implementation (`jstorrent-legacy-app/gui/media.js`, `webhandlers.js`) ran an HTTP server inside the Chrome extension and pointed a `<video>` element at `/stream?hash=X&file=Y`. The browser made Range requests; jstorrent translated those into torrent piece priorities via a "bridge" pattern. This worked but had major limitations:
@@ -14,19 +16,95 @@ The legacy implementation (`jstorrent-legacy-app/gui/media.js`, `webhandlers.js`
 
 ## Architecture
 
+### Library Split: playsvideo + jstorrent
+
+Playsvideo is restructured from a web app into a **library + app**. The library handles everything video: container parsing, segment planning, hls.js integration, audio transcoding. It accepts a Source (the mediabunny abstraction for byte-level reads) and a `<video>` element.
+
+```typescript
+import { PlaysVideoEngine } from 'playsvideo'
+
+const engine = new PlaysVideoEngine(videoElement, source)
+await engine.load()    // parse container, build segment plan, start playback
+engine.destroy()       // cleanup
+```
+
+**playsvideo (library)** owns:
+- Container parsing (mediabunny demux)
+- Keyframe index extraction
+- Segment plan building
+- hls.js + fLoader integration
+- Audio codec probe + ffmpeg.wasm transcoding
+- Abort/cancellation at the segment processing layer
+
+**jstorrent** owns:
+- The Source implementation (torrent-piece-backed byte reads)
+- Piece prioritization (which pieces to download first)
+- Player UI (piece availability canvas, controls)
+- Mapping segment byte ranges to torrent pieces
+
+### Source Interface
+
+The Source is the only integration point. It implements mediabunny's read abstraction:
+
+```typescript
+_read(start, end, signal?: AbortSignal) → ReadResult | Promise<ReadResult> | null
+```
+
+- Returns data if the byte range is available (pieces downloaded).
+- Returns a `Promise` if the data is not yet available (pieces being prioritized/downloaded).
+- Returns `null` if the data cannot be obtained.
+
+Playsvideo doesn't know where bytes come from — local file, torrent, HTTP, whatever. The Source is the boundary.
+
 ### Pipeline
 
 ```
-torrent pieces → mediabunny (demux) → ffmpeg.wasm (transcode if needed) → fMP4 segments → hls.js (fLoader) → MSE → <video>
+torrent pieces → Source → mediabunny (demux) → ffmpeg.wasm (transcode if needed) → fMP4 segments → hls.js (fLoader) → MSE → <video>
 ```
-
-This is the same pipeline as [playsvideo](https://playsvideo.com), with the torrent engine as the byte source instead of a local file.
 
 ### Key Components
 
 - **hls.js with `fLoader`** — programmatic segment loading, no HTTP server or service worker needed. hls.js requests segments by index; our loader returns bytes directly from JavaScript.
 - **mediabunny** — demuxes MP4 and MKV containers, produces encoded packets for remuxing into fMP4 segments.
 - **ffmpeg.wasm (audio-only build, 1.5MB)** — transcodes AC3/EAC3/DTS/FLAC/etc. to AAC on the fly. Lazy-loaded only when the codec probe detects an unsupported audio codec.
+
+### Abort/Cancellation
+
+Uses the standard `AbortController`/`AbortSignal` pattern (same as `fetch()`).
+
+**Flow on seek:**
+1. hls.js calls `abort()` on fLoader for in-flight segments
+2. playsvideo calls `controller.abort()` — signals fire
+3. jstorrent's Source listener deprioritizes those torrent pieces, rejects pending promises
+4. playsvideo discards any in-flight demux/transcode results
+5. hls.js requests new segments at the seek position
+6. playsvideo calls `source._read(start, end, newSignal)` with a fresh signal
+
+**jstorrent Source implementation:**
+```typescript
+_read(start, end, signal) {
+  const pieces = this.piecesForRange(start, end)
+  this.prioritize(pieces)
+
+  signal?.addEventListener('abort', () => {
+    this.deprioritize(pieces)
+  })
+
+  return new Promise((resolve, reject) => {
+    signal?.addEventListener('abort', () => {
+      reject(new DOMException('Aborted', 'AbortError'))
+    })
+    this.onPiecesReady(pieces, () => {
+      resolve(this.readBytes(start, end))
+    })
+  })
+}
+```
+
+**Pipeline abort behavior:**
+- **Waiting on Source**: signal fires, promise rejects, pieces deprioritized
+- **Demuxing (mediabunny)**: fast/synchronous, let it finish, discard result
+- **Transcoding (ffmpeg.wasm)**: can't cancel mid-operation, let it finish, discard result
 
 ### Safari / iOS Compatibility
 
