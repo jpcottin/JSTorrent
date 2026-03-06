@@ -25,7 +25,9 @@ import com.jstorrent.quickjs.model.PieceInfo
 import com.jstorrent.quickjs.model.TorrentDetails
 import com.jstorrent.quickjs.model.DhtStats
 import com.jstorrent.quickjs.model.EngineStats
+import com.jstorrent.quickjs.model.EngineMemoryStats
 import com.jstorrent.quickjs.model.JsThreadStats
+import com.jstorrent.quickjs.model.QuickJsMemoryUsage
 import com.jstorrent.quickjs.model.SpeedSamplesResult
 import com.jstorrent.quickjs.model.UpnpStatus
 import kotlinx.coroutines.CoroutineScope
@@ -537,7 +539,7 @@ class EngineController(
             val json = JSONObject(result)
             AddTorrentResult(
                 ok = json.optBoolean("ok", false),
-                infoHash = json.optString("infoHash", null),
+                infoHash = if (json.isNull("infoHash")) null else json.optString("infoHash"),
                 isDuplicate = json.optBoolean("isDuplicate", false)
             )
         } catch (e: Exception) {
@@ -920,6 +922,35 @@ class EngineController(
             json.decodeFromString<EngineStats>(resultJson)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse engine stats", e)
+            null
+        }
+    }
+
+    /**
+     * Get detailed engine memory statistics from the JS side.
+     */
+    suspend fun getEngineMemoryStatsAsync(): EngineMemoryStats? {
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunctionAsync(
+            "__jstorrent_query_memory_stats"
+        ) as? String ?: return null
+        return try {
+            json.decodeFromString<EngineMemoryStats>(resultJson)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse engine memory stats", e)
+            null
+        }
+    }
+
+    /**
+     * Compute QuickJS runtime memory usage from the native runtime.
+     */
+    suspend fun getQuickJsMemoryUsageAsync(): QuickJsMemoryUsage? {
+        val eng = requireEngine()
+        return try {
+            eng.computeMemoryUsageAsync()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to compute QuickJS memory usage", e)
             null
         }
     }

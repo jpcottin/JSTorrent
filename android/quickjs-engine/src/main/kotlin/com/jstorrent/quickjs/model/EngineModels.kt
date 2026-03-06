@@ -367,6 +367,117 @@ data class EngineStats(
 )
 
 /**
+ * QuickJS runtime memory usage from JS_ComputeMemoryUsage().
+ */
+@Serializable
+data class QuickJsMemoryUsage(
+    val mallocSize: Long = 0,
+    val mallocLimit: Long = 0,
+    val memoryUsedSize: Long = 0,
+    val mallocCount: Long = 0,
+    val memoryUsedCount: Long = 0,
+    val atomCount: Long = 0,
+    val atomSize: Long = 0,
+    val strCount: Long = 0,
+    val strSize: Long = 0,
+    val objCount: Long = 0,
+    val objSize: Long = 0,
+    val propCount: Long = 0,
+    val propSize: Long = 0,
+    val shapeCount: Long = 0,
+    val shapeSize: Long = 0,
+    val jsFuncCount: Long = 0,
+    val jsFuncSize: Long = 0,
+    val jsFuncCodeSize: Long = 0,
+    val jsFuncPc2lineCount: Long = 0,
+    val jsFuncPc2lineSize: Long = 0,
+    val cFuncCount: Long = 0,
+    val arrayCount: Long = 0,
+    val fastArrayCount: Long = 0,
+    val fastArrayElements: Long = 0,
+    val binaryObjectCount: Long = 0,
+    val binaryObjectSize: Long = 0
+)
+
+@Serializable
+data class EngineMemoryBufferPoolStats(
+    val acquires: Int = 0,
+    val reuses: Int = 0,
+    val releases: Int = 0,
+    val pooled: Int = 0,
+    val bufferSize: Int = 0,
+    val pooledBytes: Long = 0,
+    val hitRate: Double = 0.0
+)
+
+@Serializable
+data class EngineMemoryPieceStats(
+    val total: Int = 0,
+    val partial: Int = 0,
+    val fullyRequested: Int = 0,
+    val fullyResponded: Int = 0
+)
+
+@Serializable
+data class EngineMemoryPeerStats(
+    val connected: Int = 0,
+    val connecting: Int = 0,
+    val known: Int = 0
+)
+
+@Serializable
+data class TorrentMemoryStats(
+    val infoHash: String,
+    val name: String,
+    val status: String,
+    val progress: Double,
+    val downloadSpeed: Long,
+    val pieceLength: Int,
+    val isEndgame: Boolean = false,
+    val activePieces: EngineMemoryPieceStats = EngineMemoryPieceStats(),
+    val bufferedBytes: Long = 0,
+    val bufferPool: EngineMemoryBufferPoolStats? = null,
+    val peers: EngineMemoryPeerStats = EngineMemoryPeerStats()
+)
+
+@Serializable
+data class EngineMemoryStats(
+    val torrentCount: Int = 0,
+    val activeDownloadingCount: Int = 0,
+    val totalActivePieces: Int = 0,
+    val totalBufferedBytes: Long = 0,
+    val totalConnectedPeers: Int = 0,
+    val totalKnownPeers: Int = 0,
+    val dhtNodeCount: Int? = null,
+    val torrents: List<TorrentMemoryStats> = emptyList()
+)
+
+data class AndroidProcessMemoryStats(
+    val totalPssKb: Int = 0,
+    val totalPrivateDirtyKb: Int = 0,
+    val nativeHeapAllocatedBytes: Long = 0,
+    val dalvikPssKb: Int = 0,
+    val nativePssKb: Int = 0,
+    val otherPssKb: Int = 0,
+    val jvmUsedBytes: Long = 0,
+    val jvmFreeBytes: Long = 0,
+    val jvmMaxBytes: Long = 0,
+    val systemAvailMemBytes: Long = 0,
+    val systemLowMemory: Boolean = false,
+    val systemThresholdBytes: Long = 0
+)
+
+data class AppMemorySnapshot(
+    val timestampMs: Long,
+    val appInForeground: Boolean,
+    val lastTrimLevel: Int? = null,
+    val lastTrimAtMs: Long? = null,
+    val process: AndroidProcessMemoryStats,
+    val quickJs: QuickJsMemoryUsage? = null,
+    val engine: EngineMemoryStats? = null
+)
+
+/**
  * DHT statistics from __jstorrent_query_dht_stats.
  * Used for debugging DHT operation.
  */

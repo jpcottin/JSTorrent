@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <android/log.h>
+#include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
 #include "quickjs.h"
@@ -694,4 +695,93 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeCallGlobalFunction(
     JS_FreeValue(ctx, result);
 
     return jresult;
+}
+
+// -----------------------------------------------------------------------------
+// JNI: Compute QuickJS runtime memory usage
+// Returns JSON string with JSMemoryUsage fields
+// -----------------------------------------------------------------------------
+JNIEXPORT jstring JNICALL
+Java_com_jstorrent_quickjs_QuickJsContext_nativeComputeMemoryUsage(
+    JNIEnv *env,
+    jclass clazz,
+    jlong ctxPtr
+) {
+    (void)clazz;
+
+    JSContext *ctx = (JSContext *)(intptr_t)ctxPtr;
+    if (!ctx) {
+        return NULL;
+    }
+
+    JSRuntime *rt = JS_GetRuntime(ctx);
+    JSMemoryUsage stats;
+    JS_ComputeMemoryUsage(rt, &stats);
+
+    char json[2048];
+    int written = snprintf(
+        json,
+        sizeof(json),
+        "{"
+        "\"mallocSize\":%" PRId64 ","
+        "\"mallocLimit\":%" PRId64 ","
+        "\"memoryUsedSize\":%" PRId64 ","
+        "\"mallocCount\":%" PRId64 ","
+        "\"memoryUsedCount\":%" PRId64 ","
+        "\"atomCount\":%" PRId64 ","
+        "\"atomSize\":%" PRId64 ","
+        "\"strCount\":%" PRId64 ","
+        "\"strSize\":%" PRId64 ","
+        "\"objCount\":%" PRId64 ","
+        "\"objSize\":%" PRId64 ","
+        "\"propCount\":%" PRId64 ","
+        "\"propSize\":%" PRId64 ","
+        "\"shapeCount\":%" PRId64 ","
+        "\"shapeSize\":%" PRId64 ","
+        "\"jsFuncCount\":%" PRId64 ","
+        "\"jsFuncSize\":%" PRId64 ","
+        "\"jsFuncCodeSize\":%" PRId64 ","
+        "\"jsFuncPc2lineCount\":%" PRId64 ","
+        "\"jsFuncPc2lineSize\":%" PRId64 ","
+        "\"cFuncCount\":%" PRId64 ","
+        "\"arrayCount\":%" PRId64 ","
+        "\"fastArrayCount\":%" PRId64 ","
+        "\"fastArrayElements\":%" PRId64 ","
+        "\"binaryObjectCount\":%" PRId64 ","
+        "\"binaryObjectSize\":%" PRId64
+        "}",
+        stats.malloc_size,
+        stats.malloc_limit,
+        stats.memory_used_size,
+        stats.malloc_count,
+        stats.memory_used_count,
+        stats.atom_count,
+        stats.atom_size,
+        stats.str_count,
+        stats.str_size,
+        stats.obj_count,
+        stats.obj_size,
+        stats.prop_count,
+        stats.prop_size,
+        stats.shape_count,
+        stats.shape_size,
+        stats.js_func_count,
+        stats.js_func_size,
+        stats.js_func_code_size,
+        stats.js_func_pc2line_count,
+        stats.js_func_pc2line_size,
+        stats.c_func_count,
+        stats.array_count,
+        stats.fast_array_count,
+        stats.fast_array_elements,
+        stats.binary_object_count,
+        stats.binary_object_size
+    );
+
+    if (written < 0 || written >= (int)sizeof(json)) {
+        LOGE("Failed to format QuickJS memory usage JSON");
+        return NULL;
+    }
+
+    return (*env)->NewStringUTF(env, json);
 }

@@ -770,6 +770,8 @@ export class ActivePieceManager extends EngineComponent {
     reuses: number
     releases: number
     pooled: number
+    bufferSize: number
+    pooledBytes: number
   } | null {
     return this.bufferPool?.stats ?? null
   }

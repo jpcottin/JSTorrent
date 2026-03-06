@@ -41,6 +41,12 @@ private const val TAG = "JSTorrent-Debug"
  * # Get peers for a torrent
  * adb shell am broadcast -a com.jstorrent.DEBUG --es cmd peers --es hash "abc123..."
  *
+ * # Remove torrent and delete data
+ * adb shell am broadcast -a com.jstorrent.DEBUG --es cmd remove --es hash "abc123..." --ez delete_files true
+ *
+ * # Get memory snapshot
+ * adb shell am broadcast -a com.jstorrent.DEBUG --es cmd memory
+ *
  * # Run FFI RTT benchmark
  * adb shell am broadcast -a com.jstorrent.DEBUG --es cmd rtt -p com.jstorrent.app
  * ```
@@ -66,27 +72,40 @@ class DebugReceiver : BroadcastReceiver() {
         }
 
         val controller = app.engineController
-        if (controller == null) {
-            Log.e(TAG, "Engine controller not initialized")
-            return
-        }
 
         when (cmd.lowercase()) {
-            "status" -> handleStatus(controller, app)
-            "eval" -> handleEval(controller, intent.getStringExtra("expr"))
-            "swarm" -> handleSwarm(controller, intent.getStringExtra("hash"))
-            "dht" -> handleDht(controller)
-            "torrents" -> handleTorrents(controller)
-            "loglevel" -> handleLogLevel(controller, intent.getStringExtra("level"))
-            "peers" -> handlePeers(controller, intent.getStringExtra("hash"))
+            "status" -> requireController(controller) { handleStatus(it, app) }
+            "eval" -> requireController(controller) { handleEval(it, intent.getStringExtra("expr")) }
+            "swarm" -> requireController(controller) { handleSwarm(it, intent.getStringExtra("hash")) }
+            "dht" -> requireController(controller) { handleDht(it) }
+            "torrents" -> requireController(controller) { handleTorrents(it) }
+            "loglevel" -> requireController(controller) { handleLogLevel(it, intent.getStringExtra("level")) }
+            "peers" -> requireController(controller) { handlePeers(it, intent.getStringExtra("hash")) }
+            "remove" -> handleRemove(
+                app,
+                intent.getStringExtra("hash"),
+                intent.getBooleanExtra("delete_files", true)
+            )
+            "memory" -> handleMemory(app)
             "power" -> handlePower(context)
-            "rtt" -> handleRttBenchmark(controller)
+            "rtt" -> requireController(controller) { handleRttBenchmark(it) }
             "help" -> logHelp()
             else -> {
                 Log.w(TAG, "Unknown command: $cmd")
                 logHelp()
             }
         }
+    }
+
+    private inline fun requireController(
+        controller: com.jstorrent.quickjs.EngineController?,
+        block: (com.jstorrent.quickjs.EngineController) -> Unit
+    ) {
+        if (controller == null) {
+            Log.e(TAG, "Engine controller not initialized")
+            return
+        }
+        block(controller)
     }
 
     private fun handleStatus(controller: com.jstorrent.quickjs.EngineController, app: JSTorrentApplication) {
@@ -204,6 +223,19 @@ class DebugReceiver : BroadcastReceiver() {
         }
     }
 
+    private fun handleMemory(app: JSTorrentApplication) {
+        scope.launch {
+            try {
+                val snapshot = app.captureMemorySnapshot()
+                formatMemoryDetails(snapshot).forEach { line ->
+                    Log.i(MEMORY_TAG, line)
+                }
+            } catch (e: Exception) {
+                Log.e(MEMORY_TAG, "Memory snapshot failed: ${e.message}", e)
+            }
+        }
+    }
+
     private fun handleTorrents(controller: com.jstorrent.quickjs.EngineController) {
         scope.launch {
             try {
@@ -281,6 +313,30 @@ class DebugReceiver : BroadcastReceiver() {
                 Log.i(TAG, "=== END PEERS ===")
             } catch (e: Exception) {
                 Log.e(TAG, "Peers list failed: ${e.message}", e)
+            }
+        }
+    }
+
+    private fun handleRemove(app: JSTorrentApplication, hash: String?, deleteFiles: Boolean) {
+        scope.launch {
+            try {
+                val controller = app.ensureEngineStarted()
+                val infoHash = hash ?: run {
+                    val torrents = controller.getTorrentListAsync()
+                    if (torrents.isEmpty()) {
+                        Log.i(TAG, "No torrents to remove")
+                        return@launch
+                    }
+                    torrents.first().infoHash.also {
+                        Log.i(TAG, "Using first torrent for remove: $it")
+                    }
+                }
+
+                Log.i(TAG, "Removing torrent: $infoHash (deleteFiles=$deleteFiles)")
+                controller.removeTorrentAsync(infoHash, deleteFiles)
+                Log.i(TAG, "Remove completed: $infoHash")
+            } catch (e: Exception) {
+                Log.e(TAG, "Remove failed: ${e.message}", e)
             }
         }
     }
@@ -393,6 +449,8 @@ class DebugReceiver : BroadcastReceiver() {
         Log.i(TAG, "  dht                 - DHT statistics")
         Log.i(TAG, "  torrents            - List all torrents with details")
         Log.i(TAG, "  peers [--es hash X] - List connected peers")
+        Log.i(TAG, "  remove [--es hash X] [--ez delete_files true] - Remove torrent, default deleteFiles=true")
+        Log.i(TAG, "  memory              - Memory snapshot (process, QuickJS, engine)")
         Log.i(TAG, "  power               - Power/Doze state info")
         Log.i(TAG, "  rtt                 - FFI RTT benchmark (Kotlin<->JS crossing overhead)")
         Log.i(TAG, "  loglevel --es level X - Set log level (debug/info/warn/error)")

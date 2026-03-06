@@ -1,13 +1,19 @@
 package com.jstorrent.app
 
+import android.app.ActivityManager
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.net.Uri
+import android.os.Debug
+import android.os.Process
 import android.util.Log
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import com.jstorrent.app.cache.TorrentSummaryCache
+import com.jstorrent.app.debug.MEMORY_TAG
+import com.jstorrent.app.debug.formatMemorySummary
+import com.jstorrent.app.debug.trimLevelName
 import com.jstorrent.app.network.NetworkRestrictionEnforcer
 import com.jstorrent.app.notification.TorrentNotificationManager
 import com.jstorrent.app.viewmodel.EngineServiceRepository
@@ -18,6 +24,8 @@ import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.app.storage.RootStore
 import com.jstorrent.quickjs.model.TorrentSummary
 import com.jstorrent.quickjs.EngineController
+import com.jstorrent.quickjs.model.AndroidProcessMemoryStats
+import com.jstorrent.quickjs.model.AppMemorySnapshot
 import com.jstorrent.quickjs.storage.AndroidConfigHub
 import com.jstorrent.quickjs.storage.SqliteKVStore
 import com.jstorrent.quickjs.model.ContentRoot
@@ -26,6 +34,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +42,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 private const val TAG = "JSTorrentApplication"
+private const val MEMORY_LOG_INTERVAL_MS = 30_000L
 
 /**
  * Application class for JSTorrent.
@@ -219,6 +229,18 @@ class JSTorrentApplication : Application() {
         )
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        lastTrimLevel = level
+        lastTrimAtMs = System.currentTimeMillis()
+        val foreground = if (::serviceLifecycleManager.isInitialized) {
+            serviceLifecycleManager.isActivityForeground.value
+        } else {
+            false
+        }
+        Log.w(MEMORY_TAG, "[TRIM] level=$level (${trimLevelName(level)}) foreground=$foreground")
+    }
+
     /**
      * Completely shut down the engine when going to background.
      * This stops the 100ms tick loop and all intervals to prevent battery drain.
@@ -335,6 +357,13 @@ class JSTorrentApplication : Application() {
 
     // Job for torrent state observation - must be canceled on engine shutdown
     private var torrentStateObservationJob: Job? = null
+    private var periodicMemoryLoggingJob: Job? = null
+
+    @Volatile
+    private var lastTrimLevel: Int? = null
+
+    @Volatile
+    private var lastTrimAtMs: Long? = null
 
     // State tracking for completion/error notifications
     private data class TorrentStateSnapshot(val progress: Double, val status: String)
@@ -467,6 +496,8 @@ class JSTorrentApplication : Application() {
 
             torrentStateObservationJob?.cancel()
             torrentStateObservationJob = null
+            periodicMemoryLoggingJob?.cancel()
+            periodicMemoryLoggingJob = null
 
             // Reset completion tracking for next engine start
             previousTorrentStates.clear()
@@ -528,8 +559,79 @@ class JSTorrentApplication : Application() {
                 // which may stop the foreground service
                 checkTorrentStateTransitions(torrents)
                 serviceLifecycleManager.onTorrentStateChanged(torrents)
+                updatePeriodicMemoryLogging(torrents)
             }
         }
+    }
+
+    private fun updatePeriodicMemoryLogging(torrents: List<TorrentSummary>) {
+        val shouldLog = torrents.any {
+            it.status == "downloading" || it.status == "downloading_metadata" || it.status == "checking"
+        }
+
+        if (shouldLog && periodicMemoryLoggingJob == null) {
+            Log.i(MEMORY_TAG, "[MARK] periodic memory logging enabled")
+            periodicMemoryLoggingJob = engineScope.launch {
+                while (true) {
+                    try {
+                        val snapshot = captureMemorySnapshot()
+                        Log.i(MEMORY_TAG, formatMemorySummary(snapshot, reason = "periodic"))
+                    } catch (e: Exception) {
+                        Log.e(MEMORY_TAG, "Periodic memory snapshot failed: ${e.message}", e)
+                    }
+                    delay(MEMORY_LOG_INTERVAL_MS)
+                }
+            }
+        } else if (!shouldLog && periodicMemoryLoggingJob != null) {
+            Log.i(MEMORY_TAG, "[MARK] periodic memory logging disabled")
+            periodicMemoryLoggingJob?.cancel()
+            periodicMemoryLoggingJob = null
+        }
+    }
+
+    fun getLastTrimInfo(): Pair<Int?, Long?> = Pair(lastTrimLevel, lastTrimAtMs)
+
+    suspend fun captureMemorySnapshot(): AppMemorySnapshot {
+        val controller = _engineController
+        val activityManager = getSystemService(ActivityManager::class.java)
+        val processInfo = activityManager
+            ?.getProcessMemoryInfo(intArrayOf(Process.myPid()))
+            ?.firstOrNull()
+        val systemInfo = ActivityManager.MemoryInfo()
+        activityManager?.getMemoryInfo(systemInfo)
+
+        val runtime = Runtime.getRuntime()
+        val process = AndroidProcessMemoryStats(
+            totalPssKb = processInfo?.totalPss ?: 0,
+            totalPrivateDirtyKb = processInfo?.totalPrivateDirty ?: 0,
+            nativeHeapAllocatedBytes = Debug.getNativeHeapAllocatedSize(),
+            dalvikPssKb = processInfo?.dalvikPss ?: 0,
+            nativePssKb = processInfo?.nativePss ?: 0,
+            otherPssKb = processInfo?.otherPss ?: 0,
+            jvmUsedBytes = runtime.totalMemory() - runtime.freeMemory(),
+            jvmFreeBytes = runtime.freeMemory(),
+            jvmMaxBytes = runtime.maxMemory(),
+            systemAvailMemBytes = systemInfo.availMem,
+            systemLowMemory = systemInfo.lowMemory,
+            systemThresholdBytes = systemInfo.threshold
+        )
+
+        val quickJs = controller?.getQuickJsMemoryUsageAsync()
+        val engine = controller?.getEngineMemoryStatsAsync()
+
+        return AppMemorySnapshot(
+            timestampMs = System.currentTimeMillis(),
+            appInForeground = if (::serviceLifecycleManager.isInitialized) {
+                serviceLifecycleManager.isActivityForeground.value
+            } else {
+                false
+            },
+            lastTrimLevel = lastTrimLevel,
+            lastTrimAtMs = lastTrimAtMs,
+            process = process,
+            quickJs = quickJs,
+            engine = engine
+        )
     }
 
     /**

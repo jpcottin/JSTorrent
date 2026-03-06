@@ -1056,6 +1056,26 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
   }
 
   /**
+   * Get a memory-oriented engine snapshot for Android instrumentation.
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_query_memory_stats = (): string => {
+    const engine = requireEngine('query_memory_stats')
+    if (!engine) {
+      return JSON.stringify({
+        torrentCount: 0,
+        activeDownloadingCount: 0,
+        totalActivePieces: 0,
+        totalBufferedBytes: 0,
+        totalConnectedPeers: 0,
+        totalKnownPeers: 0,
+        dhtNodeCount: null,
+        torrents: [],
+      })
+    }
+    return JSON.stringify(engine.getMemoryStats())
+  }
+
+  /**
    * Get UPnP status information.
    * Returns status, external IP if mapped, and the listening port.
    */

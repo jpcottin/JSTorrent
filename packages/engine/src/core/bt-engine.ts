@@ -73,6 +73,48 @@ export interface EngineTickResult {
   pendingDiskWrites: number
 }
 
+export interface TorrentMemoryStats {
+  infoHash: string
+  name: string
+  status: string
+  progress: number
+  downloadSpeed: number
+  pieceLength: number
+  isEndgame: boolean
+  activePieces: {
+    total: number
+    partial: number
+    fullyRequested: number
+    fullyResponded: number
+  }
+  bufferedBytes: number
+  bufferPool: {
+    acquires: number
+    reuses: number
+    releases: number
+    pooled: number
+    bufferSize: number
+    pooledBytes: number
+    hitRate: number
+  } | null
+  peers: {
+    connected: number
+    connecting: number
+    known: number
+  }
+}
+
+export interface EngineMemoryStats {
+  torrentCount: number
+  activeDownloadingCount: number
+  totalActivePieces: number
+  totalBufferedBytes: number
+  totalConnectedPeers: number
+  totalKnownPeers: number
+  dhtNodeCount: number | null
+  torrents: TorrentMemoryStats[]
+}
+
 // === Unified Daemon Operation Queue Types ===
 
 /**
@@ -1220,6 +1262,62 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       activePieces,
       connectedPeers,
       activeTorrents,
+    }
+  }
+
+  getMemoryStats(): EngineMemoryStats {
+    const torrents = this.torrents.map((torrent) => {
+      const activePieces = torrent.getActivePieceManager()
+      const bufferPool = activePieces?.bufferPoolStats ?? null
+      const swarm = torrent.swarm
+      const hitRate =
+        bufferPool && bufferPool.acquires > 0 ? bufferPool.reuses / bufferPool.acquires : 0
+
+      return {
+        infoHash: toHex(torrent.infoHash),
+        name: torrent.name,
+        status: torrent.activityState,
+        progress: torrent.progress,
+        downloadSpeed: torrent.downloadSpeed,
+        pieceLength: torrent.pieceLength,
+        isEndgame: torrent.isEndgame,
+        activePieces: {
+          total: activePieces?.activeCount ?? 0,
+          partial: activePieces?.partialCount ?? 0,
+          fullyRequested: activePieces?.fullyRequestedCount ?? 0,
+          fullyResponded: activePieces?.fullyRespondedCount ?? 0,
+        },
+        bufferedBytes: activePieces?.totalBufferedBytes ?? 0,
+        bufferPool: bufferPool
+          ? {
+              acquires: bufferPool.acquires,
+              reuses: bufferPool.reuses,
+              releases: bufferPool.releases,
+              pooled: bufferPool.pooled,
+              bufferSize: bufferPool.bufferSize,
+              pooledBytes: bufferPool.pooledBytes,
+              hitRate,
+            }
+          : null,
+        peers: {
+          connected: torrent.numPeers,
+          connecting: swarm.byState.connecting,
+          known: swarm.total,
+        },
+      }
+    })
+
+    return {
+      torrentCount: this.torrents.length,
+      activeDownloadingCount: torrents.filter((torrent) =>
+        ['downloading', 'downloading_metadata', 'checking'].includes(torrent.status),
+      ).length,
+      totalActivePieces: torrents.reduce((sum, torrent) => sum + torrent.activePieces.total, 0),
+      totalBufferedBytes: torrents.reduce((sum, torrent) => sum + torrent.bufferedBytes, 0),
+      totalConnectedPeers: torrents.reduce((sum, torrent) => sum + torrent.peers.connected, 0),
+      totalKnownPeers: torrents.reduce((sum, torrent) => sum + torrent.peers.known, 0),
+      dhtNodeCount: this.dhtNode?.getStats().nodeCount ?? null,
+      torrents,
     }
   }
 

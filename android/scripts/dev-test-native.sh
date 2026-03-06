@@ -35,6 +35,7 @@ BUILD_BUNDLE=true
 BUILD_TYPE="debug"
 STORAGE_MODE=""
 CLEAR_STORAGE=false
+LAUNCH_APP=true
 SIZE="100mb"
 DEVICE_NAME=""
 MAGNET=""
@@ -50,6 +51,7 @@ usage() {
     echo "Options:"
     echo "  --no-build         Skip gradle build AND engine bundle"
     echo "  --no-bundle        Skip engine bundle build only"
+    echo "  --no-launch        Build/install only, do not launch the activity"
     echo "  --release          Build release APK instead of debug"
     echo "  --clear            Clear app storage before launching"
     echo "  --size SIZE        Test torrent size: 100mb (default) or 1gb"
@@ -76,6 +78,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-bundle)
             BUILD_BUNDLE=false
+            shift
+            ;;
+        --no-launch)
+            LAUNCH_APP=false
             shift
             ;;
         --release)
@@ -228,6 +234,14 @@ case "$DEVICE_TYPE" in
         ssh "$SSH_HOST" "$REMOTE_ADB install -r -t '$REMOTE_APK'"
         ;;
 esac
+
+if ! $LAUNCH_APP; then
+    echo ""
+    echo "=== Install Complete on $DEVICE_NAME ==="
+    echo ""
+    echo "App installed but not launched (--no-launch)"
+    exit 0
+fi
 
 # --- Step 4: Launch NativeStandaloneActivity with magnet URL ---
 echo ""

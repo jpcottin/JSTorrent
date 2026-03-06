@@ -1,7 +1,9 @@
 package com.jstorrent.quickjs
 
 import androidx.annotation.Keep
+import com.jstorrent.quickjs.model.QuickJsMemoryUsage
 import java.io.Closeable
+import kotlinx.serialization.json.Json
 
 /**
  * A QuickJS JavaScript runtime context.
@@ -12,6 +14,7 @@ import java.io.Closeable
 class QuickJsContext private constructor(
     private var contextPtr: Long
 ) : Closeable {
+    private val json = Json { ignoreUnknownKeys = true }
 
     companion object {
         init {
@@ -61,6 +64,9 @@ class QuickJsContext private constructor(
             binaryArg: ByteArray?,
             binaryArgIndex: Int
         ): Any?
+
+        @JvmStatic
+        private external fun nativeComputeMemoryUsage(ctxPtr: Long): String?
     }
 
     /**
@@ -197,6 +203,15 @@ class QuickJsContext private constructor(
     fun executePendingJob(): Boolean {
         checkNotClosed()
         return nativeExecutePendingJob(contextPtr)
+    }
+
+    /**
+     * Compute QuickJS runtime memory usage.
+     */
+    fun computeMemoryUsage(): QuickJsMemoryUsage? {
+        checkNotClosed()
+        val payload = nativeComputeMemoryUsage(contextPtr) ?: return null
+        return json.decodeFromString<QuickJsMemoryUsage>(payload)
     }
 
     /**

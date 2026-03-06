@@ -51,6 +51,18 @@ object E2ETestConfig {
     const val FULL_DOWNLOAD_TIMEOUT_MS = 20_000L
 
     /**
+     * Timeout for initial 1GB download progress checks (milliseconds).
+     * Gives the engine enough time to load metadata and start piece transfer.
+     */
+    const val DOWNLOAD_PROGRESS_1GB_TIMEOUT_MS = 30_000L
+
+    /**
+     * Timeout for full 1GB download completion (milliseconds).
+     * The emulator-host seeder path is fast, but we still want enough slack for CI.
+     */
+    const val FULL_DOWNLOAD_1GB_TIMEOUT_MS = 300_000L
+
+    /**
      * Polling interval for checking engine/torrent state (milliseconds).
      */
     const val POLL_INTERVAL_MS = 500L

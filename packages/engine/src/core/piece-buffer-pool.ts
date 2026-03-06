@@ -85,12 +85,21 @@ export class PieceBufferPool {
   /**
    * Get pool statistics for debugging.
    */
-  get stats(): { acquires: number; reuses: number; releases: number; pooled: number } {
+  get stats(): {
+    acquires: number
+    reuses: number
+    releases: number
+    pooled: number
+    bufferSize: number
+    pooledBytes: number
+  } {
     return {
       acquires: this._acquireCount,
       reuses: this._reuseCount,
       releases: this._releaseCount,
       pooled: this.available.length,
+      bufferSize: this.bufferSize,
+      pooledBytes: this.available.length * this.bufferSize,
     }
   }
 }

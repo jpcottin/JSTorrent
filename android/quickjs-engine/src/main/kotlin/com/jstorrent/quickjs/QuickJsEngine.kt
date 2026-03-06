@@ -1,6 +1,7 @@
 package com.jstorrent.quickjs
 
 import android.util.Log
+import com.jstorrent.quickjs.model.QuickJsMemoryUsage
 import java.io.Closeable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
@@ -219,6 +220,29 @@ class QuickJsEngine : Closeable {
     }
 
     /**
+     * Compute QuickJS runtime memory usage on the JS thread.
+     */
+    fun computeMemoryUsage(): QuickJsMemoryUsage? {
+        val result = AtomicReference<QuickJsMemoryUsage?>()
+        val error = AtomicReference<Throwable?>()
+        val latch = CountDownLatch(1)
+
+        jsThread.post {
+            try {
+                result.set(context.computeMemoryUsage())
+            } catch (e: Throwable) {
+                error.set(e)
+            } finally {
+                latch.countDown()
+            }
+        }
+
+        latch.await()
+        error.get()?.let { throw it }
+        return result.get()
+    }
+
+    /**
      * Schedule a timeout (setTimeout equivalent).
      * The callback runs on the JS thread.
      */
@@ -328,6 +352,21 @@ class QuickJsEngine : Closeable {
                 try {
                     val result = context.evaluate(script, filename)
                     cont.resume(result)
+                } catch (e: Throwable) {
+                    cont.resumeWithException(e)
+                }
+            }
+        }
+    }
+
+    /**
+     * Compute QuickJS runtime memory usage (suspend version).
+     */
+    suspend fun computeMemoryUsageAsync(): QuickJsMemoryUsage? {
+        return suspendCancellableCoroutine { cont ->
+            jsThread.post {
+                try {
+                    cont.resume(context.computeMemoryUsage())
                 } catch (e: Throwable) {
                     cont.resumeWithException(e)
                 }

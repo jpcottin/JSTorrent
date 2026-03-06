@@ -192,4 +192,44 @@ class DownloadE2ETest : E2EBaseTest() {
         assertTrue("Progress should be 100%", finalTorrent!!.progress >= 0.99)
         Log.i(TAG, "Download complete: ${finalTorrent.downloaded} bytes")
     }
+
+    /**
+     * Full download test for the deterministic 1GB fixture.
+     *
+     * This is the instrumentation path we want for memory measurement because it runs with
+     * the same null-storage setup as the smaller E2E tests, avoiding SAF and activity-only
+     * startup differences.
+     */
+    @Test
+    fun fullDownload_1gb_completes() {
+        val controller = requireController()
+        val magnet = TestMagnets.getMagnetForTest(arguments, "1gb")
+        val expectedHash = TestMagnets.InfoHashes.TEST_1GB
+
+        Log.i(TAG, "Starting full 1GB download test")
+        controller.addTorrent(magnet)
+
+        waitForTorrent(expectedHash)
+        waitForPeers(expectedHash, timeoutMs = E2ETestConfig.DOWNLOAD_PROGRESS_1GB_TIMEOUT_MS)
+
+        val madeProgress = waitForProgress(
+            expectedHash,
+            minProgress = 0.01,
+            timeoutMs = E2ETestConfig.DOWNLOAD_PROGRESS_1GB_TIMEOUT_MS
+        )
+        assertTrue("1GB download should make initial progress", madeProgress)
+
+        val completed = waitForComplete(
+            expectedHash,
+            timeoutMs = E2ETestConfig.FULL_DOWNLOAD_1GB_TIMEOUT_MS
+        )
+        logTorrentState()
+
+        assertTrue("1GB download should complete", completed)
+
+        val finalTorrent = getTorrentByHash(expectedHash)
+        assertNotNull(finalTorrent)
+        assertTrue("Progress should be 100%", finalTorrent!!.progress >= 0.99)
+        Log.i(TAG, "1GB download complete: ${finalTorrent.downloaded} bytes")
+    }
 }

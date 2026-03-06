@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.annotation.VisibleForTesting
 import com.jstorrent.app.cache.TorrentSummaryCache
+import com.jstorrent.app.debug.MEMORY_TAG
 import com.jstorrent.app.settings.SettingsStore
 import com.jstorrent.quickjs.model.TorrentSummary
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,6 +59,7 @@ class ServiceLifecycleManager(
      */
     fun onActivityStart() {
         Log.d(TAG, "Activity started (foreground)")
+        Log.i(MEMORY_TAG, "[MARK] app_foreground")
         _isActivityForeground.value = true
         hasEverBeenForeground = true
         userRequestedQuit = false  // Reset quit flag when user returns to app
@@ -85,6 +87,7 @@ class ServiceLifecycleManager(
      */
     fun onActivityStop() {
         Log.d(TAG, "Activity stopped (background)")
+        Log.i(MEMORY_TAG, "[MARK] app_background")
         _isActivityForeground.value = false
         updateServiceState()
     }
