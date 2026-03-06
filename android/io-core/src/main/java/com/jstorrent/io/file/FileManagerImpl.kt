@@ -5,10 +5,13 @@ import android.net.Uri
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import android.provider.DocumentsContract
+import android.system.ErrnoException
+import android.system.Os
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import java.nio.channels.FileChannel
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
@@ -16,6 +19,7 @@ import kotlin.concurrent.withLock
 
 private const val TAG = "FileManagerImpl"
 private const val SAF_VALIDATION_INTERVAL_MS = 10_000L
+private const val SAF_IO_CHUNK_SIZE = 256 * 1024
 
 /**
  * Pooled file handle using FileChannel for lock-free positioned I/O.
@@ -94,32 +98,116 @@ private class PooledSafHandle(
     /** Last time we verified the file still exists at this path (to detect stale SAF handles) */
     @Volatile var lastValidationTime: Long = System.currentTimeMillis()
 
-    // Separate streams for read and write operations
-    // FileOutputStream channel is write-only, FileInputStream channel is read-only
-    private val fos = FileOutputStream(pfd.fileDescriptor)
-    private val fis = FileInputStream(pfd.fileDescriptor)
-    private val writeChannel: java.nio.channels.FileChannel = fos.channel
-    private val readChannel: java.nio.channels.FileChannel = fis.channel
+    private val fileDescriptor = pfd.fileDescriptor
+    // Legacy fallback for SAF providers whose file descriptors do not support positioned I/O.
+    private val fos = FileOutputStream(fileDescriptor)
+    private val fis = FileInputStream(fileDescriptor)
+    private val writeChannel: FileChannel = fos.channel
+    private val readChannel: FileChannel = fis.channel
+    @Volatile private var useChannelFallback = false
 
     /**
      * Write data at the given position without seeking.
-     * Uses FileChannel.write(buffer, position) which is atomic and thread-safe.
+     * Prefers Os.pwrite() to avoid FileChannel's temporary direct-buffer allocation
+     * when writing heap-backed ByteBuffers. Falls back to FileChannel for SAF
+     * providers whose descriptors do not support positioned writes.
      */
     fun writeAt(offset: Long, data: ByteArray, dataOffset: Int = 0, dataLength: Int = data.size) {
         lastAccessTime = System.currentTimeMillis()
-        val buffer = ByteBuffer.wrap(data, dataOffset, dataLength)
-        var written = 0
-        while (buffer.hasRemaining()) {
-            written += writeChannel.write(buffer, offset + written)
+
+        if (!useChannelFallback) {
+            try {
+                writeAtWithPwrite(offset, data, dataOffset, dataLength)
+                return
+            } catch (e: ErrnoException) {
+                if (!shouldFallbackToChannel(e)) throw e
+                useChannelFallback = true
+                Log.w(TAG, "SAF pwrite unsupported for $cacheKey, falling back to FileChannel", e)
+            }
         }
+
+        writeAtWithChannel(offset, data, dataOffset, dataLength)
     }
 
     /**
      * Read data from the given position without seeking.
-     * Uses the read channel (from FileInputStream) for proper read support.
+     * Prefers Os.pread() to avoid channel overhead and keep positioned semantics.
+     * Falls back to FileChannel for SAF providers whose descriptors do not support
+     * positioned reads.
      */
     fun readAt(offset: Long, length: Int): ByteArray {
         lastAccessTime = System.currentTimeMillis()
+
+        if (!useChannelFallback) {
+            try {
+                return readAtWithPread(offset, length)
+            } catch (e: ErrnoException) {
+                if (!shouldFallbackToChannel(e)) throw e
+                useChannelFallback = true
+                Log.w(TAG, "SAF pread unsupported for $cacheKey, falling back to FileChannel", e)
+            }
+        }
+
+        return readAtWithChannel(offset, length)
+    }
+
+    private fun writeAtWithPwrite(
+        offset: Long,
+        data: ByteArray,
+        dataOffset: Int,
+        dataLength: Int,
+    ) {
+        var written = 0
+        while (written < dataLength) {
+            val chunkLength = minOf(SAF_IO_CHUNK_SIZE, dataLength - written)
+            val count = Os.pwrite(fileDescriptor, data, dataOffset + written, chunkLength, offset + written)
+            if (count <= 0) {
+                throw IllegalStateException("pwrite returned $count for SAF handle $cacheKey")
+            }
+            written += count
+        }
+    }
+
+    private fun readAtWithPread(offset: Long, length: Int): ByteArray {
+        val out = ByteArray(length)
+        var totalRead = 0
+        while (totalRead < length) {
+            val chunkLength = minOf(SAF_IO_CHUNK_SIZE, length - totalRead)
+            val read = Os.pread(fileDescriptor, out, totalRead, chunkLength, offset + totalRead)
+            if (read == -1) break
+            if (read == 0) {
+                throw IllegalStateException("pread returned 0 before reading $length bytes from $cacheKey")
+            }
+            totalRead += read
+        }
+        if (totalRead < length) {
+            throw IllegalStateException("Could not read $length bytes, only got $totalRead")
+        }
+        return out
+    }
+
+    private fun writeAtWithChannel(
+        offset: Long,
+        data: ByteArray,
+        dataOffset: Int,
+        dataLength: Int,
+    ) {
+        var written = 0
+        while (written < dataLength) {
+            val chunkLength = minOf(SAF_IO_CHUNK_SIZE, dataLength - written)
+            val chunkOffset = written
+            val buffer = ByteBuffer.wrap(data, dataOffset + written, chunkLength)
+            while (buffer.hasRemaining()) {
+                val chunkWritten = writeChannel.write(buffer, offset + chunkOffset + buffer.position())
+                if (chunkWritten <= 0) {
+                    throw IllegalStateException("FileChannel.write returned $chunkWritten for SAF handle $cacheKey")
+                }
+            }
+            written += chunkLength
+        }
+    }
+
+    private fun readAtWithChannel(offset: Long, length: Int): ByteArray {
         val buffer = ByteBuffer.allocate(length)
         var totalRead = 0
         while (buffer.hasRemaining()) {
@@ -132,6 +220,16 @@ private class PooledSafHandle(
         }
         buffer.flip()
         return buffer.array()
+    }
+
+    private fun shouldFallbackToChannel(error: ErrnoException): Boolean {
+        return when (error.errno) {
+            android.system.OsConstants.ESPIPE,
+            android.system.OsConstants.EINVAL,
+            android.system.OsConstants.ENOSYS,
+            android.system.OsConstants.EBADF -> true
+            else -> false
+        }
     }
 
     fun close() {
