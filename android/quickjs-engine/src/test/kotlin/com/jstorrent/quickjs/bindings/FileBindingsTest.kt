@@ -11,6 +11,10 @@ import kotlin.test.assertFailsWith
  * These tests can run on JVM since unpackVerifiedWriteBatch is pure Kotlin.
  */
 class FileBindingsTest {
+    private fun extractData(write: VerifiedWriteRequest): ByteArray {
+        return write.packed.copyOfRange(write.dataOffset, write.dataOffset + write.dataLength)
+    }
+
 
     /**
      * Pack a batch of writes for testing (mirrors JS packVerifiedWriteBatch).
@@ -102,7 +106,7 @@ class FileBindingsTest {
         assertEquals("root1", r.rootKey)
         assertEquals("path/to/file.txt", r.path)
         assertEquals(12345L, r.position)
-        assertEquals(listOf<Byte>(1, 2, 3, 4, 5), r.data.toList())
+        assertEquals(listOf<Byte>(1, 2, 3, 4, 5), extractData(r).toList())
         assertEquals("a".repeat(40), r.expectedHashHex)
         assertEquals("vw_1", r.callbackId)
     }
@@ -136,13 +140,13 @@ class FileBindingsTest {
         assertEquals("r1", result[0].rootKey)
         assertEquals("a.txt", result[0].path)
         assertEquals(100L, result[0].position)
-        assertEquals(listOf<Byte>(1), result[0].data.toList())
+        assertEquals(listOf<Byte>(1), extractData(result[0]).toList())
         assertEquals("vw_1", result[0].callbackId)
 
         assertEquals("r2", result[1].rootKey)
         assertEquals("b.txt", result[1].path)
         assertEquals(200L, result[1].position)
-        assertEquals(listOf<Byte>(2, 3), result[1].data.toList())
+        assertEquals(listOf<Byte>(2, 3), extractData(result[1]).toList())
         assertEquals("vw_2", result[1].callbackId)
     }
 
@@ -185,7 +189,7 @@ class FileBindingsTest {
         val result = unpackVerifiedWriteBatch(packed)
 
         assertEquals(1, result.size)
-        assertEquals(0, result[0].data.size)
+        assertEquals(0, result[0].dataLength)
     }
 
     @Test
@@ -247,13 +251,35 @@ class FileBindingsTest {
         val result = unpackVerifiedWriteBatch(packed)
 
         assertEquals(1, result.size)
-        assertEquals(largeData.size, result[0].data.size)
-        assertEquals(largeData.toList(), result[0].data.toList())
+        assertEquals(largeData.size, result[0].dataLength)
+        assertEquals(largeData.toList(), extractData(result[0]).toList())
+    }
+
+    @Test
+    fun `accept max supported piece-sized verified write batch`() {
+        val maxPieceData = ByteArray(32 * 1024 * 1024) { 5 }
+        val writes = listOf(
+            TestWriteRequest(
+                rootKey = "root",
+                path = "piece.bin",
+                position = 0,
+                data = maxPieceData,
+                hashHex = "c".repeat(40),
+                callbackId = "vw_1",
+            )
+        )
+
+        val packed = packTestBatch(writes)
+        val result = unpackVerifiedWriteBatch(packed)
+
+        assertEquals(1, result.size)
+        assertEquals(maxPieceData.size, result[0].dataLength)
+        assertEquals("piece.bin", result[0].path)
     }
 
     @Test
     fun `reject oversized verified write batch`() {
-        val largeData = ByteArray(7 * 1024 * 1024) { 7 }
+        val largeData = ByteArray(41 * 1024 * 1024) { 7 }
         val writes = listOf(
             TestWriteRequest(
                 rootKey = "root",

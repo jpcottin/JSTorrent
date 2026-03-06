@@ -76,6 +76,18 @@ interface FileManager {
     fun write(rootUri: Uri, relativePath: String, offset: Long, data: ByteArray)
 
     /**
+     * Write a slice of bytes to a file without copying the backing array.
+     */
+    fun write(
+        rootUri: Uri,
+        relativePath: String,
+        offset: Long,
+        data: ByteArray,
+        dataOffset: Int,
+        dataLength: Int,
+    )
+
+    /**
      * Check if a file or directory exists at the given path.
      *
      * @param rootUri SAF tree URI for the download root

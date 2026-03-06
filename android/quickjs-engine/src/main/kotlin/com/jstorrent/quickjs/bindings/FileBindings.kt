@@ -21,7 +21,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentLinkedQueue
 
-private const val MAX_VERIFIED_WRITE_BATCH_PACKED_BYTES = 6 * 1024 * 1024
+// Must allow a full supported piece write (32MB) plus batch metadata overhead.
+// This is a format sanity guard, not a backpressure limit.
+private const val MAX_VERIFIED_WRITE_BATCH_PACKED_BYTES = 40 * 1024 * 1024
 
 /**
  * Write result codes for async verified writes.
@@ -137,7 +139,9 @@ data class VerifiedWriteRequest(
     val rootKey: String,
     val path: String,
     val position: Long,
-    val data: ByteArray,
+    val packed: ByteArray,
+    val dataOffset: Int,
+    val dataLength: Int,
     val expectedHashHex: String,
     val callbackId: String,
 )
@@ -194,8 +198,8 @@ fun unpackVerifiedWriteBatch(packed: ByteArray): List<VerifiedWriteRequest> {
         if (dataLen < 0 || dataLen > buffer.remaining() - 41) {
             throw IllegalArgumentException("Invalid data length: $dataLen")
         }
-        val data = ByteArray(dataLen)
-        buffer.get(data)
+        val dataOffset = buffer.position()
+        buffer.position(dataOffset + dataLen)
 
         // hashHex (fixed 40 bytes)
         val hashHexBytes = ByteArray(40)
@@ -208,7 +212,18 @@ fun unpackVerifiedWriteBatch(packed: ByteArray): List<VerifiedWriteRequest> {
         buffer.get(callbackIdBytes)
         val callbackId = String(callbackIdBytes, Charsets.UTF_8)
 
-        writes.add(VerifiedWriteRequest(rootKey, path, position, data, hashHex, callbackId))
+        writes.add(
+            VerifiedWriteRequest(
+                rootKey = rootKey,
+                path = path,
+                position = position,
+                packed = packed,
+                dataOffset = dataOffset,
+                dataLength = dataLen,
+                expectedHashHex = hashHex,
+                callbackId = callbackId,
+            )
+        )
     }
 
     if (buffer.hasRemaining()) {
@@ -897,8 +912,8 @@ class FileBindings(
 
             val writes = try {
                 unpackVerifiedWriteBatch(binary)
-            } catch (e: Exception) {
-                Log.e(TAG, "write_verified_batch: failed to unpack", e)
+            } catch (t: Throwable) {
+                Log.e(TAG, "write_verified_batch: failed to unpack", t)
                 return@setGlobalFunctionWithBinary null
             }
 
@@ -923,7 +938,7 @@ class FileBindings(
                     try {
                         // 1. Hash the data (timed separately)
                         val hashStart = System.currentTimeMillis()
-                        val actualHash = Hasher.sha1(write.data)
+                        val actualHash = Hasher.sha1(write.packed, write.dataOffset, write.dataLength)
                         val actualHashHex = actualHash.joinToString("") { "%02x".format(it) }
                         val hashTime = System.currentTimeMillis() - hashStart
 
@@ -936,13 +951,20 @@ class FileBindings(
 
                         // 3. Write the data (hash matched, timed separately)
                         val diskStart = System.currentTimeMillis()
-                        fileManager.write(rootUri, write.path, write.position, write.data)
+                        fileManager.write(
+                            rootUri,
+                            write.path,
+                            write.position,
+                            write.packed,
+                            write.dataOffset,
+                            write.dataLength,
+                        )
                         val diskTime = System.currentTimeMillis() - diskStart
                         val elapsed = System.currentTimeMillis() - startTime
 
                         // Track stats
                         synchronized(Companion) {
-                            bytesWritten += write.data.size
+                            bytesWritten += write.dataLength
                             writeCount++
                             totalWriteTimeMs += elapsed
                             totalHashTimeMs += hashTime
@@ -981,7 +1003,7 @@ class FileBindings(
                         }
 
                         // 4. Queue success for batch processing at tick boundary
-                        queueDiskWriteResult(write.callbackId, write.data.size, WriteResultCode.SUCCESS)
+                        queueDiskWriteResult(write.callbackId, write.dataLength, WriteResultCode.SUCCESS)
 
                     } catch (e: Exception) {
                         Log.e(TAG, "write_verified_batch failed: ${write.path}", e)

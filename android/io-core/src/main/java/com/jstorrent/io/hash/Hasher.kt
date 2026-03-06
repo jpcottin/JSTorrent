@@ -16,6 +16,15 @@ object Hasher {
     }
 
     /**
+     * Compute SHA-1 hash of a slice without copying the backing array.
+     */
+    fun sha1(data: ByteArray, offset: Int, length: Int): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-1")
+        digest.update(data, offset, length)
+        return digest.digest()
+    }
+
+    /**
      * Compute SHA-1 hash of data as lowercase hex string.
      * @return 40-character hex string
      */

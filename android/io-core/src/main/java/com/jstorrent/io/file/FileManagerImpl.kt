@@ -38,9 +38,9 @@ private class PooledFileHandle(
      * Uses FileChannel.write(buffer, position) which is atomic and thread-safe
      * for writes to different positions.
      */
-    fun writeAt(offset: Long, data: ByteArray) {
+    fun writeAt(offset: Long, data: ByteArray, dataOffset: Int = 0, dataLength: Int = data.size) {
         lastAccessTime = System.currentTimeMillis()
-        val buffer = ByteBuffer.wrap(data)
+        val buffer = ByteBuffer.wrap(data, dataOffset, dataLength)
         var written = 0
         while (buffer.hasRemaining()) {
             written += channel.write(buffer, offset + written)
@@ -105,9 +105,9 @@ private class PooledSafHandle(
      * Write data at the given position without seeking.
      * Uses FileChannel.write(buffer, position) which is atomic and thread-safe.
      */
-    fun writeAt(offset: Long, data: ByteArray) {
+    fun writeAt(offset: Long, data: ByteArray, dataOffset: Int = 0, dataLength: Int = data.size) {
         lastAccessTime = System.currentTimeMillis()
-        val buffer = ByteBuffer.wrap(data)
+        val buffer = ByteBuffer.wrap(data, dataOffset, dataLength)
         var written = 0
         while (buffer.hasRemaining()) {
             written += writeChannel.write(buffer, offset + written)
@@ -237,14 +237,25 @@ class FileManagerImpl(
     }
 
     override fun write(rootUri: Uri, relativePath: String, offset: Long, data: ByteArray) {
+        write(rootUri, relativePath, offset, data, 0, data.size)
+    }
+
+    override fun write(
+        rootUri: Uri,
+        relativePath: String,
+        offset: Long,
+        data: ByteArray,
+        dataOffset: Int,
+        dataLength: Int,
+    ) {
         // Handle file:// URIs with native File I/O
         if (isFileUri(rootUri)) {
-            return writeNative(rootUri, relativePath, offset, data)
+            return writeNative(rootUri, relativePath, offset, data, dataOffset, dataLength)
         }
 
         try {
             val handle = getPooledSafHandle(rootUri, relativePath)
-            handle.writeAt(offset, data)
+            handle.writeAt(offset, data, dataOffset, dataLength)
         } catch (e: FileManagerException) {
             throw e
         } catch (e: Exception) {
@@ -1082,11 +1093,18 @@ class FileManagerImpl(
         }
     }
 
-    private fun writeNative(rootUri: Uri, relativePath: String, offset: Long, data: ByteArray) {
+    private fun writeNative(
+        rootUri: Uri,
+        relativePath: String,
+        offset: Long,
+        data: ByteArray,
+        dataOffset: Int = 0,
+        dataLength: Int = data.size,
+    ) {
         val file = resolveNativeFile(rootUri, relativePath)
         try {
             val handle = getPooledHandle(file, createIfMissing = true)
-            handle.writeAt(offset, data)
+            handle.writeAt(offset, data, dataOffset, dataLength)
         } catch (e: Exception) {
             Log.e(TAG, "Native write failed: ${e.message}", e)
             when {

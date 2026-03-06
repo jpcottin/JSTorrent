@@ -161,6 +161,16 @@ static void throw_js_exception(JNIEnv *env, JSContext *ctx) {
     JS_FreeValue(ctx, exception);
 }
 
+static void log_and_clear_java_exception(JNIEnv *env, const char *context) {
+    jthrowable throwable = (*env)->ExceptionOccurred(env);
+    if (!throwable) {
+        return;
+    }
+    LOGE("Java exception in %s", context);
+    (*env)->ExceptionDescribe(env);
+    (*env)->ExceptionClear(env);
+}
+
 // -----------------------------------------------------------------------------
 // JNI: Create runtime and context
 // Returns: long (pointer to JSContext)
@@ -510,7 +520,7 @@ static JSValue js_kotlin_binary_callback(
             env, data->callback, data->invokeMethod, jargs, binaryArg);
 
         if ((*env)->ExceptionCheck(env)) {
-            (*env)->ExceptionClear(env);
+            log_and_clear_java_exception(env, "js_kotlin_binary_callback returnsBinary");
             if (binaryArg) (*env)->DeleteLocalRef(env, binaryArg);
             (*env)->DeleteLocalRef(env, jargs);
             if (attached) (*data->jvm)->DetachCurrentThread(data->jvm);
@@ -527,7 +537,7 @@ static JSValue js_kotlin_binary_callback(
             env, data->callback, data->invokeMethod, jargs, binaryArg);
 
         if ((*env)->ExceptionCheck(env)) {
-            (*env)->ExceptionClear(env);
+            log_and_clear_java_exception(env, "js_kotlin_binary_callback returnsString");
             if (binaryArg) (*env)->DeleteLocalRef(env, binaryArg);
             (*env)->DeleteLocalRef(env, jargs);
             if (attached) (*data->jvm)->DetachCurrentThread(data->jvm);
