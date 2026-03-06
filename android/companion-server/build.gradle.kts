@@ -30,6 +30,9 @@ android {
     kotlinOptions {
         jvmTarget = "11"
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -61,4 +64,5 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.kotlin.test)
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
 }

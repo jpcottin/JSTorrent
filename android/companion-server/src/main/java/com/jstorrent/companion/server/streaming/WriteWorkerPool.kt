@@ -6,7 +6,6 @@ import com.jstorrent.companion.server.BatchWriteResults
 import com.jstorrent.companion.server.WriteResultCode
 import com.jstorrent.io.file.FileManager
 import com.jstorrent.io.hash.Hasher
-import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -26,24 +25,29 @@ data class WriteJob(
  * Worker pool for processing verified writes.
  *
  * Architecture:
- * - Bounded blocking queue (backpressures when full)
+ * - Byte-bounded blocking queue (backpressures when resident write bytes are full)
  * - Fixed number of worker threads
  * - Each worker: verify hash -> write to disk -> report result
  *
- * Memory bound = queueCapacity × avgPieceSize (not total batch size)
+ * Memory bound = queued bytes + running worker bytes
  */
 class WriteWorkerPool(
     private val fileManager: FileManager,
     private val workerCount: Int = 6,
-    private val queueCapacity: Int = 64,
+    private val maxBufferedBytes: Long = DEFAULT_MAX_BUFFERED_BYTES,
+    private val maxQueuedJobs: Int = DEFAULT_MAX_QUEUED_JOBS,
 ) {
     companion object {
         private const val TAG = "WriteWorkerPool"
+        const val DEFAULT_MAX_BUFFERED_BYTES: Long = 32L * 1024L * 1024L
+        const val DEFAULT_MAX_QUEUED_JOBS: Int = 64
     }
 
-    private val queue = ArrayBlockingQueue<WriteJob>(queueCapacity)
+    private val queue = ArrayDeque<WriteJob>()
+    private val queueLock = Object()
     private val running = AtomicBoolean(false)
     private val workers = mutableListOf<Thread>()
+    private var bufferedBytes: Long = 0
 
     /**
      * Start the worker pool.
@@ -54,7 +58,10 @@ class WriteWorkerPool(
             return
         }
 
-        Log.i(TAG, "Starting worker pool: $workerCount workers, queue capacity $queueCapacity")
+        Log.i(
+            TAG,
+            "Starting worker pool: $workerCount workers, maxBufferedBytes=$maxBufferedBytes, maxQueuedJobs=$maxQueuedJobs"
+        )
 
         for (i in 0 until workerCount) {
             val worker = Thread({
@@ -75,6 +82,9 @@ class WriteWorkerPool(
         }
 
         Log.i(TAG, "Stopping worker pool...")
+        synchronized(queueLock) {
+            queueLock.notifyAll()
+        }
 
         // Interrupt workers waiting on queue
         workers.forEach { it.interrupt() }
@@ -90,11 +100,18 @@ class WriteWorkerPool(
         workers.clear()
 
         // Drain any remaining jobs
-        val remaining = queue.size
-        if (remaining > 0) {
-            Log.w(TAG, "Discarded $remaining jobs on shutdown")
+        val remaining: Int
+        val remainingBytes: Long
+        synchronized(queueLock) {
+            remaining = queue.size
+            remainingBytes = queue.sumOf { it.data.size.toLong() }
+            queue.clear()
+            bufferedBytes = maxOf(0L, bufferedBytes - remainingBytes)
+            queueLock.notifyAll()
         }
-        queue.clear()
+        if (remaining > 0) {
+            Log.w(TAG, "Discarded $remaining jobs ($remainingBytes bytes) on shutdown")
+        }
 
         Log.i(TAG, "Worker pool stopped")
     }
@@ -111,9 +128,21 @@ class WriteWorkerPool(
         }
 
         try {
-            // Block until space available (backpressure)
-            queue.put(job)
-            return true
+            val jobBytes = job.data.size.toLong()
+            synchronized(queueLock) {
+                while (running.get() &&
+                    (bufferedBytes + jobBytes > maxBufferedBytes || queue.size >= maxQueuedJobs)
+                ) {
+                    queueLock.wait()
+                }
+                if (!running.get()) {
+                    return false
+                }
+                queue.addLast(job)
+                bufferedBytes += jobBytes
+                queueLock.notifyAll()
+                return true
+            }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
             return false
@@ -123,22 +152,34 @@ class WriteWorkerPool(
     /**
      * Check if there's space in the queue (non-blocking).
      */
-    fun hasCapacity(): Boolean = queue.remainingCapacity() > 0
+    fun hasCapacity(): Boolean = synchronized(queueLock) {
+        bufferedBytes < maxBufferedBytes && queue.size < maxQueuedJobs
+    }
 
     /**
      * Current queue depth.
      */
-    fun queueSize(): Int = queue.size
+    fun queueSize(): Int = synchronized(queueLock) { queue.size }
+
+    /**
+     * Current resident bytes in queued + running jobs.
+     */
+    fun bufferedBytes(): Long = synchronized(queueLock) { bufferedBytes }
 
     private fun workerLoop() {
         Log.d(TAG, "Worker started: ${Thread.currentThread().name}")
 
-        while (running.get()) {
+        while (true) {
             try {
-                // Wait for job with timeout (allows checking running flag)
-                val job = queue.poll(100, TimeUnit.MILLISECONDS) ?: continue
-
-                processJob(job)
+                val job = takeJob() ?: break
+                try {
+                    processJob(job)
+                } finally {
+                    synchronized(queueLock) {
+                        bufferedBytes = maxOf(0L, bufferedBytes - job.data.size.toLong())
+                        queueLock.notifyAll()
+                    }
+                }
             } catch (e: InterruptedException) {
                 // Check running flag and exit if stopped
                 if (!running.get()) break
@@ -149,6 +190,18 @@ class WriteWorkerPool(
         }
 
         Log.d(TAG, "Worker stopped: ${Thread.currentThread().name}")
+    }
+
+    private fun takeJob(): WriteJob? {
+        synchronized(queueLock) {
+            while (queue.isEmpty()) {
+                if (!running.get()) {
+                    return null
+                }
+                queueLock.wait(TimeUnit.MILLISECONDS.toMillis(100))
+            }
+            return queue.removeFirst()
+        }
     }
 
     private fun processJob(job: WriteJob) {

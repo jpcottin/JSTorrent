@@ -20,14 +20,15 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - Bounded queue + worker pool for hash verification + disk writes
  * - Backpressure: queue full → socket read blocks → HTTP client slows down
  *
- * Memory bound = queueCapacity × avgPieceSize (not total batch size)
+ * Memory bound = maxBufferedBytes + worker stack/overhead (not total batch size)
  *
  * @param port Port to listen on
  * @param fileManager For disk writes
  * @param rootResolver Resolves rootKey → SAF Uri
  * @param tokenValidator Validates auth token
  * @param workerCount Number of hash+write worker threads
- * @param queueCapacity Max pieces queued for processing
+ * @param maxBufferedBytes Max resident bytes in queued + running write jobs
+ * @param maxQueuedJobs Secondary cap on queued job count
  */
 class StreamingWriteServer(
     private val port: Int,
@@ -35,7 +36,8 @@ class StreamingWriteServer(
     private val rootResolver: (String) -> Uri?,
     private val tokenValidator: (String) -> Boolean,
     workerCount: Int = 6,
-    queueCapacity: Int = 64,
+    maxBufferedBytes: Long = WriteWorkerPool.DEFAULT_MAX_BUFFERED_BYTES,
+    maxQueuedJobs: Int = WriteWorkerPool.DEFAULT_MAX_QUEUED_JOBS,
 ) {
     companion object {
         private const val TAG = "StreamingWriteServer"
@@ -48,7 +50,7 @@ class StreamingWriteServer(
     private val connectionExecutor: ExecutorService = Executors.newCachedThreadPool { r ->
         Thread(r, "StreamingWrite-Conn").also { it.isDaemon = true }
     }
-    private val workerPool = WriteWorkerPool(fileManager, workerCount, queueCapacity)
+    private val workerPool = WriteWorkerPool(fileManager, workerCount, maxBufferedBytes, maxQueuedJobs)
 
     /**
      * Start the server.
