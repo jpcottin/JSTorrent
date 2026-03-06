@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { ActivePieceManager } from '../../src/core/active-piece-manager'
+import {
+  ActivePieceManager,
+  getDefaultActivePieceConfig,
+} from '../../src/core/active-piece-manager'
 import { MockEngine } from '../utils/mock-engine'
 
 describe('ActivePieceManager', () => {
@@ -48,6 +51,39 @@ describe('ActivePieceManager', () => {
       const piece = manager.getOrCreate(10)
 
       expect(piece).toBeNull()
+    })
+
+    it('should apply android memory budget for large pieces', () => {
+      const largePiece = 16 * 1024 * 1024
+      const androidManager = new ActivePieceManager(mockEngine, () => largePiece, {
+        platformType: 'android-standalone',
+        standardPieceLength: largePiece,
+      })
+
+      expect(androidManager.getOrCreate(0)).not.toBeNull()
+      expect(androidManager.getOrCreate(1)).not.toBeNull()
+      expect(androidManager.getOrCreate(2)).toBeNull()
+      expect(androidManager.totalBufferedBytes).toBe(32 * 1024 * 1024)
+
+      androidManager.destroy()
+    })
+  })
+
+  describe('platform defaults', () => {
+    it('should keep desktop defaults unchanged', () => {
+      expect(getDefaultActivePieceConfig('desktop')).toMatchObject({
+        requestTimeoutMs: 30000,
+        maxActivePieces: 10000,
+        maxBufferedBytes: 256 * 1024 * 1024,
+      })
+    })
+
+    it('should use conservative buffered bytes on android', () => {
+      expect(getDefaultActivePieceConfig('android-standalone')).toMatchObject({
+        requestTimeoutMs: 30000,
+        maxActivePieces: 128,
+        maxBufferedBytes: 32 * 1024 * 1024,
+      })
     })
   })
 

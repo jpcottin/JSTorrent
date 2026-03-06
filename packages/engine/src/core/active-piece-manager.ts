@@ -1,34 +1,53 @@
 import { ActivePiece } from './active-piece'
 import { PieceBufferPool } from './piece-buffer-pool'
 import { EngineComponent, ILoggingEngine } from '../logging/logger'
+import type { PlatformType } from '../config/config-schema'
 
 export interface ActivePieceConfig {
   requestTimeoutMs: number
   maxActivePieces: number
   maxBufferedBytes: number
+  /** Runtime platform profile used to choose sane defaults before overrides are applied. */
+  platformType?: PlatformType
   /** Standard piece length for buffer pooling. If not set, buffer pooling is disabled. */
   standardPieceLength?: number
   /** Maximum number of buffers to keep in pool (default: 64) */
   maxPoolSize?: number
 }
 
-// Detect if running in native/QuickJS environment (Android/iOS)
-// QuickJS is much slower at iteration than V8, so we need tighter limits
-const isNativeRuntime =
-  typeof globalThis !== 'undefined' &&
-  typeof (globalThis as Record<string, unknown>).__jstorrent_tcp_connect === 'function'
+const DEFAULT_PLATFORM: PlatformType = 'desktop'
 
-const DEFAULT_CONFIG: ActivePieceConfig = {
-  requestTimeoutMs: 30000,
-  // Allow unlimited active pieces - the haveAllBlocks check is now O(1)
-  // and hasUnrequestedBlocks uses allocation-free iteration.
-  // Memory is the real constraint, handled by maxBufferedBytes.
+const DEFAULT_CONFIG_BY_PLATFORM: Record<
+  PlatformType,
+  Omit<ActivePieceConfig, 'platformType' | 'standardPieceLength' | 'maxPoolSize'>
+> = {
+  desktop: {
+    requestTimeoutMs: 30000,
+    maxActivePieces: 10000,
+    maxBufferedBytes: 256 * 1024 * 1024,
+  },
+  chromeos: {
+    requestTimeoutMs: 30000,
+    maxActivePieces: 10000,
+    maxBufferedBytes: 256 * 1024 * 1024,
+  },
+  'android-standalone': {
+    requestTimeoutMs: 30000,
+    maxActivePieces: 128,
+    // Piece buffers already account for full piece allocations.
+    // A 32MB budget naturally caps 16MB-piece torrents to ~2 active pieces.
+    maxBufferedBytes: 32 * 1024 * 1024,
+  },
+}
 
-  // Experimenting with lower setting for now (multi-peer-tick-overload.md)
-  // android standalone goes OOM near the end of a download (e.g. when in endgame) if maxActivePieces is too high.
-  maxActivePieces: isNativeRuntime ? 128 : 10000,
+function resolvePlatformType(platformType?: PlatformType): PlatformType {
+  return platformType ?? DEFAULT_PLATFORM
+}
 
-  maxBufferedBytes: isNativeRuntime ? 64 * 1024 * 1024 : 256 * 1024 * 1024,
+export function getDefaultActivePieceConfig(
+  platformType?: PlatformType,
+): Omit<ActivePieceConfig, 'platformType' | 'standardPieceLength' | 'maxPoolSize'> {
+  return { ...DEFAULT_CONFIG_BY_PLATFORM[resolvePlatformType(platformType)] }
 }
 
 /**
@@ -72,7 +91,10 @@ export class ActivePieceManager extends EngineComponent {
   ) {
     super(engine)
     this.pieceLengthFn = pieceLengthFn
-    this.config = { ...DEFAULT_CONFIG, ...config }
+    this.config = {
+      ...getDefaultActivePieceConfig(config.platformType),
+      ...config,
+    }
 
     // Calculate blocks per piece for cap calculation (16KB blocks)
     const BLOCK_SIZE = 16384

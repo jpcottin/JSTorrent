@@ -2447,7 +2447,10 @@ export class Torrent extends EngineComponent {
         this.activePieces = new ActivePieceManager(
           this.engineInstance,
           (index) => this.getPieceLength(index),
-          { standardPieceLength: this.pieceLength },
+          {
+            platformType: this.btEngine.config?.platformType.get(),
+            standardPieceLength: this.pieceLength,
+          },
         )
         return this.activePieces
       },
@@ -2547,7 +2550,10 @@ export class Torrent extends EngineComponent {
       this.activePieces = new ActivePieceManager(
         this.engineInstance,
         (index) => this.getPieceLength(index),
-        { standardPieceLength: this.pieceLength },
+        {
+          platformType: this.btEngine.config?.platformType.get(),
+          standardPieceLength: this.pieceLength,
+        },
       )
     }
 
