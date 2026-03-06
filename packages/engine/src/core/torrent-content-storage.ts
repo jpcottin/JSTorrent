@@ -523,6 +523,51 @@ export class TorrentContentStorage extends EngineComponent {
     }
   }
 
+  /**
+   * Convert a file-relative byte range to an array of piece indices.
+   * Pure math — no I/O, no bitfield check.
+   */
+  fileBytesToPieces(fileIndex: number, offset: number, length: number): number[] {
+    if (fileIndex < 0 || fileIndex >= this.files.length) {
+      throw new Error(`Invalid file index: ${fileIndex}`)
+    }
+    const file = this.files[fileIndex]
+    if (offset < 0 || length <= 0 || offset + length > file.length) {
+      throw new Error(`Invalid range: offset=${offset} length=${length} fileLength=${file.length}`)
+    }
+
+    const torrentStart = file.offset + offset
+    const torrentEnd = torrentStart + length
+    const firstPiece = Math.floor(torrentStart / this.pieceLength)
+    const lastPiece = Math.floor((torrentEnd - 1) / this.pieceLength)
+
+    const pieces: number[] = []
+    for (let i = firstPiece; i <= lastPiece; i++) {
+      pieces.push(i)
+    }
+    return pieces
+  }
+
+  /**
+   * Read arbitrary bytes from a file by index.
+   * Converts file-relative coordinates to piece coordinates and reads via the existing read().
+   * Caller must ensure all required pieces are verified (use fileBytesToPieces + bitfield check).
+   */
+  async readFileBytes(fileIndex: number, offset: number, length: number): Promise<Uint8Array> {
+    if (fileIndex < 0 || fileIndex >= this.files.length) {
+      throw new Error(`Invalid file index: ${fileIndex}`)
+    }
+    const file = this.files[fileIndex]
+    if (offset < 0 || length <= 0 || offset + length > file.length) {
+      throw new Error(`Invalid range: offset=${offset} length=${length} fileLength=${file.length}`)
+    }
+
+    const torrentOffset = file.offset + offset
+    const pieceIndex = Math.floor(torrentOffset / this.pieceLength)
+    const begin = torrentOffset - pieceIndex * this.pieceLength
+    return this.read(pieceIndex, begin, length)
+  }
+
   async read(index: number, begin: number, length: number): Promise<Uint8Array> {
     const buffer = new Uint8Array(length)
     const torrentOffset = index * this.pieceLength + begin

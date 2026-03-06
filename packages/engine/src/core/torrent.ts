@@ -1226,6 +1226,80 @@ export class Torrent extends EngineComponent {
     this._filePriorityManager.restoreFilePriorities(priorities)
   }
 
+  // === Streaming API ===
+
+  /**
+   * Convert a file-relative byte range to piece indices.
+   * Pure math — no I/O.
+   */
+  fileBytesToPieces(fileIndex: number, offset: number, length: number): number[] {
+    if (!this.contentStorage) {
+      throw new Error('Content storage not initialized')
+    }
+    return this.contentStorage.fileBytesToPieces(fileIndex, offset, length)
+  }
+
+  /**
+   * Read arbitrary bytes from a file.
+   * Caller must ensure required pieces are verified.
+   */
+  async readFileBytes(fileIndex: number, offset: number, length: number): Promise<Uint8Array> {
+    if (!this.contentStorage) {
+      throw new Error('Content storage not initialized')
+    }
+    return this.contentStorage.readFileBytes(fileIndex, offset, length)
+  }
+
+  /**
+   * Wait for specific pieces to be verified.
+   * Resolves immediately if all pieces are already available.
+   * Supports cancellation via AbortSignal.
+   */
+  waitForPieces(pieceIndices: number[], signal?: AbortSignal): Promise<void> {
+    // Check if all pieces are already available
+    const missing = pieceIndices.filter((i) => !this.hasPiece(i))
+    if (missing.length === 0) return Promise.resolve()
+
+    return new Promise<void>((resolve, reject) => {
+      const needed = new Set(missing)
+
+      const onPiece = (index: number) => {
+        needed.delete(index)
+        if (needed.size === 0) {
+          cleanup()
+          resolve()
+        }
+      }
+
+      const onAbort = () => {
+        cleanup()
+        reject(new DOMException('Aborted', 'AbortError'))
+      }
+
+      const cleanup = () => {
+        this.off('piece', onPiece)
+        signal?.removeEventListener('abort', onAbort)
+      }
+
+      this.on('piece', onPiece)
+      signal?.addEventListener('abort', onAbort)
+
+      // Handle already-aborted signal
+      if (signal?.aborted) {
+        cleanup()
+        reject(new DOMException('Aborted', 'AbortError'))
+      }
+    })
+  }
+
+  /**
+   * Set which pieces should be downloaded with high priority for streaming.
+   * Pass null to clear streaming priorities.
+   */
+  setStreamingPieces(pieces: Set<number> | null): void {
+    this._filePriorityManager.setStreamingPieces(pieces)
+  }
+
   /**
    * Materialize a boundary piece from .parts to regular files.
    * Called when all files touched by a boundary piece become non-skipped.

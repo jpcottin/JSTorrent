@@ -152,5 +152,8 @@ export {
   validateConfigValue,
 } from './config'
 
+// Streaming
+export { createTorrentSource } from './streaming/torrent-source'
+
 // Version
 export { VERSION, versionToAzureusCode, azureusCodeToVersion } from './version'

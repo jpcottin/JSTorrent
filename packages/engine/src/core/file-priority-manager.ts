@@ -53,6 +53,7 @@ export class FilePriorityManager extends EngineComponent {
   private _filePriorities: number[] = []
   private _pieceClassification: PieceClassification[] = []
   private _piecePriority: Uint8Array | null = null
+  private _streamingPieces: Set<number> | null = null
 
   // Callbacks
   private readonly getPiecesCount: () => number
@@ -293,6 +294,16 @@ export class FilePriorityManager extends EngineComponent {
     return false
   }
 
+  /**
+   * Set which pieces should be downloaded with high priority for streaming.
+   * These pieces get priority 2 (high) regardless of file priorities.
+   * Pass null to clear streaming priorities.
+   */
+  setStreamingPieces(pieces: Set<number> | null): void {
+    this._streamingPieces = pieces
+    this.recomputePiecePriority()
+  }
+
   // === Private Methods ===
 
   /**
@@ -425,6 +436,15 @@ export class FilePriorityManager extends EngineComponent {
       }
 
       this._piecePriority[pieceIndex] = maxPriority
+    }
+
+    // Overlay streaming pieces with priority 2
+    if (this._streamingPieces) {
+      for (const pieceIndex of this._streamingPieces) {
+        if (pieceIndex < piecesCount && this._piecePriority[pieceIndex] > 0) {
+          this._piecePriority[pieceIndex] = 2
+        }
+      }
     }
 
     // Log summary
