@@ -907,9 +907,9 @@ export class TorrentTickLoop extends EngineComponent {
             `(${writeQueueStats.pendingWrites} pending, ${writeQueueStats.inFlightWrites} in-flight), `
           : '') +
         `companionWrites: ${writeStats.inFlight} in-flight/${(writeStats.inFlightBytes / (1024 * 1024)).toFixed(1)}MB ` +
-          `(max=${writeStats.maxInFlight}/${(writeStats.maxInFlightBytes / (1024 * 1024)).toFixed(1)}MB, ` +
-          `sent=${writeStats.totalSent}/${(writeStats.totalBytesSent / (1024 * 1024)).toFixed(1)}MB, ` +
-          `acked=${writeStats.totalAcked}/${(writeStats.totalBytesAcked / (1024 * 1024)).toFixed(1)}MB)`,
+        `(max=${writeStats.maxInFlight}/${(writeStats.maxInFlightBytes / (1024 * 1024)).toFixed(1)}MB, ` +
+        `sent=${writeStats.totalSent}/${(writeStats.totalBytesSent / (1024 * 1024)).toFixed(1)}MB, ` +
+        `acked=${writeStats.totalAcked}/${(writeStats.totalBytesAcked / (1024 * 1024)).toFixed(1)}MB)`,
     )
 
     // Reset max for next period

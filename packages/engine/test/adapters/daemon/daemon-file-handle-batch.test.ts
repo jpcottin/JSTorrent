@@ -43,7 +43,11 @@ class MockDaemonConnection {
   }))
 }
 
-function makeBatchAckFrame(callbackId: string, bytesWritten: number, resultCode: number): ArrayBuffer {
+function makeBatchAckFrame(
+  callbackId: string,
+  bytesWritten: number,
+  resultCode: number,
+): ArrayBuffer {
   const encoder = new TextEncoder()
   const callbackBytes = encoder.encode(callbackId)
   const frame = new ArrayBuffer(8 + 1 + callbackBytes.length + 4 + 1)
@@ -326,7 +330,12 @@ describe('DaemonFileHandle.writeBatch', () => {
 
   it('tracks single verified writes in companion write queue stats until HTTP completes', async () => {
     let resolveResponse:
-      | ((value: { ok: boolean; status: number; statusText: string; text: () => Promise<string> }) => void)
+      | ((value: {
+          ok: boolean
+          status: number
+          statusText: string
+          text: () => Promise<string>
+        }) => void)
       | undefined
     mockConnection.requestWithHeaders.mockImplementationOnce(
       () =>
@@ -339,7 +348,9 @@ describe('DaemonFileHandle.writeBatch', () => {
     fileHandle.setExpectedHashForNextWrite(new Uint8Array(20).fill(0xaa))
     const writePromise = fileHandle.write(new Uint8Array(8), 0, 8, 0)
 
-    await vi.waitFor(() => expect(getCompanionWriteQueueStats().inFlightBytes - baseline.inFlightBytes).toBe(8))
+    await vi.waitFor(() =>
+      expect(getCompanionWriteQueueStats().inFlightBytes - baseline.inFlightBytes).toBe(8),
+    )
     expect(getCompanionWriteQueueStats().inFlightWrites - baseline.inFlightWrites).toBe(1)
 
     resolveResponse!({

@@ -157,6 +157,36 @@ After the first three changes above, the next likely work items are:
 3. Add companion-specific memory and queue visibility to the debug surface.
 4. Compare queue thresholds against measured Chromebook workloads.
 
+## Shelved Ideas
+
+These are plausible follow-ups, but not current priorities.
+
+### Stream companion batch uploads from the extension
+
+Today the companion client builds a full packed batch buffer in JS before
+sending it with `fetch()`.
+
+Future direction:
+
+- stream the verified-write batch body from JS instead of materializing one
+  contiguous packed buffer first
+- this would reduce temporary extension-side batch allocations
+- it would require a transport/protocol update on the companion server side,
+  because the current implementation expects a fixed `Content-Length`
+
+### Use a small bounded staging-buffer pool on the extension side
+
+If streaming is deferred, another option is to bound temporary allocation churn
+with a small reusable pool of staging buffers when building companion batch
+bodies.
+
+Notes:
+
+- this may or may not matter much in practice on V8
+- V8 may already make this less painful than it looks
+- if pursued, the pool should be small and explicitly byte-bounded
+- this is less attractive than true streaming, but simpler to prototype
+
 ## Libtorrent Comparison
 
 The useful libtorrent principle here is not “bigger cache.”
