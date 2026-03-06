@@ -21,6 +21,8 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentLinkedQueue
 
+private const val MAX_VERIFIED_WRITE_BATCH_PACKED_BYTES = 6 * 1024 * 1024
+
 /**
  * Write result codes for async verified writes.
  * These codes are also used by the Rust io-daemon and must stay in sync
@@ -156,6 +158,10 @@ data class VerifiedWriteRequest(
  * @throws IllegalArgumentException if format is invalid
  */
 fun unpackVerifiedWriteBatch(packed: ByteArray): List<VerifiedWriteRequest> {
+    if (packed.size > MAX_VERIFIED_WRITE_BATCH_PACKED_BYTES) {
+        throw IllegalArgumentException("Verified write batch too large: ${packed.size} bytes")
+    }
+
     val buffer = ByteBuffer.wrap(packed).order(ByteOrder.LITTLE_ENDIAN)
 
     val count = buffer.int
@@ -185,7 +191,7 @@ fun unpackVerifiedWriteBatch(packed: ByteArray): List<VerifiedWriteRequest> {
 
         // dataLen + data
         val dataLen = buffer.int
-        if (dataLen < 0) {
+        if (dataLen < 0 || dataLen > buffer.remaining() - 41) {
             throw IllegalArgumentException("Invalid data length: $dataLen")
         }
         val data = ByteArray(dataLen)
@@ -203,6 +209,10 @@ fun unpackVerifiedWriteBatch(packed: ByteArray): List<VerifiedWriteRequest> {
         val callbackId = String(callbackIdBytes, Charsets.UTF_8)
 
         writes.add(VerifiedWriteRequest(rootKey, path, position, data, hashHex, callbackId))
+    }
+
+    if (buffer.hasRemaining()) {
+        throw IllegalArgumentException("Trailing bytes in verified write batch: ${buffer.remaining()}")
     }
 
     return writes

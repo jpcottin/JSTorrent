@@ -250,4 +250,45 @@ class FileBindingsTest {
         assertEquals(largeData.size, result[0].data.size)
         assertEquals(largeData.toList(), result[0].data.toList())
     }
+
+    @Test
+    fun `reject oversized verified write batch`() {
+        val largeData = ByteArray(7 * 1024 * 1024) { 7 }
+        val writes = listOf(
+            TestWriteRequest(
+                rootKey = "root",
+                path = "oversized.bin",
+                position = 0,
+                data = largeData,
+                hashHex = "b".repeat(40),
+                callbackId = "vw_1",
+            )
+        )
+
+        val packed = packTestBatch(writes)
+
+        assertFailsWith<IllegalArgumentException> {
+            unpackVerifiedWriteBatch(packed)
+        }
+    }
+
+    @Test
+    fun `reject trailing bytes after verified write batch`() {
+        val writes = listOf(
+            TestWriteRequest(
+                rootKey = "root",
+                path = "file.txt",
+                position = 0,
+                data = byteArrayOf(1, 2, 3),
+                hashHex = "a".repeat(40),
+                callbackId = "vw_1",
+            )
+        )
+
+        val packed = packTestBatch(writes) + byteArrayOf(9)
+
+        assertFailsWith<IllegalArgumentException> {
+            unpackVerifiedWriteBatch(packed)
+        }
+    }
 }

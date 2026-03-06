@@ -56,8 +56,14 @@ static jbyteArray array_buffer_to_byte_array(JSContext *ctx, JNIEnv *env, JSValu
     }
 
     jbyteArray result = (*env)->NewByteArray(env, (jsize)len);
-    if (!result) return NULL;  // OOM
+    if (!result || (*env)->ExceptionCheck(env)) {
+        return NULL;  // OOM or other pending JNI exception
+    }
     (*env)->SetByteArrayRegion(env, result, 0, (jsize)len, (jbyte *)buf);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->DeleteLocalRef(env, result);
+        return NULL;
+    }
     return result;
 }
 
@@ -686,6 +692,10 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeCallGlobalFunction(
 
     // Convert result - check for ArrayBuffer first
     jbyteArray binaryResult = array_buffer_to_byte_array(ctx, env, result);
+    if ((*env)->ExceptionCheck(env)) {
+        JS_FreeValue(ctx, result);
+        return NULL;
+    }
     if (binaryResult) {
         JS_FreeValue(ctx, result);
         return binaryResult;

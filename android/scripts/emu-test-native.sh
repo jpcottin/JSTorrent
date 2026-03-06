@@ -218,9 +218,10 @@ echo ">>> Launching NativeStandaloneActivity with magnet..."
 # Base64 encode the magnet (no line wrapping)
 ENCODED_MAGNET=$(echo -n "$MAGNET" | base64 -w0)
 
-# Build the intent URI
-# Always use replace=true to ensure fresh start (removes existing torrent if present)
-INTENT_URI="jstorrent://native?magnet_b64=$ENCODED_MAGNET&replace=true"
+# Build the intent URI.
+# Do not use replace=true here; callers that need a clean run should explicitly
+# remove the torrent and its data first.
+INTENT_URI="jstorrent://native?magnet_b64=$ENCODED_MAGNET"
 if [[ -n "$STORAGE_MODE" ]]; then
     INTENT_URI="${INTENT_URI}&storage=$STORAGE_MODE"
     echo ">>> Using storage mode: $STORAGE_MODE"

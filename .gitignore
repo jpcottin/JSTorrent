@@ -67,3 +67,10 @@ android/scripts/translate/claude/*.err
 desktop/installers/windows/Output/
 .mcp.json
 .mcp.json.disabled
+
+memory-magnet.txt
+memory-magnet2.txt
+
+# Local Android investigation artifacts
+android/tmp/
+docs/investigations/android-memory-results/

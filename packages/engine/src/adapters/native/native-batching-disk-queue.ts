@@ -26,6 +26,8 @@ const WriteResultCode = {
 
 /** Counter for unique callback IDs */
 let nextCallbackId = 1
+const MAX_BATCH_WRITES = 128
+const MAX_BATCH_DATA_BYTES = 4 * 1024 * 1024
 
 /** Pending verified write request */
 interface PendingVerifiedWrite {
@@ -244,36 +246,56 @@ export class NativeBatchingDiskQueue implements IDiskQueue {
   flushPending(): void {
     if (this.pending.length === 0) return
 
-    const writeCount = this.pending.length
-    const totalDataBytes = this.pending.reduce((sum, w) => sum + w.data.byteLength, 0)
+    let offset = 0
+    while (offset < this.pending.length) {
+      let batchBytes = 0
+      let batchCount = 0
 
-    // Time the packing phase
-    const packStart = Date.now()
-    const packed = packVerifiedWriteBatch(this.pending)
-    const packEnd = Date.now()
-    const packTimeMs = packEnd - packStart
+      while (offset + batchCount < this.pending.length) {
+        const write = this.pending[offset + batchCount]
+        const nextBytes = batchBytes + write.data.byteLength
+        if (
+          batchCount > 0 &&
+          (batchCount >= MAX_BATCH_WRITES || nextBytes > MAX_BATCH_DATA_BYTES)
+        ) {
+          break
+        }
+        batchBytes = nextBytes
+        batchCount++
+      }
 
-    // Time the FFI call
-    const ffiStart = Date.now()
-    __jstorrent_file_write_verified_batch(packed)
-    const ffiEnd = Date.now()
-    const ffiTimeMs = ffiEnd - ffiStart
+      const batch = this.pending.slice(offset, offset + batchCount)
 
-    // Update metrics
-    this.metrics.totalWrites += writeCount
-    this.metrics.totalBytes += totalDataBytes
-    this.metrics.totalPackTimeMs += packTimeMs
-    this.metrics.totalFfiTimeMs += ffiTimeMs
-    this.metrics.batchCount++
+      // Time the packing phase
+      const packStart = Date.now()
+      const packed = packVerifiedWriteBatch(batch)
+      const packEnd = Date.now()
+      const packTimeMs = packEnd - packStart
 
-    // Log individual batch if it's significant (>1 write or notable time)
-    if (writeCount > 1 || ffiTimeMs > 5) {
-      const dataMB = (totalDataBytes / (1024 * 1024)).toFixed(2)
-      const packedKB = (packed.byteLength / 1024).toFixed(1)
-      console.log(
-        `[BatchWrite] ${writeCount} writes, ${dataMB}MB data, packed ${packedKB}KB, ` +
-          `pack ${packTimeMs}ms, FFI ${ffiTimeMs}ms`,
-      )
+      // Time the FFI call
+      const ffiStart = Date.now()
+      __jstorrent_file_write_verified_batch(packed)
+      const ffiEnd = Date.now()
+      const ffiTimeMs = ffiEnd - ffiStart
+
+      // Update metrics
+      this.metrics.totalWrites += batchCount
+      this.metrics.totalBytes += batchBytes
+      this.metrics.totalPackTimeMs += packTimeMs
+      this.metrics.totalFfiTimeMs += ffiTimeMs
+      this.metrics.batchCount++
+
+      // Log individual batch if it's significant (>1 write or notable time)
+      if (batchCount > 1 || ffiTimeMs > 5) {
+        const dataMB = (batchBytes / (1024 * 1024)).toFixed(2)
+        const packedKB = (packed.byteLength / 1024).toFixed(1)
+        console.log(
+          `[BatchWrite] ${batchCount} writes, ${dataMB}MB data, packed ${packedKB}KB, ` +
+            `pack ${packTimeMs}ms, FFI ${ffiTimeMs}ms`,
+        )
+      }
+
+      offset += batchCount
     }
 
     // Log aggregate metrics every 5 seconds

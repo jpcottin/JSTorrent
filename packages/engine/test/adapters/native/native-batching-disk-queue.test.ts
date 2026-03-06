@@ -334,6 +334,22 @@ describe('NativeBatchingDiskQueue', () => {
       // Verify count is 1
       expect(view.getUint32(0, true)).toBe(1)
     })
+
+    it('should split oversized write batches into multiple FFI calls', () => {
+      const hash = new Uint8Array(20).fill(0xab)
+
+      queue.queueVerifiedWrite('root', 'a.bin', 0, new ArrayBuffer(3 * 1024 * 1024), hash)
+      queue.queueVerifiedWrite('root', 'b.bin', 0, new ArrayBuffer(3 * 1024 * 1024), hash)
+
+      queue.flushPending()
+
+      expect(mockBatchFn).toHaveBeenCalledTimes(2)
+
+      const firstPacked = mockBatchFn.mock.calls[0][0] as ArrayBuffer
+      const secondPacked = mockBatchFn.mock.calls[1][0] as ArrayBuffer
+      expect(new DataView(firstPacked).getUint32(0, true)).toBe(1)
+      expect(new DataView(secondPacked).getUint32(0, true)).toBe(1)
+    })
   })
 
   describe('IDiskQueue interface', () => {

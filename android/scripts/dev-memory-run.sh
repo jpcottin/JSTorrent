@@ -144,7 +144,7 @@ launch_target_torrent() {
     local escaped_uri
 
     encoded_magnet="$(encode_base64 "$TARGET_MAGNET")"
-    intent_uri="jstorrent://native?magnet_b64=$encoded_magnet&replace=true"
+    intent_uri="jstorrent://native?magnet_b64=$encoded_magnet"
     if [[ -n "$STORAGE_MODE" ]]; then
         intent_uri="${intent_uri}&storage=$STORAGE_MODE"
     fi
