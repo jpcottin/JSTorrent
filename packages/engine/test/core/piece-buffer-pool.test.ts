@@ -142,6 +142,8 @@ describe('PieceBufferPool', () => {
         reuses: 0,
         releases: 0,
         pooled: 0,
+        bufferSize: 16384,
+        pooledBytes: 0,
       })
 
       // Acquire some buffers
