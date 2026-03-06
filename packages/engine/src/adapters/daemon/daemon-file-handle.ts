@@ -6,6 +6,7 @@ import {
   httpStatusToErrorType,
   classifyError,
 } from '../../core/write-error'
+import type { DiskWriteQueueStats } from '../../core/disk-queue'
 import { packVerifiedWriteBatch } from './batch-write-utils'
 import { DaemonConnection } from './daemon-connection'
 
@@ -41,13 +42,22 @@ const connectionsWithFrameHandler = new Set<DaemonConnection>()
 // Used by HttpBatchingDiskQueue (Phase 2) for batch write results
 const pendingBatchWrites = new Map<
   string,
-  { resolve: (v: { bytesWritten: number }) => void; reject: (e: Error) => void }
+  {
+    resolve: (v: { bytesWritten: number }) => void
+    reject: (e: Error) => void
+    bytes: number
+  }
 >()
 
 // In-flight write tracking for backpressure and monitoring
 let totalWritesSent = 0
 let totalWritesAcked = 0
 let maxInFlight = 0
+let totalWriteBytesSent = 0
+let totalWriteBytesAcked = 0
+let inFlightWriteCount = 0
+let inFlightWriteBytes = 0
+let maxInFlightWriteBytes = 0
 
 // Histogram for HTTP upload sizes (batch writes)
 // Buckets: 0-16KB, 16-64KB, 64-256KB, 256KB-1MB, 1-4MB, 4-16MB, 16MB+
@@ -110,19 +120,64 @@ export function getBatchWriteHistogram() {
 
 /** Get current in-flight write stats */
 export function getWriteStats() {
-  const inFlight = pendingBatchWrites.size
+  const inFlight = inFlightWriteCount
   if (inFlight > maxInFlight) maxInFlight = inFlight
+  if (inFlightWriteBytes > maxInFlightWriteBytes) {
+    maxInFlightWriteBytes = inFlightWriteBytes
+  }
   return {
     inFlight,
     maxInFlight,
+    inFlightBytes: inFlightWriteBytes,
+    maxInFlightBytes: maxInFlightWriteBytes,
     totalSent: totalWritesSent,
     totalAcked: totalWritesAcked,
+    totalBytesSent: totalWriteBytesSent,
+    totalBytesAcked: totalWriteBytesAcked,
   }
 }
 
 /** Reset max in-flight counter (call periodically) */
 export function resetWriteStatsMax() {
-  maxInFlight = pendingBatchWrites.size
+  maxInFlight = inFlightWriteCount
+  maxInFlightWriteBytes = inFlightWriteBytes
+}
+
+function registerInFlightWrite(bytes: number): void {
+  totalWritesSent++
+  totalWriteBytesSent += bytes
+  inFlightWriteCount++
+  inFlightWriteBytes += bytes
+}
+
+function completeInFlightWrite(bytes: number): void {
+  inFlightWriteCount = Math.max(0, inFlightWriteCount - 1)
+  inFlightWriteBytes = Math.max(0, inFlightWriteBytes - bytes)
+  totalWritesAcked++
+  totalWriteBytesAcked += bytes
+}
+
+function abandonInFlightWrite(bytes: number): void {
+  inFlightWriteCount = Math.max(0, inFlightWriteCount - 1)
+  inFlightWriteBytes = Math.max(0, inFlightWriteBytes - bytes)
+}
+
+/**
+ * Get current companion write-queue stats for engine-level backpressure.
+ *
+ * Companion writes do not have a separate JS-side pending queue once sent, so
+ * retained write pressure is represented as in-flight verified writes waiting on
+ * the HTTP/write/ACK round trip.
+ */
+export function getCompanionWriteQueueStats(): DiskWriteQueueStats {
+  return {
+    pendingWrites: 0,
+    pendingBytes: 0,
+    inFlightWrites: inFlightWriteCount,
+    inFlightBytes: inFlightWriteBytes,
+    totalWrites: totalWritesSent,
+    totalBytes: totalWriteBytesSent,
+  }
 }
 
 /**
@@ -132,18 +187,31 @@ export function resetWriteStatsMax() {
  */
 export function registerBatchWrite(
   callbackId: string,
+  bytes: number,
   resolve: (v: { bytesWritten: number }) => void,
   reject: (e: Error) => void,
 ): void {
-  pendingBatchWrites.set(callbackId, { resolve, reject })
-  totalWritesSent++
+  pendingBatchWrites.set(callbackId, { resolve, reject, bytes })
+  registerInFlightWrite(bytes)
 }
 
 /**
  * Unregister a pending batch write (e.g., on timeout or cancellation).
  */
 export function unregisterBatchWrite(callbackId: string): boolean {
-  return pendingBatchWrites.delete(callbackId)
+  const pending = pendingBatchWrites.get(callbackId)
+  if (!pending) return false
+  pendingBatchWrites.delete(callbackId)
+  abandonInFlightWrite(pending.bytes)
+  return true
+}
+
+function completeBatchWrite(callbackId: string): boolean {
+  const pending = pendingBatchWrites.get(callbackId)
+  if (!pending) return false
+  pendingBatchWrites.delete(callbackId)
+  completeInFlightWrite(pending.bytes)
+  return true
 }
 
 /**
@@ -186,7 +254,7 @@ function ensureFrameHandler(connection: DaemonConnection): void {
     if (!pending) return // Unknown callbackId (maybe timed out or not ours)
 
     pendingBatchWrites.delete(callbackId)
-    totalWritesAcked++
+    completeInFlightWrite(pending.bytes)
 
     if (resultCode === 0) {
       pending.resolve({ bytesWritten })
@@ -289,23 +357,38 @@ export class DaemonFileHandle implements IFileHandle {
       'X-Offset': String(position),
     }
 
-    // Attach pending hash if set
-    if (this.pendingHash) {
-      headers['X-Expected-SHA1'] = toHex(this.pendingHash)
+    const expectedHash = this.pendingHash
+    if (expectedHash) {
+      headers['X-Expected-SHA1'] = toHex(expectedHash)
       this.pendingHash = null // Consume it
     }
 
     // Record as a single-write "batch" for histogram tracking
     recordBatchSize(data.length, 1)
 
-    const response = await this.connection.requestWithHeaders(
-      'POST',
-      `/write/${this.rootKey}`,
-      headers,
-      data,
-    )
+    if (expectedHash) {
+      registerInFlightWrite(data.length)
+    }
+
+    let response: Response
+    try {
+      response = await this.connection.requestWithHeaders(
+        'POST',
+        `/write/${this.rootKey}`,
+        headers,
+        data,
+      )
+    } catch (error) {
+      if (expectedHash) {
+        abandonInFlightWrite(data.length)
+      }
+      throw classifyError(error, this.path)
+    }
 
     if (!response.ok) {
+      if (expectedHash) {
+        abandonInFlightWrite(data.length)
+      }
       const errorDetail = await response.text()
       const errorType = httpStatusToErrorType(response.status)
       throw new WriteError(
@@ -313,6 +396,10 @@ export class DaemonFileHandle implements IFileHandle {
         errorType,
         this.path,
       )
+    }
+
+    if (expectedHash) {
+      completeInFlightWrite(data.length)
     }
 
     return { bytesWritten: data.length }
@@ -351,10 +438,11 @@ export class DaemonFileHandle implements IFileHandle {
     const packedWrites = writes.map((w) => {
       const callbackId = `wb_${nextRequestId++}`
       if (nextRequestId > 0x7fffffff) nextRequestId = 1
+      const bytes = w.data.byteLength
 
       // Create promise for this write's ACK
       const promise = new Promise<{ bytesWritten: number }>((resolve, reject) => {
-        registerBatchWrite(callbackId, resolve, reject)
+        registerBatchWrite(callbackId, bytes, resolve, reject)
 
         // Timeout after 30 seconds
         setTimeout(() => {
@@ -426,12 +514,11 @@ export class DaemonFileHandle implements IFileHandle {
       return
     }
 
-    // For non-202 responses, unregister callbacks (no WebSocket ACKs expected)
-    for (const w of packedWrites) {
-      unregisterBatchWrite(w.callbackId)
-    }
-
     if (!response.ok) {
+      // No WebSocket ACKs expected on immediate HTTP error.
+      for (const w of packedWrites) {
+        unregisterBatchWrite(w.callbackId)
+      }
       const errorText = await response.text()
       const errorType = httpStatusToErrorType(response.status)
       throw new WriteError(
@@ -441,7 +528,10 @@ export class DaemonFileHandle implements IFileHandle {
       )
     }
 
-    // 200 OK - writes completed synchronously, no need to wait for ACKs
+    // 200 OK - writes completed synchronously, no need to wait for ACKs.
+    for (const w of packedWrites) {
+      completeBatchWrite(w.callbackId)
+    }
   }
 
   async truncate(len: number): Promise<void> {

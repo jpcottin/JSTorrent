@@ -3,6 +3,7 @@ import { packVerifiedWriteBatch } from '../../../src/adapters/daemon/batch-write
 import {
   DaemonFileHandle,
   type BatchWriteItem,
+  getCompanionWriteQueueStats,
 } from '../../../src/adapters/daemon/daemon-file-handle'
 
 // Mock DaemonConnection
@@ -30,13 +31,59 @@ class MockDaemonConnection {
 
   requestBinaryWithHeaders = vi.fn()
   request = vi.fn()
-  onFrame = vi.fn()
+  frameHandler: ((frame: ArrayBuffer) => void) | null = null
+  onFrame = vi.fn((cb: (frame: ArrayBuffer) => void) => {
+    this.frameHandler = cb
+  })
   getStreamingBaseUrl = vi.fn(() => null)
   getCredentialsCached = vi.fn(async () => ({
     token: 'test-token',
     extensionId: 'test-ext',
     installId: 'test-install',
   }))
+}
+
+function makeBatchAckFrame(callbackId: string, bytesWritten: number, resultCode: number): ArrayBuffer {
+  const encoder = new TextEncoder()
+  const callbackBytes = encoder.encode(callbackId)
+  const frame = new ArrayBuffer(8 + 1 + callbackBytes.length + 4 + 1)
+  const view = new DataView(frame)
+  const bytes = new Uint8Array(frame)
+
+  view.setUint8(1, 0x31)
+  view.setUint32(4, 0, true)
+  bytes[8] = callbackBytes.length
+  bytes.set(callbackBytes, 9)
+  view.setInt32(9 + callbackBytes.length, bytesWritten, true)
+  bytes[9 + callbackBytes.length + 4] = resultCode
+
+  return frame
+}
+
+function readCallbackIdsFromPackedRequest(body: Uint8Array): string[] {
+  const bytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength)
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const decoder = new TextDecoder()
+  const count = view.getUint32(0, true)
+  const callbackIds: string[] = []
+  let offset = 4
+
+  for (let i = 0; i < count; i++) {
+    const rootKeyLen = bytes[offset]
+    offset += 1 + rootKeyLen
+    const pathLen = view.getUint16(offset, true)
+    offset += 2 + pathLen
+    offset += 8 // position
+    const dataLen = view.getUint32(offset, true)
+    offset += 4 + dataLen
+    offset += 40 // hash
+    const callbackIdLen = bytes[offset]
+    offset += 1
+    callbackIds.push(decoder.decode(bytes.subarray(offset, offset + callbackIdLen)))
+    offset += callbackIdLen
+  }
+
+  return callbackIds
 }
 
 describe('packVerifiedWriteBatch (batch-write-utils)', () => {
@@ -183,7 +230,6 @@ describe('DaemonFileHandle.writeBatch', () => {
       'test/file.txt',
       'testRootKey',
       false, // nullStorage
-      false, // useWebSocketWrites - disable to avoid frame handler setup
     )
   })
 
@@ -231,6 +277,83 @@ describe('DaemonFileHandle.writeBatch', () => {
     await batchPromise
   })
 
+  it('tracks companion write queue bytes while waiting for batch ACKs', async () => {
+    mockConnection.requestWithHeaders.mockImplementationOnce(
+      async (method: string, path: string, headers: Record<string, string>, body?: Uint8Array) => {
+        mockConnection.lastRequest = { method, path, headers, body }
+        return {
+          ok: true,
+          status: 202,
+          statusText: 'Accepted',
+          text: async () => 'Accepted',
+        }
+      },
+    )
+
+    const writes: BatchWriteItem[] = [
+      {
+        offset: 0,
+        data: new Uint8Array(4),
+        expectedHash: new Uint8Array(20).fill(0xaa),
+      },
+      {
+        offset: 128,
+        data: new Uint8Array(6),
+        expectedHash: new Uint8Array(20).fill(0xbb),
+      },
+    ]
+
+    const baseline = getCompanionWriteQueueStats()
+    const batchPromise = fileHandle.writeBatch(writes)
+    await vi.waitFor(() => expect(mockConnection.requestWithHeaders).toHaveBeenCalledTimes(1))
+
+    const callbackIds = readCallbackIdsFromPackedRequest(mockConnection.lastRequest!.body!)
+    const during = getCompanionWriteQueueStats()
+    expect(during.pendingWrites).toBe(0)
+    expect(during.pendingBytes).toBe(0)
+    expect(during.inFlightWrites - baseline.inFlightWrites).toBe(2)
+    expect(during.inFlightBytes - baseline.inFlightBytes).toBe(10)
+
+    expect(mockConnection.frameHandler).toBeTruthy()
+    mockConnection.frameHandler!(makeBatchAckFrame(callbackIds[0], 4, 0))
+    mockConnection.frameHandler!(makeBatchAckFrame(callbackIds[1], 6, 0))
+    await batchPromise
+
+    const after = getCompanionWriteQueueStats()
+    expect(after.inFlightBytes).toBe(baseline.inFlightBytes)
+    expect(after.inFlightWrites).toBe(baseline.inFlightWrites)
+  })
+
+  it('tracks single verified writes in companion write queue stats until HTTP completes', async () => {
+    let resolveResponse:
+      | ((value: { ok: boolean; status: number; statusText: string; text: () => Promise<string> }) => void)
+      | undefined
+    mockConnection.requestWithHeaders.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveResponse = resolve
+        }),
+    )
+
+    const baseline = getCompanionWriteQueueStats()
+    fileHandle.setExpectedHashForNextWrite(new Uint8Array(20).fill(0xaa))
+    const writePromise = fileHandle.write(new Uint8Array(8), 0, 8, 0)
+
+    await vi.waitFor(() => expect(getCompanionWriteQueueStats().inFlightBytes - baseline.inFlightBytes).toBe(8))
+    expect(getCompanionWriteQueueStats().inFlightWrites - baseline.inFlightWrites).toBe(1)
+
+    resolveResponse!({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () => 'OK',
+    })
+    await writePromise
+
+    expect(getCompanionWriteQueueStats().inFlightBytes).toBe(baseline.inFlightBytes)
+    expect(getCompanionWriteQueueStats().inFlightWrites).toBe(baseline.inFlightWrites)
+  })
+
   it('should reject all writes on HTTP error', async () => {
     // Make HTTP request fail
     mockConnection.requestWithHeaders.mockResolvedValueOnce({
@@ -257,7 +380,6 @@ describe('DaemonFileHandle.writeBatch', () => {
       'test/file.txt',
       'testRootKey',
       true, // nullStorage = true
-      false,
     )
 
     const writes: BatchWriteItem[] = [

@@ -14,6 +14,7 @@ import {
   Torrent,
   toHex,
   getBatchWriteHistogram,
+  getCompanionWriteQueueStats,
   type ISocketFactory,
   type CredentialsGetter,
   type EngineLoggingConfig,
@@ -41,6 +42,8 @@ const NULL_STORAGE = false
 
 // Session store key for default root key
 const DEFAULT_ROOT_KEY_KEY = 'settings:defaultRootKey'
+const CHROMEOS_WRITE_QUEUE_HIGH_WATER = 32 * 1024 * 1024
+const CHROMEOS_WRITE_QUEUE_LOW_WATER = 16 * 1024 * 1024
 
 function isTauriContext(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -300,6 +303,9 @@ export class DaemonEngineManager implements IEngineManager {
       config: configHub,
       // Adaptive batching only supported by Android companion (ChromeOS)
       useAdaptiveBatching: isChromeos,
+      getWriteQueueStats: isChromeos ? () => getCompanionWriteQueueStats() : undefined,
+      writeQueueBackpressureHighWater: isChromeos ? CHROMEOS_WRITE_QUEUE_HIGH_WATER : undefined,
+      writeQueueBackpressureLowWater: isChromeos ? CHROMEOS_WRITE_QUEUE_LOW_WATER : undefined,
     })
     window.engine = this.engine // expose for debugging
     window.getBatchWriteHistogram = getBatchWriteHistogram // expose for benchmarking

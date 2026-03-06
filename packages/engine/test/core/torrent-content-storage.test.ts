@@ -3,6 +3,7 @@ import { TorrentContentStorage } from '../../src/core/torrent-content-storage'
 import { InMemoryFileSystem } from '../../src/adapters/memory'
 import { TorrentFile } from '../../src/core/torrent-file'
 import { MockEngine } from '../utils/mock-engine'
+import type { IDiskQueue, VerifiedWriteBatchData } from '../../src/core/disk-queue'
 
 describe('TorrentContentStorage', () => {
   let fileSystem: InMemoryFileSystem
@@ -104,5 +105,53 @@ describe('TorrentContentStorage', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('respects in-flight adaptive batch byte budget', async () => {
+    const writeBatch = vi.fn(async () => {})
+    const mockHandle = { writeBatch }
+    const mockDiskQueue: IDiskQueue = {
+      enqueue: vi.fn(),
+      drain: vi.fn(),
+      resume: vi.fn(),
+      getSnapshot: vi.fn(() => ({ pending: [], running: [], draining: false })),
+      clearPending: vi.fn(),
+      pendingBytes: 20 * 1024 * 1024,
+      pendingCount: 1,
+      grabPending: vi.fn(() => []),
+    }
+
+    const mockStorageHandle = {
+      id: 'test',
+      name: 'test',
+      getFileSystem: () => fileSystem,
+    }
+    const adaptiveStorage = new TorrentContentStorage(
+      mockEngine,
+      mockStorageHandle,
+      mockDiskQueue,
+      true,
+    )
+
+    const batchData: VerifiedWriteBatchData = {
+      fileHandle: mockHandle,
+      fileRelativeOffset: 0,
+      data: new Uint8Array(16 * 1024 * 1024),
+      expectedHash: new Uint8Array(20),
+      fileKey: 'file.bin',
+    }
+
+    ;(adaptiveStorage as unknown as { batchBytesInFlight: number }).batchBytesInFlight =
+      24 * 1024 * 1024
+
+    const batched = await (
+      adaptiveStorage as unknown as {
+        tryBatchWrite: (data: VerifiedWriteBatchData) => Promise<boolean>
+      }
+    ).tryBatchWrite(batchData)
+
+    expect(batched).toBe(false)
+    expect(mockDiskQueue.grabPending).not.toHaveBeenCalled()
+    expect(writeBatch).not.toHaveBeenCalled()
   })
 })

@@ -22,6 +22,11 @@ const MAX_BATCH_BYTES = 16 * 1024 * 1024 // 16 MB
 // Max pieces per batch
 const MAX_BATCH_COUNT = 64
 
+// Bound total raw data retained by concurrent adaptive batches in the companion
+// path. Multiple piece-sized batch bodies in flight can otherwise recreate the
+// same memory cliff we saw on Android standalone.
+const MAX_IN_FLIGHT_BATCH_BYTES = 32 * 1024 * 1024
+
 // Negative-cache TTL for failed file opens.
 // Prevents repeated open spam in hot paths while allowing recovery if files/folders reappear.
 const FAILED_OPEN_CACHE_TTL_MS = 10_000
@@ -46,9 +51,8 @@ export class TorrentContentStorage extends EngineComponent {
 
   private id = Math.random().toString(36).slice(2, 7)
 
-  /** Track concurrent batch writes */
-  private batchesInFlight = 0
-  private static readonly MAX_CONCURRENT_BATCHES = Infinity
+  /** Total raw data bytes currently retained by in-flight adaptive batches */
+  private batchBytesInFlight = 0
 
   constructor(
     engine: ILoggingEngine,
@@ -405,7 +409,10 @@ export class TorrentContentStorage extends EngineComponent {
       },
       async () => {
         // If batching is enabled, there's a backlog, and we have capacity, try to batch
-        if (batchData && this.batchesInFlight < TorrentContentStorage.MAX_CONCURRENT_BATCHES) {
+        if (
+          batchData &&
+          this.batchBytesInFlight + batchData.data.byteLength <= MAX_IN_FLIGHT_BATCH_BYTES
+        ) {
           const pendingBytes = this.diskQueue!.pendingBytes
           if (pendingBytes > LOW_BACKLOG_THRESHOLD) {
             const batched = await this.tryBatchWrite(batchData)
@@ -434,10 +441,16 @@ export class TorrentContentStorage extends EngineComponent {
 
     const fileKey = currentBatchData.fileKey
     const daemonHandle = currentBatchData.fileHandle as DaemonFileHandle
+    const currentBytes = currentBatchData.data.byteLength
+    const budgetRemaining = MAX_IN_FLIGHT_BATCH_BYTES - this.batchBytesInFlight
+
+    if (budgetRemaining <= currentBytes) {
+      return false
+    }
 
     // Grab additional pending jobs for the same file
     const extras = this.diskQueue.grabPending(
-      MAX_BATCH_BYTES,
+      Math.min(MAX_BATCH_BYTES - currentBytes, budgetRemaining - currentBytes),
       MAX_BATCH_COUNT - 1, // Reserve one slot for current write
       (job: PendingJob) => job.batchData?.fileKey === fileKey,
     )
@@ -486,7 +499,8 @@ export class TorrentContentStorage extends EngineComponent {
       }
     }
 
-    this.batchesInFlight++
+    const batchBytes = writes.reduce((sum, write) => sum + write.data.byteLength, 0)
+    this.batchBytesInFlight += batchBytes
     try {
       // Send all writes in a single HTTP request
       await daemonHandle.writeBatch(writes)
@@ -505,7 +519,7 @@ export class TorrentContentStorage extends EngineComponent {
       // Re-throw so current job also fails
       throw error
     } finally {
-      this.batchesInFlight--
+      this.batchBytesInFlight = Math.max(0, this.batchBytesInFlight - batchBytes)
     }
   }
 

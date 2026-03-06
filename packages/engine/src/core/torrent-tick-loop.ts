@@ -895,7 +895,7 @@ export class TorrentTickLoop extends EngineComponent {
     const diskRate = this.callbacks.getCategoryRate('down', 'disk')
     const diskRateMB = (diskRate / (1024 * 1024)).toFixed(1)
 
-    // Get WebSocket write stats (in-flight writes awaiting ACK)
+    // Get companion write stats (verified writes awaiting HTTP completion / ACK)
     const writeStats = getWriteStats()
 
     this.logger.debug(
@@ -906,7 +906,10 @@ export class TorrentTickLoop extends EngineComponent {
           ? `writeQ: ${writeQueueStats.totalWrites} ops ${(writeQueueStats.totalBytes / (1024 * 1024)).toFixed(1)}MB ` +
             `(${writeQueueStats.pendingWrites} pending, ${writeQueueStats.inFlightWrites} in-flight), `
           : '') +
-        `WS-writes: ${writeStats.inFlight} in-flight (max=${writeStats.maxInFlight}, sent=${writeStats.totalSent}, acked=${writeStats.totalAcked})`,
+        `companionWrites: ${writeStats.inFlight} in-flight/${(writeStats.inFlightBytes / (1024 * 1024)).toFixed(1)}MB ` +
+          `(max=${writeStats.maxInFlight}/${(writeStats.maxInFlightBytes / (1024 * 1024)).toFixed(1)}MB, ` +
+          `sent=${writeStats.totalSent}/${(writeStats.totalBytesSent / (1024 * 1024)).toFixed(1)}MB, ` +
+          `acked=${writeStats.totalAcked}/${(writeStats.totalBytesAcked / (1024 * 1024)).toFixed(1)}MB)`,
     )
 
     // Reset max for next period

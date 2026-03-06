@@ -68,6 +68,7 @@ export {
   getWriteStats,
   resetWriteStatsMax,
   getBatchWriteHistogram,
+  getCompanionWriteQueueStats,
 } from './adapters/daemon/daemon-file-handle'
 
 // Proxy

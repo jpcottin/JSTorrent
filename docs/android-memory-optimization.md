@@ -2,7 +2,7 @@
 
 **Status:** Exploratory / idea backlog
 **Date:** 2026-03-06
-**Superseded by:** [android-memory-measurement-plan.md](android-memory-measurement-plan.md)
+**Superseded by:** [android-memory-measurement-plan.md](android-memory-measurement-plan.md), [android-memory-performance-tuning.md](android-memory-performance-tuning.md)
 
 ## Note
 
@@ -16,6 +16,10 @@ The authoritative document for current work is
 [android-memory-measurement-plan.md](android-memory-measurement-plan.md). That
 plan is intentionally narrower: instrument the current system, collect raw data,
 and use measured behavior to decide what optimization work is actually needed.
+
+For the current tuning reference, landed standalone fixes, and concrete
+companion-mode follow-ups, see
+[android-memory-performance-tuning.md](android-memory-performance-tuning.md).
 
 ## Problem
 
