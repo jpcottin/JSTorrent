@@ -123,6 +123,14 @@ export interface DisplayPeer {
   swarmPeer: SwarmPeer | null
 }
 
+interface PieceFileSpan {
+  fileIndex: number
+  fileOffset: number
+  length: number
+  pieceOffset: number
+  skipped: boolean
+}
+
 /**
  * Create default persisted state for new torrents.
  */
@@ -1130,9 +1138,13 @@ export class Torrent extends EngineComponent {
     this.logger.debug(`PartsFile initialized with ${this._partsFilePieces.size} pieces`)
 
     if (this._partsFilePieces.size > 0) {
-      const materialized = await this.materializeEligiblePieces({ requireBitfield: false })
-      if (materialized > 0) {
-        this.logger.info(`Materialized ${materialized} eligible .parts pieces during init`)
+      const initialPartsCount = this._partsFilePieces.size
+      const synced = await this.syncPartsPiecesToCurrentPriorities({ requireBitfield: false })
+      if (synced.materialized > 0 || synced.exported > 0) {
+        this.logger.info(
+          `Synchronized ${initialPartsCount} .parts pieces during init`,
+          synced,
+        )
       }
     }
   }
@@ -1178,7 +1190,9 @@ export class Torrent extends EngineComponent {
       // If un-skipping, try to materialize any boundary pieces
       if (wasSkipped && priority === 0) {
         // Fire and forget - don't block the caller
-        this.materializeEligiblePieces().catch((e) => {
+        this.syncPartsPiecesToCurrentPriorities({
+          targetFiles: new Set([fileIndex]),
+        }).catch((e) => {
           this.logger.error('Error materializing pieces:', e)
         })
       }
@@ -1206,7 +1220,8 @@ export class Torrent extends EngineComponent {
         this.filePriorities,
       )
       if (anyUnskipped) {
-        this.materializeEligiblePieces().catch((e) => {
+        const targetFiles = this.getNewlyUnskippedFiles(oldPriorities, this.filePriorities)
+        this.syncPartsPiecesToCurrentPriorities({ targetFiles }).catch((e) => {
           this.logger.error('Error materializing pieces:', e)
         })
       }
@@ -1361,6 +1376,37 @@ export class Torrent extends EngineComponent {
   }
 
   /**
+   * Export wanted file spans for a boundary piece while keeping the full piece in .parts.
+   */
+  private async exportPieceWantedSpans(pieceIndex: number): Promise<boolean> {
+    if (!this._partsFile || !this.contentStorage) return false
+
+    const pieceData = this._partsFile.getPiece(pieceIndex)
+    if (!pieceData) {
+      this.logger.warn(`Cannot export piece ${pieceIndex}: not in .parts`)
+      return false
+    }
+
+    try {
+      await this._diskQueue.drain()
+      await this.contentStorage.writePieceFilteredByPriority(pieceIndex, pieceData)
+      this._diskQueue.resume()
+
+      this.logger.debug(`Exported wanted spans for piece ${pieceIndex} from .parts`)
+
+      for (const file of this._files) {
+        file.updateForPiece(pieceIndex)
+      }
+
+      return true
+    } catch (e) {
+      this._diskQueue.resume()
+      this.logger.error(`Failed to export wanted spans for piece ${pieceIndex}:`, e)
+      return false
+    }
+  }
+
+  /**
    * Check if a piece can be materialized (all files it touches are non-skipped).
    */
   private canMaterializePiece(
@@ -1373,6 +1419,93 @@ export class Torrent extends EngineComponent {
 
     // The new classification should be 'wanted' (all files non-skipped)
     return this.pieceClassification[pieceIndex] === 'wanted'
+  }
+
+  private getPieceFileSpans(pieceIndex: number): PieceFileSpan[] {
+    if (!this.contentStorage) return []
+
+    const pieceStart = pieceIndex * this.pieceLength
+    const pieceEnd = pieceStart + this.getPieceLength(pieceIndex)
+    const spans: PieceFileSpan[] = []
+    const files = this.contentStorage.filesList
+
+    for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
+      const file = files[fileIndex]
+      const overlapStart = Math.max(pieceStart, file.offset)
+      const overlapEnd = Math.min(pieceEnd, file.offset + file.length)
+      if (overlapStart >= overlapEnd) continue
+
+      spans.push({
+        fileIndex,
+        fileOffset: overlapStart - file.offset,
+        length: overlapEnd - overlapStart,
+        pieceOffset: overlapStart - pieceStart,
+        skipped: this.isFileSkipped(fileIndex),
+      })
+    }
+
+    return spans
+  }
+
+  private getNewlyUnskippedFiles(oldPriorities: number[], newPriorities: number[]): Set<number> {
+    const unskipped = new Set<number>()
+    const count = Math.min(oldPriorities.length, newPriorities.length)
+    for (let i = 0; i < count; i++) {
+      if (oldPriorities[i] === 1 && newPriorities[i] === 0) {
+        unskipped.add(i)
+      }
+    }
+    return unskipped
+  }
+
+  private pieceTouchesAnyFiles(pieceIndex: number, targetFiles: Set<number>): boolean {
+    if (targetFiles.size === 0) return false
+    return this.getPieceFileSpans(pieceIndex).some((span) => targetFiles.has(span.fileIndex))
+  }
+
+  private async syncPartsPiecesToCurrentPriorities(options?: {
+    requireBitfield?: boolean
+    targetFiles?: Set<number>
+  }): Promise<{ exported: number; materialized: number }> {
+    if (!this._partsFile || this._partsFilePieces.size === 0) {
+      return { exported: 0, materialized: 0 }
+    }
+
+    const targetFiles = options?.targetFiles
+    const toExport: number[] = []
+    const toMaterialize: number[] = []
+
+    for (const pieceIndex of this._partsFilePieces) {
+      if (options?.requireBitfield !== false && !this._bitfield?.get(pieceIndex)) continue
+      if (targetFiles && !this.pieceTouchesAnyFiles(pieceIndex, targetFiles)) continue
+
+      const classification = this.pieceClassification[pieceIndex]
+      if (classification === 'wanted') {
+        toMaterialize.push(pieceIndex)
+      } else if (classification === 'boundary') {
+        toExport.push(pieceIndex)
+      }
+    }
+
+    let exported = 0
+    for (const pieceIndex of toExport) {
+      if (await this.exportPieceWantedSpans(pieceIndex)) {
+        exported++
+      }
+    }
+
+    let materialized = 0
+    for (const pieceIndex of toMaterialize) {
+      if (await this.materializePiece(pieceIndex)) {
+        materialized++
+      }
+    }
+
+    if (materialized > 0) {
+      ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+    }
+
+    return { exported, materialized }
   }
 
   /**
@@ -3719,6 +3852,31 @@ export class Torrent extends EngineComponent {
     const data = this._partsFile.getPiece(index)
     if (!data) return false
 
+    let pieceData = data
+    const spans = this.getPieceFileSpans(index)
+    const hasWantedSpans = spans.some((span) => !span.skipped)
+    if (hasWantedSpans) {
+      if (!this.contentStorage) return false
+
+      const assembled = new Uint8Array(this.getPieceLength(index))
+      for (const span of spans) {
+        if (span.skipped) {
+          assembled.set(
+            data.subarray(span.pieceOffset, span.pieceOffset + span.length),
+            span.pieceOffset,
+          )
+        } else {
+          const fileData = await this.contentStorage.readFileBytes(
+            span.fileIndex,
+            span.fileOffset,
+            span.length,
+          )
+          assembled.set(fileData, span.pieceOffset)
+        }
+      }
+      pieceData = assembled
+    }
+
     const expectedHash = this.getPieceHash(index)
     if (!expectedHash) {
       // If no hashes provided, assume valid
@@ -3726,7 +3884,7 @@ export class Torrent extends EngineComponent {
     }
 
     // Calculate SHA1
-    const hash = await this.btEngine.hasher.sha1(data, 'piece-upload-verify')
+    const hash = await this.btEngine.hasher.sha1(pieceData, 'piece-upload-verify')
 
     // Compare
     return compare(hash, expectedHash) === 0

@@ -645,6 +645,58 @@ describe('Materialization', () => {
   })
 
   describe('boundary piece regression coverage', () => {
+    it('exports newly unskipped file spans while piece remains in .parts', async () => {
+      const fileAData = new Uint8Array(100)
+      const skippedData = new Uint8Array(10)
+      const fileCData = new Uint8Array(120)
+      for (let i = 0; i < fileAData.length; i++) fileAData[i] = i & 0xff
+      for (let i = 0; i < skippedData.length; i++) skippedData[i] = (i + 100) & 0xff
+      for (let i = 0; i < fileCData.length; i++) fileCData[i] = (i + 110) & 0xff
+
+      const torrentBuffer = createMultiFileTorrentWithData({
+        name: 'PartialExportTorrent',
+        files: [
+          { path: 'partA.bin', data: fileAData },
+          { path: 'skip.txt', data: skippedData },
+          { path: 'partC.bin', data: fileCData },
+        ],
+        pieceLength: 256,
+      })
+
+      const { torrent } = await engine.addTorrent(torrentBuffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      await fileSystem.mkdir('PartialExportTorrent')
+
+      torrent.setFilePriority(1, 1)
+      torrent.setFilePriority(2, 1)
+      expect(torrent.pieceClassification[0]).toBe('boundary')
+
+      const pieceData = new Uint8Array([...fileAData, ...skippedData, ...fileCData])
+      // @ts-expect-error - accessing private member for testing
+      const result = await torrent.verifyAndWriteBoundaryPiece(
+        0,
+        pieceData,
+        torrent.getPieceHash(0),
+        [],
+      )
+      expect(result).toEqual({ success: true, bytesWritten: pieceData.length })
+      torrent.bitfield!.set(0, true)
+
+      expect(await fileSystem.exists('PartialExportTorrent/partC.bin')).toBe(false)
+
+      torrent.setFilePriority(2, 0)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      expect(torrent.pieceClassification[0]).toBe('boundary')
+      expect(torrent.partsFilePieces.has(0)).toBe(true)
+      expect(torrent.canServePiece(0)).toBe(false)
+      expect(torrent.getAdvertisedBitfield()!.get(0)).toBe(false)
+
+      const writtenFileC = await fileSystem.readFile('PartialExportTorrent/partC.bin')
+      expect(writtenFileC).toEqual(fileCData)
+    })
+
     it('round-trips skipped boundary data from .parts to disk after unskip', async () => {
       const fileAData = new Uint8Array(150)
       const fileBData = new Uint8Array(250)
@@ -761,6 +813,76 @@ describe('Materialization', () => {
       expect(restoredFileB.slice(0, 50)).toEqual(fileBData.slice(0, 50))
     })
 
+    it('exports wanted spans from existing boundary .parts pieces on session restore', async () => {
+      const sessionStore = new MemorySessionStore()
+      const sharedFs = new InMemoryFileSystem()
+      const engine1 = createEngine(sharedFs, sessionStore)
+
+      const fileAData = new Uint8Array(100)
+      const skippedData = new Uint8Array(10)
+      const fileCData = new Uint8Array(120)
+      for (let i = 0; i < fileAData.length; i++) fileAData[i] = i & 0xff
+      for (let i = 0; i < skippedData.length; i++) skippedData[i] = (i + 100) & 0xff
+      for (let i = 0; i < fileCData.length; i++) fileCData[i] = (i + 110) & 0xff
+
+      const torrentBuffer = createMultiFileTorrentWithData({
+        name: 'RestoreBoundaryTorrent',
+        files: [
+          { path: 'partA.bin', data: fileAData },
+          { path: 'skip.txt', data: skippedData },
+          { path: 'partC.bin', data: fileCData },
+        ],
+        pieceLength: 256,
+      })
+
+      const { torrent: torrent1 } = await engine1.addTorrent(torrentBuffer)
+      if (!torrent1) throw new Error('Torrent is null')
+
+      await sharedFs.mkdir('RestoreBoundaryTorrent')
+
+      torrent1.setFilePriority(1, 1)
+      torrent1.setFilePriority(2, 1)
+      const pieceData = new Uint8Array([...fileAData, ...skippedData, ...fileCData])
+      // @ts-expect-error - accessing private member for testing
+      await torrent1.verifyAndWriteBoundaryPiece(0, pieceData, torrent1.getPieceHash(0), [])
+      torrent1.bitfield!.set(0, true)
+
+      const infoHash = Buffer.from(torrent1.infoHash).toString('hex')
+      await engine1.sessionPersistence.saveTorrentList()
+      await engine1.sessionPersistence.saveTorrentFile(infoHash, torrentBuffer)
+      await engine1.sessionPersistence.saveTorrentState(torrent1)
+
+      const stateKey = `torrent:${infoHash}:state`
+      const state = await sessionStore.getJson<{
+        bitfield?: string
+        downloaded: number
+        filePriorities?: number[]
+        forceActive?: boolean
+        pieceCount?: number
+        queuePosition?: number
+        storageKey?: string
+        updatedAt: number
+        uploaded: number
+        userState: string
+      }>(stateKey)
+      if (!state) throw new Error('Expected persisted state')
+      await sessionStore.setJson(stateKey, {
+        ...state,
+        filePriorities: [0, 1, 0],
+      })
+
+      const engine2 = createEngine(sharedFs, sessionStore)
+      await engine2.restoreSession()
+
+      const torrent2 = engine2.torrents[0]
+      expect(torrent2.partsFilePieces.has(0)).toBe(true)
+      expect(torrent2.pieceClassification[0]).toBe('boundary')
+      expect(torrent2.canServePiece(0)).toBe(false)
+
+      const restoredFileC = await sharedFs.readFile('RestoreBoundaryTorrent/partC.bin')
+      expect(restoredFileC).toEqual(fileCData)
+    })
+
     it('recheckData detects corruption in a materialized boundary region', async () => {
       const fileAData = new Uint8Array(150)
       const fileBData = new Uint8Array(250)
@@ -798,6 +920,51 @@ describe('Materialization', () => {
       await torrent.recheckData()
 
       expect(torrent.hasPiece(1)).toBe(false)
+      expect(torrent.bitfield?.cardinality()).toBe(0)
+    })
+
+    it('recheckData validates boundary pieces against exported wanted spans', async () => {
+      const fileAData = new Uint8Array(100)
+      const skippedData = new Uint8Array(10)
+      const fileCData = new Uint8Array(120)
+      for (let i = 0; i < fileAData.length; i++) fileAData[i] = i & 0xff
+      for (let i = 0; i < skippedData.length; i++) skippedData[i] = (i + 100) & 0xff
+      for (let i = 0; i < fileCData.length; i++) fileCData[i] = (i + 110) & 0xff
+
+      const torrentBuffer = createMultiFileTorrentWithData({
+        name: 'RecheckBoundaryTorrent',
+        files: [
+          { path: 'partA.bin', data: fileAData },
+          { path: 'skip.txt', data: skippedData },
+          { path: 'partC.bin', data: fileCData },
+        ],
+        pieceLength: 256,
+      })
+
+      const { torrent } = await engine.addTorrent(torrentBuffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      await fileSystem.mkdir('RecheckBoundaryTorrent')
+
+      torrent.setFilePriority(1, 1)
+      torrent.setFilePriority(2, 1)
+      const pieceData = new Uint8Array([...fileAData, ...skippedData, ...fileCData])
+      // @ts-expect-error - accessing private member for testing
+      await torrent.verifyAndWriteBoundaryPiece(0, pieceData, torrent.getPieceHash(0), [])
+      torrent.bitfield!.set(0, true)
+
+      torrent.setFilePriority(2, 0)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      const fileCPath = 'RecheckBoundaryTorrent/partC.bin'
+      const corruptFileC = await fileSystem.readFile(fileCPath)
+      corruptFileC.fill(0, 0, corruptFileC.length)
+      fileSystem.files.set(fileCPath, corruptFileC)
+
+      await torrent.recheckData()
+
+      expect(torrent.partsFilePieces.has(0)).toBe(false)
+      expect(torrent.hasPiece(0)).toBe(false)
       expect(torrent.bitfield?.cardinality()).toBe(0)
     })
   })
