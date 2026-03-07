@@ -65,6 +65,7 @@ function clearIdleTimer(): void {
 
 // Store pending event in chrome.storage.session so it survives SW restarts
 const PENDING_EVENT_KEY = 'pending:nativeEvent'
+const VIDEO_PLAYER_PAGE = 'src/ui/video-player.html'
 
 async function sendToUI(event: NativeEvent): Promise<void> {
   if (primaryUIPort) {
@@ -134,6 +135,9 @@ function handleUIPortConnect(port: chrome.runtime.Port): void {
     console.log('[SW] UI port disconnected')
     if (primaryUIPort === port) {
       primaryUIPort = null
+      closeVideoPlayerPopup().catch((e) => {
+        console.error('[SW] Failed to close video popup on UI disconnect:', e)
+      })
       // Notify user if downloads were active
       notificationManager.onUiClosed()
       // Start idle timer to allow SW suspension
@@ -318,6 +322,44 @@ async function openUiTab() {
   }
 }
 
+function buildVideoPlayerPopupUrl(message: {
+  sessionId: string
+  fileName: string
+  fileSize: number
+  fileOffset: number
+  pieceLength: number
+}): string {
+  const url = new URL(chrome.runtime.getURL(VIDEO_PLAYER_PAGE))
+  url.searchParams.set('sessionId', message.sessionId)
+  url.searchParams.set('fileName', message.fileName)
+  url.searchParams.set('fileSize', String(message.fileSize))
+  url.searchParams.set('fileOffset', String(message.fileOffset))
+  url.searchParams.set('pieceLength', String(message.pieceLength))
+  return url.toString()
+}
+
+async function findVideoPlayerContext() {
+  const urlPrefix = chrome.runtime.getURL(VIDEO_PLAYER_PAGE)
+  const contexts = await chrome.runtime.getContexts({})
+  return contexts.find((c) => c.documentUrl?.startsWith(urlPrefix))
+}
+
+async function openVideoPlayerPopup(message: {
+  sessionId: string
+  fileName: string
+  fileSize: number
+  fileOffset: number
+  pieceLength: number
+}): Promise<void> {
+  const url = buildVideoPlayerPopupUrl(message)
+  const hadExisting = await closeVideoPlayerPopup()
+  if (hadExisting) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+
+  await chrome.windows.create({ url, type: 'popup', width: 1280, height: 720 })
+}
+
 // Handle extension icon click
 chrome.action.onClicked.addListener(() => {
   openUiTab()
@@ -330,6 +372,19 @@ async function closeUiTab(): Promise<boolean> {
   const existing = contexts.find((c) => c.documentUrl === url)
   if (existing?.tabId && existing.tabId !== -1) {
     await chrome.tabs.remove(existing.tabId)
+    return true
+  }
+  return false
+}
+
+async function closeVideoPlayerPopup(): Promise<boolean> {
+  const existing = await findVideoPlayerContext()
+  if (existing?.tabId && existing.tabId !== -1) {
+    await chrome.tabs.remove(existing.tabId)
+    return true
+  }
+  if (existing?.windowId && existing.windowId !== -1) {
+    await chrome.windows.remove(existing.windowId)
     return true
   }
   return false
@@ -692,6 +747,11 @@ function handleMessage(
     path?: string
     profileId?: string | null
     displayName?: string
+    sessionId?: string
+    fileName?: string
+    fileSize?: number
+    fileOffset?: number
+    pieceLength?: number
   },
   sendResponse: SendResponse,
 ): boolean {
@@ -808,6 +868,25 @@ function handleMessage(
     bridge.triggerLaunch().then((success: boolean) => {
       sendResponse({ ok: success })
     })
+    return true
+  }
+
+  if (message.type === 'OPEN_VIDEO_PLAYER_POPUP') {
+    const { sessionId, fileName, fileSize, fileOffset, pieceLength } = message
+    if (
+      !sessionId ||
+      !fileName ||
+      typeof fileSize !== 'number' ||
+      typeof fileOffset !== 'number' ||
+      typeof pieceLength !== 'number'
+    ) {
+      sendResponse({ ok: false, error: 'Missing popup player parameters' })
+      return true
+    }
+
+    openVideoPlayerPopup({ sessionId, fileName, fileSize, fileOffset, pieceLength })
+      .then(() => sendResponse({ ok: true }))
+      .catch((e: unknown) => sendResponse({ ok: false, error: String(e) }))
     return true
   }
 

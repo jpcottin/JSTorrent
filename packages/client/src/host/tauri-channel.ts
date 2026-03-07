@@ -25,6 +25,7 @@ import type {
   UpdateCheckResult,
   ProfileListEntry,
   UsageMetrics,
+  VideoPopupLaunchOptions,
 } from './types'
 
 // --- Tauri IPC helpers ---
@@ -444,6 +445,10 @@ export class TauriChannel implements HostChannel {
 
   triggerLaunch(): void {
     // No-op — daemon is always launched by system-bridge
+  }
+
+  async openVideoPlayerPopup(_options: VideoPopupLaunchOptions): Promise<boolean> {
+    return false
   }
 
   takeOver(): void {

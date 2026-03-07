@@ -183,6 +183,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@jstorrent/engine': resolve(__dirname, '../packages/engine/src/index.ts'),
+      '@jstorrent/client/core': resolve(__dirname, '../packages/client/src/core.ts'),
       '@jstorrent/client': resolve(__dirname, '../packages/client/src/index.ts'),
       '@jstorrent/ui/styles.css': resolve(__dirname, '../packages/ui/src/styles.css'),
       '@jstorrent/ui': resolve(__dirname, '../packages/ui/src/index.ts'),
@@ -197,6 +198,7 @@ export default defineConfig({
       input: {
         app: resolve(__dirname, 'src/ui/app.html'),
         share: resolve(__dirname, 'src/ui/share.html'),
+        videoPlayer: resolve(__dirname, 'src/ui/video-player.html'),
         magnet: resolve(__dirname, 'src/magnet/magnet-handler.html'),
         sw: resolve(__dirname, 'src/sw.ts'),
       },

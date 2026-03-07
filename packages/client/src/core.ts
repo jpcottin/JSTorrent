@@ -39,6 +39,7 @@ export { useConfigInit } from './hooks/useConfigInit'
 // UI Components
 export { AppShell } from './components/AppShell'
 export { AppHeader } from './components/AppHeader'
+export { VideoPopupPage } from './components/VideoPopupPage'
 
 // App content (Chrome-free, callbacks optional)
 export { AppContent } from './AppContent'
@@ -46,3 +47,9 @@ export type { AppContentProps, FileInfo } from './AppContent'
 
 // Settings overlay (platform-agnostic, uses EngineManagerContext)
 export { SettingsOverlay } from './components/SettingsOverlay'
+
+// Video popup session helpers
+export {
+  createVideoPopupSessionHost,
+  createRemoteStreamingFileProvider,
+} from './utils/video-popup-session'

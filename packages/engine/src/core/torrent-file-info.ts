@@ -41,6 +41,10 @@ export class TorrentFileInfo {
     return this.file.length
   }
 
+  get offset(): number {
+    return this.file.offset
+  }
+
   get downloaded(): number {
     return this._downloaded
   }

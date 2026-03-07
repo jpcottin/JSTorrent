@@ -24,6 +24,7 @@ import type {
   UpdateCheckResult,
   ProfileListEntry,
   UsageMetrics,
+  VideoPopupLaunchOptions,
 } from './types'
 
 export class ChromeExtensionChannel implements HostChannel {
@@ -219,6 +220,18 @@ export class ChromeExtensionChannel implements HostChannel {
 
   triggerLaunch(): void {
     this.postMessage({ type: 'TRIGGER_LAUNCH' })
+  }
+
+  async openVideoPlayerPopup(options: VideoPopupLaunchOptions): Promise<boolean> {
+    try {
+      const response = await this.sendMessage<{ ok: boolean }>({
+        type: 'OPEN_VIDEO_PLAYER_POPUP',
+        ...options,
+      })
+      return response.ok
+    } catch {
+      return false
+    }
   }
 
   // --- Debug / admin ---

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ChromeExtensionChannel } from '../../src/host/chrome-extension-channel'
-import type { HostState, NativeEvent } from '../../src/host/types'
+import type { HostState, NativeEvent, VideoPopupLaunchOptions } from '../../src/host/types'
 
 // --- Chrome API mock setup ---
 
@@ -577,6 +577,33 @@ describe('ChromeExtensionChannel', () => {
       channel.triggerLaunch()
 
       expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith({ type: 'TRIGGER_LAUNCH' })
+
+      channel.disconnect()
+    })
+
+    it('openVideoPlayerPopup sends popup launch details', async () => {
+      sendMessageResponse = { ok: false }
+      const channel = new ChromeExtensionChannel()
+      await channel.connect()
+
+      const options: VideoPopupLaunchOptions = {
+        sessionId: 'session-1',
+        fileName: 'movie.mkv',
+        fileSize: 123,
+        fileOffset: 456,
+        pieceLength: 16384,
+      }
+
+      sendMessageResponse = { ok: true }
+      await expect(channel.openVideoPlayerPopup(options)).resolves.toBe(true)
+
+      expect(chromeMock.runtime.sendMessage).toHaveBeenLastCalledWith(
+        {
+          type: 'OPEN_VIDEO_PLAYER_POPUP',
+          ...options,
+        },
+        expect.any(Function),
+      )
 
       channel.disconnect()
     })

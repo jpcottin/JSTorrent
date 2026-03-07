@@ -109,6 +109,8 @@ export interface FileTableProps {
   onSetFilePriority?: (torrentHash: string, fileIndex: number, priority: number) => void
   /** Called when user wants to watch a video file. */
   onWatchVideo?: (torrentHash: string, file: TorrentFileInfo) => void
+  /** Called when user wants to watch a video file in a popup window. */
+  onWatchVideoInPopup?: (torrentHash: string, file: TorrentFileInfo) => void
 }
 
 /**
@@ -137,13 +139,26 @@ export function FileTable(props: FileTableProps) {
     const isVideo = contextMenu && VIDEO_EXTENSIONS.has(contextMenu.file.extension.toLowerCase())
 
     return [
-      ...(isVideo && props.onWatchVideo
+      ...(isVideo && (props.onWatchVideo || props.onWatchVideoInPopup)
         ? [
-            {
-              id: 'watch',
-              label: 'Watch',
-              icon: '▶',
-            },
+            ...(props.onWatchVideo
+              ? [
+                  {
+                    id: 'watch',
+                    label: 'Watch',
+                    icon: '▶',
+                  } as ContextMenuItem,
+                ]
+              : []),
+            ...(props.onWatchVideoInPopup
+              ? [
+                  {
+                    id: 'watch-popup',
+                    label: 'Watch in Popup',
+                    icon: '▣',
+                  } as ContextMenuItem,
+                ]
+              : []),
             { id: 'separator-watch', label: '-' },
           ]
         : []),
@@ -229,6 +244,9 @@ export function FileTable(props: FileTableProps) {
     switch (id) {
       case 'watch':
         props.onWatchVideo?.(props.torrentHash, file)
+        break
+      case 'watch-popup':
+        props.onWatchVideoInPopup?.(props.torrentHash, file)
         break
       case 'open':
         handleOpenFile(file)

@@ -19,6 +19,7 @@ import type {
   UpdateCheckResult,
   ProfileListEntry,
   UsageMetrics,
+  VideoPopupLaunchOptions,
 } from './types'
 
 export interface HostChannel {
@@ -56,6 +57,7 @@ export interface HostChannel {
   // --- Host actions ---
   retryConnection(): void
   triggerLaunch(): void
+  openVideoPlayerPopup(options: VideoPopupLaunchOptions): Promise<boolean>
   /** Take over from the incumbent client using this profile. */
   takeOver(): void
 

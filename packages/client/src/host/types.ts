@@ -150,6 +150,14 @@ export interface UsageMetrics {
   daysInstalled?: number
 }
 
+export interface VideoPopupLaunchOptions {
+  sessionId: string
+  fileName: string
+  fileSize: number
+  fileOffset: number
+  pieceLength: number
+}
+
 // --- Utility ---
 
 /** Unsubscribe function returned by event listeners. */

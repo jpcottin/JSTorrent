@@ -31,6 +31,7 @@ const engineManager = new DaemonEngineManager(channel)
 window.engineManager = engineManager
 
 const isDevMode = channel.isDevMode()
+const supportsVideoPopup = channel.getState().platform !== 'tauri'
 
 /**
  * ChromeAppContent - Wrapper around AppContent that provides Chrome-specific callbacks.
@@ -69,6 +70,16 @@ function ChromeAppContent({ onOpenLoggingSettings }: { onOpenLoggingSettings?: (
           standaloneAlert('Failed to get file path: storage root not found')
         }
       }}
+      onOpenVideoPopup={
+        supportsVideoPopup
+          ? async (options) => {
+              const ok = await channel.openVideoPlayerPopup(options)
+              if (!ok) {
+                standaloneAlert('Failed to open video popup')
+              }
+            }
+          : undefined
+      }
       shareUrl={import.meta.env.SHARE_URL}
     />
   )

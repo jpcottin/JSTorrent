@@ -26,7 +26,9 @@ import { useEngineState } from './hooks/useEngineState'
 import { useConfigValue } from './context/ConfigContext'
 import { copyTextToClipboard } from './utils/clipboard'
 import { standaloneAlert } from './utils/dialogs'
+import type { VideoPopupLaunchOptions } from './host/types'
 import { prepareTorrentForVideoPlayback } from './utils/watch-video'
+import { createVideoPopupSessionHost } from './utils/video-popup-session'
 import {
   UBUNTU_SERVER_MAGNET,
   BIG_BUCK_BUNNY_MAGNET,
@@ -65,6 +67,8 @@ export interface AppContentProps {
   shareUrl?: string
   /** Whether to show dev-only features like test torrents */
   isDevMode?: boolean
+  /** Open the dedicated video player popup (extension-only). */
+  onOpenVideoPopup?: (options: VideoPopupLaunchOptions) => Promise<void>
 }
 
 export function AppContent(props: AppContentProps) {
@@ -85,7 +89,13 @@ function AppContentInner({
   onTorrentAdded,
   shareUrl = 'https://jstorrent.com/share.html',
   isDevMode = false,
+  onOpenVideoPopup,
 }: AppContentProps) {
+  const createSessionId = () =>
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `video-popup-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
   const [magnetInput, setMagnetInput] = useState('')
   const [selectedTorrents, setSelectedTorrents] = useState<Set<string>>(new Set())
 
@@ -103,6 +113,7 @@ function AppContentInner({
   const { adapter, torrents, refresh } = useEngineState()
   const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const popupVideoSessionRef = useRef<ReturnType<typeof createVideoPopupSessionHost> | null>(null)
 
   const {
     height: detailHeight,
@@ -274,6 +285,76 @@ function AppContentInner({
     },
     [adapter, refresh],
   )
+
+  const handleWatchVideoInPopup = useCallback(
+    async (torrentHash: string, file: TorrentFileInfo) => {
+      if (!onOpenVideoPopup) return
+
+      console.log('onWatchVideoInPopup', torrentHash, file.index, file.filename)
+      try {
+        const torrent = adapter.getTorrent(torrentHash)
+        if (!torrent) {
+          console.error('onWatchVideoInPopup: torrent not found', torrentHash)
+          return
+        }
+
+        await prepareTorrentForVideoPlayback(torrent, file.index)
+        refresh()
+
+        if (torrent.activityState === 'error') {
+          throw new Error(torrent.errorMessage ?? 'Torrent could not be started for playback')
+        }
+
+        const targetFile = torrent.files[file.index]
+        if (!targetFile) {
+          throw new Error(`File ${file.index} not found`)
+        }
+
+        popupVideoSessionRef.current?.dispose()
+
+        const sessionId = createSessionId()
+        const provider = createStreamingFileProvider(torrent, file.index)
+        const sessionHost = createVideoPopupSessionHost(sessionId, provider)
+        popupVideoSessionRef.current = sessionHost
+
+        try {
+          await onOpenVideoPopup({
+            sessionId,
+            fileName: file.filename,
+            fileSize: targetFile.length,
+            fileOffset: targetFile.offset,
+            pieceLength: torrent.pieceLength,
+          })
+        } catch (error) {
+          sessionHost.dispose()
+          if (popupVideoSessionRef.current === sessionHost) {
+            popupVideoSessionRef.current = null
+          }
+          throw error
+        }
+      } catch (err) {
+        console.error('onWatchVideoInPopup: failed', err)
+        standaloneAlert(
+          err instanceof Error ? `Unable to open popup playback.\n\n${err.message}` : 'Unable to open popup playback.',
+        )
+      }
+    },
+    [adapter, onOpenVideoPopup, refresh],
+  )
+
+  React.useEffect(() => {
+    const handleBeforeUnload = () => {
+      popupVideoSessionRef.current?.dispose()
+      popupVideoSessionRef.current = null
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      popupVideoSessionRef.current?.dispose()
+      popupVideoSessionRef.current = null
+    }
+  }, [])
 
   const handleRemoveWithDataRequest = () => {
     if (selectedTorrentObjects.length > 0) {
@@ -669,6 +750,7 @@ function AppContentInner({
                   }
                 }}
                 onWatchVideo={handleWatchVideo}
+                onWatchVideoInPopup={onOpenVideoPopup ? handleWatchVideoInPopup : undefined}
                 onOpenLoggingSettings={onOpenLoggingSettings}
                 pieceViewMode={pieceViewMode}
                 onPieceViewModeChange={setPieceViewMode}
