@@ -18,6 +18,8 @@ import {
   ResizeHandle,
   usePersistedUIState,
   ContextMenuItem,
+  ToastProvider,
+  useToast,
 } from '@jstorrent/ui'
 import { useEngineState } from './hooks/useEngineState'
 import { useConfigValue } from './context/ConfigContext'
@@ -62,7 +64,15 @@ export interface AppContentProps {
   isDevMode?: boolean
 }
 
-export function AppContent({
+export function AppContent(props: AppContentProps) {
+  return (
+    <ToastProvider>
+      <AppContentInner {...props} />
+    </ToastProvider>
+  )
+}
+
+function AppContentInner({
   onOpenLoggingSettings,
   onOpenFile,
   onRevealInFolder,
@@ -84,6 +94,7 @@ export function AppContent({
   const [confirmRemoveAll, setConfirmRemoveAll] = useState<Torrent[] | null>(null)
   const [removingData, setRemovingData] = useState(false)
   const { adapter, torrents, refresh } = useEngineState()
+  const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const {
@@ -193,6 +204,8 @@ export function AppContent({
   const handleRecheckSelected = async () => {
     for (const t of selectedTorrentObjects) {
       await t.recheckData()
+      const valid = t.bitfield?.count() ?? 0
+      toast.show(`${t.name}: ${valid}/${t.piecesCount} pieces valid`)
     }
   }
 

@@ -3577,7 +3577,8 @@ export class Torrent extends EngineComponent {
     files: { path: string; length: number; offset: number }[],
     piecesToVerify: number[],
   ): Promise<void> {
-    const BATCH_SIZE = Math.max(1, Math.ceil(piecesToVerify.length / 10))
+    const MAX_BATCH_BYTES = 64 * 1024 * 1024 // 64 MB
+    const BATCH_SIZE = Math.max(1, Math.floor(MAX_BATCH_BYTES / this.pieceLength))
 
     // Build the concatenated hashes for ALL pieces (verifyChunks operates on
     // the virtual concatenated file stream, indexed by chunk position)
