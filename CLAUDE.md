@@ -316,6 +316,22 @@ emu test-native                         # Install app, launch with test magnet
 
 See `android/scripts/` for more: `emu-logs.sh`, `emu-install.sh`, `dev` commands for real devices.
 
+### ChromeOS Companion Smoke Test
+
+Use this to validate the full Chrome extension → Android companion → torrent download path against the local emulator:
+
+```bash
+source ~/.profile && source android/scripts/android-env.sh
+DOWNLOAD_TIMEOUT_MS=720000 ./scripts/e2e-companion-smoke.sh --skip-build
+```
+
+Notes:
+- This uses the local Android emulator, not physical ChromeOS hardware.
+- If you changed extension code and need a fresh build, omit `--skip-build`.
+- On this machine, `DOWNLOAD_TIMEOUT_MS=720000` was needed for the 100MB smoke download to complete reliably.
+- First-time emulator setup: if the test connects successfully but reports zero roots, launch the add-root flow once in the emulator and approve `Download/JSTorrent` via the Android folder picker. That permission persists for later runs.
+- For the larger download path, use: `FULL_DOWNLOAD=1 DOWNLOAD_TIMEOUT_MS=720000 ./scripts/e2e-companion-smoke.sh --skip-build`
+
 ## Releases
 
 All components follow the same release pattern:
