@@ -198,4 +198,57 @@ describe('MKV metadata I/O behavior', () => {
       expect(Math.abs(closest - cueTimeSec)).toBeLessThan(2)
     }
   })
+
+  it('parseMkvCues timestamps and offsets match ffprobe keyframes', () => {
+    // Cross-validate against ffprobe as ground truth.
+    // ffprobe reports packet positions (data inside cluster), our parser reports
+    // cluster element starts — so byte offsets differ by cluster header overhead,
+    // but timestamps must match exactly.
+    const ffprobeOutput = execFileSync(
+      'ffprobe',
+      [
+        '-v',
+        'quiet',
+        '-select_streams',
+        'v:0',
+        '-show_entries',
+        'packet=pts_time,pos,flags',
+        '-of',
+        'csv=p=0',
+        MKV_FIXTURE,
+      ],
+      { encoding: 'utf-8' },
+    )
+
+    const ffprobeKeyframes = ffprobeOutput
+      .trim()
+      .split('\n')
+      .filter((line) => line.endsWith(',K__'))
+      .map((line) => {
+        const [pts, pos] = line.split(',')
+        return { timestampSec: parseFloat(pts), bytePos: parseInt(pos, 10) }
+      })
+
+    const cuePoints = parseMkvCues((s, e) => buffer.subarray(s, e), fileSize)
+
+    // Same number of entries (1 keyframe per cluster, 1 cue per cluster)
+    expect(cuePoints).toHaveLength(ffprobeKeyframes.length)
+
+    for (let i = 0; i < cuePoints.length; i++) {
+      const cue = cuePoints[i]
+      const ff = ffprobeKeyframes[i]
+
+      // Timestamps must match exactly (both derived from MKV Cues)
+      expect(cue.timestampMs / 1000).toBeCloseTo(ff.timestampSec, 3)
+
+      // Our cluster offset must be before ffprobe's packet position
+      // (cluster header + timestamp + possible audio packets precede video data)
+      expect(cue.clusterByteOffset).toBeLessThan(ff.bytePos)
+
+      // Gap should be small — cluster overhead is typically <500 bytes
+      const gap = ff.bytePos - cue.clusterByteOffset
+      expect(gap).toBeGreaterThan(0)
+      expect(gap).toBeLessThan(500)
+    }
+  })
 })
