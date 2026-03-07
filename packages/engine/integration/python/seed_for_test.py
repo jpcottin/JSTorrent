@@ -222,8 +222,12 @@ def ensure_data_exists(
 # =============================================================================
 # Seeding
 # =============================================================================
-def create_seeding_session(port: int, bind_addr: str = "0.0.0.0") -> lt.session:
-    """Create libtorrent session configured for seeding."""
+def create_seeding_session(port: int, bind_addr: str = "0.0.0.0", upload_limit: int = 0) -> lt.session:
+    """Create libtorrent session configured for seeding.
+
+    Args:
+        upload_limit: Upload rate limit in bytes/sec. 0 = unlimited.
+    """
     settings = {
         "listen_interfaces": f"{bind_addr}:{port}",
         "enable_dht": False,
@@ -242,6 +246,8 @@ def create_seeding_session(port: int, bind_addr: str = "0.0.0.0") -> lt.session:
         "alert_mask": lt.alert.category_t.all_categories,
         "allow_multiple_connections_per_ip": True,
     }
+    if upload_limit > 0:
+        settings["upload_rate_limit"] = upload_limit
 
     params = lt.session_params()
     params.settings = settings
@@ -356,6 +362,12 @@ def main() -> int:
         default=None,
         help="Piece length in bytes (default: auto based on --size, or 16384 for --file)",
     )
+    parser.add_argument(
+        "--upload-limit",
+        type=int,
+        default=0,
+        help="Upload rate limit in bytes/sec (0 = unlimited). e.g. 51200 for 50KB/s",
+    )
 
     args = parser.parse_args()
 
@@ -401,7 +413,7 @@ def main() -> int:
 def run_libtorrent_seeder(args, data_path, torrent_path, info_hash, config) -> int:
     """Run seeder using libtorrent."""
     # Create session and start seeding
-    session = create_seeding_session(args.port, args.bind)
+    session = create_seeding_session(args.port, args.bind, getattr(args, 'upload_limit', 0))
 
     # Verify we got the port we asked for (skip check for auto-assign port 0)
     actual_port = session.listen_port()
