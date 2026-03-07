@@ -3525,7 +3525,7 @@ export class Torrent extends EngineComponent {
     }
 
     this.logger.info(
-      `Data check complete for ${this.infoHashStr}: ${this._bitfield?.count ?? 0}/${this.piecesCount} pieces valid (${this._partsFilePieces.size} in .parts)`,
+      `Data check complete for ${this.infoHashStr}: ${this._bitfield?.count() ?? 0}/${this.piecesCount} pieces valid (${this._partsFilePieces.size} in .parts)`,
     )
 
     // Persist the verified bitfield
@@ -3577,7 +3577,7 @@ export class Torrent extends EngineComponent {
     files: { path: string; length: number; offset: number }[],
     piecesToVerify: number[],
   ): Promise<void> {
-    const BATCH_SIZE = 500
+    const BATCH_SIZE = Math.max(1, Math.ceil(piecesToVerify.length / 10))
 
     // Build the concatenated hashes for ALL pieces (verifyChunks operates on
     // the virtual concatenated file stream, indexed by chunk position)
