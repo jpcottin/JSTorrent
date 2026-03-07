@@ -26,10 +26,7 @@ function sha1(data: Uint8Array): Uint8Array {
   return new Uint8Array(createHash('sha1').update(data).digest())
 }
 
-function createEngine(
-  fileSystem: InMemoryFileSystem,
-  sessionStore?: MemorySessionStore,
-): BtEngine {
+function createEngine(fileSystem: InMemoryFileSystem, sessionStore?: MemorySessionStore): BtEngine {
   const storageRootManager = new StorageRootManager(() => fileSystem)
   storageRootManager.addRoot({ key: 'default', label: 'Default', path: '/downloads' })
   storageRootManager.setDefaultRoot('default')

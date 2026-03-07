@@ -29,26 +29,20 @@ function parsePopupDescriptor(): VideoPopupLaunchOptions | null {
 export function VideoPopupPage() {
   const descriptor = useMemo(() => parsePopupDescriptor(), [])
   const error = descriptor ? null : 'Missing popup session data'
-  const [providerHandle, setProviderHandle] = useState<
-    ReturnType<typeof createRemoteStreamingFileProvider> | null
-  >(null)
+
+  const [providerHandle] = useState(() =>
+    descriptor
+      ? createRemoteStreamingFileProvider(descriptor, {
+          onSessionClosed: () => window.close(),
+        })
+      : null,
+  )
 
   useEffect(() => {
     if (!descriptor) return
-
     document.title = `JSTorrent - ${descriptor.fileName}`
-
-    const handle = createRemoteStreamingFileProvider(descriptor, {
-      onSessionClosed: () => {
-        window.close()
-      },
-    })
-    setProviderHandle(handle)
-
-    return () => {
-      handle.dispose()
-    }
-  }, [descriptor])
+    return () => providerHandle?.dispose()
+  }, [descriptor, providerHandle])
 
   if (error) {
     return <div style={errorStyle}>{error}</div>

@@ -279,7 +279,9 @@ function AppContentInner({
       } catch (err) {
         console.error('onWatchVideo: failed', err)
         standaloneAlert(
-          err instanceof Error ? `Unable to start playback.\n\n${err.message}` : 'Unable to start playback.',
+          err instanceof Error
+            ? `Unable to start playback.\n\n${err.message}`
+            : 'Unable to start playback.',
         )
       }
     },
@@ -335,7 +337,9 @@ function AppContentInner({
       } catch (err) {
         console.error('onWatchVideoInPopup: failed', err)
         standaloneAlert(
-          err instanceof Error ? `Unable to open popup playback.\n\n${err.message}` : 'Unable to open popup playback.',
+          err instanceof Error
+            ? `Unable to open popup playback.\n\n${err.message}`
+            : 'Unable to open popup playback.',
         )
       }
     },

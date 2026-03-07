@@ -1147,10 +1147,7 @@ export class Torrent extends EngineComponent {
       const initialPartsCount = this._partsFilePieces.size
       const synced = await this.syncPartsPiecesToCurrentPriorities({ requireBitfield: false })
       if (synced.materialized > 0 || synced.exported > 0) {
-        this.logger.info(
-          `Synchronized ${initialPartsCount} .parts pieces during init`,
-          synced,
-        )
+        this.logger.info(`Synchronized ${initialPartsCount} .parts pieces during init`, synced)
       }
     }
   }

@@ -22,16 +22,24 @@ export function VideoPlayer({
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const engineRef = useRef<PlaysVideoEngine | null>(null)
-  const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [state, setState] = useState<{
+    phase: 'loading' | 'ready' | 'error'
+    errorMessage: string | null
+    provider: StreamingFileProvider
+  }>({ phase: 'loading', errorMessage: null, provider })
+
+  // Reset state when provider changes (avoids setState in effect body)
+  if (state.provider !== provider) {
+    setState({ phase: 'loading', errorMessage: null, provider })
+  }
+
+  const { phase, errorMessage } = state
 
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
     let disposed = false
-    setPhase('loading')
-    setErrorMessage(null)
 
     const source = createTorrentSourceFromProvider(Source, provider)
     const engine = new PlaysVideoEngine(video)
@@ -40,14 +48,13 @@ export function VideoPlayer({
     engine.addEventListener('ready', () => {
       if (disposed) return
       console.log('[VideoPlayer] ready')
-      setPhase('ready')
+      setState((s) => ({ ...s, phase: 'ready' }))
     })
 
     engine.addEventListener('error', ((e: CustomEvent<{ message: string }>) => {
       if (disposed) return
       console.error('[VideoPlayer] error:', e.detail.message)
-      setPhase('error')
-      setErrorMessage(e.detail.message)
+      setState((s) => ({ ...s, phase: 'error', errorMessage: e.detail.message }))
     }) as EventListener)
 
     console.log('[VideoPlayer] loadSource', fileName, 'fileSize=', provider.fileSize)

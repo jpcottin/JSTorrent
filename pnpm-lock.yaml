@@ -4,6 +4,8 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+pnpmfileChecksum: lqlvwzey7h2kzffgqwqtnzouva
+
 importers:
 
   .:
@@ -188,7 +190,7 @@ importers:
         specifier: workspace:*
         version: link:../ui
       playsvideo:
-        specifier: link:../../../playsvideo
+        specifier: link:/Users/kgraehl/code/playsvideo
         version: link:../../../playsvideo
       react:
         specifier: ^18.2.0

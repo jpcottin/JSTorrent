@@ -134,12 +134,7 @@ export class PartsFile extends EngineComponent {
           discardReason = '.parts file too short'
         } else {
           const fixedHeader = new Uint8Array(PartsFile.FIXED_HEADER_SIZE)
-          const fixedRead = await handle.read(
-            fixedHeader,
-            0,
-            PartsFile.FIXED_HEADER_SIZE,
-            0,
-          )
+          const fixedRead = await handle.read(fixedHeader, 0, PartsFile.FIXED_HEADER_SIZE, 0)
           if (fixedRead.bytesRead !== PartsFile.FIXED_HEADER_SIZE) {
             discardReason = '.parts fixed header truncated'
           } else if (!this.hasMagic(fixedHeader)) {
@@ -155,19 +150,14 @@ export class PartsFile extends EngineComponent {
             const fileNumPieces = fixedView.getUint32(8, true)
             const filePieceLength = fixedView.getUint32(12, true)
             if (fileNumPieces !== this.numPieces || filePieceLength !== this.pieceLength) {
-              discardReason =
-                '.parts metadata does not match torrent layout, discarding file'
+              discardReason = '.parts metadata does not match torrent layout, discarding file'
             } else {
               const header = new Uint8Array(this.headerSize)
               const headerRead = await handle.read(header, 0, this.headerSize, 0)
               if (headerRead.bytesRead !== this.headerSize) {
                 discardReason = '.parts header truncated'
               } else {
-                const headerView = new DataView(
-                  header.buffer,
-                  header.byteOffset,
-                  header.byteLength,
-                )
+                const headerView = new DataView(header.buffer, header.byteOffset, header.byteLength)
                 const usedSlots = new Set<number>()
                 let maxSlot = -1
 
@@ -236,7 +226,9 @@ export class PartsFile extends EngineComponent {
 
       this.logger.info(`Loaded ${this.data.size} pieces from .parts file`)
     } catch (e) {
-      this.logger.warn(`.parts file load failed, discarding: ${e instanceof Error ? e.message : String(e)}`)
+      this.logger.warn(
+        `.parts file load failed, discarding: ${e instanceof Error ? e.message : String(e)}`,
+      )
       await this.discardFile()
     }
   }
