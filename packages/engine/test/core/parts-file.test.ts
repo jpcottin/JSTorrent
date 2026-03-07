@@ -3,7 +3,6 @@ import { PartsFile } from '../../src/core/parts-file'
 import { InMemoryFileSystem } from '../../src/adapters/memory'
 import { IStorageHandle } from '../../src/io/storage-handle'
 import { MockEngine } from '../utils/mock-engine'
-import { Bencode } from '../../src/utils/bencode'
 
 function createMockStorageHandle(fs: InMemoryFileSystem): IStorageHandle {
   return {
@@ -18,6 +17,11 @@ describe('PartsFile', () => {
   let storageHandle: IStorageHandle
   let engine: MockEngine
   const testInfoHash = 'abcdef1234567890abcd'
+  const testPieceLength = 16 * 1024
+  const testNumPieces = 128
+
+  const createPartsFile = (infoHash = testInfoHash) =>
+    new PartsFile(engine, storageHandle, infoHash, testNumPieces, testPieceLength)
 
   beforeEach(() => {
     fs = new InMemoryFileSystem()
@@ -27,14 +31,13 @@ describe('PartsFile', () => {
 
   describe('read/write roundtrip', () => {
     it('write single piece, read back identical', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       const pieceData = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])
 
       partsFile.addPiece(42, pieceData)
       await partsFile.flush()
 
-      // Create new instance to read from disk
-      const partsFile2 = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile2 = createPartsFile()
       await partsFile2.load()
 
       expect(partsFile2.hasPiece(42)).toBe(true)
@@ -42,7 +45,7 @@ describe('PartsFile', () => {
     })
 
     it('write multiple pieces, read back all', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       const piece10 = new Uint8Array([10, 10, 10])
       const piece20 = new Uint8Array([20, 20, 20, 20])
       const piece30 = new Uint8Array([30, 30])
@@ -52,8 +55,7 @@ describe('PartsFile', () => {
       partsFile.addPiece(30, piece30)
       await partsFile.flush()
 
-      // Read back
-      const partsFile2 = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile2 = createPartsFile()
       await partsFile2.load()
 
       expect(partsFile2.hasPiece(10)).toBe(true)
@@ -65,7 +67,7 @@ describe('PartsFile', () => {
     })
 
     it('empty file returns empty pieces set', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       await partsFile.load()
 
       expect(partsFile.pieces.size).toBe(0)
@@ -74,7 +76,7 @@ describe('PartsFile', () => {
     })
 
     it('load clears stale in-memory pieces when the .parts file is removed', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       const pieceData = new Uint8Array([1, 2, 3, 4])
 
       partsFile.addPiece(42, pieceData)
@@ -91,23 +93,20 @@ describe('PartsFile', () => {
 
   describe('addPiece', () => {
     it('add to empty file', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       const pieceData = new Uint8Array([1, 2, 3])
 
       partsFile.addPiece(5, pieceData)
       await partsFile.flush()
 
-      // Verify file was created
       const filename = `${testInfoHash}.parts`
       expect(await fs.exists(filename)).toBe(true)
-
-      // Verify content
       expect(partsFile.hasPiece(5)).toBe(true)
       expect(partsFile.count).toBe(1)
     })
 
     it('add to existing file preserves other pieces', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
 
       partsFile.addPiece(1, new Uint8Array([1]))
       partsFile.addPiece(2, new Uint8Array([2]))
@@ -125,7 +124,7 @@ describe('PartsFile', () => {
     })
 
     it('overwrite existing piece', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       const dataA = new Uint8Array([1, 1, 1])
       const dataB = new Uint8Array([2, 2, 2, 2, 2])
 
@@ -142,7 +141,7 @@ describe('PartsFile', () => {
 
   describe('removePiece', () => {
     it('remove existing piece', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       partsFile.addPiece(1, new Uint8Array([1]))
       partsFile.addPiece(2, new Uint8Array([2]))
       partsFile.addPiece(3, new Uint8Array([3]))
@@ -159,7 +158,7 @@ describe('PartsFile', () => {
     })
 
     it('remove non-existent piece is no-op', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       partsFile.addPiece(1, new Uint8Array([1]))
       partsFile.addPiece(2, new Uint8Array([2]))
       await partsFile.flush()
@@ -173,7 +172,7 @@ describe('PartsFile', () => {
     })
 
     it('remove last piece results in empty file deletion', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       partsFile.addPiece(1, new Uint8Array([1]))
       await partsFile.flush()
 
@@ -189,15 +188,15 @@ describe('PartsFile', () => {
   })
 
   describe('hasPiece()', () => {
-    it('returns true for present piece', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+    it('returns true for present piece', () => {
+      const partsFile = createPartsFile()
       partsFile.addPiece(42, new Uint8Array([42]))
 
       expect(partsFile.hasPiece(42)).toBe(true)
     })
 
-    it('returns false for absent piece', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+    it('returns false for absent piece', () => {
+      const partsFile = createPartsFile()
       partsFile.addPiece(42, new Uint8Array([42]))
 
       expect(partsFile.hasPiece(99)).toBe(false)
@@ -205,8 +204,8 @@ describe('PartsFile', () => {
   })
 
   describe('pieces getter', () => {
-    it('returns set of all piece indices', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+    it('returns set of all piece indices', () => {
+      const partsFile = createPartsFile()
       partsFile.addPiece(5, new Uint8Array([5]))
       partsFile.addPiece(10, new Uint8Array([10]))
       partsFile.addPiece(15, new Uint8Array([15]))
@@ -218,8 +217,8 @@ describe('PartsFile', () => {
       expect(pieces.has(15)).toBe(true)
     })
 
-    it('returns new Set instance (not internal reference)', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+    it('returns new Set instance (not internal reference)', () => {
+      const partsFile = createPartsFile()
       partsFile.addPiece(1, new Uint8Array([1]))
 
       const pieces1 = partsFile.pieces
@@ -231,7 +230,7 @@ describe('PartsFile', () => {
 
   describe('addPieceAndFlush / removePieceAndFlush', () => {
     it('addPieceAndFlush writes immediately', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       const filename = `${testInfoHash}.parts`
 
       await partsFile.addPieceAndFlush(7, new Uint8Array([7, 7, 7]))
@@ -241,7 +240,7 @@ describe('PartsFile', () => {
     })
 
     it('removePieceAndFlush removes and flushes', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       await partsFile.addPieceAndFlush(7, new Uint8Array([7]))
       await partsFile.addPieceAndFlush(8, new Uint8Array([8]))
 
@@ -251,8 +250,7 @@ describe('PartsFile', () => {
       expect(partsFile.hasPiece(7)).toBe(false)
       expect(partsFile.hasPiece(8)).toBe(true)
 
-      // Verify persisted
-      const partsFile2 = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile2 = createPartsFile()
       await partsFile2.load()
       expect(partsFile2.hasPiece(7)).toBe(false)
       expect(partsFile2.hasPiece(8)).toBe(true)
@@ -260,38 +258,35 @@ describe('PartsFile', () => {
   })
 
   describe('error handling', () => {
-    it('corrupt bencode loads as empty (graceful degradation)', async () => {
-      // Write garbage bytes directly to file
+    it('legacy bencoded .parts is discarded', async () => {
+      const filename = `${testInfoHash}.parts`
+      const handle = await fs.open(filename, 'w')
+      const legacy = new TextEncoder().encode('d2:421:ee')
+      await handle.write(legacy, 0, legacy.length, 0)
+      await handle.close()
+
+      const partsFile = createPartsFile()
+      await partsFile.load()
+
+      expect(partsFile.isEmpty).toBe(true)
+      expect(await fs.exists(filename)).toBe(false)
+    })
+
+    it('corrupt file loads as empty after discard', async () => {
       const filename = `${testInfoHash}.parts`
       const handle = await fs.open(filename, 'w')
       await handle.write(new Uint8Array([0xff, 0xfe, 0xfd, 0xfc]), 0, 4, 0)
       await handle.close()
 
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
-      // Should not throw - graceful degradation
+      const partsFile = createPartsFile()
       await partsFile.load()
 
-      // Implementation logs warning and starts fresh
       expect(partsFile.isEmpty).toBe(true)
-    })
-
-    it('wrong bencode type (list instead of dict) starts fresh', async () => {
-      // Write a valid bencode list instead of dict
-      const filename = `${testInfoHash}.parts`
-      const encoded = Bencode.encode([1, 2, 3])
-      const handle = await fs.open(filename, 'w')
-      await handle.write(encoded, 0, encoded.length, 0)
-      await handle.close()
-
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
-      await partsFile.load()
-
-      // Implementation checks typeof decoded === 'object', array passes but entries loop handles it
-      expect(partsFile.isEmpty).toBe(true)
+      expect(await fs.exists(filename)).toBe(false)
     })
 
     it('load non-existent file starts fresh', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       await partsFile.load()
 
       expect(partsFile.isEmpty).toBe(true)
@@ -301,14 +296,12 @@ describe('PartsFile', () => {
 
   describe('dirty flag optimization', () => {
     it('flush without changes is no-op', async () => {
-      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile = createPartsFile()
       await partsFile.addPieceAndFlush(1, new Uint8Array([1]))
 
-      // Flush again without changes - should be no-op
       await partsFile.flush()
 
-      // File should still exist and be valid
-      const partsFile2 = new PartsFile(engine, storageHandle, testInfoHash)
+      const partsFile2 = createPartsFile()
       await partsFile2.load()
       expect(partsFile2.hasPiece(1)).toBe(true)
     })
@@ -317,7 +310,7 @@ describe('PartsFile', () => {
   describe('filename format', () => {
     it('uses infoHash.parts filename', async () => {
       const customHash = 'deadbeef12345678'
-      const partsFile = new PartsFile(engine, storageHandle, customHash)
+      const partsFile = createPartsFile(customHash)
       await partsFile.addPieceAndFlush(0, new Uint8Array([0]))
 
       expect(await fs.exists(`${customHash}.parts`)).toBe(true)

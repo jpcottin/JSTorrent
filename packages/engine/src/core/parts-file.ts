@@ -1,5 +1,4 @@
 import { IStorageHandle } from '../io/storage-handle'
-import { Bencode } from '../utils/bencode'
 import { EngineComponent, ILoggingEngine } from '../logging/logger'
 
 /**
@@ -9,38 +8,57 @@ import { EngineComponent, ILoggingEngine } from '../logging/logger'
  * They are stored in the .parts file until all files they touch are un-skipped,
  * at which point they can be materialized to regular files.
  *
- * Format: Bencoded dictionary where keys are piece indices (as strings) and
- * values are the raw piece data.
+ * Format:
+ * - Fixed-size header with piece -> slot mapping metadata
+ * - Piece-sized slots storing raw payload bytes
  */
 export class PartsFile extends EngineComponent {
   static logName = 'parts-file'
 
+  private static readonly MAGIC = new Uint8Array([0x4a, 0x53, 0x50, 0x54]) // "JSPT"
+  private static readonly VERSION = 1
+  private static readonly FIXED_HEADER_SIZE = 16
+  private static readonly ENTRY_SIZE = 8
+  private static readonly HEADER_ALIGNMENT = 1024
+
   private filename: string
   private data: Map<number, Uint8Array> = new Map()
-  private dirty = false
+  private slots: Map<number, { slot: number; length: number }> = new Map()
+  private freeSlots: number[] = []
+  private nextSlot = 0
+  private dirtyPieces: Set<number> = new Set()
+  private dirtyMetadata = false
 
   constructor(
     engine: ILoggingEngine,
     private storageHandle: IStorageHandle,
     torrentInfoHash: string,
+    private numPieces: number,
+    private pieceLength: number,
   ) {
     super(engine)
     this.filename = `${torrentInfoHash}.parts`
     this.instanceLogName = `parts:${torrentInfoHash.slice(0, 6)}`
+    if (numPieces <= 0) {
+      throw new Error(`Invalid .parts numPieces: ${numPieces}`)
+    }
+    if (pieceLength <= 0) {
+      throw new Error(`Invalid .parts pieceLength: ${pieceLength}`)
+    }
   }
 
   /**
    * Get the set of piece indices currently stored in the .parts file.
    */
   get pieces(): Set<number> {
-    return new Set(this.data.keys())
+    return new Set(this.slots.keys())
   }
 
   /**
    * Check if a piece is stored in .parts.
    */
   hasPiece(index: number): boolean {
-    return this.data.has(index)
+    return this.slots.has(index)
   }
 
   /**
@@ -54,8 +72,23 @@ export class PartsFile extends EngineComponent {
    * Add a piece to .parts (in-memory only until flush is called).
    */
   addPiece(index: number, data: Uint8Array): void {
+    this.validatePieceIndex(index)
+    if (data.length > this.pieceLength) {
+      throw new Error(
+        `Piece ${index} too large for .parts slot: ${data.length} > ${this.pieceLength}`,
+      )
+    }
+
+    let slot = this.slots.get(index)?.slot
+    if (slot === undefined) {
+      slot = this.allocateSlot()
+      this.dirtyMetadata = true
+    }
+
     this.data.set(index, data)
-    this.dirty = true
+    this.slots.set(index, { slot, length: data.length })
+    this.dirtyPieces.add(index)
+    this.dirtyMetadata = true
     this.logger.debug(`Added piece ${index} to .parts (${data.length} bytes)`)
   }
 
@@ -63,12 +96,17 @@ export class PartsFile extends EngineComponent {
    * Remove a piece from .parts (in-memory only until flush is called).
    */
   removePiece(index: number): boolean {
-    const existed = this.data.delete(index)
-    if (existed) {
-      this.dirty = true
+    const entry = this.slots.get(index)
+    if (entry) {
+      this.data.delete(index)
+      this.slots.delete(index)
+      this.dirtyPieces.delete(index)
+      this.freeSlots.push(entry.slot)
+      this.dirtyMetadata = true
       this.logger.debug(`Removed piece ${index} from .parts`)
+      return true
     }
-    return existed
+    return false
   }
 
   /**
@@ -76,52 +114,130 @@ export class PartsFile extends EngineComponent {
    * Call this on startup before using the PartsFile.
    */
   async load(): Promise<void> {
-    this.data.clear()
-    this.dirty = false
+    this.resetState()
 
     try {
       const fs = this.storageHandle.getFileSystem()
 
-      // Check if file exists
       const exists = await fs.exists(this.filename)
       if (!exists) {
         this.logger.debug(`.parts file does not exist, starting fresh`)
         return
       }
 
-      // Get file size via filesystem stat
       const stat = await fs.stat(this.filename)
+      let discardReason: string | null = null
 
-      // Read the file
       const handle = await fs.open(this.filename, 'r')
       try {
-        const buffer = new Uint8Array(stat.size)
-        await handle.read(buffer, 0, stat.size, 0)
+        if (stat.size < PartsFile.FIXED_HEADER_SIZE) {
+          discardReason = '.parts file too short'
+        } else {
+          const fixedHeader = new Uint8Array(PartsFile.FIXED_HEADER_SIZE)
+          const fixedRead = await handle.read(
+            fixedHeader,
+            0,
+            PartsFile.FIXED_HEADER_SIZE,
+            0,
+          )
+          if (fixedRead.bytesRead !== PartsFile.FIXED_HEADER_SIZE) {
+            discardReason = '.parts fixed header truncated'
+          } else if (!this.hasMagic(fixedHeader)) {
+            discardReason = 'Discarding legacy or unknown .parts format'
+          } else if (fixedHeader[4] !== PartsFile.VERSION) {
+            discardReason = `Unsupported .parts version ${fixedHeader[4]}`
+          } else {
+            const fixedView = new DataView(
+              fixedHeader.buffer,
+              fixedHeader.byteOffset,
+              fixedHeader.byteLength,
+            )
+            const fileNumPieces = fixedView.getUint32(8, true)
+            const filePieceLength = fixedView.getUint32(12, true)
+            if (fileNumPieces !== this.numPieces || filePieceLength !== this.pieceLength) {
+              discardReason =
+                '.parts metadata does not match torrent layout, discarding file'
+            } else {
+              const header = new Uint8Array(this.headerSize)
+              const headerRead = await handle.read(header, 0, this.headerSize, 0)
+              if (headerRead.bytesRead !== this.headerSize) {
+                discardReason = '.parts header truncated'
+              } else {
+                const headerView = new DataView(
+                  header.buffer,
+                  header.byteOffset,
+                  header.byteLength,
+                )
+                const usedSlots = new Set<number>()
+                let maxSlot = -1
 
-        // Decode bencode
-        const decoded = Bencode.decode(buffer)
-        if (typeof decoded !== 'object' || decoded === null) {
-          this.logger.warn(`.parts file has invalid format, starting fresh`)
-          return
-        }
+                for (let index = 0; index < this.numPieces; index++) {
+                  const offset = PartsFile.FIXED_HEADER_SIZE + index * PartsFile.ENTRY_SIZE
+                  const slot = headerView.getInt32(offset, true)
+                  const length = headerView.getUint32(offset + 4, true)
+                  if (slot === -1) {
+                    if (length !== 0) {
+                      discardReason = `.parts header invalid for piece ${index}`
+                    }
+                    continue
+                  }
+                  if (slot < 0 || length === 0 || length > this.pieceLength) {
+                    discardReason = `.parts entry invalid for piece ${index}`
+                    break
+                  }
+                  if (usedSlots.has(slot)) {
+                    discardReason = `.parts slot ${slot} is duplicated`
+                    break
+                  }
+                  if (this.slotOffset(slot) + length > stat.size) {
+                    discardReason = `.parts payload truncated for piece ${index}`
+                    break
+                  }
 
-        // Load pieces into map
-        let loadedCount = 0
-        for (const [key, value] of Object.entries(decoded)) {
-          const index = parseInt(key, 10)
-          if (!isNaN(index) && value instanceof Uint8Array) {
-            this.data.set(index, value)
-            loadedCount++
+                  usedSlots.add(slot)
+                  this.slots.set(index, { slot, length })
+                  if (slot > maxSlot) maxSlot = slot
+                }
+
+                if (!discardReason) {
+                  this.nextSlot = maxSlot + 1
+                  for (let slot = 0; slot < this.nextSlot; slot++) {
+                    if (!usedSlots.has(slot)) this.freeSlots.push(slot)
+                  }
+
+                  for (const [index, entry] of this.slots) {
+                    const pieceData = new Uint8Array(entry.length)
+                    const read = await handle.read(
+                      pieceData,
+                      0,
+                      entry.length,
+                      this.slotOffset(entry.slot),
+                    )
+                    if (read.bytesRead !== entry.length) {
+                      discardReason = `.parts payload truncated while reading piece ${index}`
+                      break
+                    }
+                    this.data.set(index, pieceData)
+                  }
+                }
+              }
+            }
           }
         }
-
-        this.logger.info(`Loaded ${loadedCount} pieces from .parts file`)
       } finally {
         await handle.close()
       }
+
+      if (discardReason) {
+        this.logger.warn(discardReason)
+        await this.discardFile()
+        return
+      }
+
+      this.logger.info(`Loaded ${this.data.size} pieces from .parts file`)
     } catch (e) {
-      // File doesn't exist or can't be read - that's ok, we start fresh
-      this.logger.debug(`.parts file load failed: ${e instanceof Error ? e.message : String(e)}`)
+      this.logger.warn(`.parts file load failed, discarding: ${e instanceof Error ? e.message : String(e)}`)
+      await this.discardFile()
     }
   }
 
@@ -132,42 +248,47 @@ export class PartsFile extends EngineComponent {
    * If the .parts file becomes empty, it is deleted.
    */
   async flush(): Promise<void> {
-    if (!this.dirty) return
+    if (!this.dirtyMetadata && this.dirtyPieces.size === 0) return
 
     const fs = this.storageHandle.getFileSystem()
 
-    if (this.data.size === 0) {
-      // Delete the .parts file if empty
+    if (this.slots.size === 0) {
       try {
         await fs.delete(this.filename)
         this.logger.info(`Deleted empty .parts file`)
       } catch {
-        // File may not exist, that's fine
+        // File may not exist, that's fine.
       }
-      this.dirty = false
+      this.dirtyMetadata = false
+      this.dirtyPieces.clear()
       return
     }
 
-    // Convert map to object for bencoding
-    const obj: Record<string, Uint8Array> = {}
-    for (const [index, data] of this.data) {
-      obj[index.toString()] = data
-    }
-
-    // Encode
-    const encoded = Bencode.encode(obj)
-
-    // Write directly (io-daemon handles creation)
-    const handle = await fs.open(this.filename, 'w')
+    const exists = await fs.exists(this.filename)
+    const handle = await fs.open(this.filename, exists ? 'r+' : 'w')
     try {
-      await handle.write(encoded, 0, encoded.length, 0)
+      for (const index of this.dirtyPieces) {
+        const entry = this.slots.get(index)
+        const pieceData = this.data.get(index)
+        if (!entry || !pieceData) continue
+        await handle.write(pieceData, 0, pieceData.length, this.slotOffset(entry.slot))
+      }
+
+      if (this.dirtyMetadata || !exists) {
+        const header = this.encodeHeader()
+        await handle.write(header, 0, header.length, 0)
+      }
+
       await handle.sync()
     } finally {
       await handle.close()
     }
 
-    this.dirty = false
-    this.logger.debug(`Flushed ${this.data.size} pieces to .parts file (${encoded.length} bytes)`)
+    this.dirtyMetadata = false
+    this.dirtyPieces.clear()
+    this.logger.debug(
+      `Flushed ${this.data.size} pieces to .parts file (${this.nextSlot} slots allocated)`,
+    )
   }
 
   /**
@@ -194,13 +315,79 @@ export class PartsFile extends EngineComponent {
    * Get piece count.
    */
   get count(): number {
-    return this.data.size
+    return this.slots.size
   }
 
   /**
    * Check if there are any pieces stored.
    */
   get isEmpty(): boolean {
-    return this.data.size === 0
+    return this.slots.size === 0
+  }
+
+  private get headerSize(): number {
+    const rawSize = PartsFile.FIXED_HEADER_SIZE + this.numPieces * PartsFile.ENTRY_SIZE
+    return this.alignUp(rawSize, PartsFile.HEADER_ALIGNMENT)
+  }
+
+  private alignUp(value: number, alignment: number): number {
+    return Math.ceil(value / alignment) * alignment
+  }
+
+  private allocateSlot(): number {
+    const reused = this.freeSlots.pop()
+    if (reused !== undefined) return reused
+    return this.nextSlot++
+  }
+
+  private encodeHeader(): Uint8Array {
+    const header = new Uint8Array(this.headerSize)
+    header.set(PartsFile.MAGIC, 0)
+    header[4] = PartsFile.VERSION
+
+    const view = new DataView(header.buffer, header.byteOffset, header.byteLength)
+    view.setUint32(8, this.numPieces, true)
+    view.setUint32(12, this.pieceLength, true)
+
+    for (let index = 0; index < this.numPieces; index++) {
+      const offset = PartsFile.FIXED_HEADER_SIZE + index * PartsFile.ENTRY_SIZE
+      const entry = this.slots.get(index)
+      view.setInt32(offset, entry?.slot ?? -1, true)
+      view.setUint32(offset + 4, entry?.length ?? 0, true)
+    }
+
+    return header
+  }
+
+  private hasMagic(buffer: Uint8Array): boolean {
+    return PartsFile.MAGIC.every((byte, index) => buffer[index] === byte)
+  }
+
+  private slotOffset(slot: number): number {
+    return this.headerSize + slot * this.pieceLength
+  }
+
+  private validatePieceIndex(index: number): void {
+    if (!Number.isInteger(index) || index < 0 || index >= this.numPieces) {
+      throw new Error(`Invalid .parts piece index: ${index}`)
+    }
+  }
+
+  private resetState(): void {
+    this.data.clear()
+    this.slots.clear()
+    this.freeSlots = []
+    this.nextSlot = 0
+    this.dirtyPieces.clear()
+    this.dirtyMetadata = false
+  }
+
+  private async discardFile(): Promise<void> {
+    this.resetState()
+    try {
+      await this.storageHandle.getFileSystem().delete(this.filename)
+    } catch {
+      // File may already be gone.
+    }
   }
 }

@@ -1130,7 +1130,13 @@ export class Torrent extends EngineComponent {
       return
     }
 
-    this._partsFile = new PartsFile(this.engineInstance, storageHandle, this.infoHashStr)
+    this._partsFile = new PartsFile(
+      this.engineInstance,
+      storageHandle,
+      this.infoHashStr,
+      this.piecesCount,
+      this.pieceLength,
+    )
     await this._partsFile.load()
 
     // Sync partsFilePieces set with loaded data
