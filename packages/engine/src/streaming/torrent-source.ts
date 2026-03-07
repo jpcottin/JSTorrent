@@ -5,6 +5,11 @@
  * Torrent + fileIndex. The mediabunny Source base class is passed in as a
  * parameter to avoid adding mediabunny as a dependency of the engine package.
  *
+ * _read() is blocking: it returns a Promise that waits for missing pieces
+ * instead of returning null. mediabunny has no read timeouts — it awaits
+ * indefinitely. This means mediabunny drives the parsing; we just fulfill
+ * reads as pieces arrive. Supports AbortSignal for seek cancellation.
+ *
  * Usage (from a consumer that has mediabunny as a dependency):
  *
  *   import { Source, Input, ALL_FORMATS } from 'mediabunny';
@@ -19,7 +24,7 @@ import type { Torrent } from '../core/torrent'
 /**
  * The shape of mediabunny's ReadResult (not importing to avoid dependency).
  */
-interface ReadResult {
+export interface ReadResult {
   bytes: Uint8Array
   view: DataView
   offset: number
@@ -31,11 +36,8 @@ type SourceConstructor = abstract new (...args: any[]) => any
 /**
  * Create a mediabunny-compatible Source backed by torrent piece data.
  *
- * Returns null for byte ranges where pieces haven't been downloaded yet,
- * which mediabunny handles gracefully (parse loops break on null).
- *
- * For reads that MUST succeed (e.g. segment processing), the caller should
- * first call `torrent.waitForPieces()` to ensure data is available.
+ * _read() prioritizes the needed pieces via setStreamingPieces and waits
+ * for them to download. Supports AbortSignal for cancellation on seek.
  *
  * @param SourceClass - The mediabunny Source base class (for instanceof compatibility)
  * @param torrent - The torrent to read from
@@ -58,10 +60,9 @@ export function createTorrentSource<T extends SourceConstructor>(
       return file.length
     }
 
-    _read(start: number, end: number): Promise<ReadResult> | null {
+    _read(start: number, end: number, signal?: AbortSignal): Promise<ReadResult> | null {
       const length = end - start
 
-      // Check if all required pieces are available
       let pieces: number[]
       try {
         pieces = torrent.fileBytesToPieces(fileIndex, start, length)
@@ -69,18 +70,23 @@ export function createTorrentSource<T extends SourceConstructor>(
         return null
       }
 
-      for (const p of pieces) {
-        if (!torrent.hasPiece(p)) {
-          return null // mediabunny handles null gracefully
-        }
-      }
+      // Prioritize these pieces for streaming download
+      torrent.setStreamingPieces(new Set(pieces))
 
-      // All pieces available — do the read
-      return torrent.readFileBytes(fileIndex, start, length).then((bytes) => ({
-        bytes,
-        view: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-        offset: 0,
-      }))
+      // Handle abort: deprioritize on cancellation
+      signal?.addEventListener('abort', () => {
+        torrent.setStreamingPieces(null)
+      })
+
+      // Wait for all pieces, then read the bytes
+      return torrent
+        .waitForPieces(pieces, signal)
+        .then(() => torrent.readFileBytes(fileIndex, start, length))
+        .then((bytes) => ({
+          bytes,
+          view: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+          offset: 0,
+        }))
     }
 
     _dispose(): void {
