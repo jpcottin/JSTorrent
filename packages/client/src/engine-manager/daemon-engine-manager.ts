@@ -168,7 +168,7 @@ export class DaemonEngineManager implements IEngineManager {
     // 2. Create direct WebSocket connection to daemon
     // On ChromeOS, use credentials getter for fresh token
     // On desktop, use token directly from daemon info
-    const isChromeos = daemonInfo.host === '100.115.92.2'
+    const isChromeos = this.channel.getState().platform === 'chromeos'
 
     if (isChromeos) {
       this.daemonConnection = new DaemonConnection(

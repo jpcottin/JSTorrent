@@ -165,7 +165,7 @@ else
     echo ""
     echo ">>> Step 5: Building extension..."
     cd "$ROOT_DIR"
-    pnpm --filter extension build
+    pnpm --dir "$ROOT_DIR/extension" build
 fi
 
 # ─── Step 6: Run Playwright test ──────────────────────────────────────────────
@@ -178,7 +178,7 @@ cd "$ROOT_DIR"
 COMPANION_HOST=127.0.0.1 \
 COMPANION_PORT=$COMPANION_PORT \
 FULL_DOWNLOAD="${FULL_DOWNLOAD:-}" \
-pnpm --filter extension exec playwright test e2e/companion-download.spec.ts --reporter=list
+pnpm --dir "$ROOT_DIR/extension" exec playwright test e2e/companion-download.spec.ts --reporter=list
 
 EXIT_CODE=$?
 

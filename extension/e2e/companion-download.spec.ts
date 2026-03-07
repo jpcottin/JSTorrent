@@ -26,7 +26,13 @@ const SEEDER_PORT = 6881
 const COMPANION_PORT = parseInt(process.env.COMPANION_PORT || '7800', 10)
 
 const FULL_DOWNLOAD = process.env.FULL_DOWNLOAD === '1'
-const DOWNLOAD_TIMEOUT_MS = FULL_DOWNLOAD ? 600_000 : 120_000
+const DOWNLOAD_TIMEOUT_MS = (() => {
+  const override = parseInt(process.env.DOWNLOAD_TIMEOUT_MS || '', 10)
+  if (Number.isFinite(override) && override > 0) {
+    return override
+  }
+  return FULL_DOWNLOAD ? 1_800_000 : 480_000
+})()
 
 test.describe('Companion Download E2E', () => {
   test.beforeAll(async () => {

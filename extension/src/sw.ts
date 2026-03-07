@@ -182,15 +182,19 @@ chrome.runtime.onConnectExternal.addListener((port) => {
 // Daemon Bridge (replaces IOBridge state machine)
 // ============================================================================
 const bridge = getDaemonBridge()
+const platform = detectPlatform()
 
-// Start connection attempt — start idle timer so native host gets cleaned up
-// if no UI page connects within IDLE_TIMEOUT_MS
-bridge.connect().then((success) => {
-  console.log(`[SW] Initial connection: ${success ? 'success' : 'failed'}`)
-  if (!primaryUIPort) {
-    startIdleTimer()
-  }
-})
+// Desktop connects eagerly so the native host is ready when the UI opens.
+// ChromeOS waits for the UI/bootstrap flow because test and debug runs may
+// inject a companion host override after the service worker starts.
+if (platform !== 'chromeos') {
+  bridge.connect().then((success) => {
+    console.log(`[SW] Initial connection: ${success ? 'success' : 'failed'}`)
+    if (!primaryUIPort) {
+      startIdleTimer()
+    }
+  })
+}
 
 // Forward native events to UI
 bridge.onEvent(async (event: NativeEvent) => {
@@ -227,7 +231,6 @@ console.log(`[SW] Daemon Bridge started, platform: ${bridge.getPlatform()}`)
 // ChromeOS Bootstrap (if on ChromeOS)
 // ============================================================================
 
-const platform = detectPlatform()
 let chromeosBootstrap: ReturnType<typeof getChromeOSBootstrap> | null = null
 
 if (platform === 'chromeos') {

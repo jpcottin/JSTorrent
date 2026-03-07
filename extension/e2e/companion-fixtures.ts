@@ -77,24 +77,31 @@ export const test = base.extend<{
     // Pre-seed chrome.storage.local with companion config BEFORE opening UI page.
     // The bootstrap only starts when the UI port connects, so we have time.
     const testToken = `e2e-companion-${Date.now()}`
-    const testInstallId = `e2e-install-${Date.now()}`
 
-    await worker.evaluate(
-      async ({ token, installId, host, port }) => {
+    const setupPage = await context.newPage()
+    await setupPage.goto(`chrome-extension://${extensionId}/src/ui/share.html`)
+    const testInstallId = await setupPage.evaluate(
+      async ({ token, host, port }) => {
         await chrome.storage.local.set({
           'debug:companionHost': host,
           'android:authToken': token,
           'android:daemonPort': port,
-          telemetryId: installId,
         })
+
+        const stored = await chrome.storage.local.get('telemetryId')
+        return (stored.telemetryId as string | undefined) ?? null
       },
       {
         token: testToken,
-        installId: testInstallId,
         host: COMPANION_HOST,
         port: COMPANION_PORT,
       },
     )
+    await setupPage.close()
+
+    if (!testInstallId) {
+      throw new Error('Could not determine extension telemetryId for pairing')
+    }
 
     // Pre-seed Android TokenStore with matching credentials via adb broadcast
     try {

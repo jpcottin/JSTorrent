@@ -94,11 +94,11 @@ class MainActivity : AppCompatActivity() {
             Log.i(TAG, "Launched from extension with force_companion flag")
         }
 
-        // Non-Chromebook OR user prefers standalone: launch standalone mode
-        // Note: Magnet/torrent links go through LinkHandlerActivity, not here
-        // Exception: if launched from extension (force_companion=true), always use companion mode
+        // Non-Chromebook OR user prefers standalone: launch standalone mode.
+        // Note: Magnet/torrent links go through LinkHandlerActivity, not here.
+        // Exception: if launched with force_companion=true, always use companion mode.
         val preferStandalone = isChromebook && tokenStore.preferStandaloneOnChromebook && !forceCompanion
-        if (!isChromebook || preferStandalone) {
+        if (!forceCompanion && (!isChromebook || preferStandalone)) {
             Log.i(TAG, "${if (preferStandalone) "Chromebook prefers standalone" else "Not a Chromebook"} - launching native standalone mode")
             startActivity(Intent(this, NativeStandaloneActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)

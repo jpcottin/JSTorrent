@@ -97,6 +97,7 @@ export type EventListener = (event: NativeEvent) => void
 
 const STORAGE_KEY_TOKEN = 'android:authToken'
 const STORAGE_KEY_PORT = 'android:daemonPort'
+const STORAGE_KEY_HOST_OVERRIDE = 'debug:companionHost'
 const STORAGE_KEY_HAS_CONNECTED = 'daemon:hasConnectedSuccessfully'
 const STORAGE_KEY_LAST_CONNECTED = 'daemon:lastConnectedTime'
 
@@ -1036,12 +1037,19 @@ export class DaemonBridge {
    * Returns the host and port if found.
    */
   private async findDaemonPort(): Promise<{ host: string; port: number } | null> {
+    const stored = await chrome.storage.local.get([STORAGE_KEY_HOST_OVERRIDE])
+    const overrideHost = stored[STORAGE_KEY_HOST_OVERRIDE]
+    const hosts =
+      typeof overrideHost === 'string' && overrideHost.length > 0
+        ? [overrideHost, ...CHROMEOS_HOSTS.filter((host) => host !== overrideHost)]
+        : CHROMEOS_HOSTS
+
     const found = await findChromeosDaemonPort({
       storage: chrome.storage.local,
       fetchImpl: fetch,
       storageKeyPort: STORAGE_KEY_PORT,
       storageKeyHost: STORAGE_KEY_HOST,
-      hosts: CHROMEOS_HOSTS,
+      hosts,
       fallbackPorts: [7800, 7805, 7814, 7827, 7844],
       timeoutMs: 2000,
     })
