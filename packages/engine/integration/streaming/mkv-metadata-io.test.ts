@@ -16,13 +16,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import {
-  ALL_FORMATS,
-  EncodedPacketSink,
-  Input,
-  StreamSource,
-  type EncodedPacket,
-} from 'mediabunny'
+import { ALL_FORMATS, EncodedPacketSink, Input, StreamSource, type EncodedPacket } from 'mediabunny'
+import { parseMkvCues } from '../../src/streaming/mkv-cue-parser'
 
 const FIXTURES_DIR = join(import.meta.dirname, 'fixtures')
 const MKV_FIXTURE = join(FIXTURES_DIR, 'test-video-long.mkv')
@@ -132,5 +127,75 @@ describe('MKV metadata I/O behavior', () => {
     // our own cue parser), this test should be updated to assert minimal I/O.
     const iterationBytes = totalBytesRead()
     expect(iterationBytes).toBeGreaterThan(fileSize * 0.5)
+  })
+
+  it('parseMkvCues reads <5% of file and matches mediabunny keyframes', async () => {
+    // Track reads for the cue parser
+    const cueReads: ReadRecord[] = []
+    const trackingRead = (start: number, end: number) => {
+      cueReads.push({ start, end })
+      return buffer.subarray(start, end)
+    }
+
+    const cuePoints = parseMkvCues(trackingRead, fileSize)
+
+    // Should find cue points (1 per cluster, ~30 clusters in 30s video)
+    expect(cuePoints.length).toBeGreaterThanOrEqual(20)
+
+    // Timestamps should span ~0 to ~29 seconds
+    expect(cuePoints[0].timestampMs).toBeLessThanOrEqual(1000)
+    expect(cuePoints[cuePoints.length - 1].timestampMs).toBeGreaterThanOrEqual(25000)
+
+    // All timestamps should be monotonically increasing
+    for (let i = 1; i < cuePoints.length; i++) {
+      expect(cuePoints[i].timestampMs).toBeGreaterThan(cuePoints[i - 1].timestampMs)
+    }
+
+    // Verify all clusterByteOffset values point to valid Cluster elements
+    // (Cluster element ID = 0x1F43B675, big-endian 4 bytes)
+    for (const cue of cuePoints) {
+      expect(cue.clusterByteOffset).toBeGreaterThan(0)
+      expect(cue.clusterByteOffset).toBeLessThan(fileSize)
+      const clusterHeader = buffer.subarray(cue.clusterByteOffset, cue.clusterByteOffset + 4)
+      const clusterId =
+        (clusterHeader[0] << 24) |
+        (clusterHeader[1] << 16) |
+        (clusterHeader[2] << 8) |
+        clusterHeader[3]
+      expect(clusterId).toBe(0x1f43b675)
+    }
+
+    // Total bytes read by cue parser should be <5% of file size
+    const cueBytesRead = cueReads.reduce((sum, r) => sum + (r.end - r.start), 0)
+    expect(cueBytesRead).toBeLessThan(fileSize * 0.05)
+
+    // Compare against mediabunny's keyframe iteration
+    const { source } = createTrackingSource(buffer)
+    using input = new Input({ formats: ALL_FORMATS, source })
+    const videoTrack = await input.getPrimaryVideoTrack()
+    expect(videoTrack).not.toBeNull()
+    const sink = new EncodedPacketSink(videoTrack!)
+
+    const mbTimestamps: number[] = []
+    let packet: EncodedPacket | null = await sink.getKeyPacket(0, {
+      metadataOnly: true,
+    })
+    while (packet) {
+      mbTimestamps.push(packet.timestamp)
+      const next = await sink.getNextKeyPacket(packet, { metadataOnly: true })
+      if (!next || next.sequenceNumber === packet.sequenceNumber) break
+      packet = next
+    }
+
+    // Cue points are per-cluster, mediabunny keyframes are per-frame.
+    // Each cue timestamp should be close to at least one mediabunny timestamp.
+    for (const cue of cuePoints) {
+      const cueTimeSec = cue.timestampMs / 1000
+      const closest = mbTimestamps.reduce((best, t) =>
+        Math.abs(t - cueTimeSec) < Math.abs(best - cueTimeSec) ? t : best,
+      )
+      // Should be within 2 seconds (cues point to cluster starts)
+      expect(Math.abs(closest - cueTimeSec)).toBeLessThan(2)
+    }
   })
 })

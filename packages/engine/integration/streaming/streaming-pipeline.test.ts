@@ -15,13 +15,7 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import {
-  ALL_FORMATS,
-  EncodedPacketSink,
-  Input,
-  Source,
-  type EncodedPacket,
-} from 'mediabunny'
+import { ALL_FORMATS, EncodedPacketSink, Input, Source, type EncodedPacket } from 'mediabunny'
 
 import { BtEngine } from '../../src/core/bt-engine'
 import type { Torrent } from '../../src/core/torrent'
@@ -305,10 +299,7 @@ describe('Streaming with blocking reads', () => {
     // NOT download completion. Metadata arrives from the seeder via BEP 9,
     // then initializeTorrentMetadata() runs asynchronously to set up storage.
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error('Metadata/storage init timeout')),
-        30000,
-      )
+      const timeout = setTimeout(() => reject(new Error('Metadata/storage init timeout')), 30000)
       const check = () => {
         if (torrent.files.length > 0) {
           clearTimeout(timeout)
