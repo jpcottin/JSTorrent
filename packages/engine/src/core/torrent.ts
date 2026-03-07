@@ -1128,6 +1128,13 @@ export class Torrent extends EngineComponent {
     // Sync partsFilePieces set with loaded data
     this._partsFilePieces = this._partsFile.pieces
     this.logger.debug(`PartsFile initialized with ${this._partsFilePieces.size} pieces`)
+
+    if (this._partsFilePieces.size > 0) {
+      const materialized = await this.materializeEligiblePieces({ requireBitfield: false })
+      if (materialized > 0) {
+        this.logger.info(`Materialized ${materialized} eligible .parts pieces during init`)
+      }
+    }
   }
 
   /**
@@ -1356,10 +1363,13 @@ export class Torrent extends EngineComponent {
   /**
    * Check if a piece can be materialized (all files it touches are non-skipped).
    */
-  private canMaterializePiece(pieceIndex: number): boolean {
+  private canMaterializePiece(
+    pieceIndex: number,
+    options?: { requireBitfield?: boolean },
+  ): boolean {
     // Must be a verified piece currently in .parts
     if (!this._partsFilePieces.has(pieceIndex)) return false
-    if (!this._bitfield?.get(pieceIndex)) return false
+    if (options?.requireBitfield !== false && !this._bitfield?.get(pieceIndex)) return false
 
     // The new classification should be 'wanted' (all files non-skipped)
     return this.pieceClassification[pieceIndex] === 'wanted'
@@ -1369,12 +1379,12 @@ export class Torrent extends EngineComponent {
    * Attempt to materialize any boundary pieces that can now be written to regular files.
    * Called after file priorities change (un-skip).
    */
-  async materializeEligiblePieces(): Promise<number> {
+  async materializeEligiblePieces(options?: { requireBitfield?: boolean }): Promise<number> {
     if (!this._partsFile || this._partsFilePieces.size === 0) return 0
 
     const toMaterialize: number[] = []
     for (const pieceIndex of this._partsFilePieces) {
-      if (this.canMaterializePiece(pieceIndex)) {
+      if (this.canMaterializePiece(pieceIndex, options)) {
         toMaterialize.push(pieceIndex)
       }
     }

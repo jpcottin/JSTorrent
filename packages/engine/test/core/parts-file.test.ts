@@ -72,6 +72,21 @@ describe('PartsFile', () => {
       expect(partsFile.isEmpty).toBe(true)
       expect(partsFile.count).toBe(0)
     })
+
+    it('load clears stale in-memory pieces when the .parts file is removed', async () => {
+      const partsFile = new PartsFile(engine, storageHandle, testInfoHash)
+      const pieceData = new Uint8Array([1, 2, 3, 4])
+
+      partsFile.addPiece(42, pieceData)
+      await partsFile.flush()
+      expect(partsFile.hasPiece(42)).toBe(true)
+
+      await fs.delete(`${testInfoHash}.parts`)
+      await partsFile.load()
+
+      expect(partsFile.hasPiece(42)).toBe(false)
+      expect(partsFile.count).toBe(0)
+    })
   })
 
   describe('addPiece', () => {

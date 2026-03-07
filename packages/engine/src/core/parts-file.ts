@@ -76,6 +76,9 @@ export class PartsFile extends EngineComponent {
    * Call this on startup before using the PartsFile.
    */
   async load(): Promise<void> {
+    this.data.clear()
+    this.dirty = false
+
     try {
       const fs = this.storageHandle.getFileSystem()
 

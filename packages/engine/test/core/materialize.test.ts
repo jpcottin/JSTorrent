@@ -1,7 +1,9 @@
+import { createHash } from 'crypto'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { BtEngine } from '../../src/core/bt-engine'
-import { InMemoryFileSystem } from '../../src/adapters/memory'
+import { InMemoryFileSystem, MemorySessionStore } from '../../src/adapters/memory'
 import { ISocketFactory } from '../../src/interfaces/socket'
+import { StorageRootManager } from '../../src/storage/storage-root-manager'
 import { Bencode } from '../../src/utils/bencode'
 
 // Mock dependencies
@@ -18,6 +20,26 @@ const mockSocketFactory: ISocketFactory = {
     address: vi.fn().mockReturnValue({ port: 0 }),
   }),
   wrapTcpSocket: vi.fn(),
+}
+
+function sha1(data: Uint8Array): Uint8Array {
+  return new Uint8Array(createHash('sha1').update(data).digest())
+}
+
+function createEngine(
+  fileSystem: InMemoryFileSystem,
+  sessionStore?: MemorySessionStore,
+): BtEngine {
+  const storageRootManager = new StorageRootManager(() => fileSystem)
+  storageRootManager.addRoot({ key: 'default', label: 'Default', path: '/downloads' })
+  storageRootManager.setDefaultRoot('default')
+
+  return new BtEngine({
+    socketFactory: mockSocketFactory,
+    storageRootManager,
+    sessionStore,
+    startSuspended: true,
+  })
 }
 
 /**
@@ -46,18 +68,49 @@ function createMultiFileTorrent(opts: {
   })
 }
 
+function createMultiFileTorrentWithData(opts: {
+  name: string
+  files: { path: string; data: Uint8Array }[]
+  pieceLength: number
+}): Uint8Array {
+  const totalSize = opts.files.reduce((sum, file) => sum + file.data.length, 0)
+  const concat = new Uint8Array(totalSize)
+  let offset = 0
+
+  for (const file of opts.files) {
+    concat.set(file.data, offset)
+    offset += file.data.length
+  }
+
+  const piecesCount = Math.ceil(totalSize / opts.pieceLength)
+  const pieces = new Uint8Array(piecesCount * 20)
+  for (let i = 0; i < piecesCount; i++) {
+    const start = i * opts.pieceLength
+    const end = Math.min(start + opts.pieceLength, totalSize)
+    pieces.set(sha1(concat.subarray(start, end)), i * 20)
+  }
+
+  return Bencode.encode({
+    announce: 'http://tracker.example.com',
+    info: {
+      name: opts.name,
+      'piece length': opts.pieceLength,
+      pieces,
+      files: opts.files.map((file) => ({
+        length: file.data.length,
+        path: file.path.split('/'),
+      })),
+    },
+  })
+}
+
 describe('Materialization', () => {
   let fileSystem: InMemoryFileSystem
   let engine: BtEngine
 
   beforeEach(() => {
     fileSystem = new InMemoryFileSystem()
-    engine = new BtEngine({
-      downloadPath: '/downloads',
-      socketFactory: mockSocketFactory,
-      fileSystem: fileSystem,
-      startSuspended: true,
-    })
+    engine = createEngine(fileSystem)
   })
 
   describe('materializeEligiblePieces()', () => {
@@ -588,6 +641,164 @@ describe('Materialization', () => {
       // Verify contentStorage was updated
       // @ts-expect-error - accessing private member for testing
       expect(contentStorage.filePriorities).toEqual([1, 0])
+    })
+  })
+
+  describe('boundary piece regression coverage', () => {
+    it('round-trips skipped boundary data from .parts to disk after unskip', async () => {
+      const fileAData = new Uint8Array(150)
+      const fileBData = new Uint8Array(250)
+      for (let i = 0; i < fileAData.length; i++) fileAData[i] = i & 0xff
+      for (let i = 0; i < fileBData.length; i++) fileBData[i] = (i + fileAData.length) & 0xff
+
+      const torrentBuffer = createMultiFileTorrentWithData({
+        name: 'BoundaryTorrent',
+        files: [
+          { path: 'fileA.bin', data: fileAData },
+          { path: 'fileB.bin', data: fileBData },
+        ],
+        pieceLength: 100,
+      })
+
+      const { torrent } = await engine.addTorrent(torrentBuffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      await fileSystem.mkdir('BoundaryTorrent')
+
+      torrent.setFilePriority(1, 1)
+      expect(torrent.pieceClassification[1]).toBe('boundary')
+
+      const pieceData = new Uint8Array([...fileAData.slice(100), ...fileBData.slice(0, 50)])
+      // @ts-expect-error - accessing private member for testing
+      const result = await torrent.verifyAndWriteBoundaryPiece(
+        1,
+        pieceData,
+        torrent.getPieceHash(1),
+        [],
+      )
+      expect(result).toEqual({ success: true, bytesWritten: 100 })
+      torrent.bitfield!.set(1, true)
+
+      const writtenFileA = await fileSystem.readFile('BoundaryTorrent/fileA.bin')
+      expect(writtenFileA.slice(100)).toEqual(fileAData.slice(100))
+      expect(await fileSystem.exists('BoundaryTorrent/fileB.bin')).toBe(false)
+
+      torrent.setFilePriority(1, 0)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      expect(torrent.partsFilePieces.has(1)).toBe(false)
+      expect(torrent.pieceClassification[1]).toBe('wanted')
+
+      const writtenFileB = await fileSystem.readFile('BoundaryTorrent/fileB.bin')
+      expect(writtenFileB.slice(0, 50)).toEqual(fileBData.slice(0, 50))
+
+      const roundTrip = await torrent.readFileBytes(1, 0, 50)
+      expect(roundTrip).toEqual(fileBData.slice(0, 50))
+    })
+
+    it('materializes wanted .parts pieces on session restore', async () => {
+      const sessionStore = new MemorySessionStore()
+      const sharedFs = new InMemoryFileSystem()
+      const engine1 = createEngine(sharedFs, sessionStore)
+
+      const fileAData = new Uint8Array(150)
+      const fileBData = new Uint8Array(250)
+      for (let i = 0; i < fileAData.length; i++) fileAData[i] = i & 0xff
+      for (let i = 0; i < fileBData.length; i++) fileBData[i] = (i + fileAData.length) & 0xff
+
+      const torrentBuffer = createMultiFileTorrentWithData({
+        name: 'RestoreTorrent',
+        files: [
+          { path: 'fileA.bin', data: fileAData },
+          { path: 'fileB.bin', data: fileBData },
+        ],
+        pieceLength: 100,
+      })
+
+      const { torrent: torrent1 } = await engine1.addTorrent(torrentBuffer)
+      if (!torrent1) throw new Error('Torrent is null')
+
+      await sharedFs.mkdir('RestoreTorrent')
+
+      torrent1.setFilePriority(1, 1)
+      const pieceData = new Uint8Array([...fileAData.slice(100), ...fileBData.slice(0, 50)])
+      // @ts-expect-error - accessing private member for testing
+      await torrent1.verifyAndWriteBoundaryPiece(1, pieceData, torrent1.getPieceHash(1), [])
+      torrent1.bitfield!.set(1, true)
+
+      const infoHash = Buffer.from(torrent1.infoHash).toString('hex')
+      await engine1.sessionPersistence.saveTorrentList()
+      await engine1.sessionPersistence.saveTorrentFile(infoHash, torrentBuffer)
+      await engine1.sessionPersistence.saveTorrentState(torrent1)
+
+      const stateKey = `torrent:${infoHash}:state`
+      const state = await sessionStore.getJson<{
+        bitfield?: string
+        downloaded: number
+        filePriorities?: number[]
+        forceActive?: boolean
+        pieceCount?: number
+        queuePosition?: number
+        storageKey?: string
+        updatedAt: number
+        uploaded: number
+        userState: string
+      }>(stateKey)
+      if (!state) throw new Error('Expected persisted state')
+      await sessionStore.setJson(stateKey, {
+        ...state,
+        filePriorities: [0, 0],
+      })
+
+      const engine2 = createEngine(sharedFs, sessionStore)
+      await engine2.restoreSession()
+
+      const torrent2 = engine2.torrents[0]
+      expect(torrent2.partsFilePieces.has(1)).toBe(false)
+      expect(torrent2.pieceClassification[1]).toBe('wanted')
+
+      const restoredFileB = await sharedFs.readFile('RestoreTorrent/fileB.bin')
+      expect(restoredFileB.slice(0, 50)).toEqual(fileBData.slice(0, 50))
+    })
+
+    it('recheckData detects corruption in a materialized boundary region', async () => {
+      const fileAData = new Uint8Array(150)
+      const fileBData = new Uint8Array(250)
+      for (let i = 0; i < fileAData.length; i++) fileAData[i] = i & 0xff
+      for (let i = 0; i < fileBData.length; i++) fileBData[i] = (i + fileAData.length) & 0xff
+
+      const torrentBuffer = createMultiFileTorrentWithData({
+        name: 'RecheckTorrent',
+        files: [
+          { path: 'fileA.bin', data: fileAData },
+          { path: 'fileB.bin', data: fileBData },
+        ],
+        pieceLength: 100,
+      })
+
+      const { torrent } = await engine.addTorrent(torrentBuffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      await fileSystem.mkdir('RecheckTorrent')
+
+      torrent.setFilePriority(1, 1)
+      const pieceData = new Uint8Array([...fileAData.slice(100), ...fileBData.slice(0, 50)])
+      // @ts-expect-error - accessing private member for testing
+      await torrent.verifyAndWriteBoundaryPiece(1, pieceData, torrent.getPieceHash(1), [])
+      torrent.bitfield!.set(1, true)
+
+      torrent.setFilePriority(1, 0)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      const fileBPath = 'RecheckTorrent/fileB.bin'
+      const corruptFileB = await fileSystem.readFile(fileBPath)
+      corruptFileB.fill(0, 0, 50)
+      fileSystem.files.set(fileBPath, corruptFileB)
+
+      await torrent.recheckData()
+
+      expect(torrent.hasPiece(1)).toBe(false)
+      expect(torrent.bitfield?.cardinality()).toBe(0)
     })
   })
 })
