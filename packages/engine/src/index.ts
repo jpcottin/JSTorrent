@@ -154,6 +154,8 @@ export {
 
 // Streaming
 export { createTorrentSource } from './streaming/torrent-source'
+export { parseMkvCues, type MkvCuePoint } from './streaming/mkv-cue-parser'
+export { buildMkvKeyframeIndex, isMkvFile } from './streaming/mkv-keyframe-index'
 
 // Version
 export { VERSION, versionToAzureusCode, azureusCodeToVersion } from './version'

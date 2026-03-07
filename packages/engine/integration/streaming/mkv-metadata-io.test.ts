@@ -137,7 +137,7 @@ describe('MKV metadata I/O behavior', () => {
       return buffer.subarray(start, end)
     }
 
-    const cuePoints = parseMkvCues(trackingRead, fileSize)
+    const cuePoints = await parseMkvCues(trackingRead, fileSize)
 
     // Should find cue points (1 per cluster, ~30 clusters in 30s video)
     expect(cuePoints.length).toBeGreaterThanOrEqual(20)
@@ -199,7 +199,7 @@ describe('MKV metadata I/O behavior', () => {
     }
   })
 
-  it('parseMkvCues timestamps and offsets match ffprobe keyframes', () => {
+  it('parseMkvCues timestamps and offsets match ffprobe keyframes', async () => {
     // Cross-validate against ffprobe as ground truth.
     // ffprobe reports packet positions (data inside cluster), our parser reports
     // cluster element starts — so byte offsets differ by cluster header overhead,
@@ -229,7 +229,7 @@ describe('MKV metadata I/O behavior', () => {
         return { timestampSec: parseFloat(pts), bytePos: parseInt(pos, 10) }
       })
 
-    const cuePoints = parseMkvCues((s, e) => buffer.subarray(s, e), fileSize)
+    const cuePoints = await parseMkvCues((s, e) => buffer.subarray(s, e), fileSize)
 
     // Same number of entries (1 keyframe per cluster, 1 cue per cluster)
     expect(cuePoints).toHaveLength(ffprobeKeyframes.length)

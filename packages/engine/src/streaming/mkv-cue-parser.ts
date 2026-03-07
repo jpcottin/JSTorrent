@@ -24,13 +24,13 @@ export interface MkvCuePoint {
  * @param fileSize - Total file size in bytes.
  * @returns Array of cue points sorted by timestamp.
  */
-export function parseMkvCues(
-  read: (start: number, end: number) => Uint8Array,
+export async function parseMkvCues(
+  read: (start: number, end: number) => Uint8Array | Promise<Uint8Array>,
   fileSize: number,
-): MkvCuePoint[] {
+): Promise<MkvCuePoint[]> {
   // Step 1: Parse EBML header — verify Matroska/WebM
   let pos = 0
-  const headerData = read(0, Math.min(64, fileSize))
+  const headerData = await read(0, Math.min(64, fileSize))
   const headerEl = readElementHeader(headerData, 0)
   if (!headerEl || headerEl.id !== EBML_ID) {
     throw new Error('Not an EBML file')
@@ -39,7 +39,7 @@ export function parseMkvCues(
   pos = headerEl.dataStart + headerEl.dataSize
 
   // Step 2: Find Segment element
-  const segBuf = read(pos, Math.min(pos + 16, fileSize))
+  const segBuf = await read(pos, Math.min(pos + 16, fileSize))
   const segEl = readElementHeader(segBuf, 0)
   if (!segEl || segEl.id !== SEGMENT_ID) {
     throw new Error('Segment element not found')
@@ -58,7 +58,7 @@ export function parseMkvCues(
 
   // Read up to ~4KB of top-level headers to find SeekHead and Info
   const scanLimit = Math.min(segmentEnd, scanPos + 4096)
-  const scanBuf = read(scanPos, Math.min(scanLimit, fileSize))
+  const scanBuf = await read(scanPos, Math.min(scanLimit, fileSize))
 
   let localPos = 0
   while (localPos < scanBuf.length - 2) {
@@ -112,7 +112,7 @@ export function parseMkvCues(
 
   // Step 4: Parse Info element to get TimestampScale
   if (infoOffset !== undefined) {
-    const infoHdrBuf = read(infoOffset, Math.min(infoOffset + 256, fileSize))
+    const infoHdrBuf = await read(infoOffset, Math.min(infoOffset + 256, fileSize))
     const infoEl = readElementHeader(infoHdrBuf, 0)
     if (infoEl && infoEl.id === INFO_ID) {
       const infoEnd = infoEl.dataStart + infoEl.dataSize
@@ -136,7 +136,7 @@ export function parseMkvCues(
   }
 
   // Read Cues header first to get its size
-  const cuesHdrBuf = read(cuesOffset, Math.min(cuesOffset + 16, fileSize))
+  const cuesHdrBuf = await read(cuesOffset, Math.min(cuesOffset + 16, fileSize))
   const cuesEl = readElementHeader(cuesHdrBuf, 0)
   if (!cuesEl || cuesEl.id !== CUES_ID) {
     return []
@@ -146,7 +146,7 @@ export function parseMkvCues(
   const cuesDataSize = cuesEl.dataSize === UNKNOWN_SIZE ? fileSize - cuesDataStart : cuesEl.dataSize
 
   // Read the full Cues element data
-  const cuesBuf = read(cuesDataStart, Math.min(cuesDataStart + cuesDataSize, fileSize))
+  const cuesBuf = await read(cuesDataStart, Math.min(cuesDataStart + cuesDataSize, fileSize))
 
   const cuePoints: MkvCuePoint[] = []
   let cp = 0

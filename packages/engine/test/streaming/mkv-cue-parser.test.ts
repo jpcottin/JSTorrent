@@ -179,14 +179,14 @@ function bufferRead(buf: Uint8Array) {
 }
 
 describe('parseMkvCues', () => {
-  it('extracts cue points from a synthetic MKV buffer', () => {
+  it('extracts cue points from a synthetic MKV buffer', async () => {
     const mkv = buildMkvBuffer([
       { cueTime: 0, track: 1, clusterOffset: 1000 },
       { cueTime: 1000, track: 1, clusterOffset: 50000 },
       { cueTime: 2000, track: 1, clusterOffset: 100000 },
     ])
 
-    const cues = parseMkvCues(bufferRead(mkv), mkv.length)
+    const cues = await parseMkvCues(bufferRead(mkv), mkv.length)
 
     expect(cues).toHaveLength(3)
     expect(cues[0]).toEqual({ timestampMs: 0, clusterByteOffset: expect.any(Number) })
@@ -199,17 +199,17 @@ describe('parseMkvCues', () => {
     expect(cues[2].clusterByteOffset).toBeGreaterThan(cues[1].clusterByteOffset)
   })
 
-  it('applies non-default TimestampScale', () => {
+  it('applies non-default TimestampScale', async () => {
     // TimestampScale = 500,000 (0.5ms per unit) → cueTime 1000 = 500ms
     const mkv = buildMkvBuffer([{ cueTime: 1000, track: 1, clusterOffset: 5000 }], 500_000)
 
-    const cues = parseMkvCues(bufferRead(mkv), mkv.length)
+    const cues = await parseMkvCues(bufferRead(mkv), mkv.length)
 
     expect(cues).toHaveLength(1)
     expect(cues[0].timestampMs).toBe(500)
   })
 
-  it('returns empty array if no Cues element exists', () => {
+  it('returns empty array if no Cues element exists', async () => {
     // Build an MKV without cues: just EBML header + Segment with Info
     const docType = new TextEncoder().encode('matroska')
     const ebmlHeader = ebmlElement(
@@ -220,30 +220,32 @@ describe('parseMkvCues', () => {
     const segment = ebmlElement(SEGMENT_ID, infoElement)
     const mkv = concat(ebmlHeader, segment)
 
-    const cues = parseMkvCues(bufferRead(mkv), mkv.length)
+    const cues = await parseMkvCues(bufferRead(mkv), mkv.length)
     expect(cues).toEqual([])
   })
 
-  it('throws on non-EBML data', () => {
+  it('throws on non-EBML data', async () => {
     const garbage = new Uint8Array([0x00, 0x01, 0x02, 0x03])
-    expect(() => parseMkvCues(bufferRead(garbage), garbage.length)).toThrow('Not an EBML file')
+    await expect(parseMkvCues(bufferRead(garbage), garbage.length)).rejects.toThrow(
+      'Not an EBML file',
+    )
   })
 
-  it('handles many cue points', () => {
+  it('handles many cue points', async () => {
     const entries = Array.from({ length: 100 }, (_, i) => ({
       cueTime: i * 1000,
       track: 1,
       clusterOffset: i * 65536,
     }))
     const mkv = buildMkvBuffer(entries)
-    const cues = parseMkvCues(bufferRead(mkv), mkv.length)
+    const cues = await parseMkvCues(bufferRead(mkv), mkv.length)
 
     expect(cues).toHaveLength(100)
     expect(cues[0].timestampMs).toBe(0)
     expect(cues[99].timestampMs).toBe(99000)
   })
 
-  it('tracks read calls — only metadata regions accessed', () => {
+  it('tracks read calls — only metadata regions accessed', async () => {
     const mkv = buildMkvBuffer([
       { cueTime: 0, track: 1, clusterOffset: 10000 },
       { cueTime: 5000, track: 1, clusterOffset: 50000 },
@@ -255,7 +257,7 @@ describe('parseMkvCues', () => {
       return mkv.subarray(start, end)
     }
 
-    parseMkvCues(trackingRead, mkv.length)
+    await parseMkvCues(trackingRead, mkv.length)
 
     const totalBytesRead = reads.reduce((s, r) => s + (r.end - r.start), 0)
     // For our synthetic buffer, the entire file IS metadata, so we just verify
@@ -264,11 +266,11 @@ describe('parseMkvCues', () => {
     expect(totalBytesRead).toBeLessThanOrEqual(mkv.length * 3) // no excessive re-reading
   })
 
-  it('computes absolute byte offsets correctly', () => {
+  it('computes absolute byte offsets correctly', async () => {
     const clusterOffset = 12345
     const mkv = buildMkvBuffer([{ cueTime: 0, track: 1, clusterOffset }])
 
-    const cues = parseMkvCues(bufferRead(mkv), mkv.length)
+    const cues = await parseMkvCues(bufferRead(mkv), mkv.length)
 
     // Find segment data start: EBML header + Segment ID + Segment size
     // The absolute offset should be segmentDataStart + clusterOffset
