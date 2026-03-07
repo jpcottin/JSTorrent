@@ -57,6 +57,7 @@ const WS_TIMEOUT_MS = 10000
 
 const STORAGE_KEY_TOKEN = 'android:authToken'
 const STORAGE_KEY_PORT = 'android:daemonPort'
+const STORAGE_KEY_HOST_OVERRIDE = 'debug:companionHost'
 
 // ============================================================================
 // ChromeOSBootstrap Class
@@ -74,6 +75,7 @@ export class ChromeOSBootstrap {
   private running = false
   private pollTimer: ReturnType<typeof setTimeout> | null = null
   private ws: WebSocket | null = null
+  private host = CHROMEOS_HOST
 
   // ─────────────────────────────────────────────────────────────────────────
   // Public API
@@ -171,6 +173,17 @@ export class ChromeOSBootstrap {
     resolve: (result: BootstrapResult) => void,
     reject: (error: Error) => void,
   ): Promise<void> {
+    // Check for debug host override (used by E2E tests to redirect to localhost)
+    try {
+      const stored = await chrome.storage.local.get([STORAGE_KEY_HOST_OVERRIDE])
+      if (stored[STORAGE_KEY_HOST_OVERRIDE]) {
+        this.host = stored[STORAGE_KEY_HOST_OVERRIDE] as string
+        console.log(`[ChromeOSBootstrap] Using override host: ${this.host}`)
+      }
+    } catch {
+      // Ignore - use default host
+    }
+
     while (this.running) {
       try {
         const result = await this.tryConnect()
@@ -356,7 +369,7 @@ export class ChromeOSBootstrap {
         const controller = new AbortController()
         const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
 
-        const response = await fetch(`http://${CHROMEOS_HOST}:${port}/health`, {
+        const response = await fetch(`http://${this.host}:${port}/health`, {
           signal: controller.signal,
         })
         clearTimeout(timeout)
@@ -384,7 +397,7 @@ export class ChromeOSBootstrap {
   }> {
     const telemetryId = await this.getTelemetryId()
 
-    const response = await fetch(`http://${CHROMEOS_HOST}:${port}/status`, {
+    const response = await fetch(`http://${this.host}:${port}/status`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -408,7 +421,7 @@ export class ChromeOSBootstrap {
     const telemetryId = await this.getTelemetryId()
 
     try {
-      const response = await fetch(`http://${CHROMEOS_HOST}:${port}/pair`, {
+      const response = await fetch(`http://${this.host}:${port}/pair`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -435,7 +448,7 @@ export class ChromeOSBootstrap {
     console.log(`[ChromeOSBootstrap] Connecting to /control on port ${port}`)
 
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://${CHROMEOS_HOST}:${port}/control`)
+      const ws = new WebSocket(`ws://${this.host}:${port}/control`)
       ws.binaryType = 'arraybuffer'
 
       const timeout = setTimeout(() => {

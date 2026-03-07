@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import com.jstorrent.app.JSTorrentApplication
+import com.jstorrent.app.auth.TokenStore
 import com.jstorrent.app.service.ForegroundNotificationService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -87,6 +88,7 @@ class DebugReceiver : BroadcastReceiver() {
                 intent.getBooleanExtra("delete_files", true)
             )
             "memory" -> handleMemory(app)
+            "pair" -> handlePair(app, intent)
             "power" -> handlePower(context)
             "rtt" -> requireController(controller) { handleRttBenchmark(it) }
             "help" -> logHelp()
@@ -221,6 +223,26 @@ class DebugReceiver : BroadcastReceiver() {
                 Log.e(TAG, "DHT stats failed: ${e.message}", e)
             }
         }
+    }
+
+    private fun handlePair(app: JSTorrentApplication, intent: Intent) {
+        val token = intent.getStringExtra("token")
+        val extensionId = intent.getStringExtra("extension_id") ?: "test-extension-id"
+        val installId = intent.getStringExtra("install_id") ?: "test-install-id"
+
+        if (token.isNullOrBlank()) {
+            Log.e(TAG, "pair requires --es token \"TOKEN\" [--es extension_id X] [--es install_id X]")
+            return
+        }
+
+        val tokenStore = TokenStore(app)
+        tokenStore.pair(token, installId, extensionId)
+        Log.i(TAG, "=== PAIR ===")
+        Log.i(TAG, "Token: $token")
+        Log.i(TAG, "ExtensionId: $extensionId")
+        Log.i(TAG, "InstallId: $installId")
+        Log.i(TAG, "Pairing stored successfully")
+        Log.i(TAG, "=== END PAIR ===")
     }
 
     private fun handleMemory(app: JSTorrentApplication) {
@@ -451,6 +473,7 @@ class DebugReceiver : BroadcastReceiver() {
         Log.i(TAG, "  peers [--es hash X] - List connected peers")
         Log.i(TAG, "  remove [--es hash X] [--ez delete_files true] - Remove torrent, default deleteFiles=true")
         Log.i(TAG, "  memory              - Memory snapshot (process, QuickJS, engine)")
+        Log.i(TAG, "  pair --es token T [--es extension_id X] [--es install_id X] - Pre-seed pairing")
         Log.i(TAG, "  power               - Power/Doze state info")
         Log.i(TAG, "  rtt                 - FFI RTT benchmark (Kotlin<->JS crossing overhead)")
         Log.i(TAG, "  loglevel --es level X - Set log level (debug/info/warn/error)")

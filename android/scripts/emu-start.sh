@@ -68,19 +68,24 @@ else
 fi
 
 # Set up port forwarding
+# Each base port has 2 sub-servers: +1 (WebSocket /io /control), +2 (streaming write)
 echo ""
-echo ">>> Setting up port forwarding (host:$DAEMON_PORT -> device:$DAEMON_PORT)..."
-adb forward tcp:$DAEMON_PORT tcp:$DAEMON_PORT
+echo ">>> Setting up port forwarding..."
+for P in $DAEMON_PORT $((DAEMON_PORT + 1)) $((DAEMON_PORT + 2)); do
+    adb forward tcp:$P tcp:$P
+done
 
-# Also forward common alternative ports
+# Also forward common alternative ports (and their sub-servers)
 for ALT_PORT in 7805 7814 7827; do
-    adb forward tcp:$ALT_PORT tcp:$ALT_PORT 2>/dev/null || true
+    for OFFSET in 0 1 2; do
+        adb forward tcp:$((ALT_PORT + OFFSET)) tcp:$((ALT_PORT + OFFSET)) 2>/dev/null || true
+    done
 done
 
 echo ""
 echo "=== Emulator Ready ==="
 echo ""
-echo "Port forwarding active: localhost:$DAEMON_PORT -> emulator:$DAEMON_PORT"
+echo "Port forwarding active: localhost:$DAEMON_PORT (+1,+2) -> emulator"
 echo ""
 echo "Next steps:"
 echo "    ./emu-install.sh     # Install the APK"
