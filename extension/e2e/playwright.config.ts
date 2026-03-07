@@ -2,6 +2,8 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: '.',
+  // companion-download requires Android emulator (run locally via e2e-companion-smoke.sh)
+  testIgnore: process.env.CI ? ['**/companion-download*'] : [],
   retries: 0,
   workers: 1,
   use: {

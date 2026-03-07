@@ -73,8 +73,7 @@ jobs:
           sleep 2  # Give seeder a moment to bind
 
       - name: Run Playwright tests
-        # companion-download requires Android emulator (run locally via e2e-companion-smoke.sh)
-        run: pnpm run test:e2e --ignore=e2e/companion-download.spec.ts
+        run: pnpm run test:e2e
 
   release:
     needs: build
