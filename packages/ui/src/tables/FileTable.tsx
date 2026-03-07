@@ -88,6 +88,8 @@ interface TorrentSource {
   getTorrent(hash: string): Torrent | undefined
 }
 
+const VIDEO_EXTENSIONS = new Set(['.mkv', '.mp4', '.avi', '.webm', '.mov', '.m4v', '.ts', '.m2ts'])
+
 export interface FileTableProps {
   /** Source to read torrent from */
   source: TorrentSource
@@ -105,6 +107,8 @@ export interface FileTableProps {
   onCopyFilePath?: (torrentHash: string, file: TorrentFileInfo) => void
   /** Called when user wants to change file priority. */
   onSetFilePriority?: (torrentHash: string, fileIndex: number, priority: number) => void
+  /** Called when user wants to watch a video file. */
+  onWatchVideo?: (torrentHash: string, file: TorrentFileInfo) => void
 }
 
 /**
@@ -130,7 +134,19 @@ export function FileTable(props: FileTableProps) {
     const canUnskipAny = selectedFiles.some((f) => f.isSkipped)
     const canSetHighPriority = selectedFiles.some((f) => f.priority !== 2 && !f.isComplete)
 
+    const isVideo = contextMenu && VIDEO_EXTENSIONS.has(contextMenu.file.extension.toLowerCase())
+
     return [
+      ...(isVideo && props.onWatchVideo
+        ? [
+            {
+              id: 'watch',
+              label: 'Watch',
+              icon: '▶',
+            },
+            { id: 'separator-watch', label: '-' },
+          ]
+        : []),
       {
         id: 'open',
         label: 'Open',
@@ -211,6 +227,9 @@ export function FileTable(props: FileTableProps) {
     const file = contextMenu.file
 
     switch (id) {
+      case 'watch':
+        props.onWatchVideo?.(props.torrentHash, file)
+        break
       case 'open':
         handleOpenFile(file)
         break

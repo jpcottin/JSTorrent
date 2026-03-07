@@ -153,7 +153,12 @@ export {
 } from './config'
 
 // Streaming
-export { createTorrentSource } from './streaming/torrent-source'
+export {
+  createTorrentSource,
+  createTorrentSourceFromProvider,
+  createStreamingFileProvider,
+} from './streaming/torrent-source'
+export type { StreamingFileProvider } from './streaming/streaming-file-provider'
 export { parseMkvCues, type MkvCuePoint } from './streaming/mkv-cue-parser'
 export { buildMkvKeyframeIndex, isMkvFile } from './streaming/mkv-keyframe-index'
 

@@ -24,7 +24,8 @@
   },
   "dependencies": {
     "@jstorrent/engine": "workspace:*",
-    "@jstorrent/ui": "workspace:*"
+    "@jstorrent/ui": "workspace:*",
+    "playsvideo": "link:../../../playsvideo"
   },
   "peerDependencies": {
     "react": "^18.2.0"

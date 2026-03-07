@@ -7,7 +7,8 @@
  */
 import React from 'react'
 import { useState, useRef, useMemo, useCallback } from 'react'
-import { Torrent, generateMagnet } from '@jstorrent/engine'
+import { Torrent, generateMagnet, createStreamingFileProvider } from '@jstorrent/engine'
+import type { StreamingFileProvider } from '@jstorrent/engine'
 import { openExternalUrl } from './utils/external-links'
 import {
   TorrentTable,
@@ -33,6 +34,7 @@ import {
   WEBTORRENT_MAGNETS,
 } from './utils/test-magnets'
 import { markDesktopActivated } from './host/tauri-channel'
+import { VideoPlayer } from './components/VideoPlayer'
 
 interface ContextMenuState {
   x: number
@@ -93,6 +95,10 @@ function AppContentInner({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [confirmRemoveAll, setConfirmRemoveAll] = useState<Torrent[] | null>(null)
   const [removingData, setRemovingData] = useState(false)
+  const [watchingVideo, setWatchingVideo] = useState<{
+    provider: StreamingFileProvider
+    fileName: string
+  } | null>(null)
   const { adapter, torrents, refresh } = useEngineState()
   const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -631,6 +637,21 @@ function AppContentInner({
                     torrent.setFilePriority(fileIndex, priority)
                   }
                 }}
+                onWatchVideo={(torrentHash, file) => {
+                  console.log('onWatchVideo', torrentHash, file.index, file.filename)
+                  try {
+                    const torrent = adapter.getTorrent(torrentHash)
+                    if (!torrent) {
+                      console.error('onWatchVideo: torrent not found', torrentHash)
+                      return
+                    }
+                    const provider = createStreamingFileProvider(torrent, file.index)
+                    console.log('onWatchVideo: created provider, opening player')
+                    setWatchingVideo({ provider, fileName: file.filename })
+                  } catch (err) {
+                    console.error('onWatchVideo: failed', err)
+                  }
+                }}
                 onOpenLoggingSettings={onOpenLoggingSettings}
                 pieceViewMode={pieceViewMode}
                 onPieceViewModeChange={setPieceViewMode}
@@ -654,6 +675,15 @@ function AppContentInner({
           loading={removingData}
           onConfirm={handleRemoveWithDataConfirm}
           onCancel={() => setConfirmRemoveAll(null)}
+        />
+      )}
+
+      {/* Video player modal */}
+      {watchingVideo && (
+        <VideoPlayer
+          provider={watchingVideo.provider}
+          fileName={watchingVideo.fileName}
+          onClose={() => setWatchingVideo(null)}
         />
       )}
 

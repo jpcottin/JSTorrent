@@ -64,6 +64,8 @@ export interface DetailPaneProps {
   onCopyFilePath?: (torrentHash: string, file: TorrentFileInfo) => void
   /** Callback when user wants to set file priority */
   onSetFilePriority?: (torrentHash: string, fileIndex: number, priority: number) => void
+  /** Callback when user wants to watch a video file */
+  onWatchVideo?: (torrentHash: string, file: TorrentFileInfo) => void
   /** Callback to open logging settings */
   onOpenLoggingSettings?: () => void
   /** Current piece visualization mode */
@@ -229,6 +231,7 @@ export function DetailPane(props: DetailPaneProps) {
               onRevealInFolder={props.onRevealInFolder}
               onCopyFilePath={props.onCopyFilePath}
               onSetFilePriority={props.onSetFilePriority}
+              onWatchVideo={props.onWatchVideo}
             />
           ) : (
             <TorrentPlaceholder selectedCount={props.selectedHashes.size} tabName="files" />
