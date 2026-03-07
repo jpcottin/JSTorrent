@@ -8,7 +8,7 @@
 import React from 'react'
 import { useState, useRef, useMemo, useCallback } from 'react'
 import { Torrent, generateMagnet, createStreamingFileProvider } from '@jstorrent/engine'
-import type { StreamingFileProvider } from '@jstorrent/engine'
+import type { StreamingFileProvider, TorrentFileInfo } from '@jstorrent/engine'
 import { openExternalUrl } from './utils/external-links'
 import {
   TorrentTable,
@@ -26,6 +26,7 @@ import { useEngineState } from './hooks/useEngineState'
 import { useConfigValue } from './context/ConfigContext'
 import { copyTextToClipboard } from './utils/clipboard'
 import { standaloneAlert } from './utils/dialogs'
+import { prepareTorrentForVideoPlayback } from './utils/watch-video'
 import {
   UBUNTU_SERVER_MAGNET,
   BIG_BUCK_BUNNY_MAGNET,
@@ -243,6 +244,36 @@ function AppContentInner({
     }
     refresh()
   }
+
+  const handleWatchVideo = useCallback(
+    async (torrentHash: string, file: TorrentFileInfo) => {
+      console.log('onWatchVideo', torrentHash, file.index, file.filename)
+      try {
+        const torrent = adapter.getTorrent(torrentHash)
+        if (!torrent) {
+          console.error('onWatchVideo: torrent not found', torrentHash)
+          return
+        }
+
+        await prepareTorrentForVideoPlayback(torrent, file.index)
+        refresh()
+
+        if (torrent.activityState === 'error') {
+          throw new Error(torrent.errorMessage ?? 'Torrent could not be started for playback')
+        }
+
+        const provider = createStreamingFileProvider(torrent, file.index)
+        console.log('onWatchVideo: created provider, opening player')
+        setWatchingVideo({ provider, fileName: file.filename })
+      } catch (err) {
+        console.error('onWatchVideo: failed', err)
+        standaloneAlert(
+          err instanceof Error ? `Unable to start playback.\n\n${err.message}` : 'Unable to start playback.',
+        )
+      }
+    },
+    [adapter, refresh],
+  )
 
   const handleRemoveWithDataRequest = () => {
     if (selectedTorrentObjects.length > 0) {
@@ -637,21 +668,7 @@ function AppContentInner({
                     torrent.setFilePriority(fileIndex, priority)
                   }
                 }}
-                onWatchVideo={(torrentHash, file) => {
-                  console.log('onWatchVideo', torrentHash, file.index, file.filename)
-                  try {
-                    const torrent = adapter.getTorrent(torrentHash)
-                    if (!torrent) {
-                      console.error('onWatchVideo: torrent not found', torrentHash)
-                      return
-                    }
-                    const provider = createStreamingFileProvider(torrent, file.index)
-                    console.log('onWatchVideo: created provider, opening player')
-                    setWatchingVideo({ provider, fileName: file.filename })
-                  } catch (err) {
-                    console.error('onWatchVideo: failed', err)
-                  }
-                }}
+                onWatchVideo={handleWatchVideo}
                 onOpenLoggingSettings={onOpenLoggingSettings}
                 pieceViewMode={pieceViewMode}
                 onPieceViewModeChange={setPieceViewMode}
