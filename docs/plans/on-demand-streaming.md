@@ -2,7 +2,9 @@
 
 Stream video from an in-progress torrent with instant seek, codec transcoding, and no HTTP server.
 
-See also: [streaming-ui-vision.md](streaming-ui-vision.md) for the UI vision (overlay vs standalone web page, RPC protocol, `jstorrent.com/watch`, package structure, phased rollout).
+See also:
+- [streaming-ui-vision.md](streaming-ui-vision.md) — UI vision (overlay vs standalone web page, RPC protocol, package structure, phased rollout)
+- [streaming-e2e-plan.md](streaming-e2e-plan.md) — tactical implementation plan (TorrentSource blocking reads, Node E2E test, MP4-first approach)
 
 ## Motivation
 
@@ -186,9 +188,13 @@ AVI (`.avi`) and FLV (`.flv`) are effectively dead for new content. TS (`.ts`) h
 
 ## Implementation Steps
 
-1. **Custom mediabunny Source** — torrent-piece-backed Source that returns data from downloaded pieces and null/promise for missing ranges.
-2. **Keyframe index extractor** — parse moov (MP4) or SeekHead→Cues (MKV) from first piece + index pieces, return `{ time, byteOffset, size }[]`.
+See [streaming-e2e-plan.md](streaming-e2e-plan.md) for the detailed tactical plan.
+
+1. **Blocking TorrentSource** — `_read()` returns a Promise that prioritizes pieces and waits for download (not null). mediabunny has no read timeouts and drives the parsing. Already exists at `packages/engine/src/streaming/torrent-source.ts`, needs update from null-returning to blocking.
+2. **Node E2E test** — seed a video file, download via engine, pipe through TorrentSource → mediabunny → keyframe index → segment data. Proves the pipeline without a browser.
 3. **Segment plan builder** — convert keyframe index to HLS segment list with durations.
 4. **fLoader implementation** — bridge between hls.js segment requests and torrent piece priorities.
 5. **Codec probe + transcode** — reuse playsvideo's `audioNeedsTranscode` and ffmpeg.wasm audio pipeline for AC3/EAC3/DTS.
 6. **Player UI** — piece availability visualization (like the old green canvas bar), playhead, seek controls.
+
+**MP4 first, MKV blocked.** MP4 keyframe index building is purely in-memory after moov parsing. MKV `getKeyPacket({ metadataOnly: true })` seeks to every cluster header — needs upstream mediabunny fix to read from Cues directly.

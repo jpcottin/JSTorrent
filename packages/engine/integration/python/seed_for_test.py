@@ -156,7 +156,7 @@ def create_torrent_for_file(
     t.set_creator("jstorrent_test_seeder")
     lt.set_piece_hashes(t, base_dir)
 
-    torrent_path = file_path.with_suffix(".bin.torrent")
+    torrent_path = file_path.parent / (file_path.name + ".torrent")
     with open(torrent_path, "wb") as f:
         f.write(lt.bencode(t.generate()))
 
@@ -343,6 +343,19 @@ def main() -> int:
         default="libtorrent",
         help="Seeding engine to use (default: libtorrent)",
     )
+    parser.add_argument(
+        "--file",
+        "-f",
+        type=Path,
+        default=None,
+        help="Seed an existing file instead of generating random data",
+    )
+    parser.add_argument(
+        "--piece-length",
+        type=int,
+        default=None,
+        help="Piece length in bytes (default: auto based on --size, or 16384 for --file)",
+    )
 
     args = parser.parse_args()
 
@@ -353,17 +366,36 @@ def main() -> int:
     # Kill any existing seeder on our port
     kill_existing_on_port(args.port, args.quiet)
 
-    # Ensure data exists
-    data_path, torrent_path, info_hash = ensure_data_exists(
-        args.data_dir, args.size, args.regenerate, args.quiet
-    )
+    if args.file:
+        # Seed an existing file
+        file_path = args.file.resolve()
+        if not file_path.exists():
+            print(f"ERROR: File not found: {file_path}", file=sys.stderr)
+            return 1
 
-    config = SIZE_CONFIGS[args.size]
-
-    if args.engine == "libtorrent":
-        return run_libtorrent_seeder(args, data_path, torrent_path, info_hash, config)
+        data_dir = file_path.parent
+        piece_length = args.piece_length or 16384  # 16KB default for small files
+        torrent_path, info_hash = create_torrent_for_file(
+            file_path, piece_length, args.quiet
+        )
+        config = {
+            "size": file_path.stat().st_size,
+            "piece_length": piece_length,
+            "filename": file_path.name,
+        }
+        args.data_dir = data_dir
+        return run_libtorrent_seeder(args, file_path, torrent_path, info_hash, config)
     else:
-        return run_jstengine_seeder(args, data_path, torrent_path, info_hash, config)
+        # Generate and seed deterministic data
+        data_path, torrent_path, info_hash = ensure_data_exists(
+            args.data_dir, args.size, args.regenerate, args.quiet
+        )
+        config = SIZE_CONFIGS[args.size]
+
+        if args.engine == "libtorrent":
+            return run_libtorrent_seeder(args, data_path, torrent_path, info_hash, config)
+        else:
+            return run_jstengine_seeder(args, data_path, torrent_path, info_hash, config)
 
 
 def run_libtorrent_seeder(args, data_path, torrent_path, info_hash, config) -> int:
@@ -371,9 +403,9 @@ def run_libtorrent_seeder(args, data_path, torrent_path, info_hash, config) -> i
     # Create session and start seeding
     session = create_seeding_session(args.port, args.bind)
 
-    # Verify we got the port we asked for
+    # Verify we got the port we asked for (skip check for auto-assign port 0)
     actual_port = session.listen_port()
-    if actual_port != args.port:
+    if args.port != 0 and actual_port != args.port:
         print(
             f"ERROR: Requested port {args.port} but got {actual_port}. "
             f"Port {args.port} may be in use.",

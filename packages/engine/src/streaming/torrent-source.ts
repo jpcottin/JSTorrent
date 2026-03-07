@@ -23,6 +23,11 @@ import type { Torrent } from '../core/torrent'
 
 /**
  * The shape of mediabunny's ReadResult (not importing to avoid dependency).
+ *
+ * offset = the file byte position at which `bytes` begins. mediabunny uses
+ * this to compute `bufferPos = requestedStart - offset` inside FileSlice.
+ * For torrent reads, offset must equal the requested start position so that
+ * bufferPos starts at 0 (the beginning of our returned buffer).
  */
 export interface ReadResult {
   bytes: Uint8Array
@@ -85,7 +90,7 @@ export function createTorrentSource<T extends SourceConstructor>(
         .then((bytes) => ({
           bytes,
           view: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-          offset: 0,
+          offset: start,
         }))
     }
 

@@ -1,6 +1,8 @@
 # Streaming UI — Vision & Phase 1
 
-See also: [on-demand-streaming.md](on-demand-streaming.md) for the technical architecture (Source interface, abort/cancellation flow, keyframe index extraction, segment request flow).
+See also:
+- [on-demand-streaming.md](on-demand-streaming.md) — technical architecture (Source interface, abort/cancellation, keyframe index extraction, segment flow)
+- [streaming-e2e-plan.md](streaming-e2e-plan.md) — tactical implementation plan (TorrentSource blocking reads, Node E2E test, MP4-first approach)
 
 ## Vision
 
