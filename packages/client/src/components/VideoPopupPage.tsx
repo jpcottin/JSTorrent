@@ -63,6 +63,9 @@ export function VideoPopupPage() {
       provider={providerHandle.provider}
       fileName={descriptor.fileName}
       onClose={() => window.close()}
+      closeOnBackdrop={false}
+      closeOnEscape={false}
+      showCloseButton={false}
     />
   )
 }

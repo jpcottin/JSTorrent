@@ -45,6 +45,12 @@ export interface ReadResult {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SourceConstructor = abstract new (...args: any[]) => any
 
+function summarizePieces(pieces: number[]): string {
+  if (pieces.length === 0) return 'pieces=0'
+  if (pieces.length <= 6) return `pieces=${pieces.join(',')}`
+  return `pieces=${pieces[0]}..${pieces[pieces.length - 1]} (${pieces.length})`
+}
+
 /**
  * Create a StreamingFileProvider from a Torrent + fileIndex.
  *
@@ -119,6 +125,7 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
 
     _read(start: number, end: number, signal?: AbortSignal): Promise<ReadResult> | null {
       if (disposed) {
+        console.log(`[torrent-source] read rejected after dispose start=${start} end=${end}`)
         return Promise.reject(new DOMException('Aborted', 'AbortError'))
       }
 
@@ -131,14 +138,22 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
       try {
         pieces = provider.fileBytesToPieces(start, length)
       } catch {
+        console.warn(`[torrent-source] fileBytesToPieces failed start=${start} end=${end}`)
         return null
       }
+
+      console.log(
+        `[torrent-source] read start=${start} end=${end} len=${length} ${summarizePieces(pieces)}`,
+      )
 
       // Prioritize these pieces for streaming download
       provider.setStreamingPieces(new Set(pieces))
 
       const readController = new AbortController()
       const abortRead = () => {
+        console.log(
+          `[torrent-source] abort start=${start} end=${end} len=${length} ${summarizePieces(pieces)}`,
+        )
         provider.setStreamingPieces(null)
         readController.abort()
       }
@@ -152,19 +167,28 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
       }
 
       // Wait for all pieces, then read the bytes
+      const waitStartedAt = Date.now()
       return provider
         .waitForPieces(pieces, readController.signal)
         .then(() => {
           if (readController.signal.aborted) {
             throw new DOMException('Aborted', 'AbortError')
           }
+          console.log(
+            `[torrent-source] ready start=${start} end=${end} waited_ms=${Date.now() - waitStartedAt} ${summarizePieces(pieces)}`,
+          )
           return provider.readFileBytes(start, length)
         })
-        .then((bytes) => ({
-          bytes,
-          view: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-          offset: start,
-        }))
+        .then((bytes) => {
+          console.log(
+            `[torrent-source] read complete start=${start} end=${end} bytes=${bytes.byteLength}`,
+          )
+          return {
+            bytes,
+            view: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+            offset: start,
+          }
+        })
         .finally(() => {
           effectiveSignal?.removeEventListener('abort', abortRead)
           disposeController.signal.removeEventListener('abort', abortRead)
@@ -174,6 +198,7 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
     _dispose(): void {
       if (disposed) return
       disposed = true
+      console.log('[torrent-source] dispose')
       provider.setStreamingPieces(null)
       disposeController.abort()
     }

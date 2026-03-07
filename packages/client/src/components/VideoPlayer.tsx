@@ -7,9 +7,19 @@ export interface VideoPlayerProps {
   provider: StreamingFileProvider
   fileName: string
   onClose: () => void
+  closeOnBackdrop?: boolean
+  closeOnEscape?: boolean
+  showCloseButton?: boolean
 }
 
-export function VideoPlayer({ provider, fileName, onClose }: VideoPlayerProps) {
+export function VideoPlayer({
+  provider,
+  fileName,
+  onClose,
+  closeOnBackdrop = true,
+  closeOnEscape = true,
+  showCloseButton = true,
+}: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const engineRef = useRef<PlaysVideoEngine | null>(null)
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -56,21 +66,23 @@ export function VideoPlayer({ provider, fileName, onClose }: VideoPlayerProps) {
   // Close on Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (closeOnEscape && e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  }, [closeOnEscape, onClose])
 
   const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) onClose()
+    if (closeOnBackdrop && e.target === e.currentTarget) onClose()
   }
 
   return (
     <div style={overlayStyle} onClick={handleOverlayClick}>
-      <button style={closeButtonStyle} onClick={onClose} title="Close">
-        ✕
-      </button>
+      {showCloseButton && (
+        <button style={closeButtonStyle} onClick={onClose} title="Close">
+          ✕
+        </button>
+      )}
 
       {phase === 'loading' && <div style={statusStyle}>Loading {fileName}...</div>}
 
