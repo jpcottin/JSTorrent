@@ -210,7 +210,7 @@ describe('TorrentSource', () => {
     const end = 40000
     await source._read(start, end)
 
-    expect(mockTorrent.waitForPieces).toHaveBeenCalledWith([0, 1, 2], undefined)
+    expect(mockTorrent.waitForPieces).toHaveBeenCalledWith([0, 1, 2], expect.any(AbortSignal))
     expect(mockTorrent.setStreamingPieces).toHaveBeenCalledWith(new Set([0, 1, 2]))
     expect(mockTorrent.readFileBytes).toHaveBeenCalledWith(0, 0, 40000)
   })
@@ -239,5 +239,23 @@ describe('TorrentSource', () => {
 
     const promise = source._read(0, 100, controller.signal)
     await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('aborts pending reads when disposed', async () => {
+    mockTorrent = createMockTorrent({
+      fileLength: 65536,
+      availablePieces: new Set(),
+    })
+
+    const source = createTorrentSource(MockSourceBase, mockTorrent as unknown as Torrent, 0)
+
+    const promise = source._read(0, 100)
+    expect(mockTorrent.setStreamingPieces).toHaveBeenCalledWith(new Set([0]))
+
+    source._dispose()
+
+    expect(mockTorrent.setStreamingPieces).toHaveBeenCalledWith(null)
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+    expect(mockTorrent.readFileBytes).not.toHaveBeenCalled()
   })
 })

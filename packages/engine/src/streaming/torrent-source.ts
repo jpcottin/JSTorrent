@@ -100,6 +100,9 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
   SourceClass: T,
   provider: StreamingFileProvider,
 ): InstanceType<T> {
+  const disposeController = new AbortController()
+  let disposed = false
+
   // Create a concrete subclass that implements the abstract methods
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   class TorrentSource extends (SourceClass as abstract new () => any) {
@@ -115,6 +118,10 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
     }
 
     _read(start: number, end: number, signal?: AbortSignal): Promise<ReadResult> | null {
+      if (disposed) {
+        return Promise.reject(new DOMException('Aborted', 'AbortError'))
+      }
+
       // Use explicit signal param if provided (future mediabunny support),
       // otherwise fall back to instance-level signal from pipeline
       const effectiveSignal = signal ?? this.currentSignal
@@ -130,24 +137,45 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
       // Prioritize these pieces for streaming download
       provider.setStreamingPieces(new Set(pieces))
 
-      // Handle abort: deprioritize on cancellation
-      effectiveSignal?.addEventListener('abort', () => {
+      const readController = new AbortController()
+      const abortRead = () => {
         provider.setStreamingPieces(null)
-      })
+        readController.abort()
+      }
+
+      // Handle abort and teardown by deprioritizing/canceling the active read.
+      effectiveSignal?.addEventListener('abort', abortRead, { once: true })
+      disposeController.signal.addEventListener('abort', abortRead, { once: true })
+
+      if (effectiveSignal?.aborted || disposeController.signal.aborted) {
+        abortRead()
+      }
 
       // Wait for all pieces, then read the bytes
       return provider
-        .waitForPieces(pieces, effectiveSignal ?? undefined)
-        .then(() => provider.readFileBytes(start, length))
+        .waitForPieces(pieces, readController.signal)
+        .then(() => {
+          if (readController.signal.aborted) {
+            throw new DOMException('Aborted', 'AbortError')
+          }
+          return provider.readFileBytes(start, length)
+        })
         .then((bytes) => ({
           bytes,
           view: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
           offset: start,
         }))
+        .finally(() => {
+          effectiveSignal?.removeEventListener('abort', abortRead)
+          disposeController.signal.removeEventListener('abort', abortRead)
+        })
     }
 
     _dispose(): void {
-      // Nothing to clean up — torrent lifecycle is managed elsewhere
+      if (disposed) return
+      disposed = true
+      provider.setStreamingPieces(null)
+      disposeController.abort()
     }
   }
 

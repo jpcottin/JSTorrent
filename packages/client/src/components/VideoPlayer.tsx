@@ -19,16 +19,22 @@ export function VideoPlayer({ provider, fileName, onClose }: VideoPlayerProps) {
     const video = videoRef.current
     if (!video) return
 
+    let disposed = false
+    setPhase('loading')
+    setErrorMessage(null)
+
     const source = createTorrentSourceFromProvider(Source, provider)
     const engine = new PlaysVideoEngine(video)
     engineRef.current = engine
 
     engine.addEventListener('ready', () => {
+      if (disposed) return
       console.log('[VideoPlayer] ready')
       setPhase('ready')
     })
 
     engine.addEventListener('error', ((e: CustomEvent<{ message: string }>) => {
+      if (disposed) return
       console.error('[VideoPlayer] error:', e.detail.message)
       setPhase('error')
       setErrorMessage(e.detail.message)
@@ -38,10 +44,14 @@ export function VideoPlayer({ provider, fileName, onClose }: VideoPlayerProps) {
     engine.loadSource(source)
 
     return () => {
+      disposed = true
       engine.destroy()
       engineRef.current = null
+      video.pause()
+      video.removeAttribute('src')
+      video.load()
     }
-  }, [provider])
+  }, [fileName, provider])
 
   // Close on Escape
   useEffect(() => {
