@@ -5,7 +5,11 @@
  * fixtures needed.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { buildMkvKeyframeIndex, isMkvFile } from '../../src/streaming/mkv-keyframe-index'
+import {
+  buildMkvKeyframeIndex,
+  buildMkvPrebuiltKeyframeIndex,
+  isMkvFile,
+} from '../../src/streaming/mkv-keyframe-index'
 import type { Torrent } from '../../src/core/torrent'
 
 // --- EBML element IDs ---
@@ -17,6 +21,7 @@ const SEEKID_ID = 0x53ab
 const SEEKPOSITION_ID = 0x53ac
 const INFO_ID = 0x1549a966
 const TIMESTAMP_SCALE_ID = 0x2ad7b1
+const DURATION_ID = 0x4489
 const CUES_ID = 0x1c53bb6b
 const CUEPOINT_ID = 0xbb
 const CUETIME_ID = 0xb3
@@ -64,6 +69,13 @@ function ebmlUintElement(id: number, value: number, width?: number): Uint8Array 
   return ebmlElement(id, writeUint(value, w))
 }
 
+function ebmlFloat64Element(id: number, value: number): Uint8Array {
+  const buf = new Uint8Array(8)
+  const view = new DataView(buf.buffer)
+  view.setFloat64(0, value, false)
+  return ebmlElement(id, buf)
+}
+
 function concat(...arrays: Uint8Array[]): Uint8Array {
   const total = arrays.reduce((s, a) => s + a.length, 0)
   const result = new Uint8Array(total)
@@ -85,7 +97,11 @@ function buildMkvBuffer(
     concat(ebmlUintElement(0x4286, 1), ebmlUintElement(0x42f7, 1), ebmlElement(0x4282, docType)),
   )
 
-  const infoContent = ebmlUintElement(TIMESTAMP_SCALE_ID, timestampScale, 4)
+  const durationTicks = (cues[cues.length - 1]?.cueTime ?? 0) + 1000
+  const infoContent = concat(
+    ebmlUintElement(TIMESTAMP_SCALE_ID, timestampScale, 4),
+    ebmlFloat64Element(DURATION_ID, durationTicks),
+  )
   const infoElement = ebmlElement(INFO_ID, infoContent)
 
   const cuePointElements = cues.map((c) =>
@@ -273,5 +289,21 @@ describe('buildMkvKeyframeIndex', () => {
     expect(waitForPieces.mock.calls.length).toBeGreaterThanOrEqual(3)
     expect(readFileBytes.mock.calls.length).toBeGreaterThanOrEqual(3)
     expect(fileBytesToPieces.mock.calls.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('builds a prebuilt keyframe index with duration and timestamps', async () => {
+    const buffer = buildMkvBuffer([
+      { cueTime: 0, track: 1, clusterOffset: 1000 },
+      { cueTime: 1000, track: 1, clusterOffset: 50000 },
+      { cueTime: 2000, track: 1, clusterOffset: 100000 },
+    ])
+    const { torrent } = createMockTorrent(buffer)
+
+    const index = await buildMkvPrebuiltKeyframeIndex(torrent, 0)
+
+    expect(index).toEqual({
+      durationSec: 3,
+      keyframeTimestampsSec: [0, 1, 2],
+    })
   })
 })

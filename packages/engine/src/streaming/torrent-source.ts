@@ -26,6 +26,7 @@
  */
 
 import type { Torrent } from '../core/torrent'
+import { buildMkvPrebuiltKeyframeIndex, isMkvFile } from './mkv-keyframe-index'
 import type { StreamingFileProvider } from './streaming-file-provider'
 
 /**
@@ -74,6 +75,12 @@ export function createStreamingFileProvider(
     setStreamingPieces: (pieces) => torrent.setStreamingPieces(pieces),
     waitForPieces: (indices, signal) => torrent.waitForPieces(indices, signal),
     readFileBytes: (offset, length) => torrent.readFileBytes(fileIndex, offset, length),
+    buildPrebuiltKeyframeIndex: () => {
+      if (!isMkvFile(file.path)) {
+        return Promise.resolve(null)
+      }
+      return buildMkvPrebuiltKeyframeIndex(torrent, fileIndex)
+    },
   }
 }
 

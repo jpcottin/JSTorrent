@@ -158,9 +158,9 @@ export {
   createTorrentSourceFromProvider,
   createStreamingFileProvider,
 } from './streaming/torrent-source'
-export type { StreamingFileProvider } from './streaming/streaming-file-provider'
-export { parseMkvCues, type MkvCuePoint } from './streaming/mkv-cue-parser'
-export { buildMkvKeyframeIndex, isMkvFile } from './streaming/mkv-keyframe-index'
+export type { PrebuiltKeyframeIndex, StreamingFileProvider } from './streaming/streaming-file-provider'
+export { parseMkvCueIndex, parseMkvCues, type MkvCuePoint } from './streaming/mkv-cue-parser'
+export { buildMkvKeyframeIndex, buildMkvPrebuiltKeyframeIndex, isMkvFile } from './streaming/mkv-keyframe-index'
 
 // Version
 export { VERSION, versionToAzureusCode, azureusCodeToVersion } from './version'

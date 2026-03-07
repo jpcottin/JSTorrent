@@ -3,7 +3,7 @@ import {
   createRemoteStreamingFileProvider,
   createVideoPopupSessionHost,
 } from '../../src/utils/video-popup-session'
-import type { StreamingFileProvider } from '@jstorrent/engine'
+import type { PrebuiltKeyframeIndex, StreamingFileProvider } from '@jstorrent/engine'
 import type { VideoPopupLaunchOptions } from '../../src/host/types'
 
 interface MessageListener {
@@ -83,6 +83,7 @@ describe('video popup session transport', () => {
       setStreamingPieces: vi.fn(),
       waitForPieces: vi.fn().mockResolvedValue(undefined),
       readFileBytes: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4])),
+      buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(null),
     }
 
     const host = createVideoPopupSessionHost('session-rpc', provider, createChannel)
@@ -118,6 +119,7 @@ describe('video popup session transport', () => {
       setStreamingPieces: vi.fn(),
       waitForPieces: vi.fn().mockResolvedValue(undefined),
       readFileBytes: vi.fn().mockResolvedValue(new Uint8Array([1])),
+      buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(null),
     }
 
     const onSessionClosed = vi.fn()
@@ -137,5 +139,38 @@ describe('video popup session transport', () => {
     await Promise.resolve()
 
     expect(onSessionClosed).toHaveBeenCalledTimes(1)
+  })
+
+  it('proxies prebuilt keyframe index requests over the popup session channel', async () => {
+    const index: PrebuiltKeyframeIndex = {
+      durationSec: 12.5,
+      keyframeTimestampsSec: [0, 4, 8, 12],
+    }
+    const provider: StreamingFileProvider = {
+      fileSize: 100,
+      fileBytesToPieces: (_offset, _length) => [0],
+      setStreamingPieces: vi.fn(),
+      waitForPieces: vi.fn().mockResolvedValue(undefined),
+      readFileBytes: vi.fn().mockResolvedValue(new Uint8Array([1])),
+      buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(index),
+    }
+
+    const host = createVideoPopupSessionHost('session-index', provider, createChannel)
+    const remote = createRemoteStreamingFileProvider(
+      {
+        sessionId: 'session-index',
+        fileName: 'movie.mkv',
+        fileSize: 100,
+        fileOffset: 0,
+        pieceLength: 16_384,
+      },
+      { createChannel },
+    )
+
+    await expect(remote.provider.buildPrebuiltKeyframeIndex?.()).resolves.toEqual(index)
+    expect(provider.buildPrebuiltKeyframeIndex).toHaveBeenCalledTimes(1)
+
+    remote.dispose()
+    host.dispose()
   })
 })

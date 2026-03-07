@@ -16,6 +16,11 @@ export interface MkvCuePoint {
   clusterByteOffset: number
 }
 
+export interface ParsedMkvCueIndex {
+  cuePoints: MkvCuePoint[]
+  durationSec: number | null
+}
+
 /**
  * Parse the Cues element from an MKV/WebM file.
  *
@@ -28,6 +33,14 @@ export async function parseMkvCues(
   read: (start: number, end: number) => Uint8Array | Promise<Uint8Array>,
   fileSize: number,
 ): Promise<MkvCuePoint[]> {
+  const parsed = await parseMkvCueIndex(read, fileSize)
+  return parsed.cuePoints
+}
+
+export async function parseMkvCueIndex(
+  read: (start: number, end: number) => Uint8Array | Promise<Uint8Array>,
+  fileSize: number,
+): Promise<ParsedMkvCueIndex> {
   // Step 1: Parse EBML header — verify Matroska/WebM
   let pos = 0
   const headerData = await read(0, Math.min(64, fileSize))
@@ -111,17 +124,27 @@ export async function parseMkvCues(
   }
 
   // Step 4: Parse Info element to get TimestampScale
+  let durationSec: number | null = null
   if (infoOffset !== undefined) {
-    const infoHdrBuf = await read(infoOffset, Math.min(infoOffset + 256, fileSize))
+    const infoHdrBuf = await read(infoOffset, Math.min(infoOffset + 64, fileSize))
     const infoEl = readElementHeader(infoHdrBuf, 0)
     if (infoEl && infoEl.id === INFO_ID) {
       const infoEnd = infoEl.dataStart + infoEl.dataSize
+      const infoBuf =
+        infoEnd <= infoHdrBuf.length
+          ? infoHdrBuf
+          : await read(infoOffset, Math.min(infoOffset + infoEnd, fileSize))
       let ip = infoEl.dataStart
-      while (ip < infoEnd && ip < infoHdrBuf.length - 2) {
-        const child = readElementHeader(infoHdrBuf, ip)
+      while (ip < infoEnd && ip < infoBuf.length - 2) {
+        const child = readElementHeader(infoBuf, ip)
         if (!child) break
         if (child.id === TIMESTAMP_SCALE_ID) {
-          timestampScale = readUint(infoHdrBuf, ip + child.dataStart, child.dataSize)
+          timestampScale = readUint(infoBuf, ip + child.dataStart, child.dataSize)
+        } else if (child.id === DURATION_ID) {
+          const durationTicks = readFloat(infoBuf, ip + child.dataStart, child.dataSize)
+          if (durationTicks !== null && Number.isFinite(durationTicks) && durationTicks > 0) {
+            durationSec = (durationTicks * timestampScale) / 1_000_000_000
+          }
         }
         if (child.dataSize === UNKNOWN_SIZE) break
         ip += child.dataStart + child.dataSize
@@ -132,14 +155,14 @@ export async function parseMkvCues(
   // Step 5: Read and parse Cues element
   if (cuesOffset === undefined) {
     // No Cues in SeekHead — file may not have cues
-    return []
+    return { cuePoints: [], durationSec }
   }
 
   // Read Cues header first to get its size
   const cuesHdrBuf = await read(cuesOffset, Math.min(cuesOffset + 16, fileSize))
   const cuesEl = readElementHeader(cuesHdrBuf, 0)
   if (!cuesEl || cuesEl.id !== CUES_ID) {
-    return []
+    return { cuePoints: [], durationSec }
   }
 
   const cuesDataStart = cuesOffset + cuesEl.dataStart
@@ -193,7 +216,7 @@ export async function parseMkvCues(
     cp += cpEl.dataStart + cpEl.dataSize
   }
 
-  return cuePoints
+  return { cuePoints, durationSec }
 }
 
 // --- EBML element IDs ---
@@ -206,6 +229,7 @@ const SEEKID_ID = 0x53ab
 const SEEKPOSITION_ID = 0x53ac
 const INFO_ID = 0x1549a966
 const TIMESTAMP_SCALE_ID = 0x2ad7b1
+const DURATION_ID = 0x4489
 const CUES_ID = 0x1c53bb6b
 const CUEPOINT_ID = 0xbb
 const CUETIME_ID = 0xb3
@@ -325,4 +349,11 @@ function readUint(buf: Uint8Array, offset: number, width: number): number {
     value = value * 256 + buf[offset + i]
   }
   return value
+}
+
+function readFloat(buf: Uint8Array, offset: number, width: number): number | null {
+  const view = new DataView(buf.buffer, buf.byteOffset + offset, width)
+  if (width === 4) return view.getFloat32(0, false)
+  if (width === 8) return view.getFloat64(0, false)
+  return null
 }

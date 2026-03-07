@@ -7,7 +7,8 @@
  */
 
 import type { Torrent } from '../core/torrent'
-import { parseMkvCues, type MkvCuePoint } from './mkv-cue-parser'
+import { parseMkvCueIndex, parseMkvCues, type MkvCuePoint } from './mkv-cue-parser'
+import type { PrebuiltKeyframeIndex } from './streaming-file-provider'
 
 export type { MkvCuePoint }
 
@@ -54,6 +55,43 @@ export async function buildMkvKeyframeIndex(
 
   try {
     return await parseMkvCues(read, fileSize)
+  } finally {
+    torrent.setStreamingPieces(null)
+  }
+}
+
+export async function buildMkvPrebuiltKeyframeIndex(
+  torrent: Torrent,
+  fileIndex: number,
+  signal?: AbortSignal,
+): Promise<PrebuiltKeyframeIndex | null> {
+  const file = torrent.files[fileIndex]
+  if (!file) {
+    throw new Error(`Invalid file index: ${fileIndex}`)
+  }
+
+  const fileSize = file.length
+
+  const read = async (start: number, end: number): Promise<Uint8Array> => {
+    const length = end - start
+    const pieces = torrent.fileBytesToPieces(fileIndex, start, length)
+    torrent.setStreamingPieces(new Set(pieces))
+    await torrent.waitForPieces(pieces, signal)
+    return torrent.readFileBytes(fileIndex, start, length)
+  }
+
+  try {
+    const parsed = await parseMkvCueIndex(read, fileSize)
+    if (!parsed.durationSec || !Number.isFinite(parsed.durationSec) || parsed.durationSec <= 0) {
+      return null
+    }
+    if (parsed.cuePoints.length === 0) {
+      return null
+    }
+    return {
+      durationSec: parsed.durationSec,
+      keyframeTimestampsSec: parsed.cuePoints.map((cue) => cue.timestampMs / 1000),
+    }
   } finally {
     torrent.setStreamingPieces(null)
   }

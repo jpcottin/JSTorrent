@@ -1,4 +1,4 @@
-import type { StreamingFileProvider } from '@jstorrent/engine'
+import type { PrebuiltKeyframeIndex, StreamingFileProvider } from '@jstorrent/engine'
 import type { VideoPopupLaunchOptions } from '../host/types'
 
 type ChannelMessageEvent = MessageEvent<unknown>
@@ -23,7 +23,12 @@ interface HostPendingWait {
 
 type HostMessage =
   | { type: 'setStreamingPieces'; pieces: number[] | null }
-  | { type: 'call'; id: string; method: 'waitForPieces' | 'readFileBytes'; args: unknown[] }
+  | {
+      type: 'call'
+      id: string
+      method: 'waitForPieces' | 'readFileBytes' | 'buildPrebuiltKeyframeIndex'
+      args: unknown[]
+    }
   | { type: 'abort'; id: string }
   | { type: 'close' }
 
@@ -157,6 +162,19 @@ export function createVideoPopupSessionHost(
         .catch((error) => {
           reply({ type: 'error', id: message.id, message: makeError(error).message })
         })
+      return
+    }
+
+    if (message.method === 'buildPrebuiltKeyframeIndex') {
+      Promise.resolve(
+        provider.buildPrebuiltKeyframeIndex ? provider.buildPrebuiltKeyframeIndex() : null,
+      )
+        .then((index) => {
+          reply({ type: 'result', id: message.id, value: index ?? null })
+        })
+        .catch((error) => {
+          reply({ type: 'error', id: message.id, message: makeError(error).message })
+        })
     }
   }
 
@@ -221,7 +239,7 @@ export function createRemoteStreamingFileProvider(
   channel.addEventListener('message', onMessage)
 
   const postCall = <T>(
-    method: 'waitForPieces' | 'readFileBytes',
+    method: 'waitForPieces' | 'readFileBytes' | 'buildPrebuiltKeyframeIndex',
     args: unknown[],
     signal?: AbortSignal,
   ): Promise<T> => {
@@ -297,6 +315,8 @@ export function createRemoteStreamingFileProvider(
       waitForPieces: (pieceIndices, signal) =>
         postCall<void>('waitForPieces', [pieceIndices], signal).then(() => undefined),
       readFileBytes: (offset, length) => postCall<Uint8Array>('readFileBytes', [offset, length]),
+      buildPrebuiltKeyframeIndex: () =>
+        postCall<PrebuiltKeyframeIndex | null>('buildPrebuiltKeyframeIndex', []),
     },
     dispose,
   }

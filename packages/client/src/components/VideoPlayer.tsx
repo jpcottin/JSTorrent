@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { StreamingFileProvider } from '@jstorrent/engine'
+import type { PrebuiltKeyframeIndex, StreamingFileProvider } from '@jstorrent/engine'
 import { createTorrentSourceFromProvider } from '@jstorrent/engine'
 import { PlaysVideoEngine, Source } from 'playsvideo'
+import type { KeyframeIndex } from 'playsvideo'
 
 export interface VideoPlayerProps {
   provider: StreamingFileProvider
@@ -57,8 +58,31 @@ export function VideoPlayer({
       setState((s) => ({ ...s, phase: 'error', errorMessage: e.detail.message }))
     }) as EventListener)
 
-    console.log('[VideoPlayer] loadSource', fileName, 'fileSize=', provider.fileSize)
-    engine.loadSource(source)
+    void (async () => {
+      let keyframeIndex: KeyframeIndex | undefined
+
+      try {
+        const prebuilt = await provider.buildPrebuiltKeyframeIndex?.()
+        if (disposed) return
+        if (prebuilt) {
+          keyframeIndex = toPlaysVideoKeyframeIndex(prebuilt)
+        }
+      } catch (error) {
+        console.warn('[VideoPlayer] prebuilt keyframe index unavailable, falling back', error)
+      }
+
+      if (disposed) return
+
+      console.log(
+        '[VideoPlayer] loadSource',
+        fileName,
+        'fileSize=',
+        provider.fileSize,
+        'prebuiltKeyframes=',
+        keyframeIndex?.keyframes.length ?? 0,
+      )
+      engine.loadSource(source, keyframeIndex ? { keyframeIndex } : undefined)
+    })()
 
     return () => {
       disposed = true
@@ -152,4 +176,14 @@ const videoStyle: React.CSSProperties = {
 const statusStyle: React.CSSProperties = {
   color: '#fff',
   fontSize: '16px',
+}
+
+function toPlaysVideoKeyframeIndex(prebuilt: PrebuiltKeyframeIndex): KeyframeIndex {
+  return {
+    duration: prebuilt.durationSec,
+    keyframes: prebuilt.keyframeTimestampsSec.map((timestamp, sequenceNumber) => ({
+      timestamp,
+      sequenceNumber,
+    })),
+  }
 }
