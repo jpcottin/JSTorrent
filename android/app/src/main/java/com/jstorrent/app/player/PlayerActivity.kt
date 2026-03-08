@@ -1,29 +1,43 @@
 package com.jstorrent.app.player
 
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.ui.PlayerView
 import com.jstorrent.app.JSTorrentApplication
 import com.jstorrent.app.R
 import com.jstorrent.app.ui.theme.JSTorrentTheme
@@ -31,19 +45,31 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Phase 0/1 player entry scaffold.
- *
- * This activity currently prepares the torrent/file state for playback but does
- * not yet attach Media3. It exists so the launch contract and playback
- * preparation logic can be built and tested without regressing the current UI.
- */
 class PlayerActivity : ComponentActivity() {
 
     private val app: JSTorrentApplication
         get() = application as JSTorrentApplication
 
     private var screenState by mutableStateOf<PlayerScreenState>(PlayerScreenState.Preparing)
+    private var player by mutableStateOf<ExoPlayer?>(null)
+    private var bufferingMessage by mutableStateOf<String?>(null)
+    private var playerErrorMessage by mutableStateOf<String?>(null)
+
+    private val playerListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            bufferingMessage = when (playbackState) {
+                Player.STATE_IDLE -> getString(R.string.player_loading_video)
+                Player.STATE_BUFFERING -> getString(R.string.player_buffering)
+                Player.STATE_READY, Player.STATE_ENDED -> null
+                else -> null
+            }
+        }
+
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            playerErrorMessage = error.localizedMessage ?: getString(R.string.player_unknown_error)
+            bufferingMessage = null
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,29 +80,7 @@ class PlayerActivity : ComponentActivity() {
             screenState = PlayerScreenState.Error(getString(R.string.player_invalid_request))
         } else {
             lifecycleScope.launch {
-                screenState = try {
-                    withContext(Dispatchers.IO) {
-                        app.ensureEngineStarted()
-                        val result = TorrentPlaybackCoordinator(app.engineServiceRepository)
-                            .prepareForPlayback(
-                                PlaybackPreparationInput(
-                                    infoHash = request.infoHash,
-                                    fileIndex = request.fileIndex,
-                                    filePath = request.filePath,
-                                    isFileSelected = request.isFileSelected,
-                                    torrentUserState = request.torrentUserState,
-                                    torrentStatus = request.torrentStatus
-                                )
-                            )
-                        PlayerScreenState.Prepared(
-                            fileName = request.fileName,
-                            filePath = request.filePath,
-                            result = result
-                        )
-                    }
-                } catch (t: Throwable) {
-                    PlayerScreenState.Error(t.message ?: getString(R.string.player_unknown_error))
-                }
+                prepareAndStartPlayback(request)
             }
         }
 
@@ -84,6 +88,9 @@ class PlayerActivity : ComponentActivity() {
             JSTorrentTheme {
                 PlayerActivityScreen(
                     state = screenState,
+                    player = player,
+                    bufferingMessage = bufferingMessage,
+                    playerErrorMessage = playerErrorMessage,
                     onClose = { finish() }
                 )
             }
@@ -99,12 +106,77 @@ class PlayerActivity : ComponentActivity() {
         super.onStop()
         app.serviceLifecycleManager.onActivityStop()
     }
+
+    override fun onDestroy() {
+        releasePlayer()
+        super.onDestroy()
+    }
+
+    private suspend fun prepareAndStartPlayback(request: PlayerLaunchRequest) {
+        screenState = PlayerScreenState.Preparing
+        playerErrorMessage = null
+        bufferingMessage = getString(R.string.player_loading_video)
+
+        try {
+            val preparationResult = withContext(Dispatchers.IO) {
+                app.ensureEngineStarted()
+                TorrentPlaybackCoordinator(app.engineServiceRepository)
+                    .prepareForPlayback(
+                        PlaybackPreparationInput(
+                            infoHash = request.infoHash,
+                            fileIndex = request.fileIndex,
+                            filePath = request.filePath,
+                            isFileSelected = request.isFileSelected,
+                            torrentUserState = request.torrentUserState,
+                            torrentStatus = request.torrentStatus
+                        )
+                    )
+            }
+
+            val exoPlayer = withContext(Dispatchers.Main.immediate) {
+                buildPlayer(request)
+            }
+
+            player = exoPlayer
+            screenState = PlayerScreenState.Ready(
+                fileName = request.fileName,
+                filePath = request.filePath,
+                result = preparationResult
+            )
+        } catch (t: Throwable) {
+            releasePlayer()
+            screenState = PlayerScreenState.Error(t.message ?: getString(R.string.player_unknown_error))
+        }
+    }
+
+    private fun buildPlayer(request: PlayerLaunchRequest): ExoPlayer {
+        releasePlayer()
+
+        val dataSourceFactory = TorrentPlaybackDataSourceFactory(app, request)
+        val mediaItem = MediaItem.Builder()
+            .setMediaId("${request.infoHash}:${request.fileIndex}")
+            .setUri(PlayerActivityLauncher.buildPlaybackUri(request))
+            .build()
+        val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+
+        return ExoPlayer.Builder(this).build().also { exoPlayer ->
+            exoPlayer.addListener(playerListener)
+            exoPlayer.setMediaSource(mediaSource)
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
+        }
+    }
+
+    private fun releasePlayer() {
+        player?.removeListener(playerListener)
+        player?.release()
+        player = null
+    }
 }
 
-@Immutable
 private sealed interface PlayerScreenState {
     data object Preparing : PlayerScreenState
-    data class Prepared(
+    data class Ready(
         val fileName: String,
         val filePath: String,
         val result: PlaybackPreparationResult
@@ -116,88 +188,184 @@ private sealed interface PlayerScreenState {
 @Composable
 private fun PlayerActivityScreen(
     state: PlayerScreenState,
+    player: ExoPlayer?,
+    bufferingMessage: String?,
+    playerErrorMessage: String?,
     onClose: () -> Unit
 ) {
+    val title = when (state) {
+        PlayerScreenState.Preparing -> stringResource(R.string.player_title)
+        is PlayerScreenState.Ready -> state.fileName
+        is PlayerScreenState.Error -> stringResource(R.string.player_error_title)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.player_title)) }
+                title = { Text(title) },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.player_close)
+                        )
+                    }
+                }
             )
         }
     ) { innerPadding ->
+        when (state) {
+            PlayerScreenState.Preparing -> {
+                LoadingState(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                    title = stringResource(R.string.player_preparing_title),
+                    message = stringResource(R.string.player_preparing_message)
+                )
+            }
+
+            is PlayerScreenState.Ready -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .background(MaterialTheme.colorScheme.surface)
+                ) {
+                    player?.let { exoPlayer ->
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { context ->
+                                PlayerView(context).apply {
+                                    this.player = exoPlayer
+                                    useController = true
+                                    setShutterBackgroundColor(Color.BLACK)
+                                    keepScreenOn = true
+                                }
+                            },
+                            update = { view ->
+                                view.player = exoPlayer
+                            }
+                        )
+                    }
+
+                    if (bufferingMessage != null) {
+                        LoadingState(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(24.dp),
+                            title = stringResource(R.string.player_loading_video),
+                            message = bufferingMessage
+                        )
+                    }
+
+                    if (playerErrorMessage != null) {
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(16.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            tonalElevation = 4.dp
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.player_playback_failed),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = playerErrorMessage,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(16.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                        tonalElevation = 3.dp
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = state.fileName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = state.filePath,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            if (state.result.fileUnskipped || state.result.torrentStarted) {
+                                Text(
+                                    text = when {
+                                        state.result.fileUnskipped && state.result.torrentStarted ->
+                                            stringResource(R.string.player_prepared_resumed_and_selected)
+                                        state.result.fileUnskipped ->
+                                            stringResource(R.string.player_file_unskipped)
+                                        else ->
+                                            stringResource(R.string.player_torrent_resumed)
+                                    },
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            is PlayerScreenState.Error -> {
+                LoadingState(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                    title = stringResource(R.string.player_error_title),
+                    message = state.message,
+                    showSpinner = false
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoadingState(
+    modifier: Modifier = Modifier,
+    title: String,
+    message: String,
+    showSpinner: Boolean = true
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(24.dp),
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            when (state) {
-                PlayerScreenState.Preparing -> {
-                    Text(
-                        text = stringResource(R.string.player_preparing_title),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = stringResource(R.string.player_preparing_message),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-
-                is PlayerScreenState.Prepared -> {
-                    Text(
-                        text = state.fileName,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = stringResource(R.string.player_prepare_complete),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Text(
-                        text = state.filePath,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        text = if (state.result.fileUnskipped) {
-                            stringResource(R.string.player_file_unskipped)
-                        } else {
-                            stringResource(R.string.player_file_already_selected)
-                        },
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        text = if (state.result.torrentStarted) {
-                            stringResource(R.string.player_torrent_resumed)
-                        } else {
-                            stringResource(R.string.player_torrent_already_active)
-                        },
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        text = stringResource(R.string.player_placeholder_message),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-
-                is PlayerScreenState.Error -> {
-                    Text(
-                        text = stringResource(R.string.player_error_title),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = state.message,
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
+            if (showSpinner) {
+                CircularProgressIndicator()
             }
-
-            Button(onClick = onClose) {
-                Text(stringResource(R.string.player_close))
-            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge
+            )
         }
     }
 }

@@ -2,6 +2,7 @@ package com.jstorrent.app.player
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 
 data class PlayerLaunchRequest(
     val infoHash: String,
@@ -52,5 +53,14 @@ object PlayerActivityLauncher {
             torrentUserState = intent.getStringExtra(EXTRA_TORRENT_USER_STATE) ?: "active",
             torrentStatus = torrentStatus
         ).takeIf { it.fileIndex >= 0 }
+    }
+
+    fun buildPlaybackUri(request: PlayerLaunchRequest): Uri {
+        return Uri.Builder()
+            .scheme("jstorrent")
+            .authority("playback")
+            .appendPath(request.infoHash)
+            .appendPath(request.fileName)
+            .build()
     }
 }

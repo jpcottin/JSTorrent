@@ -100,7 +100,10 @@
     <string name="player_file_already_selected">The file was already selected for download.</string>
     <string name="player_torrent_resumed">The torrent was resumed for playback.</string>
     <string name="player_torrent_already_active">The torrent was already active.</string>
-    <string name="player_placeholder_message">Media3 playback is the next implementation step. This screen currently validates the launch contract and playback preparation flow.</string>
+    <string name="player_prepared_resumed_and_selected">Playback resumed the torrent and selected the file.</string>
+    <string name="player_loading_video">Loading video</string>
+    <string name="player_buffering">Buffering torrent data</string>
+    <string name="player_playback_failed">Playback failed</string>
     <string name="player_error_title">Unable to start player</string>
     <string name="player_invalid_request">Missing playback request details.</string>
     <string name="player_unknown_error">Unknown playback error.</string>

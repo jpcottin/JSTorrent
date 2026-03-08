@@ -144,6 +144,8 @@ dependencies {
 
     // Google Play In-App Review
     implementation(libs.play.review.ktx)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
 
     testImplementation(libs.junit)
     testImplementation(libs.java.websocket)

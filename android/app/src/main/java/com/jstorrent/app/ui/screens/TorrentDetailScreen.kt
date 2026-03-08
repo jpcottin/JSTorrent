@@ -57,6 +57,9 @@ import com.jstorrent.app.model.FilePriority
 import com.jstorrent.app.model.TorrentDetailUi
 import com.jstorrent.app.model.TorrentDetailUiState
 import com.jstorrent.app.model.TorrentFileUi
+import com.jstorrent.app.player.PlayerActivityLauncher
+import com.jstorrent.app.player.PlayerLaunchRequest
+import com.jstorrent.app.player.VideoFileDetector
 import com.jstorrent.app.ui.dialogs.RemoveTorrentDialog
 import com.jstorrent.app.ui.tabs.DetailsTab
 import com.jstorrent.app.ui.tabs.FilesTab
@@ -434,7 +437,7 @@ private fun DetailContent(
                     hasPendingChanges = hasPendingFileChanges,
                     onToggleFileSelection = onToggleFileSelection,
                     onOpenFile = { fileIndex ->
-                        openFile(context, torrent.files, fileIndex, torrent.rootKey)
+                        openFile(context, torrent, fileIndex)
                     },
                     onSetFilePriority = onSetFilePriority,
                     onSelectAll = onSelectAllFiles,
@@ -470,13 +473,30 @@ private fun DetailContent(
 
 private fun openFile(
     context: android.content.Context,
-    files: List<TorrentFileUi>,
-    fileIndex: Int,
-    rootKey: String?
+    torrent: TorrentDetailUi,
+    fileIndex: Int
 ) {
-    val file = files.find { it.index == fileIndex } ?: return
+    val file = torrent.files.find { it.index == fileIndex } ?: return
 
     if (file.progress < 1.0) {
+        if (VideoFileDetector.isLikelyVideoFile(file.path)) {
+            context.startActivity(
+                PlayerActivityLauncher.createIntent(
+                    context,
+                    PlayerLaunchRequest(
+                        infoHash = torrent.infoHash,
+                        fileIndex = file.index,
+                        filePath = file.path,
+                        fileName = file.name,
+                        isFileSelected = file.isSelected,
+                        torrentUserState = if (torrent.status == "stopped") "stopped" else "active",
+                        torrentStatus = torrent.status
+                    )
+                )
+            )
+            return
+        }
+
         Toast.makeText(
             context,
             context.getString(R.string.torrent_detail_file_not_downloaded),
@@ -485,7 +505,7 @@ private fun openFile(
         return
     }
 
-    if (rootKey == null) {
+    if (torrent.rootKey == null) {
         Toast.makeText(
             context,
             context.getString(R.string.torrent_detail_storage_unknown),
@@ -494,7 +514,7 @@ private fun openFile(
         return
     }
 
-    val result = FileOpener.openFile(context, rootKey, file.path)
+    val result = FileOpener.openFile(context, torrent.rootKey, file.path)
     if (!result.ok) {
         Toast.makeText(
             context,
