@@ -153,7 +153,38 @@ describe('TorrentSource', () => {
     expect(mockTorrent.setStreamingPieces).toHaveBeenCalledWith(new Set([1, 2]))
   })
 
-  it('uses tokenized streaming demand when available and clears it after a successful read', async () => {
+  it('uses tokenized streaming demand when available and clears it when the signal ends', async () => {
+    mockTorrent = createMockTorrent({
+      fileLength: 65536,
+      availablePieces: new Set([0, 1, 2, 3]),
+      includeTokenizedDemandApi: true,
+      includeStreamingFileLockApi: true,
+    })
+
+    const source = createTorrentSource(MockSourceBase, mockTorrent as unknown as Torrent, 0)
+    const controller = new AbortController()
+
+    await source._read(0, 100, controller.signal)
+
+    expect(mockTorrent.setStreamingPieces).not.toHaveBeenCalled()
+    expect(mockTorrent.updateStreamingFileLock).toHaveBeenCalledTimes(1)
+    expect(mockTorrent.updateStreamingFileLock).toHaveBeenCalledWith(
+      expect.stringMatching(/^torrent-source-file:/),
+      0,
+    )
+    expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(1)
+
+    const [token, pieces, urgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    expect(token).toMatch(/^torrent-source:/)
+    expect(pieces).toEqual(new Set([0]))
+    expect(urgency).toBe('now')
+
+    controller.abort()
+
+    expect(mockTorrent.updateStreamingDemand.mock.calls[1]).toEqual([token, null, 'now'])
+  })
+
+  it('reuses one tokenized demand window across unsignaled startup reads until a segment signal takes over', async () => {
     mockTorrent = createMockTorrent({
       fileLength: 65536,
       availablePieces: new Set([0, 1, 2, 3]),
@@ -164,20 +195,22 @@ describe('TorrentSource', () => {
     const source = createTorrentSource(MockSourceBase, mockTorrent as unknown as Torrent, 0)
 
     await source._read(0, 100)
+    await source._read(20000, 33000)
 
-    expect(mockTorrent.setStreamingPieces).not.toHaveBeenCalled()
-    expect(mockTorrent.updateStreamingFileLock).toHaveBeenCalledTimes(1)
-    expect(mockTorrent.updateStreamingFileLock).toHaveBeenCalledWith(
-      expect.stringMatching(/^torrent-source-file:/),
-      0,
-    )
     expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(2)
+    const [firstToken, firstPieces, firstUrgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    const [secondToken, secondPieces, secondUrgency] =
+      mockTorrent.updateStreamingDemand.mock.calls[1]
+    expect(firstToken).toMatch(/^torrent-source:/)
+    expect(secondToken).toBe(firstToken)
+    expect(firstPieces).toEqual(new Set([0]))
+    expect(secondPieces).toEqual(new Set([0, 1, 2]))
+    expect(firstUrgency).toBe('now')
+    expect(secondUrgency).toBe('now')
 
-    const [token, pieces, urgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
-    expect(token).toMatch(/^torrent-source:/)
-    expect(pieces).toEqual(new Set([0]))
-    expect(urgency).toBe('now')
-    expect(mockTorrent.updateStreamingDemand.mock.calls[1]).toEqual([token, null, 'now'])
+    source.setCurrentSignal(new AbortController().signal)
+
+    expect(mockTorrent.updateStreamingDemand.mock.calls[2]).toEqual([firstToken, null, 'now'])
   })
 
   it('reuses one tokenized demand window across reads sharing the same current signal', async () => {

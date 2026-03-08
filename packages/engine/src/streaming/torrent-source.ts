@@ -195,6 +195,13 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
   }
 
   const signalDemandScopes = new Map<AbortSignal, SignalDemandScope>()
+  let fallbackDemandScope: { token: string; pieces: Set<number> } | null = null
+
+  const clearFallbackDemandScope = (): void => {
+    if (!fallbackDemandScope) return
+    provider.updateStreamingDemand?.(fallbackDemandScope.token, null, 'now')
+    fallbackDemandScope = null
+  }
 
   const clearSignalDemandScope = (signal: AbortSignal | null | undefined): void => {
     if (!signal) return
@@ -234,6 +241,9 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
     setCurrentSignal(signal: AbortSignal | null): void {
       if (this.currentSignal === signal) return
       clearSignalDemandScope(this.currentSignal)
+      if (signal) {
+        clearFallbackDemandScope()
+      }
       this.currentSignal = signal
     }
 
@@ -273,12 +283,26 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
         provider.updateStreamingDemand && effectiveSignal
           ? getSignalDemandScope(effectiveSignal)
           : null
-      const demandToken = signalDemandScope?.token ?? `torrent-source:${nextStreamingDemandId++}`
+      if (provider.updateStreamingDemand && !effectiveSignal && !fallbackDemandScope) {
+        fallbackDemandScope = {
+          token: `torrent-source:${nextStreamingDemandId++}`,
+          pieces: new Set<number>(),
+        }
+      }
+      const demandToken =
+        signalDemandScope?.token ??
+        fallbackDemandScope?.token ??
+        `torrent-source:${nextStreamingDemandId++}`
       if (signalDemandScope) {
         for (const piece of pieces) {
           signalDemandScope.pieces.add(piece)
         }
         provider.updateStreamingDemand(demandToken, new Set(signalDemandScope.pieces), 'now')
+      } else if (fallbackDemandScope && provider.updateStreamingDemand) {
+        for (const piece of pieces) {
+          fallbackDemandScope.pieces.add(piece)
+        }
+        provider.updateStreamingDemand(demandToken, new Set(fallbackDemandScope.pieces), 'now')
       } else if (provider.updateStreamingDemand) {
         provider.updateStreamingDemand(demandToken, new Set(pieces), 'now')
       } else {
@@ -290,7 +314,7 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
         console.log(
           `[torrent-source] abort start=${start} end=${end} len=${length} ${summarizePieces(pieces)}`,
         )
-        if (!signalDemandScope && provider.updateStreamingDemand) {
+        if (!signalDemandScope && !fallbackDemandScope && provider.updateStreamingDemand) {
           provider.updateStreamingDemand(demandToken, null, 'now')
         } else if (!provider.updateStreamingDemand) {
           provider.setStreamingPieces(null)
@@ -332,7 +356,7 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
         .finally(() => {
           effectiveSignal?.removeEventListener('abort', abortRead)
           disposeController.signal.removeEventListener('abort', abortRead)
-          if (!readController.signal.aborted && !signalDemandScope) {
+          if (!readController.signal.aborted && !signalDemandScope && !fallbackDemandScope) {
             if (provider.updateStreamingDemand) {
               provider.updateStreamingDemand(demandToken, null, 'now')
             }
@@ -351,6 +375,7 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
       for (const signal of signalDemandScopes.keys()) {
         clearSignalDemandScope(signal)
       }
+      clearFallbackDemandScope()
       provider.setStreamingPieces(null)
       disposeController.abort()
     }
