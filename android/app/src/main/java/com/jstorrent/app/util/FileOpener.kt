@@ -1,13 +1,19 @@
 package com.jstorrent.app.util
 
+import android.app.Activity
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.content.pm.LabeledIntent
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
 import android.util.Log
 import android.webkit.MimeTypeMap
 import androidx.documentfile.provider.DocumentFile
+import com.jstorrent.app.R
+import com.jstorrent.app.player.LocalPlaybackRequest
+import com.jstorrent.app.player.PlayerActivityLauncher
 import com.jstorrent.app.storage.RootStore
 
 private const val TAG = "FileOpener"
@@ -20,6 +26,8 @@ private const val TAG = "FileOpener"
 object FileOpener {
 
     data class Result(val ok: Boolean, val error: String? = null)
+
+    private fun shouldLaunchInNewTask(context: Context): Boolean = context !is Activity
 
     /**
      * Open a file with the system's default application.
@@ -43,13 +51,46 @@ object FileOpener {
         }
 
         return try {
+            val mimeType = getMimeType(path)
+            val useNewTask = shouldLaunchInNewTask(context)
             val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(docFile.uri, getMimeType(path))
+                setDataAndType(docFile.uri, mimeType)
+                clipData = ClipData.newUri(context.contentResolver, docFile.name ?: path, docFile.uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (useNewTask) {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
             }
             val chooser = Intent.createChooser(intent, "Open with").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (useNewTask) {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+            if (mimeType.startsWith("video/")) {
+                val playerIntent = PlayerActivityLauncher.createLocalIntent(
+                    context,
+                    LocalPlaybackRequest(
+                        uri = docFile.uri,
+                        title = docFile.name ?: path.substringAfterLast('/'),
+                        mimeType = mimeType
+                    )
+                ).apply {
+                    clipData = ClipData.newUri(
+                        context.contentResolver,
+                        docFile.name ?: path,
+                        docFile.uri
+                    )
+                    if (useNewTask) {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                }
+                val labeledPlayerIntent = LabeledIntent(
+                    playerIntent,
+                    context.packageName,
+                    R.string.app_name,
+                    R.mipmap.ic_launcher
+                )
+                chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(labeledPlayerIntent))
             }
             context.startActivity(chooser)
             Result(true)

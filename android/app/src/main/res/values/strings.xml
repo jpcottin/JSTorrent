@@ -110,6 +110,7 @@
     <string name="player_close">Close</string>
     <string name="player_enter_fullscreen">Enter fullscreen</string>
     <string name="player_exit_fullscreen">Exit fullscreen</string>
+    <string name="player_enter_picture_in_picture">Enter picture-in-picture</string>
 
     <!-- SettingsScreen -->
     <string name="settings_title">Settings</string>

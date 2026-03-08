@@ -41,6 +41,7 @@ class ServiceLifecycleManager(
     private val _isActivityForeground = MutableStateFlow(false)
     val isActivityForeground: StateFlow<Boolean> = _isActivityForeground
 
+    private var startedActivityCount = 0
     private var hasActiveWork = false
     // Sync with actual service state on init to handle crashes/restarts
     private var serviceRunning = ForegroundNotificationService.instance != null
@@ -48,6 +49,7 @@ class ServiceLifecycleManager(
     private var hasEverBeenForeground = false  // Track if activity has ever been visible
     private var userRequestedQuit = false  // Prevents auto-restart after explicit quit
     private var engineHasReportedState = false  // True once engine has reported torrent state
+    private var activePlaybackSessions = 0  // Active streaming player sessions keeping the engine alive
 
     // Track if we've called startForegroundService() but the service hasn't started yet.
     // We must NOT call stopService() in this state or Android crashes with
@@ -58,6 +60,7 @@ class ServiceLifecycleManager(
      * Called from Activity.onStart()
      */
     fun onActivityStart() {
+        startedActivityCount++
         Log.d(TAG, "Activity started (foreground)")
         Log.i(MEMORY_TAG, "[MARK] app_foreground")
         _isActivityForeground.value = true
@@ -86,9 +89,10 @@ class ServiceLifecycleManager(
      * Called from Activity.onStop()
      */
     fun onActivityStop() {
+        startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
         Log.d(TAG, "Activity stopped (background)")
         Log.i(MEMORY_TAG, "[MARK] app_background")
-        _isActivityForeground.value = false
+        _isActivityForeground.value = startedActivityCount > 0
         updateServiceState()
     }
 
@@ -119,6 +123,29 @@ class ServiceLifecycleManager(
     }
 
     /**
+     * Called when the native streaming player starts or resumes a playback session.
+     *
+     * Active playback should keep the engine alive even if background downloads are disabled,
+     * otherwise screen-off, Home, or PiP transitions can tear down the torrent mid-stream.
+     */
+    fun onPlaybackSessionStarted() {
+        activePlaybackSessions++
+        Log.d(TAG, "Playback session started: activePlaybackSessions=$activePlaybackSessions")
+        updateServiceState()
+    }
+
+    /**
+     * Called when the native streaming player closes its playback session.
+     */
+    fun onPlaybackSessionStopped() {
+        if (activePlaybackSessions > 0) {
+            activePlaybackSessions--
+        }
+        Log.d(TAG, "Playback session stopped: activePlaybackSessions=$activePlaybackSessions")
+        updateServiceState()
+    }
+
+    /**
      * Manually set activity foreground state.
      * Used for testing to simulate foreground/background transitions.
      */
@@ -137,6 +164,7 @@ class ServiceLifecycleManager(
 
         val backgroundEnabled = settingsStore.backgroundDownloadsEnabled
         val goingToBackground = !_isActivityForeground.value
+        val hasActivePlaybackSession = activePlaybackSessions > 0
 
         // Stage 4: Check cache for active incomplete torrents when engine isn't running yet.
         // Once the engine has reported state, we trust its hasActiveWork determination
@@ -154,6 +182,7 @@ class ServiceLifecycleManager(
         // - No active work (nothing downloading or seeding from either engine or cache)
         // This completely stops the engine tick loop to prevent battery drain
         val shouldShutdownEngine = goingToBackground &&
+            !hasActivePlaybackSession &&
             (!backgroundEnabled || (!hasActiveWork && !cacheHasActiveWork)) &&
             !engineShutdownForBackground &&
             hasEverBeenForeground
@@ -186,12 +215,16 @@ class ServiceLifecycleManager(
         }
 
         // Determine if service should run:
-        // - Background downloads enabled
-        // - Either engine reports active work OR cache shows active incomplete torrents
+        // - Background downloads enabled OR an active playback session needs the engine alive
+        // - Either engine reports active work OR cache shows active incomplete torrents OR player is streaming
         // - User is not in the app
         // - Activity has been foreground at least once
-        val hasAnyActiveWork = hasActiveWork || cacheHasActiveWork
-        val shouldRun = backgroundEnabled && hasAnyActiveWork && goingToBackground && hasEverBeenForeground
+        val hasAnyActiveWork = hasActiveWork || cacheHasActiveWork || hasActivePlaybackSession
+        val shouldRun =
+            (backgroundEnabled || hasActivePlaybackSession) &&
+                hasAnyActiveWork &&
+                goingToBackground &&
+                hasEverBeenForeground
 
         if (shouldRun && !serviceRunning) {
             Log.i(TAG, "Starting service: active work in background")
@@ -257,12 +290,14 @@ class ServiceLifecycleManager(
     @VisibleForTesting
     fun resetForTesting() {
         _isActivityForeground.value = false
+        startedActivityCount = 0
         hasActiveWork = false
         serviceRunning = ForegroundNotificationService.instance != null
         engineShutdownForBackground = false
         hasEverBeenForeground = false
         userRequestedQuit = false
         engineHasReportedState = false
+        activePlaybackSessions = 0
         serviceStartPending = false
     }
 

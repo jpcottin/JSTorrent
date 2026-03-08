@@ -14,6 +14,12 @@ data class PlayerLaunchRequest(
     val torrentStatus: String
 )
 
+data class LocalPlaybackRequest(
+    val uri: Uri,
+    val title: String,
+    val mimeType: String? = null
+)
+
 object PlayerActivityLauncher {
     private const val EXTRA_INFO_HASH = "info_hash"
     private const val EXTRA_FILE_INDEX = "file_index"
@@ -22,6 +28,9 @@ object PlayerActivityLauncher {
     private const val EXTRA_FILE_SELECTED = "file_selected"
     private const val EXTRA_TORRENT_USER_STATE = "torrent_user_state"
     private const val EXTRA_TORRENT_STATUS = "torrent_status"
+    private const val EXTRA_LOCAL_URI = "local_uri"
+    private const val EXTRA_LOCAL_TITLE = "local_title"
+    private const val EXTRA_LOCAL_MIME_TYPE = "local_mime_type"
 
     fun createIntent(
         context: Context,
@@ -35,6 +44,19 @@ object PlayerActivityLauncher {
             putExtra(EXTRA_FILE_SELECTED, request.isFileSelected)
             putExtra(EXTRA_TORRENT_USER_STATE, request.torrentUserState)
             putExtra(EXTRA_TORRENT_STATUS, request.torrentStatus)
+        }
+    }
+
+    fun createLocalIntent(
+        context: Context,
+        request: LocalPlaybackRequest
+    ): Intent {
+        return Intent(context, PlayerActivity::class.java).apply {
+            data = request.uri
+            putExtra(EXTRA_LOCAL_URI, request.uri.toString())
+            putExtra(EXTRA_LOCAL_TITLE, request.title)
+            putExtra(EXTRA_LOCAL_MIME_TYPE, request.mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
     }
 
@@ -53,6 +75,20 @@ object PlayerActivityLauncher {
             torrentUserState = intent.getStringExtra(EXTRA_TORRENT_USER_STATE) ?: "active",
             torrentStatus = torrentStatus
         ).takeIf { it.fileIndex >= 0 }
+    }
+
+    fun localFromIntent(intent: Intent): LocalPlaybackRequest? {
+        val uri = intent.getStringExtra(EXTRA_LOCAL_URI)?.let(Uri::parse)
+            ?: intent.data
+            ?: return null
+        val title = intent.getStringExtra(EXTRA_LOCAL_TITLE)
+            ?: uri.lastPathSegment
+            ?: "Video"
+        return LocalPlaybackRequest(
+            uri = uri,
+            title = title,
+            mimeType = intent.getStringExtra(EXTRA_LOCAL_MIME_TYPE) ?: intent.type
+        )
     }
 
     fun buildPlaybackUri(request: PlayerLaunchRequest): Uri {

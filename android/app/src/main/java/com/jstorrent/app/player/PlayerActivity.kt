@@ -1,7 +1,12 @@
 package com.jstorrent.app.player
 
+import android.app.PictureInPictureParams
+import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import android.view.GestureDetector
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
@@ -23,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -46,6 +52,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -73,6 +80,8 @@ class PlayerActivity : ComponentActivity() {
     private var bufferingMessage by mutableStateOf<String?>(null)
     private var playerErrorMessage by mutableStateOf<String?>(null)
     private var isFullscreen by mutableStateOf(false)
+    private var isInPictureInPictureUiMode by mutableStateOf(false)
+    private var playbackSessionRegistered = false
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -88,21 +97,34 @@ class PlayerActivity : ComponentActivity() {
             playerErrorMessage = buildPlayerErrorMessage(error)
             bufferingMessage = null
         }
+
+        override fun onVideoSizeChanged(videoSize: VideoSize) {
+            updatePictureInPictureParams()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val request = PlayerActivityLauncher.fromIntent(intent)
-        if (request == null) {
+        val streamingRequest = PlayerActivityLauncher.fromIntent(intent)
+        val localRequest = PlayerActivityLauncher.localFromIntent(intent)
+        val launchSource = when {
+            streamingRequest != null -> PlayerLaunchSource.Stream(streamingRequest)
+            localRequest != null -> PlayerLaunchSource.Local(localRequest)
+            else -> null
+        }
+
+        if (launchSource == null) {
             screenState = PlayerScreenState.Error(getString(R.string.player_invalid_request))
         } else {
             lifecycleScope.launch {
-                prepareAndStartPlayback(request)
+                prepareAndStartPlayback(launchSource)
             }
-            lifecycleScope.launch {
-                monitorPlaybackTorrent(request.infoHash)
+            if (launchSource is PlayerLaunchSource.Stream) {
+                lifecycleScope.launch {
+                    monitorPlaybackTorrent(launchSource.request.infoHash)
+                }
             }
         }
 
@@ -114,8 +136,10 @@ class PlayerActivity : ComponentActivity() {
                     bufferingMessage = bufferingMessage,
                     playerErrorMessage = playerErrorMessage,
                     isFullscreen = isFullscreen,
+                    isInPictureInPicture = isInPictureInPictureUiMode,
                     onSetFullscreen = ::setFullscreenMode,
-                    onClose = { finish() }
+                    onEnterPictureInPicture = ::enterPictureInPictureIfPossible,
+                    onClose = ::closePlayer
                 )
             }
         }
@@ -124,6 +148,8 @@ class PlayerActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         app.serviceLifecycleManager.onActivityStart()
+        applySystemBarsVisibility()
+        updatePictureInPictureParams()
     }
 
     override fun onStop() {
@@ -133,46 +159,82 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         releasePlayer()
+        setPlaybackSessionRegistered(false)
         setFullscreenMode(false)
         super.onDestroy()
     }
 
-    private suspend fun prepareAndStartPlayback(request: PlayerLaunchRequest) {
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            enterPictureInPictureIfPossible()
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        isInPictureInPictureUiMode = isInPictureInPictureMode
+        applySystemBarsVisibility()
+    }
+
+    private suspend fun prepareAndStartPlayback(source: PlayerLaunchSource) {
         screenState = PlayerScreenState.Preparing
         playerErrorMessage = null
         bufferingMessage = getString(R.string.player_loading_video)
+        if (source is PlayerLaunchSource.Stream) {
+            setPlaybackSessionRegistered(true)
+        }
 
         try {
-            withContext(Dispatchers.IO) {
-                app.ensureEngineStarted()
-                TorrentPlaybackCoordinator(app.engineServiceRepository)
-                    .prepareForPlayback(
-                        PlaybackPreparationInput(
-                            infoHash = request.infoHash,
-                            fileIndex = request.fileIndex,
-                            filePath = request.filePath,
-                            isFileSelected = request.isFileSelected,
-                            torrentUserState = request.torrentUserState,
-                            torrentStatus = request.torrentStatus
-                        )
-                    )
-            }
+            val exoPlayer = when (source) {
+                is PlayerLaunchSource.Stream -> {
+                    withContext(Dispatchers.IO) {
+                        app.ensureEngineStarted()
+                        TorrentPlaybackCoordinator(app.engineServiceRepository)
+                            .prepareForPlayback(
+                                PlaybackPreparationInput(
+                                    infoHash = source.request.infoHash,
+                                    fileIndex = source.request.fileIndex,
+                                    filePath = source.request.filePath,
+                                    isFileSelected = source.request.isFileSelected,
+                                    torrentUserState = source.request.torrentUserState,
+                                    torrentStatus = source.request.torrentStatus
+                                )
+                            )
+                    }
 
-            val exoPlayer = withContext(Dispatchers.Main.immediate) {
-                buildPlayer(request)
+                    withContext(Dispatchers.Main.immediate) {
+                        buildStreamingPlayer(source.request)
+                    }
+                }
+                is PlayerLaunchSource.Local -> {
+                    withContext(Dispatchers.Main.immediate) {
+                        buildLocalPlayer(source.request)
+                    }
+                }
             }
 
             player = exoPlayer
             screenState = PlayerScreenState.Ready(
-                fileName = request.fileName
+                fileName = when (source) {
+                    is PlayerLaunchSource.Stream -> source.request.fileName
+                    is PlayerLaunchSource.Local -> source.request.title
+                }
             )
+            updatePictureInPictureParams()
         } catch (t: Throwable) {
             releasePlayer()
+            if (source is PlayerLaunchSource.Stream) {
+                setPlaybackSessionRegistered(false)
+            }
             screenState = PlayerScreenState.Error(t.message ?: getString(R.string.player_unknown_error))
         }
     }
 
-    private fun buildPlayer(request: PlayerLaunchRequest): ExoPlayer {
+    private fun buildStreamingPlayer(request: PlayerLaunchRequest): ExoPlayer {
         releasePlayer()
 
         val dataSourceFactory = TorrentPlaybackDataSourceFactory(app, request)
@@ -194,17 +256,51 @@ class PlayerActivity : ComponentActivity() {
             .setLoadControl(loadControl)
             .build()
             .also { exoPlayer ->
-            exoPlayer.addListener(playerListener)
-            exoPlayer.setMediaSource(mediaSource)
-            exoPlayer.prepare()
-            exoPlayer.playWhenReady = true
-        }
+                exoPlayer.addListener(playerListener)
+                exoPlayer.setMediaSource(mediaSource)
+                exoPlayer.prepare()
+                exoPlayer.playWhenReady = true
+            }
+    }
+
+    private fun buildLocalPlayer(request: LocalPlaybackRequest): ExoPlayer {
+        releasePlayer()
+
+        val mediaItemBuilder = MediaItem.Builder()
+            .setMediaId(request.uri.toString())
+            .setUri(request.uri)
+
+        request.mimeType?.let(mediaItemBuilder::setMimeType)
+
+        return ExoPlayer.Builder(this)
+            .build()
+            .also { exoPlayer ->
+                exoPlayer.addListener(playerListener)
+                exoPlayer.setMediaItem(mediaItemBuilder.build())
+                exoPlayer.prepare()
+                exoPlayer.playWhenReady = true
+            }
     }
 
     private fun releasePlayer() {
+        val hadPlayer = player != null
         player?.removeListener(playerListener)
         player?.release()
         player = null
+        if (hadPlayer) {
+            setPlaybackSessionRegistered(false)
+        }
+    }
+
+    private fun closePlayer() {
+        if (isTaskRoot) {
+            startActivity(
+                Intent(this, com.jstorrent.app.NativeStandaloneActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                }
+            )
+        }
+        finish()
     }
 
     private suspend fun monitorPlaybackTorrent(infoHash: String) {
@@ -234,18 +330,61 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun setFullscreenMode(enabled: Boolean) {
-        if (isFullscreen == enabled) return
-
         isFullscreen = enabled
+        applySystemBarsVisibility()
+    }
+
+    private fun setPlaybackSessionRegistered(enabled: Boolean) {
+        if (playbackSessionRegistered == enabled) return
+        playbackSessionRegistered = enabled
+
+        if (enabled) {
+            app.serviceLifecycleManager.onPlaybackSessionStarted()
+        } else {
+            app.serviceLifecycleManager.onPlaybackSessionStopped()
+        }
+    }
+
+    private fun applySystemBarsVisibility() {
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-        if (enabled) {
+        if (isFullscreen && !isInPictureInPictureUiMode) {
             controller.hide(WindowInsetsCompat.Type.systemBars())
         } else {
             controller.show(WindowInsetsCompat.Type.systemBars())
         }
+    }
+
+    private fun enterPictureInPictureIfPossible(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        if (isInPictureInPictureUiMode) return false
+        if (screenState !is PlayerScreenState.Ready || player == null) return false
+        if (isFinishing || isDestroyed) return false
+
+        val params = buildPictureInPictureParams() ?: return false
+        return enterPictureInPictureMode(params)
+    }
+
+    private fun updatePictureInPictureParams() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        buildPictureInPictureParams()?.let(::setPictureInPictureParams)
+    }
+
+    private fun buildPictureInPictureParams(): PictureInPictureParams? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+
+        val builder = PictureInPictureParams.Builder()
+        val videoSize = player?.videoSize
+        if (videoSize != null && videoSize.width > 0 && videoSize.height > 0) {
+            builder.setAspectRatio(Rational(videoSize.width, videoSize.height))
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val canAutoEnter = screenState is PlayerScreenState.Ready && player != null
+            builder.setAutoEnterEnabled(canAutoEnter)
+        }
+        return builder.build()
     }
 
     private fun buildPlayerErrorMessage(error: androidx.media3.common.PlaybackException): String {
@@ -266,6 +405,11 @@ class PlayerActivity : ComponentActivity() {
     }
 }
 
+private sealed interface PlayerLaunchSource {
+    data class Stream(val request: PlayerLaunchRequest) : PlayerLaunchSource
+    data class Local(val request: LocalPlaybackRequest) : PlayerLaunchSource
+}
+
 private sealed interface PlayerScreenState {
     data object Preparing : PlayerScreenState
     data class Ready(val fileName: String) : PlayerScreenState
@@ -280,7 +424,9 @@ private fun PlayerActivityScreen(
     bufferingMessage: String?,
     playerErrorMessage: String?,
     isFullscreen: Boolean,
+    isInPictureInPicture: Boolean,
     onSetFullscreen: (Boolean) -> Unit,
+    onEnterPictureInPicture: () -> Unit,
     onClose: () -> Unit
 ) {
     val title = when (state) {
@@ -289,14 +435,16 @@ private fun PlayerActivityScreen(
         is PlayerScreenState.Error -> stringResource(R.string.player_error_title)
     }
 
-    if (isFullscreen && state is PlayerScreenState.Ready) {
+    if ((isFullscreen || isInPictureInPicture) && state is PlayerScreenState.Ready) {
         PlayerReadyContent(
             modifier = Modifier.fillMaxSize(),
             player = player,
             bufferingMessage = bufferingMessage,
             playerErrorMessage = playerErrorMessage,
             isFullscreen = true,
+            isInPictureInPicture = isInPictureInPicture,
             onSetFullscreen = onSetFullscreen,
+            onEnterPictureInPicture = onEnterPictureInPicture,
             onClose = onClose
         )
         return
@@ -316,6 +464,12 @@ private fun PlayerActivityScreen(
                 },
                 actions = {
                     if (state is PlayerScreenState.Ready) {
+                        IconButton(onClick = onEnterPictureInPicture) {
+                            Icon(
+                                imageVector = Icons.Filled.PictureInPictureAlt,
+                                contentDescription = stringResource(R.string.player_enter_picture_in_picture)
+                            )
+                        }
                         IconButton(onClick = { onSetFullscreen(true) }) {
                             Icon(
                                 imageVector = Icons.Filled.Fullscreen,
@@ -347,7 +501,9 @@ private fun PlayerActivityScreen(
                     bufferingMessage = bufferingMessage,
                     playerErrorMessage = playerErrorMessage,
                     isFullscreen = false,
+                    isInPictureInPicture = false,
                     onSetFullscreen = onSetFullscreen,
+                    onEnterPictureInPicture = onEnterPictureInPicture,
                     onClose = onClose
                 )
             }
@@ -373,12 +529,14 @@ private fun PlayerReadyContent(
     bufferingMessage: String?,
     playerErrorMessage: String?,
     isFullscreen: Boolean,
+    isInPictureInPicture: Boolean,
     onSetFullscreen: (Boolean) -> Unit,
+    onEnterPictureInPicture: () -> Unit,
     onClose: () -> Unit
 ) {
     val currentOnSetFullscreen = rememberUpdatedState(onSetFullscreen)
 
-    BackHandler(enabled = isFullscreen) {
+    BackHandler(enabled = isFullscreen && !isInPictureInPicture) {
         currentOnSetFullscreen.value(false)
     }
 
@@ -423,7 +581,7 @@ private fun PlayerReadyContent(
 
                     PlayerView(context).apply {
                         this.player = exoPlayer
-                        useController = true
+                        useController = !isInPictureInPicture
                         setShutterBackgroundColor(Color.BLACK)
                         keepScreenOn = true
                         setOnTouchListener { _, event ->
@@ -434,11 +592,12 @@ private fun PlayerReadyContent(
                 },
                 update = { view ->
                     view.player = exoPlayer
+                    view.useController = !isInPictureInPicture
                 }
             )
         }
 
-        if (isFullscreen) {
+        if (isFullscreen && !isInPictureInPicture) {
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -447,18 +606,34 @@ private fun PlayerReadyContent(
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                PlayerOverlayButton(
-                    icon = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.player_close),
-                    onClick = onClose
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PlayerOverlayButton(
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.player_close),
+                        onClick = onClose
+                    )
+                    PlayerOverlayButton(
+                        icon = Icons.Filled.PictureInPictureAlt,
+                        contentDescription = stringResource(R.string.player_enter_picture_in_picture),
+                        onClick = onEnterPictureInPicture
+                    )
+                }
                 PlayerOverlayButton(
                     icon = Icons.Filled.FullscreenExit,
                     contentDescription = stringResource(R.string.player_exit_fullscreen),
                     onClick = { onSetFullscreen(false) }
                 )
             }
-        } else {
+        } else if (!isInPictureInPicture) {
+            PlayerOverlayButton(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .padding(16.dp),
+                icon = Icons.Filled.PictureInPictureAlt,
+                contentDescription = stringResource(R.string.player_enter_picture_in_picture),
+                onClick = onEnterPictureInPicture
+            )
             PlayerOverlayButton(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
