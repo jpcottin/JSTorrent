@@ -20,7 +20,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -624,25 +623,6 @@ private fun PlayerReadyContent(
                     onClick = { onSetFullscreen(false) }
                 )
             }
-        } else if (!isInPictureInPicture) {
-            PlayerOverlayButton(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .navigationBarsPadding()
-                    .padding(16.dp),
-                icon = Icons.Filled.PictureInPictureAlt,
-                contentDescription = stringResource(R.string.player_enter_picture_in_picture),
-                onClick = onEnterPictureInPicture
-            )
-            PlayerOverlayButton(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    .padding(16.dp),
-                icon = Icons.Filled.Fullscreen,
-                contentDescription = stringResource(R.string.player_enter_fullscreen),
-                onClick = { onSetFullscreen(true) }
-            )
         }
 
         if (bufferingMessage != null) {
