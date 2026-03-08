@@ -34,6 +34,27 @@ function createFakePeer(remoteAddress: string, remotePort: number): FakeConnecte
   }
 }
 
+function invokeHandleBlockCommon(
+  torrent: Torrent,
+  peer: FakeConnectedPeer,
+  pieceIndex: number,
+  blockOffset: number,
+  dataLength: number,
+  addBlockFn: (piece: unknown, blockIndex: number, peerId: string) => boolean,
+): void {
+  ;(
+    torrent as Torrent & {
+      handleBlockCommon: (
+        peer: FakeConnectedPeer,
+        pieceIndex: number,
+        blockOffset: number,
+        dataLength: number,
+        addBlockFn: (piece: unknown, blockIndex: number, peerId: string) => boolean,
+      ) => void
+    }
+  ).handleBlockCommon(peer, pieceIndex, blockOffset, dataLength, addBlockFn)
+}
+
 describe('Torrent streaming cancellation', () => {
   let engine: MockEngine
   let torrent: Torrent
@@ -98,24 +119,37 @@ describe('Torrent streaming cancellation', () => {
     ).toBe(true)
 
     const addBlock = vi.fn(() => true)
-    ;(
-      torrent as Torrent & {
-        handleBlockCommon: (
-          peer: FakeConnectedPeer,
-          pieceIndex: number,
-          blockOffset: number,
-          dataLength: number,
-          addBlockFn: (
-            piece: unknown,
-            blockIndex: number,
-            peerId: string,
-          ) => boolean,
-        ) => void
-      }
-    ).handleBlockCommon(peer, 1, 0, 16_384, addBlock)
+    invokeHandleBlockCommon(torrent, peer, 1, 0, 16_384, addBlock)
 
     expect(peer.recordBlockReceived).toHaveBeenCalledTimes(1)
     expect(addBlock).not.toHaveBeenCalled()
     expect(activePieces.get(1)).toBeUndefined()
+  })
+
+  it('drops inbound blocks that do not match an active piece request', () => {
+    const activePieces = new ActivePieceManager(
+      engine,
+      (index) => torrent.getPieceLength(index),
+      { standardPieceLength: torrent.pieceLength } satisfies Partial<ActivePieceConfig>,
+    )
+    ;(torrent as Torrent & { activePieces: ActivePieceManager }).activePieces = activePieces
+
+    const activePiece = activePieces.getOrCreate(1)
+    expect(activePiece).toBeDefined()
+    activePiece!.addRequest(0, 'peer-a')
+
+    const wrongPeer = createFakePeer('2.3.4.5', 6881)
+    const unsolicitedPiece = vi.fn(() => true)
+    invokeHandleBlockCommon(torrent, wrongPeer, 1, 0, 16_384, unsolicitedPiece)
+
+    expect(unsolicitedPiece).not.toHaveBeenCalled()
+    expect(activePieces.get(1)).toBe(activePiece)
+
+    const noActivePiecePeer = createFakePeer('3.4.5.6', 6882)
+    const recreateDroppedPiece = vi.fn(() => true)
+    invokeHandleBlockCommon(torrent, noActivePiecePeer, 0, 0, 16_384, recreateDroppedPiece)
+
+    expect(recreateDroppedPiece).not.toHaveBeenCalled()
+    expect(activePieces.get(0)).toBeUndefined()
   })
 })

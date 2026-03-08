@@ -147,6 +147,16 @@ export class ActivePiece {
   }
 
   /**
+   * Check whether a specific block is currently requested from a specific peer.
+   * This is the authoritative receive-path guard for accepting inbound blocks.
+   */
+  hasRequestForBlockFromPeer(blockIndex: number, peerId: string): boolean {
+    const requests = this.blockRequests.get(blockIndex)
+    if (!requests) return false
+    return requests.some((req) => req.peerId === peerId)
+  }
+
+  /**
    * Fast O(1) check if piece has any blocks that are neither received nor requested.
    * Use this before getNeededBlocks() to avoid array allocation when no work available.
    *

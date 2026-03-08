@@ -539,6 +539,30 @@ describe('ActivePiece', () => {
     })
   })
 
+  describe('hasRequestForBlockFromPeer', () => {
+    it('should return true only for the matching block and peer', () => {
+      piece.addRequest(0, 'peer1')
+      piece.addRequest(1, 'peer2')
+
+      expect(piece.hasRequestForBlockFromPeer(0, 'peer1')).toBe(true)
+      expect(piece.hasRequestForBlockFromPeer(0, 'peer2')).toBe(false)
+      expect(piece.hasRequestForBlockFromPeer(1, 'peer2')).toBe(true)
+      expect(piece.hasRequestForBlockFromPeer(2, 'peer1')).toBe(false)
+    })
+
+    it('should return false once the matching request has been cancelled or fulfilled', () => {
+      piece.addRequest(0, 'peer1')
+      expect(piece.hasRequestForBlockFromPeer(0, 'peer1')).toBe(true)
+
+      piece.cancelRequest(0, 'peer1')
+      expect(piece.hasRequestForBlockFromPeer(0, 'peer1')).toBe(false)
+
+      piece.addRequest(1, 'peer2')
+      piece.addBlock(1, new Uint8Array(BLOCK_SIZE), 'peer2')
+      expect(piece.hasRequestForBlockFromPeer(1, 'peer2')).toBe(false)
+    })
+  })
+
   it('should track activation time', () => {
     const before = Date.now()
     const newPiece = new ActivePiece(1, PIECE_LENGTH)

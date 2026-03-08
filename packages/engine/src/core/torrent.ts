@@ -2936,27 +2936,28 @@ export class Torrent extends EngineComponent {
       return
     }
 
-    // Get or create active piece (may receive unsolicited blocks or from different peer)
-    let piece = this.activePieces.get(pieceIndex)
+    // Inbound blocks must match existing active/requested state.
+    // Do not create new active pieces from unsolicited or canceled traffic.
+    const piece = this.activePieces.get(pieceIndex)
     if (!piece && this._streamingScheduler.isPieceSuppressed(pieceIndex)) {
       this.logger.debug(`Ignoring late block ${pieceIndex}:${blockOffset} for suppressed piece`)
       return
     }
     if (!piece) {
-      // Try to create it - could be an unsolicited block or from a peer we just connected
-      const newPiece = this.activePieces.getOrCreate(pieceIndex)
-      if (!newPiece) {
-        this.logger.debug(`Cannot buffer piece ${pieceIndex} - at capacity`)
-        return
-      }
-      piece = newPiece
-      // Phase 8: Remove from peer indices since it's now active
-      this.removePieceFromAllIndices(pieceIndex)
+      this.logger.debug(`Ignoring unsolicited block ${pieceIndex}:${blockOffset} - piece not active`)
+      return
     }
 
     // Get peer ID for tracking
     const peerId = peer.peerId ? toHex(peer.peerId) : 'unknown'
     const blockIndex = Math.floor(blockOffset / BLOCK_SIZE)
+
+    if (!piece.hasRequestForBlockFromPeer(blockIndex, peerId)) {
+      this.logger.debug(
+        `Ignoring unsolicited block ${pieceIndex}:${blockOffset} from ${peerId} - request not active`,
+      )
+      return
+    }
 
     // Record RTT sample BEFORE addBlockFn (which clears the request entry)
     const requestTimestamp = piece.getRequestTimestamp(blockIndex, peerId)

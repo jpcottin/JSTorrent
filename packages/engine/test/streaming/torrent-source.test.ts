@@ -271,7 +271,10 @@ describe('TorrentSource', () => {
   })
 
   it('returns null when fileBytesToPieces throws', () => {
-    mockTorrent.fileBytesToPieces.mockImplementation(() => {
+    mockTorrent.fileBytesToPieces.mockImplementation((_fileIndex: number, offset: number) => {
+      if (offset === 0) {
+        return [0, 1, 2, 3]
+      }
       throw new Error('out of range')
     })
 
