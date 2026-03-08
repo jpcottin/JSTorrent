@@ -2,7 +2,7 @@ import type { Torrent, TorrentActivityState, TorrentUserState } from '@jstorrent
 
 type PlaybackTorrent = Pick<
   Torrent,
-  'isFileSkipped' | 'setFilePriority' | 'userStart' | 'userState' | 'activityState'
+  'isFileSkipped' | 'setFilePriorityAsync' | 'userStart' | 'userState' | 'activityState'
 >
 
 function shouldStartForPlayback(
@@ -20,7 +20,7 @@ export async function prepareTorrentForVideoPlayback(
   fileIndex: number,
 ): Promise<void> {
   if (torrent.isFileSkipped(fileIndex)) {
-    torrent.setFilePriority(fileIndex, 0)
+    await torrent.setFilePriorityAsync(fileIndex, 0)
   }
 
   if (shouldStartForPlayback(torrent.userState, torrent.activityState)) {

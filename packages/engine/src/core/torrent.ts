@@ -214,6 +214,7 @@ export class Torrent extends EngineComponent {
   private _filePriorityManager!: FilePriorityManager
   private _streamingScheduler: StreamingScheduler = new StreamingScheduler()
   private _streamingFileLocks: Map<string, number> = new Map()
+  private _filePriorityUpdateLock: Promise<void> | null = null
 
   // Piece requester (handles piece selection and requesting)
   private _pieceRequester?: TorrentPieceRequester
@@ -1215,6 +1216,30 @@ export class Torrent extends EngineComponent {
   }
 
   /**
+   * Set file priority and wait for any required .parts export/materialization.
+   * Use this when callers need the on-disk file to be ready before proceeding.
+   */
+  async setFilePriorityAsync(fileIndex: number, priority: number): Promise<boolean> {
+    return this.withFilePriorityUpdateLock(async () => {
+      const wasSkipped = this._filePriorityManager.isFileSkipped(fileIndex)
+      const changed = this._filePriorityManager.setFilePriority(fileIndex, priority)
+
+      if (!changed) return false
+
+      this.syncStreamingScheduler()
+      ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+
+      if (wasSkipped && priority === 0) {
+        await this.syncPartsPiecesToCurrentPriorities({
+          targetFiles: new Set([fileIndex]),
+        })
+      }
+
+      return true
+    })
+  }
+
+  /**
    * Set priorities for multiple files at once.
    * @param priorities - Map of fileIndex -> priority
    * @returns Number of files whose priority was changed
@@ -1242,6 +1267,32 @@ export class Torrent extends EngineComponent {
     }
 
     return changed
+  }
+
+  /**
+   * Set multiple file priorities and wait for any required .parts export/materialization.
+   */
+  async setFilePrioritiesAsync(priorities: Map<number, number>): Promise<number> {
+    return this.withFilePriorityUpdateLock(async () => {
+      const oldPriorities = [...this.filePriorities]
+      const changed = this._filePriorityManager.setFilePriorities(priorities)
+
+      if (changed === 0) return 0
+
+      this.syncStreamingScheduler()
+      ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
+
+      const anyUnskipped = this._filePriorityManager.checkForUnskipped(
+        oldPriorities,
+        this.filePriorities,
+      )
+      if (anyUnskipped) {
+        const targetFiles = this.getNewlyUnskippedFiles(oldPriorities, this.filePriorities)
+        await this.syncPartsPiecesToCurrentPriorities({ targetFiles })
+      }
+
+      return changed
+    })
   }
 
   /**
@@ -1280,12 +1331,59 @@ export class Torrent extends EngineComponent {
   /**
    * Read arbitrary bytes from a file.
    * Caller must ensure required pieces are verified.
+   *
+   * Boundary pieces may still live in `.parts` while their wanted spans are being
+   * exported or materialized. In that case the sparse on-disk file can contain
+   * holes/zeroes, so reads must splice those segments directly from `.parts`.
    */
   async readFileBytes(fileIndex: number, offset: number, length: number): Promise<Uint8Array> {
     if (!this.contentStorage) {
       throw new Error('Content storage not initialized')
     }
-    return this.contentStorage.readFileBytes(fileIndex, offset, length)
+    const pieceIndices = this.contentStorage.fileBytesToPieces(fileIndex, offset, length)
+    const needsPartsOverlay = pieceIndices.some((pieceIndex) => this._partsFilePieces.has(pieceIndex))
+    if (!needsPartsOverlay) {
+      return this.contentStorage.readFileBytes(fileIndex, offset, length)
+    }
+
+    const result = new Uint8Array(length)
+    const file = this.contentStorage.filesList[fileIndex]
+    if (!file) {
+      throw new Error(`Invalid file index: ${fileIndex}`)
+    }
+
+    let remaining = length
+    let outputOffset = 0
+    let currentTorrentOffset = file.offset + offset
+
+    while (remaining > 0) {
+      const pieceIndex = Math.floor(currentTorrentOffset / this.pieceLength)
+      const pieceStart = pieceIndex * this.pieceLength
+      const pieceOffset = currentTorrentOffset - pieceStart
+      const bytesToCopy = Math.min(remaining, this.getPieceLength(pieceIndex) - pieceOffset)
+
+      if (this._partsFilePieces.has(pieceIndex)) {
+        const pieceData = this._partsFile?.getPiece(pieceIndex)
+        if (!pieceData) {
+          throw new Error(`Piece ${pieceIndex} marked in .parts but data is unavailable`)
+        }
+        if (pieceOffset + bytesToCopy > pieceData.length) {
+          throw new Error(
+            `Piece ${pieceIndex} .parts data truncated: need ${pieceOffset + bytesToCopy}, have ${pieceData.length}`,
+          )
+        }
+        result.set(pieceData.subarray(pieceOffset, pieceOffset + bytesToCopy), outputOffset)
+      } else {
+        const bytes = await this.contentStorage.read(pieceIndex, pieceOffset, bytesToCopy)
+        result.set(bytes, outputOffset)
+      }
+
+      remaining -= bytesToCopy
+      outputOffset += bytesToCopy
+      currentTorrentOffset += bytesToCopy
+    }
+
+    return result
   }
 
   /**
@@ -1621,6 +1719,28 @@ export class Torrent extends EngineComponent {
     }
 
     return spans
+  }
+
+  private async withFilePriorityUpdateLock<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = this._filePriorityUpdateLock
+    let release: (() => void) | undefined
+    const current = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    this._filePriorityUpdateLock = current
+
+    if (previous) {
+      await previous
+    }
+
+    try {
+      return await fn()
+    } finally {
+      release?.()
+      if (this._filePriorityUpdateLock === current) {
+        this._filePriorityUpdateLock = null
+      }
+    }
   }
 
   private getNewlyUnskippedFiles(oldPriorities: number[], newPriorities: number[]): Set<number> {

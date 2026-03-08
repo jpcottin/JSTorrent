@@ -20,8 +20,8 @@ function createTorrentMock(overrides?: {
 
   const torrent = {
     isFileSkipped: vi.fn(() => overrides?.isFileSkipped ?? false),
-    setFilePriority: vi.fn(() => {
-      calls.push('setFilePriority')
+    setFilePriorityAsync: vi.fn(async () => {
+      calls.push('setFilePriorityAsync')
       return true
     }),
     userStart: vi.fn(async () => {
@@ -45,9 +45,9 @@ describe('prepareTorrentForVideoPlayback', () => {
     await prepareTorrentForVideoPlayback(torrent as PlaybackTorrent, 7)
 
     expect(torrent.isFileSkipped).toHaveBeenCalledWith(7)
-    expect(torrent.setFilePriority).toHaveBeenCalledWith(7, 0)
+    expect(torrent.setFilePriorityAsync).toHaveBeenCalledWith(7, 0)
     expect(torrent.userStart).toHaveBeenCalledTimes(1)
-    expect(calls).toEqual(['setFilePriority', 'userStart'])
+    expect(calls).toEqual(['setFilePriorityAsync', 'userStart'])
   })
 
   it('restarts errored torrents even if they were already active', async () => {
@@ -58,7 +58,7 @@ describe('prepareTorrentForVideoPlayback', () => {
 
     await prepareTorrentForVideoPlayback(torrent as PlaybackTorrent, 3)
 
-    expect(torrent.setFilePriority).not.toHaveBeenCalled()
+    expect(torrent.setFilePriorityAsync).not.toHaveBeenCalled()
     expect(torrent.userStart).toHaveBeenCalledTimes(1)
   })
 
@@ -70,7 +70,7 @@ describe('prepareTorrentForVideoPlayback', () => {
 
     await prepareTorrentForVideoPlayback(torrent as PlaybackTorrent, 1)
 
-    expect(torrent.setFilePriority).not.toHaveBeenCalled()
+    expect(torrent.setFilePriorityAsync).not.toHaveBeenCalled()
     expect(torrent.userStart).not.toHaveBeenCalled()
   })
 })

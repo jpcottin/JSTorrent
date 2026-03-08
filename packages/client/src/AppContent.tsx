@@ -747,10 +747,11 @@ function AppContentInner({
                       }
                     : undefined
                 }
-                onSetFilePriority={(torrentHash, fileIndex, priority) => {
+                onSetFilePriority={async (torrentHash, fileIndex, priority) => {
                   const torrent = adapter.getTorrent(torrentHash)
                   if (torrent) {
-                    torrent.setFilePriority(fileIndex, priority)
+                    await torrent.setFilePriorityAsync(fileIndex, priority)
+                    refresh()
                   }
                 }}
                 onWatchVideo={handleWatchVideo}

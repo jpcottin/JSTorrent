@@ -485,21 +485,25 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
       return
     }
 
-    try {
-      const priorities = JSON.parse(prioritiesJson) as Record<string, number>
-      let applied = 0
-      for (const [indexStr, priority] of Object.entries(priorities)) {
-        const fileIndex = parseInt(indexStr, 10)
-        if (!isNaN(fileIndex) && torrent.setFilePriority(fileIndex, priority)) {
-          applied++
+    void (async () => {
+      try {
+        const prioritiesRecord = JSON.parse(prioritiesJson) as Record<string, number>
+        const priorities = new Map<number, number>()
+        for (const [indexStr, priority] of Object.entries(prioritiesRecord)) {
+          const fileIndex = parseInt(indexStr, 10)
+          if (!isNaN(fileIndex)) {
+            priorities.set(fileIndex, priority)
+          }
         }
+
+        const applied = await torrent.setFilePrioritiesAsync(priorities)
+        console.log(
+          `[controller] set_file_priorities: Applied ${applied}/${priorities.size} priorities for ${infoHash}`,
+        )
+      } catch (e) {
+        console.error('[controller] set_file_priorities error:', e)
       }
-      console.log(
-        `[controller] set_file_priorities: Applied ${applied}/${Object.keys(priorities).length} priorities for ${infoHash}`,
-      )
-    } catch (e) {
-      console.error('[controller] set_file_priorities error:', e)
-    }
+    })()
   }
 
   // ============================================================

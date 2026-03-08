@@ -745,6 +745,39 @@ describe('Materialization', () => {
       expect(roundTrip).toEqual(fileBData.slice(0, 50))
     })
 
+    it('setFilePriorityAsync waits for boundary materialization before resolving', async () => {
+      const fileAData = new Uint8Array(150)
+      const fileBData = new Uint8Array(250)
+      for (let i = 0; i < fileAData.length; i++) fileAData[i] = i & 0xff
+      for (let i = 0; i < fileBData.length; i++) fileBData[i] = (i + fileAData.length) & 0xff
+
+      const torrentBuffer = createMultiFileTorrentWithData({
+        name: 'BoundaryAsyncTorrent',
+        files: [
+          { path: 'fileA.bin', data: fileAData },
+          { path: 'fileB.bin', data: fileBData },
+        ],
+        pieceLength: 100,
+      })
+
+      const { torrent } = await engine.addTorrent(torrentBuffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      await fileSystem.mkdir('BoundaryAsyncTorrent')
+
+      torrent.setFilePriority(1, 1)
+      const pieceData = new Uint8Array([...fileAData.slice(100), ...fileBData.slice(0, 50)])
+      // @ts-expect-error - accessing private member for testing
+      await torrent.verifyAndWriteBoundaryPiece(1, pieceData, torrent.getPieceHash(1), [])
+      torrent.bitfield!.set(1, true)
+
+      await torrent.setFilePriorityAsync(1, 0)
+
+      expect(torrent.partsFilePieces.has(1)).toBe(false)
+      const writtenFileB = await fileSystem.readFile('BoundaryAsyncTorrent/fileB.bin')
+      expect(writtenFileB.slice(0, 50)).toEqual(fileBData.slice(0, 50))
+    })
+
     it('materializes wanted .parts pieces on session restore', async () => {
       const sessionStore = new MemorySessionStore()
       const sharedFs = new InMemoryFileSystem()
@@ -878,6 +911,49 @@ describe('Materialization', () => {
 
       const restoredFileC = await sharedFs.readFile('RestoreBoundaryTorrent/partC.bin')
       expect(restoredFileC).toEqual(fileCData)
+    })
+
+    it('readFileBytes prefers .parts data for boundary pieces over sparse on-disk bytes', async () => {
+      const fileAData = new Uint8Array(100)
+      const skippedData = new Uint8Array(10)
+      const fileCData = new Uint8Array(120)
+      for (let i = 0; i < fileAData.length; i++) fileAData[i] = i & 0xff
+      for (let i = 0; i < skippedData.length; i++) skippedData[i] = (i + 100) & 0xff
+      for (let i = 0; i < fileCData.length; i++) fileCData[i] = (i + 110) & 0xff
+
+      const torrentBuffer = createMultiFileTorrentWithData({
+        name: 'ReadFromPartsTorrent',
+        files: [
+          { path: 'partA.bin', data: fileAData },
+          { path: 'skip.txt', data: skippedData },
+          { path: 'partC.bin', data: fileCData },
+        ],
+        pieceLength: 256,
+      })
+
+      const { torrent } = await engine.addTorrent(torrentBuffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      await fileSystem.mkdir('ReadFromPartsTorrent')
+
+      torrent.setFilePriority(1, 1)
+      torrent.setFilePriority(2, 1)
+
+      const pieceData = new Uint8Array([...fileAData, ...skippedData, ...fileCData])
+      // @ts-expect-error - accessing private member for testing
+      await torrent.verifyAndWriteBoundaryPiece(0, pieceData, torrent.getPieceHash(0), [])
+      torrent.bitfield!.set(0, true)
+
+      torrent.setFilePriority(2, 0)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      const fileCPath = 'ReadFromPartsTorrent/partC.bin'
+      const sparseBytes = new Uint8Array(fileCData.length)
+      fileSystem.files.set(fileCPath, sparseBytes)
+
+      const readBack = await torrent.readFileBytes(2, 0, fileCData.length)
+      expect(readBack).toEqual(fileCData)
+      expect(torrent.partsFilePieces.has(0)).toBe(true)
     })
 
     it('recheckData detects corruption in a materialized boundary region', async () => {
