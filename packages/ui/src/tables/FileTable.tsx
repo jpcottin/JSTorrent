@@ -105,6 +105,8 @@ export interface FileTableProps {
   onRevealInFolder?: (torrentHash: string, file: TorrentFileInfo) => void
   /** Called when user wants to copy the file path. If not provided, shows "not available" alert. */
   onCopyFilePath?: (torrentHash: string, file: TorrentFileInfo) => void
+  /** Called when user wants to copy a LAN share URL. */
+  onCopyLanShareUrl?: (torrentHash: string, file: TorrentFileInfo) => void
   /** Called when user wants to change file priority. */
   onSetFilePriority?: (torrentHash: string, fileIndex: number, priority: number) => void
   /** Called when user wants to watch a video file. */
@@ -177,6 +179,16 @@ export function FileTable(props: FileTableProps) {
         label: 'Copy File Path',
         icon: '📋',
       },
+      ...(props.onCopyLanShareUrl
+        ? [
+            {
+              id: 'copy-lan-share-url',
+              label: 'Copy LAN Share URL',
+              icon: '🔗',
+              disabled: !contextMenu?.file.isComplete,
+            } as ContextMenuItem,
+          ]
+        : []),
       { id: 'separator', label: '-' },
       {
         id: 'high-priority',
@@ -223,6 +235,14 @@ export function FileTable(props: FileTableProps) {
     }
   }
 
+  const handleCopyLanShareUrl = (file: TorrentFileInfo) => {
+    if (!props.onCopyLanShareUrl) {
+      alert(`Copy LAN share URL not available.\n\nPath: ${file.path}`)
+      return
+    }
+    props.onCopyLanShareUrl(props.torrentHash, file)
+  }
+
   const handleSetFilePriorityForSelected = (priority: number) => {
     if (!props.onSetFilePriority) return
 
@@ -256,6 +276,9 @@ export function FileTable(props: FileTableProps) {
         break
       case 'copy-path':
         handleCopyFilePath(file)
+        break
+      case 'copy-lan-share-url':
+        handleCopyLanShareUrl(file)
         break
       case 'high-priority':
         handleSetFilePriorityForSelected(2) // 2 = high

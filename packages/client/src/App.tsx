@@ -18,6 +18,7 @@ import { SystemBridgePanelChromeos } from './components/SystemBridgePanelChromeo
 import { SettingsOverlay } from './components/SettingsOverlay'
 import { useChromeOSBootstrap } from './hooks/useChromeOSBootstrap'
 import { AppContent } from './AppContent'
+import { copyTextToClipboard } from './utils/clipboard'
 import { standaloneAlert } from './utils/dialogs'
 import jsIcon from './assets/js-32.png'
 
@@ -32,6 +33,7 @@ window.engineManager = engineManager
 
 const isDevMode = channel.isDevMode()
 const supportsVideoPopup = channel.getState().platform !== 'tauri'
+const supportsLanShare = channel.getState().platform === 'chromeos'
 
 /**
  * ChromeAppContent - Wrapper around AppContent that provides Chrome-specific callbacks.
@@ -70,6 +72,18 @@ function ChromeAppContent({ onOpenLoggingSettings }: { onOpenLoggingSettings?: (
           standaloneAlert('Failed to get file path: storage root not found')
         }
       }}
+      onCopyLanShareUrl={
+        supportsLanShare
+          ? async (torrentHash, file) => {
+              const result = await engineManager.createLanShareUrl(torrentHash, file.path)
+              if (!result.ok || !result.url) {
+                standaloneAlert(`Failed to create LAN share URL: ${result.error}`)
+                return
+              }
+              await copyTextToClipboard(result.url)
+            }
+          : undefined
+      }
       onOpenVideoPopup={
         supportsVideoPopup
           ? async (options) => {

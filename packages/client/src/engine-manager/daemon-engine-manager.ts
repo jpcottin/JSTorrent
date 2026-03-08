@@ -30,7 +30,7 @@ import { createNotificationBridge, type NotificationBridge } from '../chrome/not
 import { BackgroundAudioManager } from '../chrome/background-audio'
 import { BackgroundWebRTCManager } from '../chrome/background-webrtc'
 import type { DaemonInfo, DownloadRoot } from '../types'
-import type { IEngineManager, StorageRoot, FileOperationResult } from './types'
+import type { IEngineManager, StorageRoot, FileOperationResult, LanShareResult } from './types'
 
 // Toggle: true = WebRTC (no audio icon), false = Audio (shows audio icon)
 // Recent chrome versions seem to throttle to ~1s with webrtc, but audio seems to
@@ -44,9 +44,32 @@ const NULL_STORAGE = false
 const DEFAULT_ROOT_KEY_KEY = 'settings:defaultRootKey'
 const CHROMEOS_WRITE_QUEUE_HIGH_WATER = 32 * 1024 * 1024
 const CHROMEOS_WRITE_QUEUE_LOW_WATER = 16 * 1024 * 1024
+const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/x-m4v',
+  '.mkv': 'video/x-matroska',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.avi': 'video/x-msvideo',
+  '.ts': 'video/mp2t',
+  '.m2ts': 'video/mp2t',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+}
 
 function isTauriContext(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+function guessMimeType(filePath: string): string | null {
+  const lowerPath = filePath.toLowerCase()
+  const lastDot = lowerPath.lastIndexOf('.')
+  if (lastDot < 0) return null
+  return MIME_TYPES_BY_EXTENSION[lowerPath.slice(lastDot)] ?? null
 }
 
 // Augment Window interface for debug exports
@@ -570,6 +593,35 @@ export class DaemonEngineManager implements IEngineManager {
     try {
       await this.channel.revealInFolder(root.key, path)
       return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
+  }
+
+  async createLanShareUrl(torrentHash: string, filePath: string): Promise<LanShareResult> {
+    if (!this.engine) return { ok: false, error: 'Engine not initialized' }
+
+    const torrent = this.engine.torrents.find((t) => toHex(t.infoHash) === torrentHash)
+    if (!torrent) return { ok: false, error: 'Torrent not found' }
+
+    const file = torrent.files.find((candidate) => candidate.path === filePath)
+    if (!file) return { ok: false, error: 'File not found' }
+    if (!file.isComplete) return { ok: false, error: 'File is not complete yet' }
+
+    const root = this.engine.storageRootManager.getRootForTorrent(torrentHash)
+    if (!root) return { ok: false, error: 'No storage root for torrent' }
+
+    try {
+      const url = await this.channel.createLanShareUrl(
+        root.key,
+        file.path,
+        file.length,
+        guessMimeType(file.path),
+      )
+      if (!url) {
+        return { ok: false, error: 'LAN sharing is not available on this host' }
+      }
+      return { ok: true, url }
     } catch (e) {
       return { ok: false, error: String(e) }
     }

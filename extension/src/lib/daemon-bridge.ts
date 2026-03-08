@@ -32,6 +32,7 @@ import {
   fetchChromeosRoots,
 } from './daemon-bridge/chromeos/connection-complete'
 import {
+  type ControlResponse,
   handleControlResponseFrame,
   handleKvResponseFrame,
   sendControlRequestOverWebSocket,
@@ -127,6 +128,39 @@ function createOpaqueStreamToken(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
+interface NetworkInterfaceInfo {
+  name: string
+  address: string
+  prefixLength: number
+}
+
+function isPrivateLanAddress(address: string): boolean {
+  if (address.startsWith('10.')) return true
+  if (address.startsWith('192.168.')) return true
+  const match = /^172\.(\d{1,3})\./.exec(address)
+  if (!match) return false
+  const octet = Number(match[1])
+  return octet >= 16 && octet <= 31
+}
+
+function isShareableIpv4Address(address: string): boolean {
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(address)) return false
+  if (address.startsWith('127.')) return false
+  if (address.startsWith('169.254.')) return false
+  if (address.startsWith('100.115.')) return false
+  if (address === '0.0.0.0') return false
+  return true
+}
+
+function pickLanAddress(interfaces: NetworkInterfaceInfo[]): string | null {
+  const candidates = interfaces
+    .map((iface) => iface.address)
+    .filter(isShareableIpv4Address)
+
+  const preferred = candidates.find(isPrivateLanAddress)
+  return preferred ?? candidates[0] ?? null
+}
+
 // ============================================================================
 // DaemonBridge Class
 // ============================================================================
@@ -150,7 +184,7 @@ export class DaemonBridge {
   // Pending control requests (for open file/folder response correlation)
   private pendingControlRequests = new Map<
     number,
-    { resolve: (response: { ok: boolean; error?: string }) => void }
+    { resolve: (response: ControlResponse) => void }
   >()
 
   constructor() {
@@ -583,7 +617,28 @@ export class DaemonBridge {
       throw new Error(result.error || 'Failed to register HTTP stream')
     }
 
-    return `http://${daemonInfo.host}:${daemonInfo.port}/stream/${streamToken}`
+    const mediaPort =
+      typeof result.mediaPort === 'number'
+        ? result.mediaPort
+        : Number(result.mediaPort)
+    if (!Number.isFinite(mediaPort) || mediaPort <= 0) {
+      throw new Error('Companion did not return a media port')
+    }
+
+    const networkResponse = await fetch(
+      `http://${daemonInfo.host}:${daemonInfo.port}/network/interfaces`,
+    )
+    if (!networkResponse.ok) {
+      throw new Error(`Failed to query network interfaces: ${networkResponse.status}`)
+    }
+
+    const interfaces = (await networkResponse.json()) as NetworkInterfaceInfo[]
+    const lanAddress = pickLanAddress(interfaces)
+    if (!lanAddress) {
+      throw new Error('No LAN IPv4 address available for sharing')
+    }
+
+    return `http://${lanAddress}:${mediaPort}/stream/${streamToken}`
   }
 
   /**
@@ -1047,7 +1102,7 @@ export class DaemonBridge {
   private async sendControlRequest(
     opcode: number,
     payload: Record<string, unknown>,
-  ): Promise<{ ok: boolean; error?: string }> {
+  ): Promise<ControlResponse> {
     return sendControlRequestOverWebSocket({
       ws: this.ws,
       pendingControlRequests: this.pendingControlRequests,

@@ -395,6 +395,15 @@ export class TauriChannel implements HostChannel {
     })
   }
 
+  async createLanShareUrl(
+    _rootKey: string,
+    _path: string,
+    _fileSize: number,
+    _mimeType?: string | null,
+  ): Promise<string | null> {
+    return null
+  }
+
   // --- Notifications ---
 
   notify(notification: HostNotification): void {

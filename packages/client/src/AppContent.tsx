@@ -57,6 +57,8 @@ export interface AppContentProps {
   onRevealInFolder?: (torrentHash: string, file: FileInfo) => Promise<void>
   /** Handler for copying file path (platform-specific) */
   onCopyFilePath?: (torrentHash: string, file: FileInfo) => Promise<void>
+  /** Handler for copying a LAN share URL (platform-specific) */
+  onCopyLanShareUrl?: (torrentHash: string, file: FileInfo) => Promise<void>
   /** Handler for opening torrent folder from context menu (platform-specific) */
   onOpenFolder?: (torrentHash: string) => Promise<void>
   /** Handler for duplicate torrent notification (optional) */
@@ -84,6 +86,7 @@ function AppContentInner({
   onOpenFile,
   onRevealInFolder,
   onCopyFilePath,
+  onCopyLanShareUrl,
   onOpenFolder,
   onDuplicateTorrent,
   onTorrentAdded,
@@ -744,6 +747,13 @@ function AppContentInner({
                   onCopyFilePath
                     ? async (torrentHash, file) => {
                         await onCopyFilePath(torrentHash, file)
+                      }
+                    : undefined
+                }
+                onCopyLanShareUrl={
+                  onCopyLanShareUrl
+                    ? async (torrentHash, file) => {
+                        await onCopyLanShareUrl(torrentHash, file)
                       }
                     : undefined
                 }

@@ -46,6 +46,7 @@ class JavaWebSocketServer(
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
     private val httpStreams: com.jstorrent.companion.server.HttpStreamSessionRegistry,
+    private val ensureLanMediaServerStarted: () -> Int,
     port: Int = 0
 ) {
     private var server: InnerServer? = null
@@ -95,6 +96,7 @@ class JavaWebSocketServer(
                     deps,
                     fileManager,
                     httpStreams,
+                    ensureLanMediaServerStarted,
                     scope,
                     onControlSessionRegistered,
                     onControlSessionUnregistered,
@@ -157,6 +159,7 @@ private class InnerServer(
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
     private val httpStreams: com.jstorrent.companion.server.HttpStreamSessionRegistry,
+    private val ensureLanMediaServerStarted: () -> Int,
     private val scope: CoroutineScope,
     private val onControlSessionRegistered: ((ControlWebSocketHandler) -> Unit)?,
     private val onControlSessionUnregistered: ((ControlWebSocketHandler) -> Unit)?,
@@ -288,6 +291,7 @@ private class InnerServer(
                     wsSession,
                     deps,
                     httpStreams,
+                    ensureLanMediaServerStarted,
                     onSessionRegistered = { onControlSessionRegistered?.invoke(it) },
                     onSessionUnregistered = { onControlSessionUnregistered?.invoke(it) },
                     onPowerHintReceived = { session, count -> onPowerHintReceived?.invoke(session, count) }

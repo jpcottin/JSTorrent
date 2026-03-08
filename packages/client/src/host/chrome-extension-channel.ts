@@ -204,6 +204,25 @@ export class ChromeExtensionChannel implements HostChannel {
     await this.sendMessage({ type: 'REVEAL_IN_FOLDER', rootKey, path })
   }
 
+  async createLanShareUrl(
+    rootKey: string,
+    path: string,
+    fileSize: number,
+    mimeType?: string | null,
+  ): Promise<string | null> {
+    const response = await this.sendMessage<{ ok: boolean; url?: string; error?: string }>({
+      type: 'CREATE_LAN_SHARE_URL',
+      rootKey,
+      path,
+      fileSize,
+      mimeType: mimeType ?? null,
+    })
+    if (!response.ok) {
+      throw new Error(response.error ?? 'Failed to create LAN share URL')
+    }
+    return response.url ?? null
+  }
+
   // --- Notifications ---
 
   notify(notification: HostNotification): void {

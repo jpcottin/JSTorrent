@@ -17,6 +17,10 @@ export interface FileOperationResult {
   error?: string
 }
 
+export interface LanShareResult extends FileOperationResult {
+  url?: string
+}
+
 /**
  * Interface for engine lifecycle management.
  * Implementations handle platform-specific concerns like:
@@ -67,6 +71,7 @@ export interface IEngineManager {
   openFile?(torrentHash: string, filePath: string): Promise<FileOperationResult>
   revealInFolder?(torrentHash: string, filePath: string): Promise<FileOperationResult>
   openTorrentFolder?(torrentHash: string): Promise<FileOperationResult>
+  createLanShareUrl?(torrentHash: string, filePath: string): Promise<LanShareResult>
   getFilePath?(torrentHash: string, filePath: string): string | null
   pickDownloadFolder?(): Promise<StorageRoot | null>
   removeDownloadRoot?(key: string): Promise<boolean>

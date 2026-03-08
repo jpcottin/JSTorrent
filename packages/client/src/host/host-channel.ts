@@ -50,6 +50,12 @@ export interface HostChannel {
   removeDownloadRoot(key: string): Promise<void>
   openFile(rootKey: string, path: string): Promise<void>
   revealInFolder(rootKey: string, path: string): Promise<void>
+  createLanShareUrl(
+    rootKey: string,
+    path: string,
+    fileSize: number,
+    mimeType?: string | null,
+  ): Promise<string | null>
 
   // --- Notifications (UI → host, for native OS notifications) ---
   notify(notification: HostNotification): void

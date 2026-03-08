@@ -35,6 +35,7 @@ class CompanionHttpServer(
     private val fileManager: FileManager
 ) {
     private val httpStreams = HttpStreamSessionRegistry()
+    private var lanMediaServer: LanMediaHttpServer? = null
 
     // Pure Netty HTTP server for all HTTP endpoints
     private var httpServer: NettyHttpServer? = null
@@ -71,7 +72,7 @@ class CompanionHttpServer(
 
         // Start Netty HTTP server on preferred port
         try {
-            val http = NettyHttpServer(deps, fileManager, httpStreams, preferredPort)
+            val http = NettyHttpServer(deps, fileManager, preferredPort)
             http.start()
             httpServer = http
             Log.i(TAG, "Netty HTTP server started on port ${http.boundPort}")
@@ -85,7 +86,12 @@ class CompanionHttpServer(
 
         // Start JavaWebSocketServer for /io and /control on port+1
         try {
-            val ws = JavaWebSocketServer(deps, fileManager, httpStreams)
+            val ws = JavaWebSocketServer(
+                deps = deps,
+                fileManager = fileManager,
+                httpStreams = httpStreams,
+                ensureLanMediaServerStarted = { ensureLanMediaServerStarted() }
+            )
             // Wire up control session callbacks so broadcasts work
             ws.setControlSessionCallbacks(
                 onRegistered = { session -> registerControlSession(session) },
@@ -122,6 +128,9 @@ class CompanionHttpServer(
     }
 
     fun stop() {
+        lanMediaServer?.stop()
+        lanMediaServer = null
+
         // Stop streaming write server
         streamingServer?.stop()
         streamingServer = null
@@ -140,6 +149,22 @@ class CompanionHttpServer(
         httpStreams.clear()
 
         Log.i(TAG, "Server stopped")
+    }
+
+    @Synchronized
+    private fun ensureLanMediaServerStarted(): Int {
+        val existing = lanMediaServer
+        if (existing != null) {
+            return existing.startIfNeeded(0)
+        }
+
+        val server = LanMediaHttpServer(
+            deps = deps,
+            fileManager = fileManager,
+            httpStreams = httpStreams,
+        )
+        lanMediaServer = server
+        return server.startIfNeeded(0)
     }
 
     // =========================================================================

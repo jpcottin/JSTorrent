@@ -10,7 +10,13 @@ export interface PendingKvRequest {
 }
 
 export interface PendingControlRequest {
-  resolve: (response: { ok: boolean; error?: string }) => void
+  resolve: (response: ControlResponse) => void
+}
+
+export interface ControlResponse {
+  ok: boolean
+  error?: string
+  [key: string]: unknown
 }
 
 export type ControlResponseHandleResult =
@@ -83,7 +89,7 @@ export async function sendControlRequestOverWebSocket(options: {
   payload: Record<string, unknown>
   timeoutMs?: number
   requestIdFactory?: () => number
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<ControlResponse> {
   const {
     ws,
     pendingControlRequests,
@@ -137,7 +143,7 @@ export function handleControlResponseFrame(
   try {
     const payload = readControlFramePayload(frame)
     const json = new TextDecoder().decode(payload)
-    const response = JSON.parse(json) as { ok: boolean; error?: string }
+    const response = JSON.parse(json) as ControlResponse
     pending.resolve(response)
   } catch (e) {
     pending.resolve({ ok: false, error: `Failed to parse response: ${e}` })

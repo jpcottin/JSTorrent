@@ -62,6 +62,8 @@ export interface DetailPaneProps {
   onRevealInFolder?: (torrentHash: string, file: TorrentFileInfo) => void
   /** Callback when user wants to copy the file path */
   onCopyFilePath?: (torrentHash: string, file: TorrentFileInfo) => void
+  /** Callback when user wants to copy a LAN share URL */
+  onCopyLanShareUrl?: (torrentHash: string, file: TorrentFileInfo) => void
   /** Callback when user wants to set file priority */
   onSetFilePriority?: (torrentHash: string, fileIndex: number, priority: number) => void
   /** Callback when user wants to watch a video file */
@@ -232,6 +234,7 @@ export function DetailPane(props: DetailPaneProps) {
               onOpenFile={props.onOpenFile}
               onRevealInFolder={props.onRevealInFolder}
               onCopyFilePath={props.onCopyFilePath}
+              onCopyLanShareUrl={props.onCopyLanShareUrl}
               onSetFilePriority={props.onSetFilePriority}
               onWatchVideo={props.onWatchVideo}
               onWatchVideoInPopup={props.onWatchVideoInPopup}

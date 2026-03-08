@@ -745,6 +745,7 @@ function handleMessage(
     prefix?: string
     rootKey?: string
     path?: string
+    mimeType?: string | null
     profileId?: string | null
     displayName?: string
     sessionId?: string
@@ -1056,6 +1057,28 @@ function handleMessage(
     bridge
       .revealInFolder(rootKey, path)
       .then((result) => sendResponse(result))
+      .catch((e: unknown) => sendResponse({ ok: false, error: String(e) }))
+    return true
+  }
+
+  if (message.type === 'CREATE_LAN_SHARE_URL') {
+    const rootKey = message.rootKey as string | undefined
+    const path = message.path as string | undefined
+    const fileSize = message.fileSize as number | undefined
+    const mimeType = message.mimeType as string | null | undefined
+    if (!rootKey || !path || typeof fileSize !== 'number') {
+      sendResponse({ ok: false, error: 'Missing rootKey, path, or fileSize' })
+      return true
+    }
+    bridge
+      .createHttpStreamUrl(rootKey, path, fileSize, mimeType ?? null)
+      .then((url) => {
+        if (!url) {
+          sendResponse({ ok: false, error: 'LAN sharing is not available on this host' })
+          return
+        }
+        sendResponse({ ok: true, url })
+      })
       .catch((e: unknown) => sendResponse({ ok: false, error: String(e) }))
     return true
   }

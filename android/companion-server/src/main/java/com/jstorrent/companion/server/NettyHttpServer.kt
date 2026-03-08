@@ -106,7 +106,6 @@ private val json = Json {
 class NettyHttpServer(
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
-    private val httpStreams: HttpStreamSessionRegistry,
     private val preferredPort: Int = 7800
 ) {
     private var bossGroup: EventLoopGroup? = null
@@ -156,7 +155,7 @@ class NettyHttpServer(
                 val bootstrap = ServerBootstrap()
                     .group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel::class.java)
-                    .childHandler(NettyHttpChannelInitializer(deps, fileManager, httpStreams, pairingDialogShowing, ioPortProvider = { ioPort }, streamingPortProvider = { streamingPort }))
+                    .childHandler(NettyHttpChannelInitializer(deps, fileManager, pairingDialogShowing, ioPortProvider = { ioPort }, streamingPortProvider = { streamingPort }))
                     .option(ChannelOption.SO_BACKLOG, 128)
                     .option(ChannelOption.SO_REUSEADDR, true)
                     .childOption(ChannelOption.SO_KEEPALIVE, true)
@@ -216,7 +215,6 @@ class NettyHttpServer(
 private class NettyHttpChannelInitializer(
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
-    private val httpStreams: HttpStreamSessionRegistry,
     private val pairingDialogShowing: AtomicBoolean,
     private val ioPortProvider: () -> Int,
     private val streamingPortProvider: () -> Int
@@ -227,7 +225,7 @@ private class NettyHttpChannelInitializer(
             // Aggregate request bodies up to 64MB for most endpoints
             // Throughput test endpoints bypass this by checking before aggregation
             .addLast("aggregator", HttpObjectAggregator(64 * 1024 * 1024))
-            .addLast("handler", NettyHttpHandler(deps, fileManager, httpStreams, pairingDialogShowing, ioPortProvider, streamingPortProvider))
+            .addLast("handler", NettyHttpHandler(deps, fileManager, pairingDialogShowing, ioPortProvider, streamingPortProvider))
     }
 }
 
@@ -244,7 +242,6 @@ private val totalWriteTimeMs = AtomicLong(0)
 private class NettyHttpHandler(
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
-    private val httpStreams: HttpStreamSessionRegistry,
     private val pairingDialogShowing: AtomicBoolean,
     private val ioPortProvider: () -> Int,
     private val streamingPortProvider: () -> Int
@@ -271,7 +268,6 @@ private class NettyHttpHandler(
                 path == "/network/gateway" && method == HttpMethod.GET -> handleDefaultGateway(ctx, request)
                 path == "/http-sink" && method == HttpMethod.POST -> handleHttpSink(ctx, request)
                 path == "/http-source" && method == HttpMethod.GET -> handleHttpSource(ctx, request)
-                path.startsWith("/stream/") && method == HttpMethod.GET -> handleStream(ctx, request, path)
 
                 // === Origin Check + Extension Headers ===
                 path == "/status" && method == HttpMethod.POST -> handleStatus(ctx, request)
@@ -704,54 +700,6 @@ private class NettyHttpHandler(
             val (status, message) = fileManagerExceptionToHttpResponse(e)
             sendError(ctx, request, status, message)
         }
-    }
-
-    private fun handleStream(ctx: ChannelHandlerContext, request: FullHttpRequest, path: String) {
-        val streamToken = path.removePrefix("/stream/")
-        if (streamToken.isBlank()) {
-            sendNotFound(ctx, request)
-            return
-        }
-
-        val stream = httpStreams.getAndTouch(streamToken)
-        if (stream == null) {
-            sendNotFound(ctx, request)
-            return
-        }
-
-        val rootUri = deps.rootStore.resolveKey(stream.rootKey)
-        if (rootUri == null) {
-            httpStreams.revoke(streamToken)
-            sendNotFound(ctx, request)
-            return
-        }
-
-        val stat = try {
-            fileManager.stat(rootUri, stream.path)
-        } catch (e: Exception) {
-            Log.e(TAG, "STAT stream error: ${e.message}")
-            null
-        }
-        if (stat == null || !stat.isFile) {
-            httpStreams.revoke(streamToken)
-            sendNotFound(ctx, request)
-            return
-        }
-
-        val range = resolveHttpByteRange(request.headers().get(HttpHeaderNames.RANGE), stat.size)
-        if (range == null) {
-            sendRangeNotSatisfiable(ctx, request, stat.size)
-            return
-        }
-
-        sendHttpStreamResponse(
-            ctx = ctx,
-            request = request,
-            rootUri = rootUri,
-            relativePath = stream.path,
-            range = range,
-            contentType = stream.mimeType ?: "application/octet-stream",
-        )
     }
 
     /**
@@ -1429,74 +1377,6 @@ private class NettyHttpHandler(
         response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/octet-stream")
         response.headers().set(HttpHeaderNames.CONTENT_LENGTH, data.size)
         ctx.writeAndFlush(response)
-    }
-
-    private fun sendRangeNotSatisfiable(ctx: ChannelHandlerContext, request: FullHttpRequest, totalSize: Long) {
-        val response = DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
-        addCorsHeaders(response, request)
-        response.headers().set(HttpHeaderNames.ACCEPT_RANGES, "bytes")
-        response.headers().set(HttpHeaderNames.CONTENT_RANGE, "bytes */$totalSize")
-        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, 0)
-        ctx.writeAndFlush(response)
-    }
-
-    private fun sendHttpStreamResponse(
-        ctx: ChannelHandlerContext,
-        request: FullHttpRequest,
-        rootUri: android.net.Uri,
-        relativePath: String,
-        range: HttpByteRange,
-        contentType: String,
-    ) {
-        val status = if (range.partial) HttpResponseStatus.PARTIAL_CONTENT else HttpResponseStatus.OK
-        val response = DefaultHttpResponse(HttpVersion.HTTP_1_1, status)
-        addCorsHeaders(response, request)
-        response.headers().set(HttpHeaderNames.CONTENT_TYPE, contentType)
-        response.headers().set(HttpHeaderNames.ACCEPT_RANGES, "bytes")
-        response.headers().set(HttpHeaderNames.CACHE_CONTROL, "private, no-store")
-        response.headers().set(HttpHeaderNames.PRAGMA, "no-cache")
-        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, range.contentLength)
-        if (range.partial) {
-            response.headers().set(HttpHeaderNames.CONTENT_RANGE, range.contentRangeHeader())
-        }
-        ctx.write(response)
-
-        val chunkSize = 256 * 1024
-        var nextOffset = range.start
-
-        fun sendNextChunk() {
-            if (!ctx.channel().isActive) {
-                return
-            }
-            if (nextOffset > range.endInclusive) {
-                ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
-                return
-            }
-
-            val bytesToRead = minOf(chunkSize.toLong(), range.endInclusive - nextOffset + 1).toInt()
-            val chunk = try {
-                fileManager.read(rootUri, relativePath, nextOffset, bytesToRead)
-            } catch (e: FileManagerException) {
-                Log.w(TAG, "HTTP stream read failed at $nextOffset for $relativePath: ${e.message}")
-                ctx.close()
-                return
-            } catch (e: Exception) {
-                Log.w(TAG, "HTTP stream read failed at $nextOffset for $relativePath: ${e.message}")
-                ctx.close()
-                return
-            }
-
-            nextOffset += chunk.size
-            ctx.writeAndFlush(DefaultHttpContent(Unpooled.wrappedBuffer(chunk))).addListener { future ->
-                if (future.isSuccess) {
-                    sendNextChunk()
-                } else {
-                    ctx.close()
-                }
-            }
-        }
-
-        sendNextChunk()
     }
 
     private fun sendError(ctx: ChannelHandlerContext, request: FullHttpRequest, status: HttpResponseStatus, message: String) {

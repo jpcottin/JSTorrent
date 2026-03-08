@@ -29,6 +29,7 @@ class ControlWebSocketHandler(
     private val session: WebSocketSession,
     private val deps: CompanionServerDeps,
     private val httpStreams: HttpStreamSessionRegistry,
+    private val ensureLanMediaServerStarted: () -> Int,
     private val onSessionRegistered: (ControlWebSocketHandler) -> Unit,
     private val onSessionUnregistered: (ControlWebSocketHandler) -> Unit,
     private val onPowerHintReceived: (ControlWebSocketHandler, Int) -> Unit = { _, _ -> }
@@ -241,10 +242,17 @@ class ControlWebSocketHandler(
     }
 
     private fun sendJsonResponse(requestId: Int, opcode: Byte, ok: Boolean, error: String?) {
-        val response = buildJsonObject {
-            put("ok", ok)
-            if (error != null) put("error", error)
-        }
+        sendJsonResponse(
+            requestId = requestId,
+            opcode = opcode,
+            response = buildJsonObject {
+                put("ok", ok)
+                if (error != null) put("error", error)
+            }
+        )
+    }
+
+    private fun sendJsonResponse(requestId: Int, opcode: Byte, response: JsonObject) {
         val payload = response.toString().toByteArray()
         send(Protocol.createMessage(opcode, requestId, payload))
     }
@@ -302,7 +310,15 @@ class ControlWebSocketHandler(
                 fileSize = fileSize,
                 mimeType = mimeType,
             )
-            sendJsonResponse(envelope.requestId, opcode, true, null)
+            val mediaPort = ensureLanMediaServerStarted()
+            sendJsonResponse(
+                requestId = envelope.requestId,
+                opcode = opcode,
+                response = buildJsonObject {
+                    put("ok", true)
+                    put("mediaPort", mediaPort)
+                }
+            )
         } catch (e: Exception) {
             Log.e(TAG, "REGISTER_HTTP_STREAM error: ${e.message}")
             sendJsonResponse(envelope.requestId, opcode, false, e.message ?: "Unknown error")
