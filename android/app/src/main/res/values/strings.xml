@@ -108,6 +108,11 @@
     <string name="player_invalid_request">Missing playback request details.</string>
     <string name="player_unknown_error">Unknown playback error.</string>
     <string name="player_close">Close</string>
+    <string name="player_more_options">More options</string>
+    <string name="player_load_subtitles">Load subtitles</string>
+    <string name="player_remove_subtitles">Remove subtitles</string>
+    <string name="player_subtitle_loaded">Subtitle loaded</string>
+    <string name="player_subtitle_load_error">Could not load subtitles</string>
     <string name="player_enter_fullscreen">Enter fullscreen</string>
     <string name="player_exit_fullscreen">Exit fullscreen</string>
     <string name="player_enter_picture_in_picture">Enter picture-in-picture</string>

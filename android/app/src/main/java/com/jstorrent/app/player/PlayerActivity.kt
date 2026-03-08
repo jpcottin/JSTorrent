@@ -4,15 +4,20 @@ import android.app.PictureInPictureParams
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
+import android.os.Handler
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.util.Rational
+import android.widget.Toast
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,8 +32,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +48,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -51,7 +60,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.VideoSize
+import androidx.media3.common.C
+import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -68,9 +80,11 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import kotlin.math.min
+
+private const val YOUTUBE_STYLE_SEEK_MS = 10_000L
 
 class PlayerActivity : ComponentActivity() {
-
     private val app: JSTorrentApplication
         get() = application as JSTorrentApplication
 
@@ -81,6 +95,21 @@ class PlayerActivity : ComponentActivity() {
     private var isFullscreen by mutableStateOf(false)
     private var isInPictureInPictureUiMode by mutableStateOf(false)
     private var playbackSessionRegistered = false
+    private var subtitleLabel by mutableStateOf<String?>(null)
+
+    private val subtitlePicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+            // Best effort only; temporary permission from picker is enough for current session.
+        }
+        if (!attachExternalSubtitle(uri)) {
+            Toast.makeText(this, getString(R.string.player_subtitle_load_error), Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -117,6 +146,7 @@ class PlayerActivity : ComponentActivity() {
         if (launchSource == null) {
             screenState = PlayerScreenState.Error(getString(R.string.player_invalid_request))
         } else {
+            subtitleLabel = null
             lifecycleScope.launch {
                 prepareAndStartPlayback(launchSource)
             }
@@ -136,8 +166,11 @@ class PlayerActivity : ComponentActivity() {
                     playerErrorMessage = playerErrorMessage,
                     isFullscreen = isFullscreen,
                     isInPictureInPicture = isInPictureInPictureUiMode,
+                    hasExternalSubtitle = subtitleLabel != null,
                     onSetFullscreen = ::setFullscreenMode,
                     onEnterPictureInPicture = ::enterPictureInPictureIfPossible,
+                    onLoadSubtitle = ::openSubtitlePicker,
+                    onClearSubtitle = ::clearExternalSubtitle,
                     onClose = ::closePlayer
                 )
             }
@@ -286,6 +319,7 @@ class PlayerActivity : ComponentActivity() {
         player?.removeListener(playerListener)
         player?.release()
         player = null
+        subtitleLabel = null
         if (hadPlayer) {
             setPlaybackSessionRegistered(false)
         }
@@ -300,6 +334,71 @@ class PlayerActivity : ComponentActivity() {
             )
         }
         finish()
+    }
+
+    private fun openSubtitlePicker() {
+        subtitlePicker.launch(arrayOf("*/*"))
+    }
+
+    private fun clearExternalSubtitle() {
+        val exoPlayer = player ?: return
+        val mediaItem = exoPlayer.currentMediaItem ?: return
+        val currentPosition = exoPlayer.currentPosition
+        val playWhenReady = exoPlayer.playWhenReady
+
+        exoPlayer.setMediaItem(
+            mediaItem.buildUpon()
+                .setSubtitleConfigurations(emptyList())
+                .build(),
+            currentPosition
+        )
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = playWhenReady
+        subtitleLabel = null
+    }
+
+    private fun attachExternalSubtitle(uri: android.net.Uri): Boolean {
+        val exoPlayer = player ?: return false
+        val mediaItem = exoPlayer.currentMediaItem ?: return false
+        val subtitleMimeType = inferSubtitleMimeType(uri) ?: return false
+        val currentPosition = exoPlayer.currentPosition
+        val playWhenReady = exoPlayer.playWhenReady
+
+        val subtitleConfig = MediaItem.SubtitleConfiguration.Builder(uri)
+            .setMimeType(subtitleMimeType)
+            .setRoleFlags(C.ROLE_FLAG_SUBTITLE)
+            .build()
+
+        exoPlayer.setMediaItem(
+            mediaItem.buildUpon()
+                .setSubtitleConfigurations(listOf(subtitleConfig))
+                .build(),
+            currentPosition
+        )
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = playWhenReady
+        subtitleLabel = uri.lastPathSegment?.substringAfterLast('/') ?: getString(R.string.player_subtitle_loaded)
+        return true
+    }
+
+    private fun inferSubtitleMimeType(uri: android.net.Uri): String? {
+        val resolverType = contentResolver.getType(uri)?.lowercase()
+        if (resolverType != null) {
+            when {
+                resolverType.contains("vtt") -> return MimeTypes.TEXT_VTT
+                resolverType.contains("subrip") || resolverType.contains("srt") -> return MimeTypes.APPLICATION_SUBRIP
+                resolverType.contains("ssa") || resolverType.contains("ass") -> return MimeTypes.TEXT_SSA
+                resolverType.contains("ttml") || resolverType.contains("xml") -> return MimeTypes.APPLICATION_TTML
+            }
+        }
+
+        return when (uri.lastPathSegment?.substringAfterLast('.', "")?.lowercase()) {
+            "srt" -> MimeTypes.APPLICATION_SUBRIP
+            "vtt", "webvtt" -> MimeTypes.TEXT_VTT
+            "ssa", "ass" -> MimeTypes.TEXT_SSA
+            "ttml", "dfxp", "xml" -> MimeTypes.APPLICATION_TTML
+            else -> null
+        }
     }
 
     private suspend fun monitorPlaybackTorrent(infoHash: String) {
@@ -424,8 +523,11 @@ private fun PlayerActivityScreen(
     playerErrorMessage: String?,
     isFullscreen: Boolean,
     isInPictureInPicture: Boolean,
+    hasExternalSubtitle: Boolean,
     onSetFullscreen: (Boolean) -> Unit,
     onEnterPictureInPicture: () -> Unit,
+    onLoadSubtitle: () -> Unit,
+    onClearSubtitle: () -> Unit,
     onClose: () -> Unit
 ) {
     val title = when (state) {
@@ -442,8 +544,11 @@ private fun PlayerActivityScreen(
             playerErrorMessage = playerErrorMessage,
             isFullscreen = true,
             isInPictureInPicture = isInPictureInPicture,
+            hasExternalSubtitle = hasExternalSubtitle,
             onSetFullscreen = onSetFullscreen,
             onEnterPictureInPicture = onEnterPictureInPicture,
+            onLoadSubtitle = onLoadSubtitle,
+            onClearSubtitle = onClearSubtitle,
             onClose = onClose
         )
         return
@@ -463,6 +568,11 @@ private fun PlayerActivityScreen(
                 },
                 actions = {
                     if (state is PlayerScreenState.Ready) {
+                        PlayerOverflowMenu(
+                            hasExternalSubtitle = hasExternalSubtitle,
+                            onLoadSubtitle = onLoadSubtitle,
+                            onClearSubtitle = onClearSubtitle
+                        )
                         IconButton(onClick = onEnterPictureInPicture) {
                             Icon(
                                 imageVector = Icons.Filled.PictureInPictureAlt,
@@ -501,8 +611,11 @@ private fun PlayerActivityScreen(
                     playerErrorMessage = playerErrorMessage,
                     isFullscreen = false,
                     isInPictureInPicture = false,
+                    hasExternalSubtitle = hasExternalSubtitle,
                     onSetFullscreen = onSetFullscreen,
                     onEnterPictureInPicture = onEnterPictureInPicture,
+                    onLoadSubtitle = onLoadSubtitle,
+                    onClearSubtitle = onClearSubtitle,
                     onClose = onClose
                 )
             }
@@ -529,8 +642,11 @@ private fun PlayerReadyContent(
     playerErrorMessage: String?,
     isFullscreen: Boolean,
     isInPictureInPicture: Boolean,
+    hasExternalSubtitle: Boolean,
     onSetFullscreen: (Boolean) -> Unit,
     onEnterPictureInPicture: () -> Unit,
+    onLoadSubtitle: () -> Unit,
+    onClearSubtitle: () -> Unit,
     onClose: () -> Unit
 ) {
     val currentOnSetFullscreen = rememberUpdatedState(onSetFullscreen)
@@ -549,10 +665,53 @@ private fun PlayerReadyContent(
                     val density = context.resources.displayMetrics.density
                     val swipeDistanceThreshold = 72f * density
                     val swipeVelocityThreshold = 240f * density
+                    val tapSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+                    val tapTimeoutMs = ViewConfiguration.getTapTimeout().toLong()
+                    val doubleTapTimeoutMs = ViewConfiguration.getDoubleTapTimeout().toLong()
+                    val tapHandler = Handler(Looper.getMainLooper())
+                    var touchDownX = 0f
+                    var touchDownY = 0f
+                    var playerViewWidth = 0
+                    var rightTapCount = 0
+                    var holdToSpeedActive = false
+                    var originalPlaybackParameters = exoPlayer.playbackParameters
+
+                    fun isRightSide(x: Float, width: Int): Boolean = x >= width * 0.5f
+
+                    val applyAccumulatedSeek = Runnable {
+                        if (rightTapCount >= 2) {
+                            val seekDeltaMs = (rightTapCount - 1) * YOUTUBE_STYLE_SEEK_MS
+                            val duration = exoPlayer.duration
+                            val targetPosition = if (duration > 0) {
+                                min(exoPlayer.currentPosition + seekDeltaMs, duration)
+                            } else {
+                                exoPlayer.currentPosition + seekDeltaMs
+                            }
+                            exoPlayer.seekTo(targetPosition)
+                        }
+                        rightTapCount = 0
+                    }
+
                     val gestureDetector = GestureDetector(
                         context,
                         object : GestureDetector.SimpleOnGestureListener() {
-                            override fun onDown(e: MotionEvent): Boolean = true
+                            override fun onDown(e: MotionEvent): Boolean {
+                                touchDownX = e.x
+                                touchDownY = e.y
+                                return true
+                            }
+
+                            override fun onLongPress(e: MotionEvent) {
+                                if (!isRightSide(e.x, playerViewWidth)) return
+                                if (holdToSpeedActive) return
+
+                                originalPlaybackParameters = exoPlayer.playbackParameters
+                                holdToSpeedActive = true
+                                exoPlayer.playbackParameters = PlaybackParameters(
+                                    2f,
+                                    originalPlaybackParameters.pitch
+                                )
+                            }
 
                             override fun onFling(
                                 e1: MotionEvent?,
@@ -583,8 +742,40 @@ private fun PlayerReadyContent(
                         useController = !isInPictureInPicture
                         setShutterBackgroundColor(Color.BLACK)
                         keepScreenOn = true
-                        setOnTouchListener { _, event ->
+                        setOnTouchListener { view, event ->
+                            playerViewWidth = view.width
                             gestureDetector.onTouchEvent(event)
+                            when (event.actionMasked) {
+                                MotionEvent.ACTION_UP -> {
+                                    if (holdToSpeedActive) {
+                                        exoPlayer.playbackParameters = originalPlaybackParameters
+                                        holdToSpeedActive = false
+                                    }
+
+                                    val isTap =
+                                        abs(event.x - touchDownX) <= tapSlop &&
+                                            abs(event.y - touchDownY) <= tapSlop &&
+                                            (event.eventTime - event.downTime) <= tapTimeoutMs
+
+                                    if (isTap && isRightSide(event.x, view.width)) {
+                                        tapHandler.removeCallbacks(applyAccumulatedSeek)
+                                        rightTapCount += 1
+                                        tapHandler.postDelayed(applyAccumulatedSeek, doubleTapTimeoutMs)
+                                    } else if (isTap) {
+                                        tapHandler.removeCallbacks(applyAccumulatedSeek)
+                                        rightTapCount = 0
+                                    }
+                                }
+
+                                MotionEvent.ACTION_CANCEL -> {
+                                    if (holdToSpeedActive) {
+                                        exoPlayer.playbackParameters = originalPlaybackParameters
+                                        holdToSpeedActive = false
+                                    }
+                                    tapHandler.removeCallbacks(applyAccumulatedSeek)
+                                    rightTapCount = 0
+                                }
+                            }
                             false
                         }
                     }
@@ -615,6 +806,12 @@ private fun PlayerReadyContent(
                         icon = Icons.Filled.PictureInPictureAlt,
                         contentDescription = stringResource(R.string.player_enter_picture_in_picture),
                         onClick = onEnterPictureInPicture
+                    )
+                    PlayerOverflowMenu(
+                        hasExternalSubtitle = hasExternalSubtitle,
+                        onLoadSubtitle = onLoadSubtitle,
+                        onClearSubtitle = onClearSubtitle,
+                        useOverlayButton = true
                     )
                 }
                 PlayerOverlayButton(
@@ -683,6 +880,55 @@ private fun PlayerOverlayButton(
                 imageVector = icon,
                 contentDescription = contentDescription
             )
+        }
+    }
+}
+
+@Composable
+private fun PlayerOverflowMenu(
+    hasExternalSubtitle: Boolean,
+    onLoadSubtitle: () -> Unit,
+    onClearSubtitle: () -> Unit,
+    useOverlayButton: Boolean = false
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        if (useOverlayButton) {
+            PlayerOverlayButton(
+                icon = Icons.Filled.MoreVert,
+                contentDescription = stringResource(R.string.player_more_options),
+                onClick = { expanded = true }
+            )
+        } else {
+            IconButton(onClick = { expanded = true }) {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = stringResource(R.string.player_more_options)
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.player_load_subtitles)) },
+                onClick = {
+                    expanded = false
+                    onLoadSubtitle()
+                }
+            )
+            if (hasExternalSubtitle) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.player_remove_subtitles)) },
+                    onClick = {
+                        expanded = false
+                        onClearSubtitle()
+                    }
+                )
+            }
         }
     }
 }
