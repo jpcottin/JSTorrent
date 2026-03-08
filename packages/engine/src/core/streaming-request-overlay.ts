@@ -8,6 +8,8 @@ export const STREAM_NOW_PRIORITY = 7
 export const STREAM_NOW_RESERVED_SLOTS = 2
 const PRIO_LEVELS = 8
 const PRIO_FACTOR = 3
+const MIN_STREAMING_SPEED_BYTES_PER_SEC = 32 * 1024
+const MAX_GOOD_STREAMING_QUEUE_MS = 2000
 
 export interface StreamingOverlayPlan {
   reservedSlots: number
@@ -94,10 +96,32 @@ export function buildStreamingOverlayPlan(input: StreamingOverlayInput): Streami
   }
 
   return {
-    reservedSlots: Math.min(STREAM_NOW_RESERVED_SLOTS, pipelineLimit),
+    reservedSlots: computeStreamingReservedSlots(peer, pipelineLimit),
     activePieces: activeNowPieces,
     newPieceIndices,
   }
+}
+
+function computeStreamingReservedSlots(peer: RequestablePeer, pipelineLimit: number): number {
+  const maxReserved = Math.min(STREAM_NOW_RESERVED_SLOTS, pipelineLimit)
+  if (maxReserved <= 1) return maxReserved
+
+  if (peer.snubbed) {
+    return 1
+  }
+
+  // Peers still in slow-start or with no proven throughput only get one urgent slot.
+  if (peer.inSlowStart || !peer.downloadSpeed || peer.downloadSpeed < MIN_STREAMING_SPEED_BYTES_PER_SEC) {
+    return 1
+  }
+
+  const estimatedQueueMs =
+    (peer.requestsPending * 16_384 * 1000) / Math.max(peer.downloadSpeed, MIN_STREAMING_SPEED_BYTES_PER_SEC)
+  if (estimatedQueueMs > MAX_GOOD_STREAMING_QUEUE_MS) {
+    return 1
+  }
+
+  return maxReserved
 }
 
 interface FindStreamingCandidatesInput {

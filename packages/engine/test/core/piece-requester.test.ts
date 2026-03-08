@@ -59,6 +59,9 @@ describe('TorrentPieceRequester write-queue backpressure', () => {
       isSeed: false,
       pipelineDepth: 4,
       requestsPending: 0,
+      downloadSpeed: 256 * 1024,
+      snubbed: false,
+      inSlowStart: false,
       recordBlockReceived: () => {},
       sendRequests,
     }
@@ -132,6 +135,9 @@ describe('TorrentPieceRequester write-queue backpressure', () => {
       isSeed: false,
       pipelineDepth: 4,
       requestsPending: 0,
+      downloadSpeed: 256 * 1024,
+      snubbed: false,
+      inSlowStart: false,
       recordBlockReceived: () => {},
       sendRequests,
     }
@@ -140,5 +146,80 @@ describe('TorrentPieceRequester write-queue backpressure', () => {
 
     expect(sendRequests).toHaveBeenCalledTimes(1)
     expect(sentBatches[0].map((request) => request.index)).toEqual([0, 0, 1, 1])
+  })
+
+  it('limits urgent requests on slow-start peers to one slot before normal work', () => {
+    const engine = new MockEngine()
+    const sentBatches: Array<Array<{ index: number; begin: number; length: number }>> = []
+    const sendRequests = vi.fn((requests: Array<{ index: number; begin: number; length: number }>) => {
+      sentBatches.push(requests.map((request) => ({ ...request })))
+    })
+    const activePieces = new ActivePieceManager(engine, () => 32 * 1024, {
+      standardPieceLength: 32 * 1024,
+    })
+    activePieces.getOrCreate(1)
+
+    const ourBitfield = BitField.createEmpty(2)
+    const peerBitfield = BitField.createEmpty(2)
+    peerBitfield.set(0, true)
+    peerBitfield.set(1, true)
+
+    const deps: PieceRequesterDeps = {
+      getPieceCount: () => 2,
+      getPieceLength: () => 32 * 1024,
+      getPiecePriority: () => new Uint8Array([7, 4]),
+      getBitfield: () => ourBitfield,
+      isKillSwitchEnabled: () => false,
+      isNetworkActive: () => true,
+      isWriteQueueBackpressured: () => false,
+      hasMetadata: () => true,
+      getConnectedPeerCount: () => 2,
+      getCompletedPieceCount: () => 0,
+      getFirstNeededPiece: () => 0,
+      getActivePieces: () => activePieces,
+      initActivePieces: () => activePieces,
+      getAvailability: () =>
+        ({
+          rawAvailability: new Uint16Array([1, 1]),
+          seedCount: 0,
+          getPeerPieceSet: () => undefined,
+        }) as never,
+      getEndgameManager: () =>
+        ({
+          isEndgame: false,
+          getConfig: () => ({ maxDuplicateRequests: 2 }),
+        }) as never,
+      getMaxPipelineDepth: () => 4,
+      isDownloadRateLimited: () => false,
+      getDownloadRateLimit: () => 0,
+      tryConsumeDownloadBandwidth: () => true,
+      removePieceFromAllIndices: () => {},
+      shouldAddToIndex: () => true,
+      scheduleRateLimitRetry: () => true,
+      onEndgameEvaluate: () => {},
+      getPeerId: () => 'peer-1',
+    }
+
+    const requester = new TorrentPieceRequester(engine, deps)
+    const peer = {
+      peerId: undefined,
+      remoteAddress: '127.0.0.1',
+      remotePort: 6881,
+      peerChoking: false,
+      bitfield: peerBitfield,
+      isSeed: false,
+      pipelineDepth: 4,
+      requestsPending: 0,
+      downloadSpeed: 16 * 1024,
+      snubbed: false,
+      inSlowStart: true,
+      recordBlockReceived: () => {},
+      sendRequests,
+    }
+
+    requester.request(peer, Date.now())
+
+    expect(sendRequests).toHaveBeenCalledTimes(1)
+    expect(sentBatches[0].map((request) => request.index)).toEqual([0, 1, 1])
   })
 })

@@ -31,6 +31,9 @@ describe('buildStreamingOverlayPlan', () => {
         isSeed: false,
         pipelineDepth: 4,
         requestsPending: 0,
+        downloadSpeed: 256 * 1024,
+        snubbed: false,
+        inSlowStart: false,
         recordBlockReceived: () => {},
         sendRequests: () => {},
       },
@@ -68,6 +71,9 @@ describe('buildStreamingOverlayPlan', () => {
         isSeed: false,
         pipelineDepth: 4,
         requestsPending: 0,
+        downloadSpeed: 256 * 1024,
+        snubbed: false,
+        inSlowStart: false,
         recordBlockReceived: () => {},
         sendRequests: () => {},
       },
@@ -90,5 +96,47 @@ describe('buildStreamingOverlayPlan', () => {
       activePieces: [],
       newPieceIndices: [],
     })
+  })
+
+  it('caps urgent reservation for slow or unproven peers', () => {
+    const engine = new MockEngine()
+    const activePieces = new ActivePieceManager(engine, () => 32 * 1024)
+    const piece = activePieces.getOrCreate(0)!
+    piece.addRequest(0, 'peer-1')
+
+    const peerBitfield = BitField.createEmpty(2)
+    peerBitfield.set(0, true)
+    peerBitfield.set(1, true)
+
+    const plan = buildStreamingOverlayPlan({
+      peer: {
+        peerChoking: false,
+        bitfield: peerBitfield,
+        isSeed: false,
+        pipelineDepth: 4,
+        requestsPending: 2,
+        downloadSpeed: 16 * 1024,
+        snubbed: false,
+        inSlowStart: true,
+        recordBlockReceived: () => {},
+        sendRequests: () => {},
+      },
+      peerId: 'peer-1',
+      activePieces,
+      piecePriority: new Uint8Array([STREAM_NOW_PRIORITY, STREAM_NOW_PRIORITY]),
+      availability: {
+        rawAvailability: new Uint16Array([1, 1]),
+        seedCount: 0,
+        getPeerPieceSet: () => undefined,
+      } as never,
+      bitfield: BitField.createEmpty(2),
+      pieceCount: 2,
+      firstNeededPiece: 0,
+      pipelineLimit: 4,
+    })
+
+    expect(plan.reservedSlots).toBe(1)
+    expect(plan.activePieces.map((activePiece) => activePiece.index)).toEqual([0])
+    expect(plan.newPieceIndices).toEqual([1])
   })
 })

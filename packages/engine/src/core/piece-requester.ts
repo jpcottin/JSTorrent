@@ -2,7 +2,7 @@ import { BLOCK_SIZE, type ActivePiece } from './active-piece'
 import { ActivePieceManager } from './active-piece-manager'
 import { PieceAvailability } from './piece-availability'
 import { EndgameManager } from './endgame-manager'
-import { buildStreamingOverlayPlan } from './streaming-request-overlay'
+import { buildStreamingOverlayPlan, STREAM_NOW_PRIORITY } from './streaming-request-overlay'
 import { EngineComponent, ILoggingEngine } from '../logging/logger'
 import { BitField } from '../utils/bitfield'
 
@@ -30,6 +30,15 @@ export interface RequestablePeer {
 
   /** Number of outstanding requests to this peer */
   requestsPending: number
+
+  /** Recent measured download speed in bytes/sec. */
+  downloadSpeed?: number
+
+  /** Whether this peer is currently snubbed. */
+  snubbed?: boolean
+
+  /** Whether this peer is still probing throughput in slow-start. */
+  inSlowStart?: boolean
 
   /** Record that a block was received (for adaptive pipeline) */
   recordBlockReceived(): void
@@ -302,6 +311,7 @@ export class TorrentPieceRequester extends EngineComponent {
           return
         }
 
+        if (piecePriority[piece.index] === STREAM_NOW_PRIORITY) continue
         if (!peer.isSeed && !peerBitfield?.get(piece.index)) continue
         if (!piece.hasRequestsFromPeer(peerId)) continue
         if (!isEndgame && !piece.hasUnrequestedBlocks) continue
@@ -348,6 +358,7 @@ export class TorrentPieceRequester extends EngineComponent {
           return
         }
 
+        if (piecePriority[piece.index] === STREAM_NOW_PRIORITY) continue
         if (!peer.isSeed && !peerBitfield?.get(piece.index)) continue
         if (piece.hasRequestsFromPeer(peerId)) continue // already handled in pass 1
         if (!isEndgame && !piece.hasUnrequestedBlocks) continue
@@ -393,6 +404,7 @@ export class TorrentPieceRequester extends EngineComponent {
           flushPending()
           return
         }
+        if (piecePriority?.[piece.index] === STREAM_NOW_PRIORITY) continue
         if (!peerBitfield?.get(piece.index)) continue
         if (!isEndgame && !piece.hasUnrequestedBlocks) continue
 
@@ -629,7 +641,12 @@ export class TorrentPieceRequester extends EngineComponent {
         iterations++
         if (candidates.length >= collectLimit) break
 
+        if (bitfield.get(i)) continue
+        if (activePieces.has(i)) continue
+
         const prio = piecePriority[i]
+        if (prio === 0 || prio === STREAM_NOW_PRIORITY) continue
+
         const pieceAvail = availabilityArray[i] + seedCount
         const sortKey = pieceAvail * (8 - prio) * 3 // 8 = PRIORITY_LEVELS, 3 = PRIO_FACTOR
 
@@ -649,7 +666,7 @@ export class TorrentPieceRequester extends EngineComponent {
 
         // Skip if priority is 0 (skipped file)
         const prio = piecePriority[i]
-        if (prio === 0) continue
+        if (prio === 0 || prio === STREAM_NOW_PRIORITY) continue
 
         // Skip if already active (handled in phase 1)
         if (activePieces.has(i)) continue
