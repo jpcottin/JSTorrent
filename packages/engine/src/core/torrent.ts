@@ -1348,7 +1348,9 @@ export class Torrent extends EngineComponent {
       throw new Error('Content storage not initialized')
     }
     const pieceIndices = this.contentStorage.fileBytesToPieces(fileIndex, offset, length)
-    const needsPartsOverlay = pieceIndices.some((pieceIndex) => this._partsFilePieces.has(pieceIndex))
+    const needsPartsOverlay = pieceIndices.some((pieceIndex) =>
+      this._partsFilePieces.has(pieceIndex),
+    )
     if (!needsPartsOverlay) {
       return this.contentStorage.readFileBytes(fileIndex, offset, length)
     }

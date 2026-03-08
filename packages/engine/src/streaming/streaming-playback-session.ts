@@ -237,7 +237,7 @@ export class StreamingPlaybackSession {
       for (const piece of demandPieces) {
         signalDemandScope.pieces.add(piece)
       }
-      this.provider.updateStreamingDemand(demandToken, new Set(signalDemandScope.pieces), 'now')
+      this.provider.updateStreamingDemand!(demandToken, new Set(signalDemandScope.pieces), 'now')
     } else if (this.fallbackDemandScope && this.provider.updateStreamingDemand) {
       for (const piece of demandPieces) {
         this.fallbackDemandScope.pieces.add(piece)

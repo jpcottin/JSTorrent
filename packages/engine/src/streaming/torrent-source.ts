@@ -26,10 +26,7 @@
  */
 
 import type { Torrent } from '../core/torrent'
-import {
-  createStreamingFileProvider,
-  StreamingPlaybackSession,
-} from './streaming-playback-session'
+import { createStreamingFileProvider, StreamingPlaybackSession } from './streaming-playback-session'
 import type { StreamingFileProvider } from './streaming-file-provider'
 
 /**

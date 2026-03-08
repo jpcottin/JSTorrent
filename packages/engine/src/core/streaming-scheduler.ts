@@ -85,16 +85,12 @@ export function buildStreamingPlan(input: StreamingPlannerInput): StreamingPlan 
   const effectivePriority = new Uint8Array(basePiecePriority)
   const protectedPieces = new Set<number>()
   let hasNowDemand = false
-  let hasNextDemand = false
   let hasFileDemand = false
 
   for (const demand of demands) {
     const demandPriority = urgencyToPriority(demand.urgency)
     if (demand.urgency === 'now' && demand.pieces.size > 0) {
       hasNowDemand = true
-    }
-    if (demand.urgency === 'next' && demand.pieces.size > 0) {
-      hasNextDemand = true
     }
     if (demand.urgency === 'file' && demand.pieces.size > 0) {
       hasFileDemand = true
@@ -198,19 +194,12 @@ export class StreamingScheduler {
     }
   }
 
-  private retainSuppressedPieces(
-    previousSuppressedPieces: Set<number>,
-    plan: StreamingPlan,
-  ): void {
+  private retainSuppressedPieces(previousSuppressedPieces: Set<number>, plan: StreamingPlan): void {
     if (!plan.effectivePriority || previousSuppressedPieces.size === 0) return
 
     let shouldRetain = false
     for (const demand of this.demands.values()) {
-      if (
-        demand.urgency === 'now' ||
-        demand.urgency === 'next' ||
-        demand.urgency === 'file'
-      ) {
+      if (demand.urgency === 'now' || demand.urgency === 'next' || demand.urgency === 'file') {
         shouldRetain = true
         break
       }

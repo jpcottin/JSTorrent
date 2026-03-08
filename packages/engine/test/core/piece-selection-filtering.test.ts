@@ -381,13 +381,21 @@ describe('Piece Selection Filtering', () => {
       expect(torrent.shouldRequestPiece(4)).toBe(false)
 
       torrent.markPieceVerified(0)
-      ;(torrent as { updateFileProgressForVerifiedPiece(index: number): void }).updateFileProgressForVerifiedPiece(0)
+      ;(
+        torrent as { updateFileProgressForVerifiedPiece(index: number): void }
+      ).updateFileProgressForVerifiedPiece(0)
       torrent.markPieceVerified(1)
-      ;(torrent as { updateFileProgressForVerifiedPiece(index: number): void }).updateFileProgressForVerifiedPiece(1)
+      ;(
+        torrent as { updateFileProgressForVerifiedPiece(index: number): void }
+      ).updateFileProgressForVerifiedPiece(1)
       torrent.markPieceVerified(2)
-      ;(torrent as { updateFileProgressForVerifiedPiece(index: number): void }).updateFileProgressForVerifiedPiece(2)
+      ;(
+        torrent as { updateFileProgressForVerifiedPiece(index: number): void }
+      ).updateFileProgressForVerifiedPiece(2)
       torrent.markPieceVerified(3)
-      ;(torrent as { updateFileProgressForVerifiedPiece(index: number): void }).updateFileProgressForVerifiedPiece(3)
+      ;(
+        torrent as { updateFileProgressForVerifiedPiece(index: number): void }
+      ).updateFileProgressForVerifiedPiece(3)
 
       expect(torrent.files[0]?.isComplete).toBe(true)
       expect(torrent.piecePriority?.[4]).toBe(4)

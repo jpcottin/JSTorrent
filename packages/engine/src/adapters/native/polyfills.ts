@@ -115,7 +115,11 @@ if (typeof AbortController === 'undefined' || typeof AbortSignal === 'undefined'
 
     private readonly listeners = new Set<AbortListener>()
 
-    addEventListener(type: string, listener: AbortListener | null, options?: { once?: boolean }): void {
+    addEventListener(
+      type: string,
+      listener: AbortListener | null,
+      options?: { once?: boolean },
+    ): void {
       if (type !== 'abort' || !listener) return
 
       if (options?.once) {
@@ -135,7 +139,10 @@ if (typeof AbortController === 'undefined' || typeof AbortSignal === 'undefined'
       if (type !== 'abort' || !listener) return
 
       for (const existing of this.listeners) {
-        if (existing === listener || (existing as { __original?: AbortListener }).__original === listener) {
+        if (
+          existing === listener ||
+          (existing as { __original?: AbortListener }).__original === listener
+        ) {
           this.listeners.delete(existing)
         }
       }
@@ -149,9 +156,7 @@ if (typeof AbortController === 'undefined' || typeof AbortSignal === 'undefined'
 
     throwIfAborted(): void {
       if (this.aborted) {
-        throw this.reason instanceof Error
-          ? this.reason
-          : new DOMException('Aborted', 'AbortError')
+        throw this.reason instanceof Error ? this.reason : new DOMException('Aborted', 'AbortError')
       }
     }
 

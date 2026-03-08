@@ -81,16 +81,14 @@ describe('Magnet Parser', () => {
   })
 
   it('should parse select-only file indices from so parameter', () => {
-    const uri =
-      'magnet:?xt=urn:btih:a4e71df0553e6c565df4958a817b1f1a780503da&so=0,2,4,6-8'
+    const uri = 'magnet:?xt=urn:btih:a4e71df0553e6c565df4958a817b1f1a780503da&so=0,2,4,6-8'
     const parsed = parseMagnet(uri)
 
     expect(parsed.selectOnly).toEqual([0, 2, 4, 6, 7, 8])
   })
 
   it('should ignore invalid select-only tokens', () => {
-    const uri =
-      'magnet:?xt=urn:btih:a4e71df0553e6c565df4958a817b1f1a780503da&so=2,4-2,abc,,7-8'
+    const uri = 'magnet:?xt=urn:btih:a4e71df0553e6c565df4958a817b1f1a780503da&so=2,4-2,abc,,7-8'
     const parsed = parseMagnet(uri)
 
     expect(parsed.selectOnly).toEqual([2, 7, 8])

@@ -230,7 +230,10 @@ function replacePeerHintPort(magnet: string, port: number): string {
   return magnet.replace(/x\.pe=127\.0\.0\.1:\d+/, `x.pe=127.0.0.1:${port}`)
 }
 
-async function startThrottledProxy(targetPort: number, rateBytesPerSec: number): Promise<ThrottledProxy> {
+async function startThrottledProxy(
+  targetPort: number,
+  rateBytesPerSec: number,
+): Promise<ThrottledProxy> {
   return new Promise((resolve, reject) => {
     const server = net.createServer((clientSocket) => {
       const upstream = net.connect({ host: '127.0.0.1', port: targetPort })
@@ -450,8 +453,10 @@ function installStreamingTelemetry(
   const counters = new Map<number, PieceCounters>()
   const restoreFns: Array<() => void> = []
   const wrappedPeers = new WeakSet<object>()
-  let wrappedActivePieces: { getOrCreate: (index: number) => unknown; remove: (index: number) => void } | null =
-    null
+  let wrappedActivePieces: {
+    getOrCreate: (index: number) => unknown
+    remove: (index: number) => void
+  } | null = null
 
   const getCounters = (pieceIndex: number): PieceCounters => {
     let current = counters.get(pieceIndex)
@@ -566,7 +571,13 @@ function installStreamingTelemetry(
   })
 
   const originalHandleBlockCommon = instrumentedTorrent.handleBlockCommon.bind(instrumentedTorrent)
-  instrumentedTorrent.handleBlockCommon = (peer, pieceIndex, blockOffset, dataLength, addBlockFn) => {
+  instrumentedTorrent.handleBlockCommon = (
+    peer,
+    pieceIndex,
+    blockOffset,
+    dataLength,
+    addBlockFn,
+  ) => {
     maybeWrapActivePieces()
     const beforePiece = torrent.getActivePieceManager()?.get(pieceIndex)
     const beforeBlocks = beforePiece?.blocksReceived ?? 0
@@ -947,7 +958,9 @@ describe('Streaming with blocking reads', () => {
     expect(videoFileIndex).toBeGreaterThanOrEqual(0)
 
     await waitForCondition(
-      () => torrent.completedPiecesCount >= 4 && getMissingStartupPieces(torrent, videoFileIndex).length >= 2,
+      () =>
+        torrent.completedPiecesCount >= 4 &&
+        getMissingStartupPieces(torrent, videoFileIndex).length >= 2,
       {
         timeoutMs: 45000,
         label: 'bulk progress before streaming start',
@@ -1010,7 +1023,9 @@ describe('Streaming with blocking reads', () => {
     throttledProxy = await startThrottledProxy(slowSeeder.port, 4 * 1024)
 
     engine = createEngine({ storageDir: tempDownloadDir })
-    const { torrent } = await engine.addTorrent(replacePeerHintPort(slowSeeder.magnet, throttledProxy.port))
+    const { torrent } = await engine.addTorrent(
+      replacePeerHintPort(slowSeeder.magnet, throttledProxy.port),
+    )
     if (!torrent) throw new Error('Failed to add torrent')
 
     await waitForCondition(() => torrent.files.length > 0, {
@@ -1047,7 +1062,9 @@ describe('Streaming with blocking reads', () => {
 
     const fastSeeder = await startSeeder(fixture.rootDir, 0, rescuePieceLength)
     secondarySeederProc = fastSeeder.proc
-    torrent.addPeerHints([{ ip: '127.0.0.1', port: fastSeeder.port, family: 'ipv4' } satisfies PeerAddress])
+    torrent.addPeerHints([
+      { ip: '127.0.0.1', port: fastSeeder.port, family: 'ipv4' } satisfies PeerAddress,
+    ])
 
     await waitForCondition(() => torrent.peers.length >= 2, {
       timeoutMs: 15000,

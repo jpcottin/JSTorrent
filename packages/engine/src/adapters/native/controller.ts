@@ -909,7 +909,9 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
   /**
    * Close an active playback session and clear any streaming demand it created.
    */
-  ;(globalThis as Record<string, unknown>).__jstorrent_playback_close = (sessionId: string): void => {
+  ;(globalThis as Record<string, unknown>).__jstorrent_playback_close = (
+    sessionId: string,
+  ): void => {
     closePlaybackSessionInternal(sessionId)
   }
 

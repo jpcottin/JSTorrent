@@ -153,11 +153,8 @@ export {
 } from './config'
 
 // Streaming
-export {
-  createTorrentSource,
-  createTorrentSourceFromProvider,
-  createStreamingFileProvider,
-} from './streaming/torrent-source'
+export { createTorrentSource, createTorrentSourceFromProvider } from './streaming/torrent-source'
+export { createStreamingFileProvider } from './streaming/streaming-playback-session'
 export type {
   PrebuiltKeyframeIndex,
   StreamingActivePieceInfo,
