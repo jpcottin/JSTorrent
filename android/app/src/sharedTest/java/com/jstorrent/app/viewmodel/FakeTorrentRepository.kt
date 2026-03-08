@@ -44,6 +44,7 @@ class FakeTorrentRepository : TorrentRepository {
     val resumedTorrents = mutableListOf<String>()
     val removedTorrents = mutableListOf<Pair<String, Boolean>>()
     val recheckedTorrents = mutableListOf<String>()
+    val filePriorityUpdates = mutableListOf<Pair<String, Map<Int, Int>>>()
     var pauseAllCalled = false
     var resumeAllCalled = false
 
@@ -106,6 +107,7 @@ class FakeTorrentRepository : TorrentRepository {
         resumedTorrents.clear()
         removedTorrents.clear()
         recheckedTorrents.clear()
+        filePriorityUpdates.clear()
         resetTorrents.clear()
         pauseAllCalled = false
         resumeAllCalled = false
@@ -260,7 +262,7 @@ class FakeTorrentRepository : TorrentRepository {
     }
 
     override fun setFilePriorities(infoHash: String, priorities: Map<Int, Int>) {
-        // No-op for testing - just record if needed
+        filePriorityUpdates.add(infoHash to priorities)
     }
 
     override suspend fun getDhtStats(): DhtStats? {

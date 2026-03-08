@@ -189,6 +189,13 @@
 
         </activity>
 
+        <!-- Native streaming player scaffold -->
+        <activity
+            android:name=".player.PlayerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.JSTorrent"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
     </application>
 
 </manifest>

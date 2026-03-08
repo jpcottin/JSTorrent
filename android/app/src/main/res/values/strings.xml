@@ -91,6 +91,21 @@
     <string name="torrent_detail_move_to_top">Move to Top of Queue</string>
     <string name="torrent_detail_move_to_bottom">Move to Bottom of Queue</string>
 
+    <!-- PlayerActivity -->
+    <string name="player_title">Streaming Player</string>
+    <string name="player_preparing_title">Preparing playback</string>
+    <string name="player_preparing_message">Starting the torrent and ensuring the selected file is ready for streaming.</string>
+    <string name="player_prepare_complete">Playback preparation complete.</string>
+    <string name="player_file_unskipped">The file was unskipped for playback.</string>
+    <string name="player_file_already_selected">The file was already selected for download.</string>
+    <string name="player_torrent_resumed">The torrent was resumed for playback.</string>
+    <string name="player_torrent_already_active">The torrent was already active.</string>
+    <string name="player_placeholder_message">Media3 playback is the next implementation step. This screen currently validates the launch contract and playback preparation flow.</string>
+    <string name="player_error_title">Unable to start player</string>
+    <string name="player_invalid_request">Missing playback request details.</string>
+    <string name="player_unknown_error">Unknown playback error.</string>
+    <string name="player_close">Close</string>
+
     <!-- SettingsScreen -->
     <string name="settings_title">Settings</string>
     <string name="settings_back_button">Back</string>
