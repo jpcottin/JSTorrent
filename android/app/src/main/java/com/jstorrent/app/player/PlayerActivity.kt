@@ -35,12 +35,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
 import com.jstorrent.app.JSTorrentApplication
 import com.jstorrent.app.R
 import com.jstorrent.app.ui.theme.JSTorrentTheme
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,7 +68,7 @@ class PlayerActivity : ComponentActivity() {
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-            playerErrorMessage = error.localizedMessage ?: getString(R.string.player_unknown_error)
+            playerErrorMessage = buildPlayerErrorMessage(error)
             bufferingMessage = null
         }
     }
@@ -158,8 +160,19 @@ class PlayerActivity : ComponentActivity() {
             .setUri(PlayerActivityLauncher.buildPlaybackUri(request))
             .build()
         val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                5_000,
+                20_000,
+                1_500,
+                3_000
+            )
+            .build()
 
-        return ExoPlayer.Builder(this).build().also { exoPlayer ->
+        return ExoPlayer.Builder(this)
+            .setLoadControl(loadControl)
+            .build()
+            .also { exoPlayer ->
             exoPlayer.addListener(playerListener)
             exoPlayer.setMediaSource(mediaSource)
             exoPlayer.prepare()
@@ -171,6 +184,23 @@ class PlayerActivity : ComponentActivity() {
         player?.removeListener(playerListener)
         player?.release()
         player = null
+    }
+
+    private fun buildPlayerErrorMessage(error: androidx.media3.common.PlaybackException): String {
+        val rootCause = generateSequence(error.cause) { it.cause }.lastOrNull()
+        val usefulCause = generateSequence(error.cause) { it.cause }
+            .firstOrNull { it.message?.isNotBlank() == true }
+            ?: rootCause
+
+        val message = usefulCause?.message?.takeIf { it.isNotBlank() }
+            ?: error.localizedMessage
+            ?: getString(R.string.player_unknown_error)
+
+        return if (usefulCause is IOException) {
+            message
+        } else {
+            message
+        }
     }
 }
 

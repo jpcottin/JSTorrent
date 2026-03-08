@@ -91,6 +91,98 @@ if (typeof clearInterval === 'undefined') {
 }
 
 // ============================================================
+// AbortController / AbortSignal / DOMException
+// ============================================================
+
+if (typeof DOMException === 'undefined') {
+  class PolyfillDOMException extends Error {
+    constructor(message = '', name = 'Error') {
+      super(message)
+      this.name = name
+    }
+  }
+
+  ;(globalThis as Record<string, unknown>).DOMException = PolyfillDOMException
+}
+
+if (typeof AbortController === 'undefined' || typeof AbortSignal === 'undefined') {
+  type AbortListener = () => void
+
+  class PolyfillAbortSignal {
+    aborted = false
+    reason: unknown = undefined
+    onabort: AbortListener | null = null
+
+    private readonly listeners = new Set<AbortListener>()
+
+    addEventListener(type: string, listener: AbortListener | null, options?: { once?: boolean }): void {
+      if (type !== 'abort' || !listener) return
+
+      if (options?.once) {
+        const wrapped = () => {
+          this.listeners.delete(wrapped)
+          listener()
+        }
+        ;(wrapped as { __original?: AbortListener }).__original = listener
+        this.listeners.add(wrapped)
+        return
+      }
+
+      this.listeners.add(listener)
+    }
+
+    removeEventListener(type: string, listener: AbortListener | null): void {
+      if (type !== 'abort' || !listener) return
+
+      for (const existing of this.listeners) {
+        if (existing === listener || (existing as { __original?: AbortListener }).__original === listener) {
+          this.listeners.delete(existing)
+        }
+      }
+    }
+
+    dispatchEvent(event: { type: string }): boolean {
+      if (event.type !== 'abort') return true
+      this.fireAbort()
+      return true
+    }
+
+    throwIfAborted(): void {
+      if (this.aborted) {
+        throw this.reason instanceof Error
+          ? this.reason
+          : new DOMException('Aborted', 'AbortError')
+      }
+    }
+
+    _abort(reason?: unknown): void {
+      if (this.aborted) return
+      this.aborted = true
+      this.reason = reason ?? new DOMException('Aborted', 'AbortError')
+      this.fireAbort()
+    }
+
+    private fireAbort(): void {
+      this.onabort?.()
+      for (const listener of [...this.listeners]) {
+        listener()
+      }
+    }
+  }
+
+  class PolyfillAbortController {
+    readonly signal = new PolyfillAbortSignal()
+
+    abort(reason?: unknown): void {
+      this.signal._abort(reason)
+    }
+  }
+
+  ;(globalThis as Record<string, unknown>).AbortSignal = PolyfillAbortSignal
+  ;(globalThis as Record<string, unknown>).AbortController = PolyfillAbortController
+}
+
+// ============================================================
 // crypto.getRandomValues
 // ============================================================
 

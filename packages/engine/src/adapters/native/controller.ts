@@ -57,6 +57,10 @@ import type { InfoHashHex } from '../../utils/infohash'
 import { looksLikeBareInfoHash, bareHashToMagnet } from '../../utils/infohash'
 import type { NativeConfigHub } from './native-config-hub'
 import type { TrafficCategory } from '../../core/bandwidth-tracker'
+import {
+  createStreamingFileProvider,
+  StreamingPlaybackSession,
+} from '../../streaming/streaming-playback-session'
 import './bindings.d.ts'
 
 /**
@@ -73,10 +77,7 @@ const commandQueue: Array<() => void> = []
 const playbackSessions = new Map<
   string,
   {
-    infoHash: string
-    fileIndex: number
-    demandToken: string
-    fileLockToken: string
+    session: StreamingPlaybackSession
   }
 >()
 
@@ -141,13 +142,7 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
   const closePlaybackSessionInternal = (sessionId: string): void => {
     const session = playbackSessions.get(sessionId)
     if (!session) return
-
-    const engine = getEngine()
-    const torrent = engine?.getTorrent(session.infoHash)
-    if (torrent) {
-      torrent.updateStreamingDemand(session.demandToken, null, 'now')
-      torrent.updateStreamingFileLock(session.fileLockToken, null)
-    }
+    session.session.close()
     playbackSessions.delete(sessionId)
   }
 
@@ -857,21 +852,16 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
 
     closePlaybackSessionInternal(sessionId)
 
-    const file = torrent.files[fileIndex]
-    const demandToken = `android-player:${sessionId}:demand`
-    const fileLockToken = `android-player:${sessionId}:file-lock`
-
-    torrent.updateStreamingFileLock(fileLockToken, fileIndex)
-    playbackSessions.set(sessionId, {
-      infoHash,
-      fileIndex,
-      demandToken,
-      fileLockToken,
+    const session = new StreamingPlaybackSession(createStreamingFileProvider(torrent, fileIndex), {
+      tokenPrefix: 'android-player',
+      logPrefix: `[android-player ${sessionId}]`,
     })
+    const opened = session.open()
+    playbackSessions.set(sessionId, { session })
 
     return {
       ok: true,
-      fileSize: file.length,
+      fileSize: opened.fileSize,
     }
   }
 
@@ -884,24 +874,13 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
     offsetStr: string,
     lengthStr: string,
   ): Promise<Uint8Array> => {
-    const engine = requireEngine('playback_read')
-    if (!engine) {
+    if (!requireEngine('playback_read')) {
       throw new Error('Engine not ready')
     }
 
     const session = playbackSessions.get(sessionId)
     if (!session) {
       throw new Error('Playback session not found')
-    }
-
-    const torrent = engine.getTorrent(session.infoHash)
-    if (!torrent || !torrent.files) {
-      throw new Error('Torrent not found')
-    }
-
-    const file = torrent.files[session.fileIndex]
-    if (!file) {
-      throw new Error('File not found')
     }
 
     const offset = Number.parseInt(offsetStr, 10)
@@ -915,17 +894,16 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
       throw new Error('Invalid offset/length')
     }
 
-    if (offset >= file.length) {
-      torrent.updateStreamingDemand(session.demandToken, null, 'now')
+    if (offset >= session.session.fileSize) {
       return new Uint8Array(0)
     }
 
-    const length = Math.min(requestedLength, file.length - offset)
-    const pieces = torrent.fileBytesToPieces(session.fileIndex, offset, length)
-    torrent.updateStreamingDemand(session.demandToken, new Set(pieces), 'now')
-
-    await torrent.waitForPieces(pieces)
-    return torrent.readFileBytes(session.fileIndex, offset, length)
+    const length = Math.min(requestedLength, session.session.fileSize - offset)
+    const result = session.session.read(offset, length)
+    if (!result) {
+      throw new Error('Playback read out of range')
+    }
+    return result
   }
 
   /**
