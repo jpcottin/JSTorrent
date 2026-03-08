@@ -108,6 +108,8 @@
     <string name="player_invalid_request">Missing playback request details.</string>
     <string name="player_unknown_error">Unknown playback error.</string>
     <string name="player_close">Close</string>
+    <string name="player_enter_fullscreen">Enter fullscreen</string>
+    <string name="player_exit_fullscreen">Exit fullscreen</string>
 
     <!-- SettingsScreen -->
     <string name="settings_title">Settings</string>

@@ -2,17 +2,27 @@ package com.jstorrent.app.player
 
 import android.graphics.Color
 import android.os.Bundle
+import android.view.GestureDetector
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -25,6 +35,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +50,9 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.jstorrent.app.JSTorrentApplication
 import com.jstorrent.app.R
 import com.jstorrent.app.ui.theme.JSTorrentTheme
@@ -47,6 +61,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 class PlayerActivity : ComponentActivity() {
 
@@ -57,6 +72,7 @@ class PlayerActivity : ComponentActivity() {
     private var player by mutableStateOf<ExoPlayer?>(null)
     private var bufferingMessage by mutableStateOf<String?>(null)
     private var playerErrorMessage by mutableStateOf<String?>(null)
+    private var isFullscreen by mutableStateOf(false)
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -97,6 +113,8 @@ class PlayerActivity : ComponentActivity() {
                     player = player,
                     bufferingMessage = bufferingMessage,
                     playerErrorMessage = playerErrorMessage,
+                    isFullscreen = isFullscreen,
+                    onSetFullscreen = ::setFullscreenMode,
                     onClose = { finish() }
                 )
             }
@@ -115,6 +133,7 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         releasePlayer()
+        setFullscreenMode(false)
         super.onDestroy()
     }
 
@@ -208,8 +227,24 @@ class PlayerActivity : ComponentActivity() {
 
             if (playbackUnavailable) {
                 releasePlayer()
+                setFullscreenMode(false)
                 finish()
             }
+        }
+    }
+
+    private fun setFullscreenMode(enabled: Boolean) {
+        if (isFullscreen == enabled) return
+
+        isFullscreen = enabled
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
+        if (enabled) {
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
         }
     }
 
@@ -244,12 +279,27 @@ private fun PlayerActivityScreen(
     player: ExoPlayer?,
     bufferingMessage: String?,
     playerErrorMessage: String?,
+    isFullscreen: Boolean,
+    onSetFullscreen: (Boolean) -> Unit,
     onClose: () -> Unit
 ) {
     val title = when (state) {
         PlayerScreenState.Preparing -> stringResource(R.string.player_title)
         is PlayerScreenState.Ready -> state.fileName
         is PlayerScreenState.Error -> stringResource(R.string.player_error_title)
+    }
+
+    if (isFullscreen && state is PlayerScreenState.Ready) {
+        PlayerReadyContent(
+            modifier = Modifier.fillMaxSize(),
+            player = player,
+            bufferingMessage = bufferingMessage,
+            playerErrorMessage = playerErrorMessage,
+            isFullscreen = true,
+            onSetFullscreen = onSetFullscreen,
+            onClose = onClose
+        )
+        return
     }
 
     Scaffold(
@@ -262,6 +312,16 @@ private fun PlayerActivityScreen(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.player_close)
                         )
+                    }
+                },
+                actions = {
+                    if (state is PlayerScreenState.Ready) {
+                        IconButton(onClick = { onSetFullscreen(true) }) {
+                            Icon(
+                                imageVector = Icons.Filled.Fullscreen,
+                                contentDescription = stringResource(R.string.player_enter_fullscreen)
+                            )
+                        }
                     }
                 }
             )
@@ -279,66 +339,17 @@ private fun PlayerActivityScreen(
             }
 
             is PlayerScreenState.Ready -> {
-                Box(
+                PlayerReadyContent(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding)
-                        .background(MaterialTheme.colorScheme.surface)
-                ) {
-                    player?.let { exoPlayer ->
-                        AndroidView(
-                            modifier = Modifier.fillMaxSize(),
-                            factory = { context ->
-                                PlayerView(context).apply {
-                                    this.player = exoPlayer
-                                    useController = true
-                                    setShutterBackgroundColor(Color.BLACK)
-                                    keepScreenOn = true
-                                }
-                            },
-                            update = { view ->
-                                view.player = exoPlayer
-                            }
-                        )
-                    }
-
-                    if (bufferingMessage != null) {
-                        LoadingState(
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .padding(24.dp),
-                            title = stringResource(R.string.player_loading_video),
-                            message = bufferingMessage
-                        )
-                    }
-
-                    if (playerErrorMessage != null) {
-                        Surface(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(16.dp),
-                            color = MaterialTheme.colorScheme.errorContainer,
-                            tonalElevation = 4.dp
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.player_playback_failed),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = playerErrorMessage,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                            }
-                        }
-                    }
-                }
+                        .padding(innerPadding),
+                    player = player,
+                    bufferingMessage = bufferingMessage,
+                    playerErrorMessage = playerErrorMessage,
+                    isFullscreen = false,
+                    onSetFullscreen = onSetFullscreen,
+                    onClose = onClose
+                )
             }
 
             is PlayerScreenState.Error -> {
@@ -351,6 +362,172 @@ private fun PlayerActivityScreen(
                     showSpinner = false
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun PlayerReadyContent(
+    modifier: Modifier = Modifier,
+    player: ExoPlayer?,
+    bufferingMessage: String?,
+    playerErrorMessage: String?,
+    isFullscreen: Boolean,
+    onSetFullscreen: (Boolean) -> Unit,
+    onClose: () -> Unit
+) {
+    val currentOnSetFullscreen = rememberUpdatedState(onSetFullscreen)
+
+    BackHandler(enabled = isFullscreen) {
+        currentOnSetFullscreen.value(false)
+    }
+
+    Box(
+        modifier = modifier.background(MaterialTheme.colorScheme.surface)
+    ) {
+        player?.let { exoPlayer ->
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { context ->
+                    val density = context.resources.displayMetrics.density
+                    val swipeDistanceThreshold = 72f * density
+                    val swipeVelocityThreshold = 240f * density
+                    val gestureDetector = GestureDetector(
+                        context,
+                        object : GestureDetector.SimpleOnGestureListener() {
+                            override fun onDown(e: MotionEvent): Boolean = true
+
+                            override fun onFling(
+                                e1: MotionEvent?,
+                                e2: MotionEvent,
+                                velocityX: Float,
+                                velocityY: Float
+                            ): Boolean {
+                                val start = e1 ?: return false
+                                val deltaX = e2.x - start.x
+                                val deltaY = e2.y - start.y
+                                if (abs(deltaY) <= abs(deltaX)) return false
+                                if (abs(deltaY) < swipeDistanceThreshold) return false
+                                if (abs(velocityY) < swipeVelocityThreshold) return false
+
+                                if (deltaY < 0f) {
+                                    currentOnSetFullscreen.value(true)
+                                    return true
+                                }
+
+                                currentOnSetFullscreen.value(false)
+                                return true
+                            }
+                        }
+                    )
+
+                    PlayerView(context).apply {
+                        this.player = exoPlayer
+                        useController = true
+                        setShutterBackgroundColor(Color.BLACK)
+                        keepScreenOn = true
+                        setOnTouchListener { _, event ->
+                            gestureDetector.onTouchEvent(event)
+                            false
+                        }
+                    }
+                },
+                update = { view ->
+                    view.player = exoPlayer
+                }
+            )
+        }
+
+        if (isFullscreen) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                PlayerOverlayButton(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.player_close),
+                    onClick = onClose
+                )
+                PlayerOverlayButton(
+                    icon = Icons.Filled.FullscreenExit,
+                    contentDescription = stringResource(R.string.player_exit_fullscreen),
+                    onClick = { onSetFullscreen(false) }
+                )
+            }
+        } else {
+            PlayerOverlayButton(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(16.dp),
+                icon = Icons.Filled.Fullscreen,
+                contentDescription = stringResource(R.string.player_enter_fullscreen),
+                onClick = { onSetFullscreen(true) }
+            )
+        }
+
+        if (bufferingMessage != null) {
+            LoadingState(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp),
+                title = stringResource(R.string.player_loading_video),
+                message = bufferingMessage
+            )
+        }
+
+        if (playerErrorMessage != null) {
+            Surface(
+                modifier = Modifier
+                    .align(if (isFullscreen) Alignment.TopStart else Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(16.dp),
+                color = MaterialTheme.colorScheme.errorContainer,
+                tonalElevation = 4.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.player_playback_failed),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = playerErrorMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerOverlayButton(
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        tonalElevation = 4.dp
+    ) {
+        IconButton(onClick = onClick) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription
+            )
         }
     }
 }
