@@ -180,6 +180,37 @@ describe('TorrentSource', () => {
     expect(mockTorrent.updateStreamingDemand.mock.calls[1]).toEqual([token, null, 'now'])
   })
 
+  it('reuses one tokenized demand window across reads sharing the same current signal', async () => {
+    mockTorrent = createMockTorrent({
+      fileLength: 65536,
+      availablePieces: new Set([0, 1, 2, 3]),
+      includeTokenizedDemandApi: true,
+      includeStreamingFileLockApi: true,
+    })
+
+    const source = createTorrentSource(MockSourceBase, mockTorrent as unknown as Torrent, 0)
+    const firstController = new AbortController()
+    source.setCurrentSignal(firstController.signal)
+
+    await source._read(0, 100)
+    await source._read(20000, 33000)
+
+    expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(2)
+    const [firstToken, firstPieces, firstUrgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    const [secondToken, secondPieces, secondUrgency] =
+      mockTorrent.updateStreamingDemand.mock.calls[1]
+    expect(firstToken).toMatch(/^torrent-source:/)
+    expect(secondToken).toBe(firstToken)
+    expect(firstPieces).toEqual(new Set([0]))
+    expect(secondPieces).toEqual(new Set([0, 1, 2]))
+    expect(firstUrgency).toBe('now')
+    expect(secondUrgency).toBe('now')
+
+    source.setCurrentSignal(new AbortController().signal)
+
+    expect(mockTorrent.updateStreamingDemand.mock.calls[2]).toEqual([firstToken, null, 'now'])
+  })
+
   it('waits for missing pieces then resolves with correct bytes', async () => {
     // No pieces available initially
     mockTorrent = createMockTorrent({

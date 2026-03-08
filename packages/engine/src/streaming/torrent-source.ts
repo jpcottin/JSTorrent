@@ -188,6 +188,43 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
   const fileLockToken = `torrent-source-file:${nextStreamingDemandId++}`
   let fileLockActive = false
 
+  interface SignalDemandScope {
+    token: string
+    pieces: Set<number>
+    abortListener: () => void
+  }
+
+  const signalDemandScopes = new Map<AbortSignal, SignalDemandScope>()
+
+  const clearSignalDemandScope = (signal: AbortSignal | null | undefined): void => {
+    if (!signal) return
+    const scope = signalDemandScopes.get(signal)
+    if (!scope) return
+    signal.removeEventListener('abort', scope.abortListener)
+    signalDemandScopes.delete(signal)
+    provider.updateStreamingDemand?.(scope.token, null, 'now')
+  }
+
+  const getSignalDemandScope = (signal: AbortSignal): SignalDemandScope | null => {
+    if (signal.aborted) return null
+
+    const existing = signalDemandScopes.get(signal)
+    if (existing) return existing
+
+    const token = `torrent-source:${nextStreamingDemandId++}`
+    const abortListener = () => {
+      clearSignalDemandScope(signal)
+    }
+    const scope: SignalDemandScope = {
+      token,
+      pieces: new Set<number>(),
+      abortListener,
+    }
+    signal.addEventListener('abort', abortListener, { once: true })
+    signalDemandScopes.set(signal, scope)
+    return scope
+  }
+
   // Create a concrete subclass that implements the abstract methods
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   class TorrentSource extends (SourceClass as abstract new () => any) {
@@ -195,6 +232,8 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
     currentSignal: AbortSignal | null = null
 
     setCurrentSignal(signal: AbortSignal | null): void {
+      if (this.currentSignal === signal) return
+      clearSignalDemandScope(this.currentSignal)
       this.currentSignal = signal
     }
 
@@ -230,8 +269,17 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
         fileLockActive = true
       }
 
-      const demandToken = `torrent-source:${nextStreamingDemandId++}`
-      if (provider.updateStreamingDemand) {
+      const signalDemandScope =
+        provider.updateStreamingDemand && effectiveSignal
+          ? getSignalDemandScope(effectiveSignal)
+          : null
+      const demandToken = signalDemandScope?.token ?? `torrent-source:${nextStreamingDemandId++}`
+      if (signalDemandScope) {
+        for (const piece of pieces) {
+          signalDemandScope.pieces.add(piece)
+        }
+        provider.updateStreamingDemand(demandToken, new Set(signalDemandScope.pieces), 'now')
+      } else if (provider.updateStreamingDemand) {
         provider.updateStreamingDemand(demandToken, new Set(pieces), 'now')
       } else {
         provider.setStreamingPieces(new Set(pieces))
@@ -242,9 +290,9 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
         console.log(
           `[torrent-source] abort start=${start} end=${end} len=${length} ${summarizePieces(pieces)}`,
         )
-        if (provider.updateStreamingDemand) {
+        if (!signalDemandScope && provider.updateStreamingDemand) {
           provider.updateStreamingDemand(demandToken, null, 'now')
-        } else {
+        } else if (!provider.updateStreamingDemand) {
           provider.setStreamingPieces(null)
         }
         readController.abort()
@@ -284,7 +332,7 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
         .finally(() => {
           effectiveSignal?.removeEventListener('abort', abortRead)
           disposeController.signal.removeEventListener('abort', abortRead)
-          if (!readController.signal.aborted) {
+          if (!readController.signal.aborted && !signalDemandScope) {
             if (provider.updateStreamingDemand) {
               provider.updateStreamingDemand(demandToken, null, 'now')
             }
@@ -299,6 +347,9 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
       if (provider.updateStreamingFileLock && fileLockActive) {
         provider.updateStreamingFileLock(fileLockToken, false)
         fileLockActive = false
+      }
+      for (const signal of signalDemandScopes.keys()) {
+        clearSignalDemandScope(signal)
       }
       provider.setStreamingPieces(null)
       disposeController.abort()
