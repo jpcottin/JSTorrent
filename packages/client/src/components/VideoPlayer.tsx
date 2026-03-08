@@ -23,12 +23,14 @@ export function VideoPlayer({
   showCloseButton = true,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const fullscreenTargetRef = useRef<HTMLDivElement>(null)
   const engineRef = useRef<PlaysVideoEngine | null>(null)
   const [state, setState] = useState<{
     phase: 'loading' | 'ready' | 'error'
     errorMessage: string | null
     provider: StreamingFileProvider
   }>({ phase: 'loading', errorMessage: null, provider })
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   // Reset state when provider changes (avoids setState in effect body)
   if (state.provider !== provider) {
@@ -95,14 +97,88 @@ export function VideoPlayer({
     }
   }, [fileName, provider])
 
+  const toggleFullscreen = async () => {
+    const target = fullscreenTargetRef.current
+    const video = videoRef.current
+    if (!target && !video) return
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen()
+        return
+      }
+
+      if (target?.requestFullscreen) {
+        await target.requestFullscreen()
+        return
+      }
+
+      const webkitVideo = video as HTMLVideoElement & {
+        webkitEnterFullscreen?: () => void
+      }
+      webkitVideo.webkitEnterFullscreen?.()
+    } catch (error) {
+      console.warn('[VideoPlayer] fullscreen failed', error)
+    }
+  }
+
   // Close on Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target
+      const isEditableTarget =
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT')
+
+      if (e.key === 'Escape' && document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => {})
+        return
+      }
+
+      if (!isEditableTarget && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        void toggleFullscreen()
+        return
+      }
+
       if (closeOnEscape && e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [closeOnEscape, onClose])
+  }, [closeOnEscape, onClose, toggleFullscreen])
+
+  useEffect(() => {
+    const video = videoRef.current
+
+    const handleFullscreenChange = () => {
+      const fullscreenElement = document.fullscreenElement
+      const target = fullscreenTargetRef.current
+      setIsFullscreen(Boolean(target && fullscreenElement && target.contains(fullscreenElement)))
+    }
+
+    const handleWebkitBeginFullscreen = () => {
+      setIsFullscreen(true)
+    }
+
+    const handleWebkitEndFullscreen = () => {
+      setIsFullscreen(false)
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    video?.addEventListener('webkitbeginfullscreen', handleWebkitBeginFullscreen as EventListener)
+    video?.addEventListener('webkitendfullscreen', handleWebkitEndFullscreen as EventListener)
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      video?.removeEventListener(
+        'webkitbeginfullscreen',
+        handleWebkitBeginFullscreen as EventListener,
+      )
+      video?.removeEventListener('webkitendfullscreen', handleWebkitEndFullscreen as EventListener)
+    }
+  }, [])
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (closeOnBackdrop && e.target === e.currentTarget) onClose()
@@ -119,11 +195,25 @@ export function VideoPlayer({
       <div style={contentStyle}>
         <div style={headerStyle}>
           <div style={fileNameStyle}>{fileName}</div>
+          <button
+            type="button"
+            style={secondaryButtonStyle}
+            onClick={() => void toggleFullscreen()}
+            title={isFullscreen ? 'Exit fullscreen (F)' : 'Enter fullscreen (F)'}
+          >
+            {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+          </button>
         </div>
 
         <VideoPieceTimeline provider={provider} />
 
-        <div style={mediaAreaStyle}>
+        <div
+          ref={fullscreenTargetRef}
+          style={{
+            ...mediaAreaStyle,
+            ...(isFullscreen ? fullscreenMediaAreaStyle : null),
+          }}
+        >
           {phase === 'loading' && <div style={statusStyle}>Loading {fileName}...</div>}
 
           {phase === 'error' && (
@@ -140,6 +230,7 @@ export function VideoPlayer({
             autoPlay
             style={{
               ...videoStyle,
+              ...(isFullscreen ? fullscreenVideoStyle : null),
               display: phase === 'ready' ? 'block' : 'none',
             }}
           />
@@ -184,6 +275,18 @@ const fileNameStyle: React.CSSProperties = {
   wordBreak: 'break-word',
 }
 
+const secondaryButtonStyle: React.CSSProperties = {
+  appearance: 'none',
+  border: '1px solid rgba(255, 255, 255, 0.18)',
+  background: 'rgba(255, 255, 255, 0.08)',
+  color: '#fff',
+  borderRadius: '999px',
+  padding: '8px 14px',
+  fontSize: '13px',
+  fontWeight: 600,
+  cursor: 'pointer',
+}
+
 const closeButtonStyle: React.CSSProperties = {
   position: 'absolute',
   top: '16px',
@@ -207,6 +310,16 @@ const mediaAreaStyle: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   minHeight: '220px',
+  background: '#000',
+  borderRadius: '8px',
+  overflow: 'hidden',
+}
+
+const fullscreenMediaAreaStyle: React.CSSProperties = {
+  width: '100%',
+  height: '100%',
+  minHeight: '100%',
+  borderRadius: 0,
 }
 
 const videoStyle: React.CSSProperties = {
@@ -215,6 +328,15 @@ const videoStyle: React.CSSProperties = {
   maxHeight: '78vh',
   borderRadius: '8px',
   background: '#000',
+}
+
+const fullscreenVideoStyle: React.CSSProperties = {
+  width: '100%',
+  height: '100%',
+  maxWidth: '100%',
+  maxHeight: '100%',
+  borderRadius: 0,
+  objectFit: 'contain',
 }
 
 const statusStyle: React.CSSProperties = {

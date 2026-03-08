@@ -19,6 +19,7 @@
         "backgroundThrottling": "disabled"
       }
     ],
+    "macOSPrivateApi": true,
     "security": {
       "csp": null
     }
