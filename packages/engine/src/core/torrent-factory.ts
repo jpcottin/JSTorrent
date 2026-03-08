@@ -26,6 +26,7 @@ export interface ParsedTorrentInput {
   // From magnet link
   magnetDisplayName?: string
   magnetPeerHints?: PeerAddress[]
+  magnetSelectOnly?: number[]
 
   // From torrent file (has metadata)
   infoBuffer?: Uint8Array
@@ -59,6 +60,7 @@ export async function parseTorrentInput(
       magnetLink,
       magnetDisplayName: parsed.name,
       magnetPeerHints: parsed.peers,
+      magnetSelectOnly: parsed.selectOnly,
     }
   } else {
     // Parse torrent file

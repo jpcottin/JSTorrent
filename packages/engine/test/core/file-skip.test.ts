@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { BtEngine } from '../../src/core/bt-engine'
+import { TorrentParser } from '../../src/core/torrent-parser'
 import { InMemoryFileSystem } from '../../src/adapters/memory'
 import { ISocketFactory } from '../../src/interfaces/socket'
 import { Bencode } from '../../src/utils/bencode'
@@ -424,6 +425,34 @@ describe('File Skip Prevention', () => {
       // No metadata - operations should fail gracefully
       expect(torrent.setFilePriority(0, 1)).toBe(false)
       expect(torrent.isFileComplete(0)).toBe(false)
+    })
+
+    it('applies magnet select-only file priorities after metadata arrives', async () => {
+      const buffer = createMultiFileTorrent({
+        name: 'test-folder',
+        files: [
+          { path: 'a.txt', length: 16384 },
+          { path: 'b.txt', length: 16384 },
+          { path: 'c.txt', length: 16384 },
+          { path: 'd.txt', length: 16384 },
+        ],
+        pieceLength: 16384,
+      })
+
+      const parsed = await TorrentParser.parse(buffer, engine.hasher)
+      const infoHash = Buffer.from(parsed.infoHash).toString('hex')
+      const magnetLink = `magnet:?xt=urn:btih:${infoHash}&so=1,3`
+
+      const { torrent } = await engine.addTorrent(magnetLink)
+      if (!torrent) throw new Error('Torrent is null')
+
+      torrent.emit('metadata', parsed.infoBuffer)
+
+      await vi.waitFor(() => {
+        expect(torrent.hasMetadata).toBe(true)
+      })
+
+      expect(torrent.filePriorities).toEqual([1, 0, 1, 0])
     })
   })
 })

@@ -871,7 +871,9 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     // Set up metadata event handler for magnet links
     torrent.on('metadata', async (infoBuffer) => {
       try {
-        await initializeTorrentMetadata(this, torrent, infoBuffer)
+        await initializeTorrentMetadata(this, torrent, infoBuffer, undefined, {
+          magnetSelectOnly: input.magnetSelectOnly,
+        })
 
         // Save infodict for future restores
         await this.sessionPersistence.saveInfoDict(input.infoHashStr, infoBuffer)

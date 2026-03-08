@@ -8,6 +8,7 @@ export interface ParsedMagnet {
   announce?: string[]
   urlList?: string[]
   peers?: PeerAddress[]
+  selectOnly?: number[]
 }
 
 export interface GenerateMagnetOptions {
@@ -89,6 +90,35 @@ function parseMagnetQuery(uri: string): {
   }
 }
 
+function parseSelectOnly(raw: string[]): number[] | undefined {
+  const selected = new Set<number>()
+
+  for (const entry of raw) {
+    for (const token of entry.split(',')) {
+      const trimmed = token.trim()
+      if (!trimmed) continue
+
+      const rangeMatch = /^(\d+)-(\d+)$/.exec(trimmed)
+      if (rangeMatch) {
+        const start = Number.parseInt(rangeMatch[1], 10)
+        const end = Number.parseInt(rangeMatch[2], 10)
+        if (start > end) continue
+        for (let index = start; index <= end; index++) {
+          selected.add(index)
+        }
+        continue
+      }
+
+      if (/^\d+$/.test(trimmed)) {
+        selected.add(Number.parseInt(trimmed, 10))
+      }
+    }
+  }
+
+  if (selected.size === 0) return undefined
+  return Array.from(selected).sort((a, b) => a - b)
+}
+
 export function parseMagnet(uri: string): ParsedMagnet {
   if (!uri.startsWith('magnet:')) {
     throw new Error('Invalid magnet URI')
@@ -105,6 +135,7 @@ export function parseMagnet(uri: string): ParsedMagnet {
   const name = params.get('dn') || undefined
   const announce = params.getAll('tr')
   const urlList = params.getAll('ws') // web seeds
+  const selectOnly = parseSelectOnly(params.getAll('so'))
 
   // Parse peer hints (x.pe parameter)
   const peerHints = params.getAll('x.pe')
@@ -122,6 +153,7 @@ export function parseMagnet(uri: string): ParsedMagnet {
     announce: announce.length > 0 ? announce : undefined,
     urlList: urlList.length > 0 ? urlList : undefined,
     peers: peers.length > 0 ? peers : undefined,
+    selectOnly,
   }
 }
 

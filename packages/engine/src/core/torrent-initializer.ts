@@ -25,6 +25,7 @@ export async function initializeTorrentMetadata(
   torrent: Torrent,
   infoBuffer: Uint8Array,
   preParsed?: ParsedTorrent,
+  options?: { magnetSelectOnly?: number[] },
 ): Promise<void> {
   if (torrent.hasMetadata) {
     return // Already initialized
@@ -107,6 +108,18 @@ export async function initializeTorrentMetadata(
   // Restore file priorities from saved state if available
   if (savedState?.filePriorities) {
     torrent.restoreFilePriorities(savedState.filePriorities)
+  } else if (options?.magnetSelectOnly && options.magnetSelectOnly.length > 0) {
+    const selectedIndices = new Set(
+      options.magnetSelectOnly.filter((index) => index >= 0 && index < parsedTorrent.files.length),
+    )
+    if (selectedIndices.size > 0) {
+      const filePriorities = new Array(parsedTorrent.files.length).fill(1)
+      for (const index of selectedIndices) {
+        filePriorities[index] = 0
+      }
+      torrent.restoreFilePriorities(filePriorities)
+      engine.sessionPersistence.saveTorrentState(torrent)
+    }
   }
 
   // Initialize .parts file for boundary pieces
