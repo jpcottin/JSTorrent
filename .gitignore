@@ -17,6 +17,7 @@ magnet-link.txt
 
 # Node
 node_modules
+.pnpmfile.cjs
 dist
 coverage
 .env
