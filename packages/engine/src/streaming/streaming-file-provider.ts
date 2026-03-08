@@ -17,6 +17,11 @@ export interface StreamingFileProvider {
   readonly fileSize: number
   fileBytesToPieces(offset: number, length: number): number[]
   setStreamingPieces(pieces: Set<number> | null): void
+  updateStreamingDemand?(
+    token: string,
+    pieces: Set<number> | null,
+    urgency?: 'metadata' | 'next' | 'now',
+  ): void
   waitForPieces(pieceIndices: number[], signal?: AbortSignal): Promise<void>
   readFileBytes(offset: number, length: number): Promise<Uint8Array>
   buildPrebuiltKeyframeIndex?(): Promise<PrebuiltKeyframeIndex | null>

@@ -52,6 +52,8 @@ function summarizePieces(pieces: number[]): string {
   return `pieces=${pieces[0]}..${pieces[pieces.length - 1]} (${pieces.length})`
 }
 
+let nextStreamingDemandId = 0
+
 /**
  * Create a StreamingFileProvider from a Torrent + fileIndex.
  *
@@ -73,6 +75,10 @@ export function createStreamingFileProvider(
     },
     fileBytesToPieces: (offset, length) => torrent.fileBytesToPieces(fileIndex, offset, length),
     setStreamingPieces: (pieces) => torrent.setStreamingPieces(pieces),
+    updateStreamingDemand:
+      'updateStreamingDemand' in torrent
+        ? (token, pieces, urgency) => torrent.updateStreamingDemand(token, pieces, urgency)
+        : undefined,
     waitForPieces: (indices, signal) => torrent.waitForPieces(indices, signal),
     readFileBytes: (offset, length) => torrent.readFileBytes(fileIndex, offset, length),
     buildPrebuiltKeyframeIndex: () => {
@@ -153,15 +159,23 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
         `[torrent-source] read start=${start} end=${end} len=${length} ${summarizePieces(pieces)}`,
       )
 
-      // Prioritize these pieces for streaming download
-      provider.setStreamingPieces(new Set(pieces))
+      const demandToken = `torrent-source:${nextStreamingDemandId++}`
+      if (provider.updateStreamingDemand) {
+        provider.updateStreamingDemand(demandToken, new Set(pieces), 'now')
+      } else {
+        provider.setStreamingPieces(new Set(pieces))
+      }
 
       const readController = new AbortController()
       const abortRead = () => {
         console.log(
           `[torrent-source] abort start=${start} end=${end} len=${length} ${summarizePieces(pieces)}`,
         )
-        provider.setStreamingPieces(null)
+        if (provider.updateStreamingDemand) {
+          provider.updateStreamingDemand(demandToken, null, 'now')
+        } else {
+          provider.setStreamingPieces(null)
+        }
         readController.abort()
       }
 
@@ -199,6 +213,11 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
         .finally(() => {
           effectiveSignal?.removeEventListener('abort', abortRead)
           disposeController.signal.removeEventListener('abort', abortRead)
+          if (!readController.signal.aborted) {
+            if (provider.updateStreamingDemand) {
+              provider.updateStreamingDemand(demandToken, null, 'now')
+            }
+          }
         })
     }
 

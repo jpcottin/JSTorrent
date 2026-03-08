@@ -24,6 +24,12 @@ interface HostPendingWait {
 type HostMessage =
   | { type: 'setStreamingPieces'; pieces: number[] | null }
   | {
+      type: 'updateStreamingDemand'
+      token: string
+      pieces: number[] | null
+      urgency?: 'metadata' | 'next' | 'now'
+    }
+  | {
       type: 'call'
       id: string
       method: 'waitForPieces' | 'readFileBytes' | 'buildPrebuiltKeyframeIndex'
@@ -119,6 +125,19 @@ export function createVideoPopupSessionHost(
 
     if (message.type === 'setStreamingPieces') {
       provider.setStreamingPieces(message.pieces ? new Set(message.pieces) : null)
+      return
+    }
+
+    if (message.type === 'updateStreamingDemand') {
+      if (provider.updateStreamingDemand) {
+        provider.updateStreamingDemand(
+          message.token,
+          message.pieces ? new Set(message.pieces) : null,
+          message.urgency,
+        )
+      } else {
+        provider.setStreamingPieces(message.pieces ? new Set(message.pieces) : null)
+      }
       return
     }
 
@@ -310,6 +329,15 @@ export function createRemoteStreamingFileProvider(
         channel.postMessage({
           type: 'setStreamingPieces',
           pieces: pieces ? [...pieces] : null,
+        } satisfies HostMessage)
+      },
+      updateStreamingDemand: (token, pieces, urgency) => {
+        if (disposed) return
+        channel.postMessage({
+          type: 'updateStreamingDemand',
+          token,
+          pieces: pieces ? [...pieces] : null,
+          urgency,
         } satisfies HostMessage)
       },
       waitForPieces: (pieceIndices, signal) =>

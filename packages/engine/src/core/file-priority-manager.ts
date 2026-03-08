@@ -96,7 +96,7 @@ export class FilePriorityManager extends EngineComponent {
     return this._pieceClassification
   }
 
-  /** Get per-piece priority (0=skip, 1=normal, 2=high). */
+  /** Get per-piece priority (0=skip, 4=normal, 6=file-high, 7=streaming-high). */
   get piecePriority(): Uint8Array | null {
     return this._piecePriority
   }
@@ -296,7 +296,7 @@ export class FilePriorityManager extends EngineComponent {
 
   /**
    * Set which pieces should be downloaded with high priority for streaming.
-   * These pieces get priority 2 (high) regardless of file priorities.
+   * These pieces get priority 7 regardless of file priorities.
    * Pass null to clear streaming priorities.
    */
   setStreamingPieces(pieces: Set<number> | null): void {
@@ -382,9 +382,9 @@ export class FilePriorityManager extends EngineComponent {
   /**
    * Recompute piece priorities from file priorities.
    * Piece priority = max(priority of files it touches), mapped as:
-   *   - File priority 0 (normal) -> contributes piece priority 1
+   *   - File priority 0 (normal) -> contributes piece priority 4
    *   - File priority 1 (skip) -> contributes piece priority 0
-   *   - File priority 2 (high) -> contributes piece priority 2
+   *   - File priority 2 (high) -> contributes piece priority 6
    */
   private recomputePiecePriority(): void {
     if (!this.hasMetadata()) {
@@ -422,27 +422,27 @@ export class FilePriorityManager extends EngineComponent {
           // Map file priority to piece priority contribution
           let contribution = 0
           if (filePriority === 2) {
-            contribution = 2 // High priority
+            contribution = 6 // High priority
           } else if (filePriority === 0) {
-            contribution = 1 // Normal priority
+            contribution = 4 // Normal priority
           }
           // filePriority === 1 (skip) contributes 0
 
           maxPriority = Math.max(maxPriority, contribution)
 
           // Early exit if we hit high priority (can't go higher)
-          if (maxPriority === 2) break
+          if (maxPriority === 6) break
         }
       }
 
       this._piecePriority[pieceIndex] = maxPriority
     }
 
-    // Overlay streaming pieces with priority 2
+    // Overlay streaming pieces with priority 7
     if (this._streamingPieces) {
       for (const pieceIndex of this._streamingPieces) {
         if (pieceIndex < piecesCount && this._piecePriority[pieceIndex] > 0) {
-          this._piecePriority[pieceIndex] = 2
+          this._piecePriority[pieceIndex] = 7
         }
       }
     }
@@ -454,7 +454,7 @@ export class FilePriorityManager extends EngineComponent {
     for (let i = 0; i < piecesCount; i++) {
       const p = this._piecePriority[i]
       if (p === 0) skip++
-      else if (p === 1) normal++
+      else if (p <= 4) normal++
       else high++
     }
     if (high > 0) {

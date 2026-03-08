@@ -7,6 +7,11 @@ export interface RequestInfo {
   timestamp: number
 }
 
+export interface RequestEntry {
+  blockIndex: number
+  peerId: string
+}
+
 export interface BlockInfo {
   begin: number
   length: number
@@ -502,6 +507,20 @@ export class ActivePiece {
   getOtherRequesters(blockIndex: number, excludePeerId: string): string[] {
     const requests = this.blockRequests.get(blockIndex) ?? []
     return requests.filter((r) => r.peerId !== excludePeerId).map((r) => r.peerId)
+  }
+
+  /**
+   * Snapshot all outstanding requests on this piece.
+   * Used by streaming preemption to cancel non-critical work.
+   */
+  getRequestEntries(): RequestEntry[] {
+    const entries: RequestEntry[] = []
+    for (const [blockIndex, requests] of this.blockRequests) {
+      for (const request of requests) {
+        entries.push({ blockIndex, peerId: request.peerId })
+      }
+    }
+    return entries
   }
 
   // --- Assembly ---

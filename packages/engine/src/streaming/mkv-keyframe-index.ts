@@ -12,6 +12,27 @@ import type { PrebuiltKeyframeIndex } from './streaming-file-provider'
 
 export type { MkvCuePoint }
 
+function updateStreamingDemand(
+  torrent: Torrent,
+  token: string,
+  pieces: Set<number> | null,
+  urgency: 'metadata' | 'next' | 'now',
+): void {
+  const streamingTorrent = torrent as Torrent & {
+    updateStreamingDemand?: (
+      token: string,
+      pieces: Set<number> | null,
+      urgency?: 'metadata' | 'next' | 'now',
+    ) => void
+  }
+
+  if (typeof streamingTorrent.updateStreamingDemand === 'function') {
+    streamingTorrent.updateStreamingDemand(token, pieces, urgency)
+  } else {
+    torrent.setStreamingPieces(pieces)
+  }
+}
+
 /**
  * Check if a filename has an MKV or WebM extension.
  * Both use the Matroska container (EBML) and have Cues elements.
@@ -44,11 +65,12 @@ export async function buildMkvKeyframeIndex(
   }
 
   const fileSize = file.length
+  const demandToken = `mkv-index:${fileIndex}:${Date.now()}`
 
   const read = async (start: number, end: number): Promise<Uint8Array> => {
     const length = end - start
     const pieces = torrent.fileBytesToPieces(fileIndex, start, length)
-    torrent.setStreamingPieces(new Set(pieces))
+    updateStreamingDemand(torrent, demandToken, new Set(pieces), 'metadata')
     await torrent.waitForPieces(pieces, signal)
     return torrent.readFileBytes(fileIndex, start, length)
   }
@@ -56,7 +78,7 @@ export async function buildMkvKeyframeIndex(
   try {
     return await parseMkvCues(read, fileSize)
   } finally {
-    torrent.setStreamingPieces(null)
+    updateStreamingDemand(torrent, demandToken, null, 'metadata')
   }
 }
 
@@ -71,11 +93,12 @@ export async function buildMkvPrebuiltKeyframeIndex(
   }
 
   const fileSize = file.length
+  const demandToken = `mkv-prebuilt-index:${fileIndex}:${Date.now()}`
 
   const read = async (start: number, end: number): Promise<Uint8Array> => {
     const length = end - start
     const pieces = torrent.fileBytesToPieces(fileIndex, start, length)
-    torrent.setStreamingPieces(new Set(pieces))
+    updateStreamingDemand(torrent, demandToken, new Set(pieces), 'metadata')
     await torrent.waitForPieces(pieces, signal)
     return torrent.readFileBytes(fileIndex, start, length)
   }
@@ -93,6 +116,6 @@ export async function buildMkvPrebuiltKeyframeIndex(
       keyframeTimestampsSec: parsed.cuePoints.map((cue) => cue.timestampMs / 1000),
     }
   } finally {
-    torrent.setStreamingPieces(null)
+    updateStreamingDemand(torrent, demandToken, null, 'metadata')
   }
 }

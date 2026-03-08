@@ -81,6 +81,7 @@ describe('video popup session transport', () => {
       fileSize: 100,
       fileBytesToPieces: (_offset, _length) => [0],
       setStreamingPieces: vi.fn(),
+      updateStreamingDemand: vi.fn(),
       waitForPieces: vi.fn().mockResolvedValue(undefined),
       readFileBytes: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4])),
       buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(null),
@@ -99,11 +100,13 @@ describe('video popup session transport', () => {
     )
 
     remote.provider.setStreamingPieces(new Set([4, 5]))
+    remote.provider.updateStreamingDemand?.('player', new Set([6, 7]), 'now')
     await Promise.resolve()
     await remote.provider.waitForPieces([4, 5])
     const bytes = await remote.provider.readFileBytes(10, 4)
 
     expect(provider.setStreamingPieces).toHaveBeenCalledWith(new Set([4, 5]))
+    expect(provider.updateStreamingDemand).toHaveBeenCalledWith('player', new Set([6, 7]), 'now')
     expect(provider.waitForPieces).toHaveBeenCalledWith([4, 5], expect.any(AbortSignal))
     expect(provider.readFileBytes).toHaveBeenCalledWith(10, 4)
     expect([...bytes]).toEqual([1, 2, 3, 4])
@@ -117,6 +120,7 @@ describe('video popup session transport', () => {
       fileSize: 100,
       fileBytesToPieces: (_offset, _length) => [0],
       setStreamingPieces: vi.fn(),
+      updateStreamingDemand: vi.fn(),
       waitForPieces: vi.fn().mockResolvedValue(undefined),
       readFileBytes: vi.fn().mockResolvedValue(new Uint8Array([1])),
       buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(null),
@@ -150,6 +154,7 @@ describe('video popup session transport', () => {
       fileSize: 100,
       fileBytesToPieces: (_offset, _length) => [0],
       setStreamingPieces: vi.fn(),
+      updateStreamingDemand: vi.fn(),
       waitForPieces: vi.fn().mockResolvedValue(undefined),
       readFileBytes: vi.fn().mockResolvedValue(new Uint8Array([1])),
       buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(index),
@@ -169,6 +174,37 @@ describe('video popup session transport', () => {
 
     await expect(remote.provider.buildPrebuiltKeyframeIndex?.()).resolves.toEqual(index)
     expect(provider.buildPrebuiltKeyframeIndex).toHaveBeenCalledTimes(1)
+
+    remote.dispose()
+    host.dispose()
+  })
+
+  it('falls back to setStreamingPieces when host provider lacks tokenized demand API', async () => {
+    const provider: StreamingFileProvider = {
+      fileSize: 100,
+      fileBytesToPieces: (_offset, _length) => [0],
+      setStreamingPieces: vi.fn(),
+      waitForPieces: vi.fn().mockResolvedValue(undefined),
+      readFileBytes: vi.fn().mockResolvedValue(new Uint8Array([1])),
+      buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(null),
+    }
+
+    const host = createVideoPopupSessionHost('session-fallback', provider, createChannel)
+    const remote = createRemoteStreamingFileProvider(
+      {
+        sessionId: 'session-fallback',
+        fileName: 'movie.mkv',
+        fileSize: 100,
+        fileOffset: 0,
+        pieceLength: 16_384,
+      },
+      { createChannel },
+    )
+
+    remote.provider.updateStreamingDemand?.('metadata', new Set([1]), 'metadata')
+    await Promise.resolve()
+
+    expect(provider.setStreamingPieces).toHaveBeenCalledWith(new Set([1]))
 
     remote.dispose()
     host.dispose()

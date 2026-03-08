@@ -79,6 +79,7 @@ export interface TickLoopCallbacks {
   getMaxPipelineDepth(): number
 
   // Actions
+  applyStreamingPlan?(): void
   requestPieces(peer: PeerConnection, now: number): void
   requestConnections(infoHashStr: string, count: number): void
   fillSendBuffers(peers: PeerConnection[]): void
@@ -314,6 +315,8 @@ export class TorrentTickLoop extends EngineComponent {
       this._cleanupTickCounter = 0
       this.cleanupStuckPieces()
     }
+
+    this.callbacks.applyStreamingPlan?.()
 
     // === Phase 3: REQUEST - fill peer request pipelines ===
     const phase3Start = Date.now()

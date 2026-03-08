@@ -52,6 +52,11 @@ import { TorrentUploader } from './torrent-uploader'
 import { FilePriorityManager, PieceClassification } from './file-priority-manager'
 import { PieceAvailability } from './piece-availability'
 import { TorrentPieceRequester, PieceRequesterDeps } from './piece-requester'
+import {
+  StreamingScheduler,
+  type ActivePieceSnapshot,
+  type StreamingDemandUrgency,
+} from './streaming-scheduler'
 import { WriteError, classifyError, getRetryDelay } from './write-error'
 import { VerifyChunkResult } from '../interfaces/filesystem'
 import type { VerifyChunksRequest, IFileSystem } from '../interfaces/filesystem'
@@ -207,6 +212,7 @@ export class Torrent extends EngineComponent {
 
   // File priority manager
   private _filePriorityManager!: FilePriorityManager
+  private _streamingScheduler: StreamingScheduler = new StreamingScheduler()
 
   // Piece requester (handles piece selection and requesting)
   private _pieceRequester?: TorrentPieceRequester
@@ -596,6 +602,7 @@ export class Torrent extends EngineComponent {
         this.btEngine.config?.maxPipelineDepth.get() ?? DEFAULT_MAX_PIPELINE_DEPTH,
 
       // Actions
+      applyStreamingPlan: () => this.syncStreamingScheduler(),
       requestPieces: (peer, now) => this.requestPieces(peer, now),
       requestConnections: (infoHashStr, count) =>
         this.btEngine.requestConnections(infoHashStr, count),
@@ -1097,10 +1104,10 @@ export class Torrent extends EngineComponent {
   }
 
   /**
-   * Get per-piece priority (0=skip, 1=normal, 2=high).
+   * Get per-piece priority (0=skip, 4=normal, 6=file-high, 7=streaming-now).
    */
   get piecePriority(): Uint8Array | null {
-    return this._filePriorityManager.piecePriority
+    return this._streamingScheduler.effectivePriority ?? this._filePriorityManager.piecePriority
   }
 
   /**
@@ -1187,6 +1194,8 @@ export class Torrent extends EngineComponent {
     const changed = this._filePriorityManager.setFilePriority(fileIndex, priority)
 
     if (changed) {
+      this.syncStreamingScheduler()
+
       // Persist state change
       ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
 
@@ -1215,6 +1224,8 @@ export class Torrent extends EngineComponent {
     const changed = this._filePriorityManager.setFilePriorities(priorities)
 
     if (changed > 0) {
+      this.syncStreamingScheduler()
+
       ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
 
       // Check if any files were un-skipped
@@ -1239,6 +1250,7 @@ export class Torrent extends EngineComponent {
   initFilePriorities(): void {
     this._filePriorityManager.setStandardPieceLength(this.pieceLength)
     this._filePriorityManager.initFilePriorities()
+    this.syncStreamingScheduler()
   }
 
   /**
@@ -1249,6 +1261,7 @@ export class Torrent extends EngineComponent {
   restoreFilePriorities(priorities: number[]): void {
     this._filePriorityManager.setStandardPieceLength(this.pieceLength)
     this._filePriorityManager.restoreFilePriorities(priorities)
+    this.syncStreamingScheduler()
   }
 
   // === Streaming API ===
@@ -1322,7 +1335,134 @@ export class Torrent extends EngineComponent {
    * Pass null to clear streaming priorities.
    */
   setStreamingPieces(pieces: Set<number> | null): void {
-    this._filePriorityManager.setStreamingPieces(pieces)
+    this._streamingScheduler.setLegacyPieces(pieces)
+    this.syncStreamingScheduler()
+  }
+
+  /**
+   * Update a named streaming demand window.
+   * Multiple windows can coexist and are merged by the streaming scheduler.
+   */
+  updateStreamingDemand(
+    token: string,
+    pieces: Set<number> | null,
+    urgency: StreamingDemandUrgency = 'now',
+  ): void {
+    const changed = this._streamingScheduler.updateDemand(token, pieces, urgency)
+    if (changed) {
+      this.syncStreamingScheduler()
+    }
+  }
+
+  private syncStreamingScheduler(): void {
+    if (!this.hasMetadata || this.piecesCount === 0) return
+
+    const { previousSuppressedPieces, plan } = this._streamingScheduler.buildPlan({
+      piecesCount: this.piecesCount,
+      basePiecePriority: this._filePriorityManager.piecePriority,
+      activePieces: this.getStreamingActivePieceSnapshots(),
+    })
+
+    this.applyStreamingSuppressionDiff(previousSuppressedPieces, plan.suppressedPieces)
+    this.dropStreamingSuppressedPieces(plan.dropPieceIndices)
+  }
+
+  private getStreamingActivePieceSnapshots(): ActivePieceSnapshot[] {
+    if (!this.activePieces) return []
+
+    const snapshots: ActivePieceSnapshot[] = []
+
+    for (const piece of this.activePieces.partialValues()) {
+      snapshots.push({
+        index: piece.index,
+        state: 'partial',
+        blocksReceived: piece.blocksReceived,
+        blocksNeeded: piece.blocksNeeded,
+        outstandingRequests: piece.outstandingRequests,
+        requests: piece.getRequestEntries(),
+      })
+    }
+
+    for (const piece of this.activePieces.fullyRequestedValues()) {
+      snapshots.push({
+        index: piece.index,
+        state: 'fullyRequested',
+        blocksReceived: piece.blocksReceived,
+        blocksNeeded: piece.blocksNeeded,
+        outstandingRequests: piece.outstandingRequests,
+        requests: piece.getRequestEntries(),
+      })
+    }
+
+    for (const piece of this.activePieces.fullyRespondedValues()) {
+      snapshots.push({
+        index: piece.index,
+        state: 'fullyResponded',
+        blocksReceived: piece.blocksReceived,
+        blocksNeeded: piece.blocksNeeded,
+        outstandingRequests: piece.outstandingRequests,
+        requests: [],
+      })
+    }
+
+    return snapshots
+  }
+
+  private applyStreamingSuppressionDiff(
+    previousSuppressedPieces: Set<number>,
+    nextSuppressedPieces: Set<number>,
+  ): void {
+    for (const pieceIndex of nextSuppressedPieces) {
+      if (previousSuppressedPieces.has(pieceIndex)) continue
+      this.removePieceFromAllIndices(pieceIndex)
+    }
+
+    for (const pieceIndex of previousSuppressedPieces) {
+      if (nextSuppressedPieces.has(pieceIndex)) continue
+      this.reindexPieceForConnectedPeers(pieceIndex)
+    }
+  }
+
+  private dropStreamingSuppressedPieces(pieceIndices: number[]): void {
+    if (!this.activePieces || pieceIndices.length === 0) return
+
+    for (const pieceIndex of pieceIndices) {
+      const piece = this.activePieces.get(pieceIndex)
+      if (!piece) continue
+
+      for (const request of piece.getRequestEntries()) {
+        const peer = this.findConnectedPeerById(request.peerId)
+        const begin = request.blockIndex * BLOCK_SIZE
+        const length = Math.min(BLOCK_SIZE, piece.length - begin)
+        if (peer) {
+          peer.sendCancel(pieceIndex, begin, length)
+          peer.requestsPending = Math.max(0, peer.requestsPending - 1)
+        }
+        piece.cancelRequest(request.blockIndex, request.peerId)
+      }
+
+      this.activePieces.remove(pieceIndex)
+    }
+  }
+
+  private reindexPieceForConnectedPeers(pieceIndex: number): void {
+    if (!this.shouldAddToIndex(pieceIndex)) return
+
+    for (const peer of this.connectedPeers) {
+      if (peer.isSeed || !peer.bitfield?.get(pieceIndex)) continue
+      const peerId = peer.peerId ? toHex(peer.peerId) : `${peer.remoteAddress}:${peer.remotePort}`
+      this._availability.addPieceToIndex(peerId, pieceIndex)
+    }
+  }
+
+  private findConnectedPeerById(peerId: string): PeerConnection | undefined {
+    for (const peer of this.connectedPeers) {
+      const currentPeerId = peer.peerId ? toHex(peer.peerId) : `${peer.remoteAddress}:${peer.remotePort}`
+      if (currentPeerId === peerId) {
+        return peer
+      }
+    }
+    return undefined
   }
 
   /**
@@ -1942,6 +2082,7 @@ export class Torrent extends EngineComponent {
     }
 
     // Clear active pieces - release buffered data and pending requests
+    this._streamingScheduler.clear()
     this.activePieces?.destroy()
     this.activePieces = undefined
 
@@ -2580,6 +2721,9 @@ export class Torrent extends EngineComponent {
     // Skip if we have it
     if (this._bitfield?.get(pieceIndex)) return false
 
+    // Skip if streaming scheduler has explicitly suppressed this piece
+    if (this._streamingScheduler.isPieceSuppressed(pieceIndex)) return false
+
     // Skip if priority is 0 (skipped file)
     if (this.piecePriority && this.piecePriority[pieceIndex] === 0) return false
 
@@ -2794,6 +2938,10 @@ export class Torrent extends EngineComponent {
 
     // Get or create active piece (may receive unsolicited blocks or from different peer)
     let piece = this.activePieces.get(pieceIndex)
+    if (!piece && this._streamingScheduler.isPieceSuppressed(pieceIndex)) {
+      this.logger.debug(`Ignoring late block ${pieceIndex}:${blockOffset} for suppressed piece`)
+      return
+    }
     if (!piece) {
       // Try to create it - could be an unsolicited block or from a peer we just connected
       const newPiece = this.activePieces.getOrCreate(pieceIndex)
@@ -3376,6 +3524,7 @@ export class Torrent extends EngineComponent {
     this.logger.info(`connectionManager.destroy done at ${Date.now() - t0}ms`)
 
     // Cleanup active pieces manager
+    this._streamingScheduler.clear()
     this.activePieces?.destroy()
     this.logger.info(`activePieces.destroy done at ${Date.now() - t0}ms`)
 
@@ -3896,6 +4045,7 @@ export class Torrent extends EngineComponent {
   private checkCompletion() {
     if (this.isDownloadComplete) {
       // Clear ALL active pieces - downloading is done, release memory
+      this._streamingScheduler.clear()
       this.activePieces?.destroy()
       this.activePieces = undefined
 
