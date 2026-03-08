@@ -209,6 +209,7 @@ export function VideoPlayer({
 
         <div
           ref={fullscreenTargetRef}
+          onDoubleClick={() => void toggleFullscreen()}
           style={{
             ...mediaAreaStyle,
             ...(isFullscreen ? fullscreenMediaAreaStyle : null),
