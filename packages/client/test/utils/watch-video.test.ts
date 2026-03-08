@@ -4,6 +4,7 @@ import { prepareTorrentForVideoPlayback } from '../../src/utils/watch-video'
 type PlaybackTorrent = Parameters<typeof prepareTorrentForVideoPlayback>[0]
 
 function createTorrentMock(overrides?: {
+  isFileComplete?: boolean
   isFileSkipped?: boolean
   userState?: 'active' | 'stopped' | 'queued'
   activityState?:
@@ -19,6 +20,7 @@ function createTorrentMock(overrides?: {
   const calls: string[] = []
 
   const torrent = {
+    isFileComplete: vi.fn(() => overrides?.isFileComplete ?? false),
     isFileSkipped: vi.fn(() => overrides?.isFileSkipped ?? false),
     setFilePriorityAsync: vi.fn(async () => {
       calls.push('setFilePriorityAsync')
@@ -37,6 +39,7 @@ function createTorrentMock(overrides?: {
 describe('prepareTorrentForVideoPlayback', () => {
   it('permanently unskips the file before starting a stopped torrent', async () => {
     const { torrent, calls } = createTorrentMock({
+      isFileComplete: false,
       isFileSkipped: true,
       userState: 'stopped',
       activityState: 'stopped',
@@ -52,6 +55,7 @@ describe('prepareTorrentForVideoPlayback', () => {
 
   it('restarts errored torrents even if they were already active', async () => {
     const { torrent } = createTorrentMock({
+      isFileComplete: false,
       userState: 'active',
       activityState: 'error',
     })
@@ -64,6 +68,7 @@ describe('prepareTorrentForVideoPlayback', () => {
 
   it('leaves already playable torrents alone', async () => {
     const { torrent } = createTorrentMock({
+      isFileComplete: false,
       userState: 'active',
       activityState: 'downloading',
     })
@@ -71,6 +76,19 @@ describe('prepareTorrentForVideoPlayback', () => {
     await prepareTorrentForVideoPlayback(torrent as PlaybackTorrent, 1)
 
     expect(torrent.setFilePriorityAsync).not.toHaveBeenCalled()
+    expect(torrent.userStart).not.toHaveBeenCalled()
+  })
+
+  it('does not start a stopped torrent when the watched file is already complete', async () => {
+    const { torrent } = createTorrentMock({
+      isFileComplete: true,
+      userState: 'stopped',
+      activityState: 'stopped',
+    })
+
+    await prepareTorrentForVideoPlayback(torrent as PlaybackTorrent, 4)
+
+    expect(torrent.isFileComplete).toHaveBeenCalledWith(4)
     expect(torrent.userStart).not.toHaveBeenCalled()
   })
 })
