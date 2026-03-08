@@ -28,6 +28,7 @@ mod control;
 mod files;
 mod hashing;
 mod http;
+mod media;
 mod standalone;
 mod ws;
 
@@ -113,6 +114,8 @@ pub struct AppState {
     pub extension_id: Arc<std::sync::RwLock<Option<String>>>,
     pub download_roots: Arc<std::sync::RwLock<Vec<jstorrent_common::DownloadRoot>>>,
     pub stats: Arc<DaemonStats>,
+    pub http_streams: Arc<media::HttpStreamSessionRegistry>,
+    pub media_server: Arc<tokio::sync::Mutex<media::MediaServerState>>,
 }
 
 #[tokio::main]
@@ -212,6 +215,8 @@ async fn run_managed(args: Args) -> anyhow::Result<()> {
         extension_id: Arc::new(std::sync::RwLock::new(extension_id.clone())),
         download_roots: Arc::new(std::sync::RwLock::new(roots)),
         stats: Arc::new(DaemonStats::new()),
+        http_streams: Arc::new(media::HttpStreamSessionRegistry::default()),
+        media_server: Arc::new(tokio::sync::Mutex::new(media::MediaServerState::default())),
     });
 
     // Monitor parent process if specified
@@ -231,6 +236,7 @@ async fn run_managed(args: Args) -> anyhow::Result<()> {
         .merge(control::routes())
         .merge(config::routes())
         .merge(http::routes())
+        .merge(media::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth::middleware,
@@ -328,6 +334,8 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
         )),
         download_roots: Arc::new(std::sync::RwLock::new(roots)),
         stats: Arc::new(DaemonStats::new()),
+        http_streams: Arc::new(media::HttpStreamSessionRegistry::default()),
+        media_server: Arc::new(tokio::sync::Mutex::new(media::MediaServerState::default())),
     });
 
     // Create standalone state for pairing endpoints
@@ -348,6 +356,7 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
         .merge(ws::routes())
         .merge(control::routes())
         .merge(http::routes())
+        .merge(media::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth::standalone_middleware,

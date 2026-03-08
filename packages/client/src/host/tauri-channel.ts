@@ -35,6 +35,57 @@ interface TauriInternals {
   transformCallback: (callback: (...args: unknown[]) => void, once?: boolean) => number
 }
 
+interface NetworkInterfaceInfo {
+  name: string
+  address: string
+  prefixLength: number
+}
+
+interface GatewayInfo {
+  ip: string
+  interfaceName?: string
+}
+
+function createOpaqueStreamToken(): string {
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function isPrivateLanAddress(address: string): boolean {
+  if (address.startsWith('10.')) return true
+  if (address.startsWith('192.168.')) return true
+  const match = /^172\.(\d{1,3})\./.exec(address)
+  if (!match) return false
+  const octet = Number(match[1])
+  return octet >= 16 && octet <= 31
+}
+
+function isShareableIpv4Address(address: string): boolean {
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(address)) return false
+  if (address.startsWith('127.')) return false
+  if (address.startsWith('169.254.')) return false
+  if (address === '0.0.0.0') return false
+  return true
+}
+
+function pickLanAddress(
+  interfaces: NetworkInterfaceInfo[],
+  gateway: GatewayInfo | null,
+): string | null {
+  const candidates = interfaces.filter((iface) => isShareableIpv4Address(iface.address))
+
+  if (gateway?.interfaceName) {
+    const gatewayCandidates = candidates.filter((iface) => iface.name === gateway.interfaceName)
+    const privateGateway = gatewayCandidates.find((iface) => isPrivateLanAddress(iface.address))
+    if (privateGateway) return privateGateway.address
+    if (gatewayCandidates[0]) return gatewayCandidates[0].address
+  }
+
+  const preferred = candidates.find((iface) => isPrivateLanAddress(iface.address))
+  return preferred?.address ?? candidates[0]?.address ?? null
+}
+
 function getTauriInternals(): TauriInternals {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const internals = (window as any).__TAURI_INTERNALS__ as TauriInternals | undefined
@@ -396,12 +447,82 @@ export class TauriChannel implements HostChannel {
   }
 
   async createLanShareUrl(
-    _rootKey: string,
-    _path: string,
-    _fileSize: number,
-    _mimeType?: string | null,
+    rootKey: string,
+    path: string,
+    fileSize: number,
+    mimeType?: string | null,
   ): Promise<string | null> {
-    return null
+    const daemonInfo = this.currentState.daemonInfo
+    if (!daemonInfo?.port || !daemonInfo.token) {
+      return null
+    }
+
+    const daemonHost = daemonInfo.host ?? '127.0.0.1'
+    const streamToken = createOpaqueStreamToken()
+
+    const registerResponse = await fetch(`http://${daemonHost}:${daemonInfo.port}/stream/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-JST-Auth': daemonInfo.token,
+      },
+      body: JSON.stringify({
+        streamToken,
+        rootKey,
+        path,
+        fileSize,
+        mimeType: mimeType ?? null,
+      }),
+    })
+    if (!registerResponse.ok) {
+      throw new Error(`Failed to register HTTP stream: ${registerResponse.status}`)
+    }
+
+    const registerData = (await registerResponse.json()) as {
+      ok: boolean
+      error?: string
+      mediaPort?: number
+    }
+    if (!registerData.ok) {
+      throw new Error(registerData.error ?? 'Failed to register HTTP stream')
+    }
+
+    const mediaPort =
+      typeof registerData.mediaPort === 'number'
+        ? registerData.mediaPort
+        : Number(registerData.mediaPort)
+    if (!Number.isFinite(mediaPort) || mediaPort <= 0) {
+      throw new Error('Daemon did not return a media port')
+    }
+
+    const authHeaders = { 'X-JST-Auth': daemonInfo.token }
+    const [interfaces, gateway] = await Promise.all([
+      fetch(`http://${daemonHost}:${daemonInfo.port}/network/interfaces`, {
+        headers: authHeaders,
+      }).then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to query network interfaces: ${response.status}`)
+        }
+        return (await response.json()) as NetworkInterfaceInfo[]
+      }),
+      fetch(`http://${daemonHost}:${daemonInfo.port}/network/gateway`, {
+        headers: authHeaders,
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            return null
+          }
+          return (await response.json()) as GatewayInfo | null
+        })
+        .catch(() => null),
+    ])
+
+    const lanAddress = pickLanAddress(interfaces, gateway)
+    if (!lanAddress) {
+      throw new Error('No LAN IPv4 address available for sharing')
+    }
+
+    return `http://${lanAddress}:${mediaPort}/stream/${streamToken}`
   }
 
   // --- Notifications ---

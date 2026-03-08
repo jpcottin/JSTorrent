@@ -139,6 +139,10 @@ interface GatewayInfo {
   interfaceName?: string
 }
 
+interface RegisterHttpStreamResponse extends ControlResponse {
+  mediaPort?: number
+}
+
 function isPrivateLanAddress(address: string): boolean {
   if (address.startsWith('10.')) return true
   if (address.startsWith('192.168.')) return true
@@ -616,36 +620,67 @@ export class DaemonBridge {
     mimeType?: string | null,
   ): Promise<string | null> {
     const daemonInfo = this.state.daemonInfo
-    if (
-      this.state.platform !== 'chromeos' ||
-      daemonInfo?.host !== CHROMEOS_ANDROID_HOST ||
-      !daemonInfo.port
-    ) {
+    if (!daemonInfo?.port) {
       return null
     }
 
     const streamToken = createOpaqueStreamToken()
-    const result = await this.sendControlRequest(OP_CTRL_REGISTER_HTTP_STREAM, {
-      streamToken,
-      rootKey,
-      path,
-      fileSize,
-      mimeType: mimeType ?? null,
-    })
-    if (!result.ok) {
-      throw new Error(result.error || 'Failed to register HTTP stream')
+    const daemonHost = daemonInfo.host ?? DESKTOP_HOST
+    let mediaPort: number
+
+    if (this.state.platform === 'chromeos' && daemonHost === CHROMEOS_ANDROID_HOST) {
+      const result = await this.sendControlRequest(OP_CTRL_REGISTER_HTTP_STREAM, {
+        streamToken,
+        rootKey,
+        path,
+        fileSize,
+        mimeType: mimeType ?? null,
+      })
+      if (!result.ok) {
+        throw new Error(result.error || 'Failed to register HTTP stream')
+      }
+      mediaPort =
+        typeof result.mediaPort === 'number'
+          ? result.mediaPort
+          : Number(result.mediaPort)
+    } else if (this.state.platform === 'desktop') {
+      const response = await fetch(`http://${daemonHost}:${daemonInfo.port}/stream/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-JST-Auth': daemonInfo.token,
+        },
+        body: JSON.stringify({
+          streamToken,
+          rootKey,
+          path,
+          fileSize,
+          mimeType: mimeType ?? null,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(`Failed to register HTTP stream: ${response.status}`)
+      }
+      const result = (await response.json()) as RegisterHttpStreamResponse
+      if (!result.ok) {
+        throw new Error(result.error || 'Failed to register HTTP stream')
+      }
+      mediaPort =
+        typeof result.mediaPort === 'number'
+          ? result.mediaPort
+          : Number(result.mediaPort)
+    } else {
+      return null
     }
 
-    const mediaPort =
-      typeof result.mediaPort === 'number'
-        ? result.mediaPort
-        : Number(result.mediaPort)
     if (!Number.isFinite(mediaPort) || mediaPort <= 0) {
       throw new Error('Companion did not return a media port')
     }
 
     const [interfaces, gateway] = await Promise.all([
-      fetch(`http://${daemonInfo.host}:${daemonInfo.port}/network/interfaces`).then(
+      fetch(`http://${daemonHost}:${daemonInfo.port}/network/interfaces`, {
+        headers: this.state.platform === 'desktop' ? { 'X-JST-Auth': daemonInfo.token } : {},
+      }).then(
         async (response) => {
           if (!response.ok) {
             throw new Error(`Failed to query network interfaces: ${response.status}`)
@@ -653,7 +688,9 @@ export class DaemonBridge {
           return (await response.json()) as NetworkInterfaceInfo[]
         },
       ),
-      fetch(`http://${daemonInfo.host}:${daemonInfo.port}/network/gateway`)
+      fetch(`http://${daemonHost}:${daemonInfo.port}/network/gateway`, {
+        headers: this.state.platform === 'desktop' ? { 'X-JST-Auth': daemonInfo.token } : {},
+      })
         .then(async (response) => {
           if (!response.ok) {
             return null
