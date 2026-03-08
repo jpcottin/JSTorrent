@@ -138,6 +138,37 @@ describe('_doCheckPieces batch verification via verifyChunks', () => {
     expect(torrent.bitfield?.cardinality()).toBe(4)
   })
 
+  it('keeps file-level downloaded bytes in sync during batched recheck', async () => {
+    const data = new Uint8Array(400)
+    for (let i = 0; i < 400; i++) data[i] = i & 0xff
+
+    const torrentBuf = createSingleFileTorrentWithData({
+      name: 'test.bin',
+      data,
+      pieceLength: 100,
+    })
+
+    const { torrent } = await engine.addTorrent(torrentBuf)
+    if (!torrent) throw new Error('Torrent is null')
+
+    const h = await fileSystem.open('test.bin', 'w')
+    await h.write(data, 0, data.length, 0)
+    await h.close()
+
+    const verifyChunks = fileSystem.verifyChunks.bind(fileSystem)
+    vi.spyOn(fileSystem, 'verifyChunks').mockImplementation(async (request) => {
+      const filesDuringRecheck = torrent.files
+      expect(filesDuringRecheck).toHaveLength(1)
+      expect(filesDuringRecheck[0].downloaded).toBe(0)
+      return verifyChunks(request)
+    })
+
+    await torrent.recheckData()
+
+    expect(torrent.files[0].downloaded).toBe(data.length)
+    expect(torrent.files[0].progress).toBe(1)
+  })
+
   it('should detect corrupted pieces via verifyChunks', async () => {
     const data = new Uint8Array(400)
     for (let i = 0; i < 400; i++) data[i] = i & 0xff
@@ -265,6 +296,36 @@ describe('_doCheckPieces batch verification via verifyChunks', () => {
     // Fallback should still verify pieces correctly
     expect(torrent.piecesCount).toBe(2)
     expect(torrent.bitfield?.cardinality()).toBe(2)
+  })
+
+  it('keeps file-level downloaded bytes in sync during per-piece fallback recheck', async () => {
+    const data = new Uint8Array(200)
+    for (let i = 0; i < 200; i++) data[i] = i & 0xff
+
+    const torrentBuf = createSingleFileTorrentWithData({
+      name: 'test.bin',
+      data,
+      pieceLength: 100,
+    })
+
+    const { torrent } = await engine.addTorrent(torrentBuf)
+    if (!torrent) throw new Error('Torrent is null')
+
+    const h = await fileSystem.open('test.bin', 'w')
+    await h.write(data, 0, data.length, 0)
+    await h.close()
+
+    vi.spyOn(fileSystem, 'verifyChunks').mockImplementation(async () => {
+      const filesDuringRecheck = torrent.files
+      expect(filesDuringRecheck).toHaveLength(1)
+      expect(filesDuringRecheck[0].downloaded).toBe(0)
+      throw new Error('Not supported')
+    })
+
+    await torrent.recheckData()
+
+    expect(torrent.files[0].downloaded).toBe(data.length)
+    expect(torrent.files[0].progress).toBe(1)
   })
 
   it('should skip verification when no files exist on disk', async () => {

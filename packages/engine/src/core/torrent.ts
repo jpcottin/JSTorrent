@@ -895,6 +895,12 @@ export class Torrent extends EngineComponent {
     return this._bitfield?.get(index) ?? false
   }
 
+  private updateFileProgressForVerifiedPiece(index: number): void {
+    for (const file of this._files) {
+      file.updateForPiece(index)
+    }
+  }
+
   markPieceVerified(index: number): void {
     this._bitfield?.set(index, true)
 
@@ -1630,9 +1636,7 @@ export class Torrent extends EngineComponent {
       this.logger.debug(`Materialized piece ${pieceIndex} from .parts to regular files`)
 
       // Update cached downloaded bytes on file objects
-      for (const file of this._files) {
-        file.updateForPiece(pieceIndex)
-      }
+      this.updateFileProgressForVerifiedPiece(pieceIndex)
 
       // Now we can advertise this piece - send HAVE to all peers
       for (const p of this.connectedPeers) {
@@ -1668,9 +1672,7 @@ export class Torrent extends EngineComponent {
 
       this.logger.debug(`Exported wanted spans for piece ${pieceIndex} from .parts`)
 
-      for (const file of this._files) {
-        file.updateForPiece(pieceIndex)
-      }
+      this.updateFileProgressForVerifiedPiece(pieceIndex)
 
       return true
     } catch (e) {
@@ -3198,9 +3200,7 @@ export class Torrent extends EngineComponent {
       ;(this.engine as BtEngine).bandwidthTracker.record('disk', result.bytesWritten, 'down')
 
       // Update cached downloaded bytes on file objects
-      for (const file of this._files) {
-        file.updateForPiece(index)
-      }
+      this.updateFileProgressForVerifiedPiece(index)
 
       // Note: Do NOT send HAVE for boundary pieces (they're in .parts, not serveable)
       // Progress still counts toward completion
@@ -3317,9 +3317,7 @@ export class Torrent extends EngineComponent {
       ;(this.engine as BtEngine).bandwidthTracker.record('disk', pieceData.length, 'down')
 
       // Update cached downloaded bytes on file objects
-      for (const file of this._files) {
-        file.updateForPiece(index)
-      }
+      this.updateFileProgressForVerifiedPiece(index)
 
       // Queue HAVE for batch broadcast at end of tick (Phase 5 optimization)
       // Instead of iterating all peers here, we batch HAVEs and send them
@@ -3468,9 +3466,7 @@ export class Torrent extends EngineComponent {
       ;(this.engine as BtEngine).bandwidthTracker.record('disk', pieceData.length, 'down')
 
       // Update cached downloaded bytes on file objects
-      for (const file of this._files) {
-        file.updateForPiece(index)
-      }
+      this.updateFileProgressForVerifiedPiece(index)
 
       // Queue HAVE for batch broadcast
       this._tickLoop.queueHave(index)
@@ -3960,6 +3956,7 @@ export class Torrent extends EngineComponent {
             if (isValid) {
               this._partsFilePieces.add(i)
               this.markPieceVerified(i)
+              this.updateFileProgressForVerifiedPiece(i)
             }
           } catch (err) {
             this.logger.debug(`Piece ${i} .parts read error during recheck:`, { err })
@@ -4083,6 +4080,7 @@ export class Torrent extends EngineComponent {
         const resultIndex = pieceIndex - startChunk
         if (resultIndex < results.length && results[resultIndex] === VerifyChunkResult.MATCH) {
           this.markPieceVerified(pieceIndex)
+          this.updateFileProgressForVerifiedPiece(pieceIndex)
         }
       }
 
@@ -4101,6 +4099,7 @@ export class Torrent extends EngineComponent {
         const isValid = await this.verifyPiece(pieceIndex)
         if (isValid) {
           this.markPieceVerified(pieceIndex)
+          this.updateFileProgressForVerifiedPiece(pieceIndex)
         }
       } catch (err) {
         this.logger.debug(`Piece ${pieceIndex} read error during recheck:`, { err })
