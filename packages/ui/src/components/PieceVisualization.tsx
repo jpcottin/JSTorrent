@@ -304,8 +304,8 @@ export function PieceSummaryBar({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Get actual container width
-    const containerWidth = canvas.parentElement?.clientWidth || 400
+    // Use the canvas's rendered width so parent padding does not inflate the draw area.
+    const containerWidth = canvas.getBoundingClientRect().width || canvas.clientWidth || 400
 
     // Set canvas size
     const dpr = window.devicePixelRatio || 1
@@ -315,7 +315,6 @@ export function PieceSummaryBar({
     if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
       canvas.width = targetWidth
       canvas.height = targetHeight
-      canvas.style.width = `${containerWidth}px`
       canvas.style.height = `${height}px`
       ctx.scale(dpr, dpr)
     } else {
@@ -453,8 +452,8 @@ export function PieceBar({ getData, height = 16 }: PieceVisualizationProps) {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Get actual container width
-    const containerWidth = canvas.parentElement?.clientWidth || 400
+    // Use the canvas's rendered width so parent padding does not inflate the draw area.
+    const containerWidth = canvas.getBoundingClientRect().width || canvas.clientWidth || 400
 
     // Set canvas size
     const dpr = window.devicePixelRatio || 1
@@ -464,7 +463,6 @@ export function PieceBar({ getData, height = 16 }: PieceVisualizationProps) {
     if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
       canvas.width = targetWidth
       canvas.height = targetHeight
-      canvas.style.width = `${containerWidth}px`
       canvas.style.height = `${height}px`
       ctx.scale(dpr, dpr)
     } else {
