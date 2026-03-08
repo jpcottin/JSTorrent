@@ -17,7 +17,7 @@ describe('buildStreamingPlan', () => {
     expect(plan.suppressedPieces.size).toBe(0)
   })
 
-  it('boosts demanded pieces and drops non-critical active work', () => {
+  it('boosts demanded pieces and drops non-critical active work including low-progress partials', () => {
     const basePriority = new Uint8Array(12).fill(4)
 
     const plan = buildStreamingPlan({
@@ -49,6 +49,14 @@ describe('buildStreamingPlan', () => {
           outstandingRequests: 3,
           requests: [{ blockIndex: 2, peerId: 'peer-3' }],
         },
+        {
+          index: 5,
+          state: 'partial',
+          blocksReceived: 5,
+          blocksNeeded: 16,
+          outstandingRequests: 3,
+          requests: [{ blockIndex: 3, peerId: 'peer-4' }],
+        },
       ],
     })
 
@@ -56,11 +64,13 @@ describe('buildStreamingPlan', () => {
     expect(plan.effectivePriority?.[9]).toBe(7)
     expect(plan.effectivePriority?.[2]).toBe(0)
     expect(plan.effectivePriority?.[3]).toBe(0)
-    expect(plan.effectivePriority?.[4]).toBe(4)
-    expect(plan.dropPieceIndices.sort((a, b) => a - b)).toEqual([2, 3])
+    expect(plan.effectivePriority?.[4]).toBe(0)
+    expect(plan.effectivePriority?.[5]).toBe(4)
+    expect(plan.dropPieceIndices.sort((a, b) => a - b)).toEqual([2, 3, 4])
     expect(plan.suppressedPieces.has(2)).toBe(true)
     expect(plan.suppressedPieces.has(3)).toBe(true)
-    expect(plan.suppressedPieces.has(4)).toBe(false)
+    expect(plan.suppressedPieces.has(4)).toBe(true)
+    expect(plan.suppressedPieces.has(5)).toBe(false)
   })
 
   it('uses urgency tiers when merging multiple demand windows', () => {

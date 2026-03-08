@@ -38,6 +38,7 @@ const PRIORITY_SKIP = 0
 const PRIORITY_METADATA = 5
 const PRIORITY_NEXT = 6
 const PRIORITY_NOW = 7
+const LOW_PROGRESS_PARTIAL_DROP_THRESHOLD = 0.25
 
 function urgencyToPriority(urgency: StreamingDemandUrgency): number {
   switch (urgency) {
@@ -97,8 +98,11 @@ export function buildStreamingPlan(input: StreamingPlannerInput): StreamingPlan 
       if (protectedPieces.has(piece.index)) continue
       if (piece.state === 'fullyResponded') continue
 
+      const completionRatio =
+        piece.blocksNeeded > 0 ? piece.blocksReceived / piece.blocksNeeded : 0
       const shouldDrop =
-        piece.state === 'fullyRequested' || (piece.state === 'partial' && piece.blocksReceived === 0)
+        piece.state === 'fullyRequested' ||
+        (piece.state === 'partial' && completionRatio <= LOW_PROGRESS_PARTIAL_DROP_THRESHOLD)
 
       if (!shouldDrop) continue
 
