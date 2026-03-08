@@ -130,7 +130,9 @@ export function VideoPieceTimeline({ provider }: VideoPieceTimelineProps) {
   }
 
   const progressPct =
-    snapshot.piecesTotal > 0 ? Math.round((snapshot.piecesCompleted / snapshot.piecesTotal) * 100) : 0
+    snapshot.piecesTotal > 0
+      ? Math.round((snapshot.piecesCompleted / snapshot.piecesTotal) * 100)
+      : 0
 
   return (
     <div style={panelStyle}>

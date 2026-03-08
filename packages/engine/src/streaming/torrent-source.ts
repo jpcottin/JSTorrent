@@ -120,7 +120,8 @@ export function createStreamingFileProvider(
   if (!file) {
     throw new Error(`Invalid file index: ${fileIndex}`)
   }
-  const filePieceIndices = file.length > 0 ? torrent.fileBytesToPieces(fileIndex, 0, file.length) : []
+  const filePieceIndices =
+    file.length > 0 ? torrent.fileBytesToPieces(fileIndex, 0, file.length) : []
   const pieceIndexToRelative = new Map<number, number>()
   for (let i = 0; i < filePieceIndices.length; i++) {
     pieceIndexToRelative.set(filePieceIndices[i], i)

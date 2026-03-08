@@ -165,7 +165,11 @@ export type {
   StreamingFileProvider,
 } from './streaming/streaming-file-provider'
 export { parseMkvCueIndex, parseMkvCues, type MkvCuePoint } from './streaming/mkv-cue-parser'
-export { buildMkvKeyframeIndex, buildMkvPrebuiltKeyframeIndex, isMkvFile } from './streaming/mkv-keyframe-index'
+export {
+  buildMkvKeyframeIndex,
+  buildMkvPrebuiltKeyframeIndex,
+  isMkvFile,
+} from './streaming/mkv-keyframe-index'
 
 // Version
 export { VERSION, versionToAzureusCode, azureusCodeToVersion } from './version'

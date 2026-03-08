@@ -128,7 +128,9 @@ export function VideoPlayer({
 
           {phase === 'error' && (
             <div style={statusStyle}>
-              <div style={{ color: 'var(--accent-error, #f44)' }}>Failed to play: {errorMessage}</div>
+              <div style={{ color: 'var(--accent-error, #f44)' }}>
+                Failed to play: {errorMessage}
+              </div>
             </div>
           )}
 

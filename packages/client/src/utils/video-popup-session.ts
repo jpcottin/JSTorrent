@@ -212,7 +212,9 @@ export function createVideoPopupSessionHost(
     }
 
     if (message.method === 'getPieceTimelineSnapshot') {
-      Promise.resolve(provider.getPieceTimelineSnapshot ? provider.getPieceTimelineSnapshot() : null)
+      Promise.resolve(
+        provider.getPieceTimelineSnapshot ? provider.getPieceTimelineSnapshot() : null,
+      )
         .then((snapshot) => {
           reply({ type: 'result', id: message.id, value: snapshot ?? null })
         })

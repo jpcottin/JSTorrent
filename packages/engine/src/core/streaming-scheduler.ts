@@ -105,8 +105,7 @@ export function buildStreamingPlan(input: StreamingPlannerInput): StreamingPlan 
       if (protectedPieces.has(piece.index)) continue
       if (piece.state === 'fullyResponded') continue
 
-      const completionRatio =
-        piece.blocksNeeded > 0 ? piece.blocksReceived / piece.blocksNeeded : 0
+      const completionRatio = piece.blocksNeeded > 0 ? piece.blocksReceived / piece.blocksNeeded : 0
       const shouldDrop =
         piece.state === 'fullyRequested' ||
         (piece.state === 'partial' && completionRatio <= LOW_PROGRESS_PARTIAL_DROP_THRESHOLD)

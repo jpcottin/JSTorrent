@@ -76,9 +76,11 @@ describe('TorrentPieceRequester write-queue backpressure', () => {
   it('requests streaming-now pieces before existing normal partial work', () => {
     const engine = new MockEngine()
     const sentBatches: Array<Array<{ index: number; begin: number; length: number }>> = []
-    const sendRequests = vi.fn((requests: Array<{ index: number; begin: number; length: number }>) => {
-      sentBatches.push(requests.map((request) => ({ ...request })))
-    })
+    const sendRequests = vi.fn(
+      (requests: Array<{ index: number; begin: number; length: number }>) => {
+        sentBatches.push(requests.map((request) => ({ ...request })))
+      },
+    )
     const activePieces = new ActivePieceManager(engine, () => 32 * 1024, {
       standardPieceLength: 32 * 1024,
     })
@@ -151,9 +153,11 @@ describe('TorrentPieceRequester write-queue backpressure', () => {
   it('limits urgent requests on slow-start peers to one slot before normal work', () => {
     const engine = new MockEngine()
     const sentBatches: Array<Array<{ index: number; begin: number; length: number }>> = []
-    const sendRequests = vi.fn((requests: Array<{ index: number; begin: number; length: number }>) => {
-      sentBatches.push(requests.map((request) => ({ ...request })))
-    })
+    const sendRequests = vi.fn(
+      (requests: Array<{ index: number; begin: number; length: number }>) => {
+        sentBatches.push(requests.map((request) => ({ ...request })))
+      },
+    )
     const activePieces = new ActivePieceManager(engine, () => 32 * 1024, {
       standardPieceLength: 32 * 1024,
     })

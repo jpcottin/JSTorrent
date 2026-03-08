@@ -270,7 +270,10 @@ export class TorrentPieceRequester extends EngineComponent {
     })
 
     if (streamingOverlay.reservedSlots > 0) {
-      const overlayLimit = Math.min(pipelineLimit, peer.requestsPending + streamingOverlay.reservedSlots)
+      const overlayLimit = Math.min(
+        pipelineLimit,
+        peer.requestsPending + streamingOverlay.reservedSlots,
+      )
 
       for (const piece of streamingOverlay.activePieces) {
         if (peer.requestsPending >= overlayLimit) break

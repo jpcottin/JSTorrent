@@ -310,8 +310,7 @@ export class FilePriorityManager extends EngineComponent {
    * This does not mutate persisted user file priorities.
    */
   setStreamingFileLocks(fileIndices: Set<number> | null): void {
-    this._streamingFileLocks =
-      fileIndices && fileIndices.size > 0 ? new Set(fileIndices) : null
+    this._streamingFileLocks = fileIndices && fileIndices.size > 0 ? new Set(fileIndices) : null
     this.recomputePiecePriority()
   }
 

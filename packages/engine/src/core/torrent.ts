@@ -1226,7 +1226,6 @@ export class Torrent extends EngineComponent {
 
     if (changed > 0) {
       this.syncStreamingScheduler()
-
       ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
 
       // Check if any files were un-skipped
@@ -1489,7 +1488,9 @@ export class Torrent extends EngineComponent {
 
   private findConnectedPeerById(peerId: string): PeerConnection | undefined {
     for (const peer of this.connectedPeers) {
-      const currentPeerId = peer.peerId ? toHex(peer.peerId) : `${peer.remoteAddress}:${peer.remotePort}`
+      const currentPeerId = peer.peerId
+        ? toHex(peer.peerId)
+        : `${peer.remoteAddress}:${peer.remotePort}`
       if (currentPeerId === peerId) {
         return peer
       }
@@ -2976,7 +2977,9 @@ export class Torrent extends EngineComponent {
       return
     }
     if (!piece) {
-      this.logger.debug(`Ignoring unsolicited block ${pieceIndex}:${blockOffset} - piece not active`)
+      this.logger.debug(
+        `Ignoring unsolicited block ${pieceIndex}:${blockOffset} - piece not active`,
+      )
       return
     }
 

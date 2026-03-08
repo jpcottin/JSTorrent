@@ -39,7 +39,12 @@ describe('buildStreamingOverlayPlan', () => {
       },
       peerId: 'peer-1',
       activePieces,
-      piecePriority: new Uint8Array([STREAM_NOW_PRIORITY, 4, STREAM_NOW_PRIORITY, STREAM_NOW_PRIORITY]),
+      piecePriority: new Uint8Array([
+        STREAM_NOW_PRIORITY,
+        4,
+        STREAM_NOW_PRIORITY,
+        STREAM_NOW_PRIORITY,
+      ]),
       availability: {
         rawAvailability: new Uint16Array([3, 5, 2, 1]),
         seedCount: 0,

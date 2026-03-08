@@ -85,18 +85,13 @@ describe('Torrent streaming cancellation', () => {
 
   it('cancels dropped streaming-suppressed pieces and ignores late blocks for them', () => {
     const peer = createFakePeer('1.2.3.4', 6881)
-    ;(torrent as Torrent & { _swarm: { addIncomingConnection: Function } })._swarm.addIncomingConnection(
-      peer.remoteAddress,
-      peer.remotePort,
-      'ipv4',
-      peer,
-    )
+    ;(
+      torrent as Torrent & { _swarm: { addIncomingConnection: Function } }
+    )._swarm.addIncomingConnection(peer.remoteAddress, peer.remotePort, 'ipv4', peer)
 
-    const activePieces = new ActivePieceManager(
-      engine,
-      (index) => torrent.getPieceLength(index),
-      { standardPieceLength: torrent.pieceLength } satisfies Partial<ActivePieceConfig>,
-    )
+    const activePieces = new ActivePieceManager(engine, (index) => torrent.getPieceLength(index), {
+      standardPieceLength: torrent.pieceLength,
+    } satisfies Partial<ActivePieceConfig>)
     ;(torrent as Torrent & { activePieces: ActivePieceManager }).activePieces = activePieces
 
     const droppedPiece = activePieces.getOrCreate(1)
@@ -104,9 +99,9 @@ describe('Torrent streaming cancellation', () => {
     droppedPiece!.addRequest(0, `${peer.remoteAddress}:${peer.remotePort}`)
     activePieces.promoteToFullyRequested(1)
 
-    expect(
-      (torrent as Torrent & { piecePriority: Uint8Array | null }).piecePriority,
-    ).toEqual(new Uint8Array([4, 4]))
+    expect((torrent as Torrent & { piecePriority: Uint8Array | null }).piecePriority).toEqual(
+      new Uint8Array([4, 4]),
+    )
 
     torrent.updateStreamingDemand('player', new Set([0]), 'now')
 
@@ -114,8 +109,11 @@ describe('Torrent streaming cancellation', () => {
     expect(peer.requestsPending).toBe(0)
     expect(activePieces.get(1)).toBeUndefined()
     expect(
-      (torrent as Torrent & { _streamingScheduler: { isPieceSuppressed: (pieceIndex: number) => boolean } })
-        ._streamingScheduler.isPieceSuppressed(1),
+      (
+        torrent as Torrent & {
+          _streamingScheduler: { isPieceSuppressed: (pieceIndex: number) => boolean }
+        }
+      )._streamingScheduler.isPieceSuppressed(1),
     ).toBe(true)
 
     const addBlock = vi.fn(() => true)
@@ -127,11 +125,9 @@ describe('Torrent streaming cancellation', () => {
   })
 
   it('drops inbound blocks that do not match an active piece request', () => {
-    const activePieces = new ActivePieceManager(
-      engine,
-      (index) => torrent.getPieceLength(index),
-      { standardPieceLength: torrent.pieceLength } satisfies Partial<ActivePieceConfig>,
-    )
+    const activePieces = new ActivePieceManager(engine, (index) => torrent.getPieceLength(index), {
+      standardPieceLength: torrent.pieceLength,
+    } satisfies Partial<ActivePieceConfig>)
     ;(torrent as Torrent & { activePieces: ActivePieceManager }).activePieces = activePieces
 
     const activePiece = activePieces.getOrCreate(1)

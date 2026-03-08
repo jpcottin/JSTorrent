@@ -111,12 +111,17 @@ function computeStreamingReservedSlots(peer: RequestablePeer, pipelineLimit: num
   }
 
   // Peers still in slow-start or with no proven throughput only get one urgent slot.
-  if (peer.inSlowStart || !peer.downloadSpeed || peer.downloadSpeed < MIN_STREAMING_SPEED_BYTES_PER_SEC) {
+  if (
+    peer.inSlowStart ||
+    !peer.downloadSpeed ||
+    peer.downloadSpeed < MIN_STREAMING_SPEED_BYTES_PER_SEC
+  ) {
     return 1
   }
 
   const estimatedQueueMs =
-    (peer.requestsPending * 16_384 * 1000) / Math.max(peer.downloadSpeed, MIN_STREAMING_SPEED_BYTES_PER_SEC)
+    (peer.requestsPending * 16_384 * 1000) /
+    Math.max(peer.downloadSpeed, MIN_STREAMING_SPEED_BYTES_PER_SEC)
   if (estimatedQueueMs > MAX_GOOD_STREAMING_QUEUE_MS) {
     return 1
   }
