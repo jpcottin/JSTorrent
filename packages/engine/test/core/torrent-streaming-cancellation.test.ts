@@ -3,6 +3,7 @@ import { Torrent } from '../../src/core/torrent'
 import { ActivePieceManager, type ActivePieceConfig } from '../../src/core/active-piece-manager'
 import type { BtEngine } from '../../src/core/bt-engine'
 import type { ISocketFactory } from '../../src/interfaces/socket'
+import { toHex } from '../../src/utils/buffer'
 import { MockEngine } from '../utils/mock-engine'
 
 const mockSocketFactory = {
@@ -147,5 +148,49 @@ describe('Torrent streaming cancellation', () => {
 
     expect(recreateDroppedPiece).not.toHaveBeenCalled()
     expect(activePieces.get(0)).toBeUndefined()
+  })
+
+  it('sends cancels for duplicate requests on streaming-now pieces outside global endgame', () => {
+    const firstPeer = createFakePeer('1.2.3.4', 6881)
+    const secondPeer = createFakePeer('2.3.4.5', 6882)
+    firstPeer.peerId = new Uint8Array(20).fill(1)
+    secondPeer.peerId = new Uint8Array(20).fill(2)
+    ;(
+      torrent as Torrent & { _swarm: { addIncomingConnection: (...args: unknown[]) => void } }
+    )._swarm.addIncomingConnection(firstPeer.remoteAddress, firstPeer.remotePort, 'ipv4', firstPeer)
+    ;(
+      torrent as Torrent & { _swarm: { addIncomingConnection: (...args: unknown[]) => void } }
+    )._swarm.addIncomingConnection(
+      secondPeer.remoteAddress,
+      secondPeer.remotePort,
+      'ipv4',
+      secondPeer,
+    )
+
+    const activePieces = new ActivePieceManager(engine, (index) => torrent.getPieceLength(index), {
+      standardPieceLength: torrent.pieceLength,
+    } satisfies Partial<ActivePieceConfig>)
+    ;(torrent as Torrent & { activePieces: ActivePieceManager }).activePieces = activePieces
+
+    const activePiece = activePieces.getOrCreate(0)
+    expect(activePiece).toBeDefined()
+    activePiece!.addRequest(0, toHex(firstPeer.peerId))
+    activePiece!.addRequest(0, toHex(secondPeer.peerId))
+
+    torrent.updateStreamingDemand('player', new Set([0]), 'now')
+
+    const addBlock = vi.fn((piece, blockIndex, peerId) =>
+      (
+        piece as {
+          addBlock: (blockIndex: number, data: Uint8Array, peerId: string) => boolean
+        }
+      ).addBlock(blockIndex, new Uint8Array(16_384), peerId),
+    )
+
+    invokeHandleBlockCommon(torrent, firstPeer, 0, 0, 16_384, addBlock)
+
+    expect(addBlock).toHaveBeenCalledTimes(1)
+    expect(secondPeer.sendCancel).toHaveBeenCalledWith(0, 0, 16_384)
+    expect(firstPeer.sendCancel).not.toHaveBeenCalled()
   })
 })

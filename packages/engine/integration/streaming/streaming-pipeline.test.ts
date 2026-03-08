@@ -13,6 +13,7 @@
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import * as net from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -21,6 +22,8 @@ import { ALL_FORMATS, EncodedPacketSink, Input, Source, type EncodedPacket } fro
 import { BtEngine } from '../../src/core/bt-engine'
 import type { Torrent } from '../../src/core/torrent'
 import type { PeerConnection } from '../../src/core/peer-connection'
+import type { PeerAddress } from '../../src/core/swarm'
+import { BLOCK_SIZE } from '../../src/core/active-piece'
 import { InMemoryFileSystem, MemorySessionStore } from '../../src/adapters/memory'
 import { NodeSocketFactory, NodeHasher, ScopedNodeFileSystem } from '../../src/adapters/node'
 import { StorageRootManager } from '../../src/storage/storage-root-manager'
@@ -38,6 +41,12 @@ interface SeederResult {
   proc: ChildProcess
   magnet: string
   infoHash: string
+  port: number
+}
+
+interface ThrottledProxy {
+  port: number
+  close(): Promise<void>
 }
 
 interface StreamingDemandRecord {
@@ -114,8 +123,9 @@ type InstrumentedTorrent = Torrent & {
  * Start the Python seeder for a file.
  * @param file - Path to the file to seed
  * @param uploadLimit - Upload rate limit in bytes/sec (0 = unlimited)
+ * @param pieceLength - Torrent piece length in bytes (optional)
  */
-function startSeeder(file: string, uploadLimit = 0): Promise<SeederResult> {
+function startSeeder(file: string, uploadLimit = 0, pieceLength?: number): Promise<SeederResult> {
   return new Promise((resolve, reject) => {
     const args = [
       '-u', // Unbuffered stdout
@@ -132,6 +142,9 @@ function startSeeder(file: string, uploadLimit = 0): Promise<SeederResult> {
     ]
     if (uploadLimit > 0) {
       args.push('--upload-limit', String(uploadLimit))
+    }
+    if (pieceLength) {
+      args.push('--piece-length', String(pieceLength))
     }
 
     const proc = spawn(PYTHON_BIN, args, {
@@ -151,11 +164,13 @@ function startSeeder(file: string, uploadLimit = 0): Promise<SeederResult> {
 
       const magnetMatch = stdout.match(/^MAGNET_LOCALHOST=(.+)$/m)
       const hashMatch = stdout.match(/^INFOHASH=(.+)$/m)
-      if (magnetMatch && hashMatch) {
+      const portMatch = stdout.match(/^PORT=(.+)$/m)
+      if (magnetMatch && hashMatch && portMatch) {
         resolve({
           proc,
           magnet: magnetMatch[1],
           infoHash: hashMatch[1],
+          port: Number(portMatch[1]),
         })
       }
     })
@@ -208,6 +223,99 @@ function createEngine(opts?: { downloadLimit?: number; storageDir?: string }): B
     hasher: new NodeHasher(),
     port: 0,
     config,
+  })
+}
+
+function replacePeerHintPort(magnet: string, port: number): string {
+  return magnet.replace(/x\.pe=127\.0\.0\.1:\d+/, `x.pe=127.0.0.1:${port}`)
+}
+
+async function startThrottledProxy(targetPort: number, rateBytesPerSec: number): Promise<ThrottledProxy> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer((clientSocket) => {
+      const upstream = net.connect({ host: '127.0.0.1', port: targetPort })
+      const downstreamQueue: Buffer[] = []
+      let downstreamQueuedBytes = 0
+      let destroyed = false
+      let availableTokens = 0
+
+      const cleanup = () => {
+        if (destroyed) return
+        destroyed = true
+        clearInterval(flushTimer)
+        clientSocket.destroy()
+        upstream.destroy()
+      }
+
+      const flushTimer = setInterval(() => {
+        if (destroyed) return
+
+        availableTokens += Math.max(1, Math.floor(rateBytesPerSec / 20))
+        while (downstreamQueue.length > 0 && availableTokens > 0) {
+          const chunk = downstreamQueue[0]
+          const toSend = Math.min(chunk.length, availableTokens)
+          const slice = chunk.subarray(0, toSend)
+          const wrote = clientSocket.write(slice)
+          availableTokens -= toSend
+          downstreamQueuedBytes -= toSend
+
+          if (toSend === chunk.length) {
+            downstreamQueue.shift()
+          } else {
+            downstreamQueue[0] = chunk.subarray(toSend)
+          }
+
+          if (!wrote) {
+            break
+          }
+        }
+      }, 50)
+
+      clientSocket.on('data', (chunk) => {
+        upstream.write(chunk)
+      })
+      upstream.on('data', (chunk: Buffer) => {
+        downstreamQueue.push(Buffer.from(chunk))
+        downstreamQueuedBytes += chunk.length
+      })
+
+      clientSocket.on('error', cleanup)
+      upstream.on('error', cleanup)
+      clientSocket.on('close', cleanup)
+      upstream.on('close', cleanup)
+      clientSocket.on('end', () => upstream.end())
+      upstream.on('end', () => {
+        const maybeFinish = setInterval(() => {
+          if (downstreamQueuedBytes === 0) {
+            clearInterval(maybeFinish)
+            clientSocket.end()
+          }
+        }, 10)
+      })
+    })
+
+    server.on('error', (error) => {
+      reject(error)
+    })
+
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      if (!address || typeof address === 'string') {
+        reject(new Error('Failed to determine throttled proxy port'))
+        return
+      }
+
+      resolve({
+        port: address.port,
+        close: () =>
+          new Promise<void>((resolveClose, rejectClose) => {
+            server.close((error) => {
+              if (error) rejectClose(error)
+              else resolveClose()
+            })
+          }),
+      })
+    })
   })
 }
 
@@ -314,6 +422,16 @@ function analyzeTargetPiece(
   return { activeTransitions, requestedWithoutReceiveSamples }
 }
 
+function getCompletionTimeMs(samples: TelemetrySample[], pieceIndex: number): number | null {
+  for (const sample of samples) {
+    const state = sample.targetPieces.find((piece) => piece.piece === pieceIndex)
+    if (state?.complete) {
+      return sample.atMs
+    }
+  }
+  return null
+}
+
 function installStreamingTelemetry(
   torrent: Torrent,
   targetPieces: number[],
@@ -322,6 +440,7 @@ function installStreamingTelemetry(
   demandHistory: StreamingDemandRecord[]
   dropHistory: DropRecord[]
   samples: TelemetrySample[]
+  getPieceCounters: (pieceIndex: number) => PieceCounters
   stop: () => StreamingTelemetrySummary
 } {
   const startedAt = Date.now()
@@ -469,7 +588,7 @@ function installStreamingTelemetry(
     instrumentedTorrent.handleBlockCommon = originalHandleBlockCommon
   })
 
-  const sampleTimer = setInterval(() => {
+  const captureSample = () => {
     maybeWrapActivePieces()
     for (const peer of torrent.peers) {
       wrapPeer(peer)
@@ -494,14 +613,20 @@ function installStreamingTelemetry(
         }
       }),
     })
+  }
+
+  const sampleTimer = setInterval(() => {
+    captureSample()
   }, sampleIntervalMs)
 
   return {
     demandHistory,
     dropHistory,
     samples,
+    getPieceCounters: (pieceIndex: number) => getCounters(pieceIndex),
     stop: () => {
       clearInterval(sampleTimer)
+      captureSample()
       for (const restore of restoreFns.reverse()) {
         restore()
       }
@@ -656,6 +781,8 @@ describe('Streaming Pipeline E2E', () => {
 
 describe('Streaming with blocking reads', () => {
   let seederProc: ChildProcess | null = null
+  let secondarySeederProc: ChildProcess | null = null
+  let throttledProxy: ThrottledProxy | null = null
   let engine: BtEngine | null = null
   let tempFixtureDir: string | null = null
   let tempDownloadDir: string | null = null
@@ -670,7 +797,9 @@ describe('Streaming with blocking reads', () => {
 
   afterEach(async () => {
     if (seederProc && !seederProc.killed) seederProc.kill('SIGTERM')
+    if (secondarySeederProc && !secondarySeederProc.killed) secondarySeederProc.kill('SIGTERM')
     if (engine) await engine.destroy()
+    if (throttledProxy) await throttledProxy.close()
     if (tempFixtureDir) {
       rmSync(tempFixtureDir, { recursive: true, force: true })
     }
@@ -678,6 +807,8 @@ describe('Streaming with blocking reads', () => {
       rmSync(tempDownloadDir, { recursive: true, force: true })
     }
     seederProc = null
+    secondarySeederProc = null
+    throttledProxy = null
     engine = null
     tempFixtureDir = null
     tempDownloadDir = null
@@ -867,4 +998,74 @@ describe('Streaming with blocking reads', () => {
       expect(analysis.requestedWithoutReceiveSamples).toBeLessThan(20)
     }
   }, 150000)
+
+  it('rescues the first startup piece with duplicate requests when a fast peer appears', async () => {
+    const fixture = createMultiFileStreamingFixture()
+    tempFixtureDir = fixture.rootDir
+    tempDownloadDir = mkdtempSync(join(tmpdir(), 'jst-streaming-download-'))
+    const rescuePieceLength = 256 * 1024
+
+    const slowSeeder = await startSeeder(fixture.rootDir, 0, rescuePieceLength)
+    seederProc = slowSeeder.proc
+    throttledProxy = await startThrottledProxy(slowSeeder.port, 4 * 1024)
+
+    engine = createEngine({ storageDir: tempDownloadDir })
+    const { torrent } = await engine.addTorrent(replacePeerHintPort(slowSeeder.magnet, throttledProxy.port))
+    if (!torrent) throw new Error('Failed to add torrent')
+
+    await waitForCondition(() => torrent.files.length > 0, {
+      timeoutMs: 30000,
+      label: 'torrent metadata + storage init',
+    })
+
+    const videoFileIndex = torrent.files.findIndex((file) => file.path.includes(fixture.videoName))
+    expect(videoFileIndex).toBeGreaterThanOrEqual(0)
+
+    await waitForCondition(() => torrent.peers.length >= 1, {
+      timeoutMs: 15000,
+      label: 'slow peer connection',
+    })
+
+    const firstFilePiece = torrent.fileBytesToPieces(videoFileIndex, 0, 1)[0]
+    const targetPiece = getMissingStartupPieces(torrent, videoFileIndex, 1)[0]
+    if (targetPiece === undefined) {
+      throw new Error('Expected a missing startup piece before triggering streaming read')
+    }
+    expect(torrent.hasPiece(targetPiece)).toBe(false)
+
+    const targetOffset = (targetPiece - firstFilePiece) * torrent.pieceLength
+    const telemetry = installStreamingTelemetry(torrent, [targetPiece], 50)
+    const source = createTorrentSource(Source, torrent, videoFileIndex) as IntegrationTorrentSource
+
+    const readPromise = source._read(targetOffset, targetOffset + 1024)
+    expect(readPromise).not.toBeNull()
+
+    await waitForCondition(() => telemetry.getPieceCounters(targetPiece).requests > 0, {
+      timeoutMs: 5000,
+      label: 'initial slow-peer startup request',
+    })
+
+    const fastSeeder = await startSeeder(fixture.rootDir, 0, rescuePieceLength)
+    secondarySeederProc = fastSeeder.proc
+    torrent.addPeerHints([{ ip: '127.0.0.1', port: fastSeeder.port, family: 'ipv4' } satisfies PeerAddress])
+
+    await waitForCondition(() => torrent.peers.length >= 2, {
+      timeoutMs: 15000,
+      label: 'fast peer connection',
+    })
+
+    await readPromise
+    source._dispose()
+
+    const summary = telemetry.stop()
+    const counters = summary.counters.get(targetPiece) ?? createPieceCounters()
+    const completionTimeMs = getCompletionTimeMs(summary.samples, targetPiece)
+    const blocksPerPiece = Math.ceil(torrent.pieceLength / BLOCK_SIZE)
+
+    expect(counters.requests).toBeGreaterThan(blocksPerPiece)
+    expect(counters.cancels).toBeGreaterThanOrEqual(1)
+    expect(counters.blocksReceived).toBeGreaterThanOrEqual(1)
+    expect(completionTimeMs).not.toBeNull()
+    expect(completionTimeMs!).toBeLessThan(15000)
+  }, 90000)
 })

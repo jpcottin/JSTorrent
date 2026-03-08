@@ -3123,6 +3123,8 @@ export class Torrent extends EngineComponent {
       peer.recordRttSample(rtt)
     }
 
+    const cancels = this._endgameManager.getCancels(piece, blockIndex, peerId)
+
     // Add block to piece using the provided function
     const isNew = addBlockFn(piece, blockIndex, peerId)
     if (!isNew) {
@@ -3132,9 +3134,9 @@ export class Torrent extends EngineComponent {
       ;(this.engine as BtEngine).bandwidthTracker.record('peer:payload', dataLength, 'down')
     }
 
-    // In endgame mode, send CANCEL to other peers that requested this block
-    if (isNew && this._endgameManager.isEndgame) {
-      const cancels = this._endgameManager.getCancels(piece, blockIndex, peerId)
+    // Cancel any duplicate requests still outstanding for this block.
+    // This applies to both global endgame and urgent streaming-now pieces.
+    if (isNew) {
       for (const cancel of cancels) {
         // Find peer by ID and send cancel
         for (const p of this.connectedPeers) {

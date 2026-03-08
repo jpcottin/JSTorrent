@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { EndgameManager } from '../../src/core/endgame-manager'
 import { ActivePiece } from '../../src/core/active-piece'
+import { STREAM_NOW_PRIORITY } from '../../src/core/streaming-request-overlay'
 
 describe('EndgameManager', () => {
   let manager: EndgameManager
@@ -60,13 +61,14 @@ describe('EndgameManager', () => {
   })
 
   describe('getCancels', () => {
-    it('should return empty when not in endgame', () => {
+    it('should return other peers to cancel whenever duplicate requests exist', () => {
       const piece = new ActivePiece(0, 32768) // 2 blocks
       piece.addRequest(0, 'peer1')
       piece.addRequest(0, 'peer2')
 
       const cancels = manager.getCancels(piece, 0, 'peer1')
-      expect(cancels).toHaveLength(0)
+      expect(cancels).toHaveLength(1)
+      expect(cancels[0].peerId).toBe('peer2')
     })
 
     it('should return other peers to cancel in endgame', () => {
@@ -100,23 +102,30 @@ describe('EndgameManager', () => {
 
   describe('shouldSendDuplicateRequest', () => {
     it('should return false when not in endgame', () => {
-      expect(manager.shouldSendDuplicateRequest(0)).toBe(false)
+      expect(manager.shouldSendDuplicateRequest(0, 4)).toBe(false)
     })
 
     it('should respect maxDuplicateRequests config', () => {
       manager.evaluate(1, 1, false) // Enter endgame
 
       // Default is 3
-      expect(manager.shouldSendDuplicateRequest(0)).toBe(true)
-      expect(manager.shouldSendDuplicateRequest(2)).toBe(true)
-      expect(manager.shouldSendDuplicateRequest(3)).toBe(false)
+      expect(manager.shouldSendDuplicateRequest(0, 4)).toBe(true)
+      expect(manager.shouldSendDuplicateRequest(2, 4)).toBe(true)
+      expect(manager.shouldSendDuplicateRequest(3, 4)).toBe(false)
     })
 
     it('should allow unlimited with config 0', () => {
       manager.updateConfig({ maxDuplicateRequests: 0 })
       manager.evaluate(1, 1, false)
 
-      expect(manager.shouldSendDuplicateRequest(100)).toBe(true)
+      expect(manager.shouldSendDuplicateRequest(100, 4)).toBe(true)
+    })
+
+    it('allows streaming-now duplicates outside global endgame', () => {
+      expect(manager.shouldUseDuplicateRequests(STREAM_NOW_PRIORITY)).toBe(true)
+      expect(manager.getMaxDuplicateRequestsForPiece(STREAM_NOW_PRIORITY)).toBe(2)
+      expect(manager.shouldSendDuplicateRequest(1, STREAM_NOW_PRIORITY)).toBe(true)
+      expect(manager.shouldSendDuplicateRequest(2, STREAM_NOW_PRIORITY)).toBe(false)
     })
   })
 

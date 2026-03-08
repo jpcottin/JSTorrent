@@ -1,4 +1,5 @@
 import { ActivePiece, BLOCK_SIZE } from './active-piece'
+import { STREAM_NOW_PRIORITY } from './streaming-request-overlay'
 
 /**
  * Decision to enter or exit endgame mode.
@@ -27,6 +28,12 @@ export interface EndgameConfig {
    * Default: 3
    */
   maxDuplicateRequests: number
+
+  /**
+   * Maximum concurrent requests per block for streaming-now pieces outside
+   * global endgame. Default: 2 (1 original + 1 duplicate)
+   */
+  maxStreamingDuplicateRequests: number
 }
 
 // Detect if running in native/QuickJS environment (Android/iOS)
@@ -37,6 +44,7 @@ const isNativeRuntime =
 const DEFAULT_CONFIG: EndgameConfig = {
   // Native runtime has tighter memory constraints; limit to 2 (1 original + 1 duplicate)
   maxDuplicateRequests: isNativeRuntime ? 2 : 3,
+  maxStreamingDuplicateRequests: 2,
 }
 
 /**
@@ -131,8 +139,6 @@ export class EndgameManager {
    * @returns List of CANCEL messages to send
    */
   getCancels(piece: ActivePiece, blockIndex: number, receivedFromPeerId: string): CancelDecision[] {
-    if (!this._inEndgame) return []
-
     const otherPeers = piece.getOtherRequesters(blockIndex, receivedFromPeerId)
     if (otherPeers.length === 0) return []
 
@@ -148,15 +154,37 @@ export class EndgameManager {
   }
 
   /**
+   * Whether a piece is currently allowed to use duplicate requests.
+   * Global torrent endgame enables this for all pieces; streaming-now
+   * enables it for the urgent playback pieces even outside endgame.
+   */
+  shouldUseDuplicateRequests(piecePriority: number): boolean {
+    return this._inEndgame || piecePriority === STREAM_NOW_PRIORITY
+  }
+
+  /**
+   * Maximum concurrent requests allowed per block for this piece.
+   */
+  getMaxDuplicateRequestsForPiece(piecePriority: number): number {
+    if (this._inEndgame) return this.config.maxDuplicateRequests
+    if (piecePriority === STREAM_NOW_PRIORITY) {
+      return this.config.maxStreamingDuplicateRequests
+    }
+    return 0
+  }
+
+  /**
    * Check if we should send a duplicate request to a peer for a block.
    * Respects maxDuplicateRequests config.
    *
    * @param currentRequestCount How many requests are already out for this block
    * @returns Whether to send another duplicate request
    */
-  shouldSendDuplicateRequest(currentRequestCount: number): boolean {
-    if (!this._inEndgame) return false
-    if (this.config.maxDuplicateRequests === 0) return true // Unlimited
-    return currentRequestCount < this.config.maxDuplicateRequests
+  shouldSendDuplicateRequest(currentRequestCount: number, piecePriority: number): boolean {
+    if (!this.shouldUseDuplicateRequests(piecePriority)) return false
+
+    const maxDuplicateRequests = this.getMaxDuplicateRequestsForPiece(piecePriority)
+    if (maxDuplicateRequests === 0) return true // Unlimited
+    return currentRequestCount < maxDuplicateRequests
   }
 }
