@@ -34,6 +34,13 @@ export interface StreamingPlan {
   dropPieceIndices: number[]
 }
 
+export interface StreamingSelectionHint {
+  nextStartPiece: number
+  nextEndPiece: number
+  fileStartPiece: number
+  fileEndPiece: number
+}
+
 const PRIORITY_SKIP = 0
 const PRIORITY_METADATA = 5
 const PRIORITY_FILE = 5
@@ -238,5 +245,64 @@ export class StreamingScheduler {
 
   isPieceSuppressed(pieceIndex: number): boolean {
     return this.currentPlan.suppressedPieces.has(pieceIndex)
+  }
+
+  get selectionHint(): StreamingSelectionHint | null {
+    let nextStartPiece: number | null = null
+    let nextEndPiece: number | null = null
+    const fileRanges: Array<{ start: number; end: number }> = []
+
+    for (const demand of this.demands.values()) {
+      if (demand.pieces.size === 0) continue
+
+      let minPiece = Number.POSITIVE_INFINITY
+      let maxPiece = Number.NEGATIVE_INFINITY
+      for (const pieceIndex of demand.pieces) {
+        if (pieceIndex < minPiece) minPiece = pieceIndex
+        if (pieceIndex > maxPiece) maxPiece = pieceIndex
+      }
+      if (!Number.isFinite(minPiece) || !Number.isFinite(maxPiece)) continue
+
+      if (demand.urgency === 'next') {
+        if (nextStartPiece === null || minPiece < nextStartPiece) {
+          nextStartPiece = minPiece
+          nextEndPiece = maxPiece
+        }
+        continue
+      }
+
+      if (demand.urgency === 'file') {
+        fileRanges.push({ start: minPiece, end: maxPiece })
+      }
+    }
+
+    if (nextStartPiece === null || nextEndPiece === null) {
+      return null
+    }
+
+    let selectedFileRange: { start: number; end: number } | null = null
+    for (const range of fileRanges) {
+      if (range.start > nextStartPiece || range.end < nextStartPiece) continue
+      if (
+        !selectedFileRange ||
+        range.end - range.start < selectedFileRange.end - selectedFileRange.start
+      ) {
+        selectedFileRange = range
+      }
+    }
+
+    if (!selectedFileRange) {
+      selectedFileRange = {
+        start: nextStartPiece,
+        end: nextEndPiece,
+      }
+    }
+
+    return {
+      nextStartPiece,
+      nextEndPiece,
+      fileStartPiece: selectedFileRange.start,
+      fileEndPiece: selectedFileRange.end,
+    }
   }
 }

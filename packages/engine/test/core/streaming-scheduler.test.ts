@@ -334,4 +334,18 @@ describe('StreamingScheduler', () => {
     expect(next.plan.protectedPieces.has(1)).toBe(true)
     expect(next.plan.effectivePriority?.[1]).toBe(7)
   })
+
+  it('exposes a streaming selection hint for next-then-backfill scans', () => {
+    const scheduler = new StreamingScheduler()
+
+    scheduler.updateDemand('file-lock', new Set([20, 21, 22, 23, 24, 25]), 'file')
+    scheduler.updateDemand('ahead', new Set([23, 24, 25]), 'next')
+
+    expect(scheduler.selectionHint).toEqual({
+      nextStartPiece: 23,
+      nextEndPiece: 25,
+      fileStartPiece: 20,
+      fileEndPiece: 25,
+    })
+  })
 })

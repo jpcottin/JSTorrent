@@ -2961,6 +2961,7 @@ export class Torrent extends EngineComponent {
       getConnectedPeerCount: () => this.connectedPeers.length,
       getCompletedPieceCount: () => this.completedPiecesCount,
       getFirstNeededPiece: () => this._firstNeededPiece,
+      getStreamingSelectionHint: () => this._streamingScheduler.selectionHint,
 
       // Managers
       getActivePieces: () => this.activePieces,

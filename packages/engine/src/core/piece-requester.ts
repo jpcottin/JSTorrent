@@ -2,6 +2,7 @@ import { BLOCK_SIZE, type ActivePiece } from './active-piece'
 import { ActivePieceManager } from './active-piece-manager'
 import { PieceAvailability } from './piece-availability'
 import { EndgameManager } from './endgame-manager'
+import type { StreamingSelectionHint } from './streaming-scheduler'
 import { buildStreamingOverlayPlan, STREAM_NOW_PRIORITY } from './streaming-request-overlay'
 import { EngineComponent, ILoggingEngine } from '../logging/logger'
 import { BitField } from '../utils/bitfield'
@@ -86,6 +87,9 @@ export interface PieceRequesterDeps {
 
   /** First piece index we still need (optimization hint) */
   getFirstNeededPiece(): number
+
+  /** Streaming frontier hint for forward and within-file backfill scans. */
+  getStreamingSelectionHint(): StreamingSelectionHint | null
 
   // === Managers ===
 
@@ -608,37 +612,101 @@ export class TorrentPieceRequester extends EngineComponent {
     }
 
     const startTime = Date.now()
+    const collectLimit = Math.max(maxCount * 2, maxCount)
     const candidates: Array<{ index: number; sortKey: number }> = []
-    const collectLimit = maxCount * 2
     let iterations = 0
     let usedIndex = false
     const seedCount = availability.seedCount
     const pieceCount = this.deps.getPieceCount()
     const firstNeededPiece = this.deps.getFirstNeededPiece()
+    const streamingSelectionHint = this.deps.getStreamingSelectionHint()
+    const addCandidate = (i: number): void => {
+      const prio = piecePriority[i]
+      if (prio === 0 || prio === STREAM_NOW_PRIORITY) return
+
+      const pieceAvail = availabilityArray[i] + seedCount
+      const sortKey = pieceAvail * (8 - prio) * 3 // 8 = PRIORITY_LEVELS, 3 = PRIO_FACTOR
+
+      for (let existingIndex = 0; existingIndex < candidates.length; existingIndex++) {
+        if (candidates[existingIndex].index === i) return
+      }
+
+      let insertAt = candidates.length
+      while (insertAt > 0 && candidates[insertAt - 1].sortKey > sortKey) {
+        insertAt--
+      }
+
+      if (candidates.length < collectLimit) {
+        candidates.splice(insertAt, 0, { index: i, sortKey })
+        return
+      }
+
+      if (insertAt >= collectLimit) return
+      candidates.splice(insertAt, 0, { index: i, sortKey })
+      candidates.pop()
+    }
+
+    const shouldConsiderPiece = (i: number, minPriority: number, maxPriority: number): boolean => {
+      if (i < 0 || i >= pieceCount) return false
+      if (bitfield.get(i)) return false
+      if (activePieces.has(i)) return false
+      if (!peer.isSeed && !peer.bitfield?.get(i)) return false
+
+      const prio = piecePriority[i]
+      if (prio < minPriority || prio > maxPriority) return false
+      if (prio === 0 || prio === STREAM_NOW_PRIORITY) return false
+
+      return true
+    }
+
+    const collectRangeCandidates = (
+      start: number,
+      end: number,
+      minPriority: number,
+      maxPriority: number,
+    ): void => {
+      if (candidates.length >= collectLimit) return
+      if (start > end) return
+
+      const clampedStart = Math.max(0, start)
+      const clampedEnd = Math.min(pieceCount - 1, end)
+      for (let i = clampedStart; i <= clampedEnd; i++) {
+        iterations++
+        if (!shouldConsiderPiece(i, minPriority, maxPriority)) continue
+        addCandidate(i)
+      }
+    }
 
     // Use per-peer index for non-seeds (O(pieces peer has) instead of O(all pieces))
     const peerId = this.deps.getPeerId(peer)
     const peerPieceSet = availability.getPeerPieceSet(peerId)
 
-    if (!peer.isSeed && peerPieceSet && peerPieceSet.size > 0) {
-      // Use the pre-computed index - only iterate pieces peer has that we need
+    if (streamingSelectionHint) {
+      collectRangeCandidates(
+        streamingSelectionHint.nextStartPiece,
+        streamingSelectionHint.nextEndPiece,
+        6,
+        6,
+      )
+      collectRangeCandidates(
+        streamingSelectionHint.fileStartPiece,
+        streamingSelectionHint.nextStartPiece - 1,
+        5,
+        5,
+      )
+    }
+
+    if (candidates.length < collectLimit && !peer.isSeed && peerPieceSet && peerPieceSet.size > 0) {
+      // Use the pre-computed index - only iterate pieces peer has that we need.
       usedIndex = true
       for (const i of peerPieceSet) {
         iterations++
         if (candidates.length >= collectLimit) break
-
-        if (bitfield.get(i)) continue
-        if (activePieces.has(i)) continue
-
-        const prio = piecePriority[i]
-        if (prio === 0 || prio === STREAM_NOW_PRIORITY) continue
-
-        const pieceAvail = availabilityArray[i] + seedCount
-        const sortKey = pieceAvail * (8 - prio) * 3 // 8 = PRIORITY_LEVELS, 3 = PRIO_FACTOR
-
-        candidates.push({ index: i, sortKey })
+        if (i < firstNeededPiece) continue
+        if (!shouldConsiderPiece(i, 1, STREAM_NOW_PRIORITY - 1)) continue
+        addCandidate(i)
       }
-    } else {
+    } else if (candidates.length < collectLimit) {
       // Seeds or no index: use original linear scan algorithm
       const peerBitfield = peer.bitfield
       for (let i = firstNeededPiece; i < pieceCount && candidates.length < collectLimit; i++) {
@@ -650,23 +718,12 @@ export class TorrentPieceRequester extends EngineComponent {
         // Skip if peer doesn't have it (seeds have everything)
         if (!peer.isSeed && !peerBitfield?.get(i)) continue
 
-        // Skip if priority is 0 (skipped file)
-        const prio = piecePriority[i]
-        if (prio === 0 || prio === STREAM_NOW_PRIORITY) continue
-
         // Skip if already active (handled in phase 1)
         if (activePieces.has(i)) continue
 
-        // Calculate sort key using libtorrent formula
-        const pieceAvail = availabilityArray[i] + seedCount
-        const sortKey = pieceAvail * (8 - prio) * 3
-
-        candidates.push({ index: i, sortKey })
+        addCandidate(i)
       }
     }
-
-    // Sort by rarity (lower sortKey = rarer/higher priority = first)
-    candidates.sort((a, b) => a.sortKey - b.sortKey)
 
     const elapsed = Date.now() - startTime
 

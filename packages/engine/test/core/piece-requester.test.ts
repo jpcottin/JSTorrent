@@ -49,6 +49,7 @@ describe('TorrentPieceRequester write-queue backpressure', () => {
       getConnectedPeerCount: () => 1,
       getCompletedPieceCount: () => 0,
       getFirstNeededPiece: () => 0,
+      getStreamingSelectionHint: () => null,
       getActivePieces: () => undefined,
       initActivePieces,
       getAvailability: () =>
@@ -123,6 +124,7 @@ describe('TorrentPieceRequester write-queue backpressure', () => {
       getConnectedPeerCount: () => 2,
       getCompletedPieceCount: () => 0,
       getFirstNeededPiece: () => 0,
+      getStreamingSelectionHint: () => null,
       getActivePieces: () => activePieces,
       initActivePieces: () => activePieces,
       getAvailability: () =>
@@ -196,6 +198,7 @@ describe('TorrentPieceRequester write-queue backpressure', () => {
       getConnectedPeerCount: () => 2,
       getCompletedPieceCount: () => 0,
       getFirstNeededPiece: () => 0,
+      getStreamingSelectionHint: () => null,
       getActivePieces: () => activePieces,
       initActivePieces: () => activePieces,
       getAvailability: () =>
@@ -271,6 +274,7 @@ describe('TorrentPieceRequester write-queue backpressure', () => {
       getConnectedPeerCount: () => 2,
       getCompletedPieceCount: () => 0,
       getFirstNeededPiece: () => 0,
+      getStreamingSelectionHint: () => null,
       getActivePieces: () => activePieces,
       initActivePieces: () => activePieces,
       getAvailability: () =>
@@ -344,6 +348,7 @@ describe('TorrentPieceRequester write-queue backpressure', () => {
       getConnectedPeerCount: () => 2,
       getCompletedPieceCount: () => 0,
       getFirstNeededPiece: () => 0,
+      getStreamingSelectionHint: () => null,
       getActivePieces: () => activePieces,
       initActivePieces: () => activePieces,
       getAvailability: () =>
@@ -384,5 +389,93 @@ describe('TorrentPieceRequester write-queue backpressure', () => {
     requester.request(peer, Date.now())
 
     expect(sendRequests).not.toHaveBeenCalled()
+  })
+
+  it('prefers later next-priority pieces over earlier same-file backfill when activating new work', () => {
+    const engine = new MockEngine()
+    const sentBatches: Array<Array<{ index: number; begin: number; length: number }>> = []
+    const sendRequests = vi.fn(
+      (requests: Array<{ index: number; begin: number; length: number }>) => {
+        sentBatches.push(requests.map((request) => ({ ...request })))
+      },
+    )
+    const activePieces = new ActivePieceManager(engine, () => 32 * 1024, {
+      standardPieceLength: 32 * 1024,
+    })
+
+    const piecePriority = new Uint8Array(12).fill(5)
+    piecePriority[10] = 6
+    piecePriority[11] = 6
+
+    const ourBitfield = BitField.createEmpty(12)
+    const peerBitfield = BitField.createEmpty(12)
+    for (let i = 0; i < 12; i++) {
+      peerBitfield.set(i, true)
+    }
+
+    const peerPieceSet = new Set<number>()
+    for (let i = 0; i < 12; i++) {
+      peerPieceSet.add(i)
+    }
+
+    const deps: PieceRequesterDeps = {
+      getPieceCount: () => 12,
+      getPieceLength: () => 32 * 1024,
+      getPiecePriority: () => piecePriority,
+      getBitfield: () => ourBitfield,
+      isKillSwitchEnabled: () => false,
+      isNetworkActive: () => true,
+      isWriteQueueBackpressured: () => false,
+      hasMetadata: () => true,
+      getConnectedPeerCount: () => 2,
+      getCompletedPieceCount: () => 0,
+      getFirstNeededPiece: () => 0,
+      getStreamingSelectionHint: () => ({
+        nextStartPiece: 10,
+        nextEndPiece: 11,
+        fileStartPiece: 0,
+        fileEndPiece: 11,
+      }),
+      getActivePieces: () => activePieces,
+      initActivePieces: () => activePieces,
+      getAvailability: () =>
+        ({
+          rawAvailability: new Uint16Array(12).fill(1),
+          seedCount: 0,
+          getPeerPieceSet: () => peerPieceSet,
+        }) as never,
+      getEndgameManager: () => createEndgameManagerMock() as never,
+      getMaxPipelineDepth: () => 4,
+      isDownloadRateLimited: () => false,
+      getDownloadRateLimit: () => 0,
+      tryConsumeDownloadBandwidth: () => true,
+      removePieceFromAllIndices: () => {},
+      shouldAddToIndex: () => true,
+      scheduleRateLimitRetry: () => true,
+      onEndgameEvaluate: () => {},
+      getPeerId: () => 'peer-1',
+    }
+
+    const requester = new TorrentPieceRequester(engine, deps)
+    const peer = {
+      peerId: undefined,
+      remoteAddress: '127.0.0.1',
+      remotePort: 6881,
+      peerChoking: false,
+      bitfield: peerBitfield,
+      isSeed: false,
+      pipelineDepth: 4,
+      requestsPending: 0,
+      downloadSpeed: 256 * 1024,
+      snubbed: false,
+      inSlowStart: false,
+      recordBlockReceived: () => {},
+      sendRequests,
+    }
+
+    requester.request(peer, Date.now())
+
+    expect(sendRequests).toHaveBeenCalledTimes(1)
+    expect(sentBatches[0].map((request) => request.index)).toEqual([10, 10, 11, 11])
   })
 })
