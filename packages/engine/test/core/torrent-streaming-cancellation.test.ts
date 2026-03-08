@@ -86,7 +86,7 @@ describe('Torrent streaming cancellation', () => {
   it('cancels dropped streaming-suppressed pieces and ignores late blocks for them', () => {
     const peer = createFakePeer('1.2.3.4', 6881)
     ;(
-      torrent as Torrent & { _swarm: { addIncomingConnection: Function } }
+      torrent as Torrent & { _swarm: { addIncomingConnection: (...args: unknown[]) => void } }
     )._swarm.addIncomingConnection(peer.remoteAddress, peer.remotePort, 'ipv4', peer)
 
     const activePieces = new ActivePieceManager(engine, (index) => torrent.getPieceLength(index), {
