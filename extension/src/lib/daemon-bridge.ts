@@ -225,7 +225,9 @@ export class DaemonBridge {
       return true
     } catch (e) {
       const error = e instanceof Error ? e.message : 'Unknown error'
-      this.cleanup()
+      if (error !== 'profile_in_use') {
+        this.cleanup()
+      }
       this.updateState({ status: 'disconnected', lastError: error })
       return false
     }
@@ -753,6 +755,9 @@ export class DaemonBridge {
       onProfileInUse: (port, info) => {
         // Keep port alive for potential TakeOver
         this.nativePort = port
+        if (info?.profileId) {
+          chrome.storage.local.set({ profileId: info.profileId })
+        }
         this.updateState({ profileInUseInfo: info })
       },
       onDisconnectedAfterConnected: () => {

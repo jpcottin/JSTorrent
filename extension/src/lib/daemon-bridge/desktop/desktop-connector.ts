@@ -1,6 +1,7 @@
 import type { DaemonInfo } from '../../native-connection'
 
 export interface DesktopProfileInUseInfo {
+  profileId?: string
   clientType?: string
   clientVersion?: string
   browserName?: string
@@ -40,6 +41,7 @@ function toProfileInUseInfo(msg: unknown): DesktopProfileInUseInfo | null {
   const response = msg as ProfileInUseMessage
   return response.payload
     ? {
+        profileId: response.payload.profileId,
         clientType: response.payload.clientType,
         clientVersion: response.payload.clientVersion,
         browserName: response.payload.browserName,

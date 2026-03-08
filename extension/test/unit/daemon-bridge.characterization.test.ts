@@ -134,4 +134,51 @@ describe('DaemonBridge characterization', () => {
 
     bridge.disconnect()
   })
+
+  it('persists profileId from profile_in_use so takeover targets the incumbent profile', async () => {
+    vi.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('11111111-1111-4111-8111-111111111111')
+      .mockReturnValueOnce('22222222-2222-4222-8222-222222222222')
+
+    const { nativePort, chrome, storageData } = installMockChromeFull()
+    const bridge = new DaemonBridge()
+
+    const connectPromise = bridge.connect()
+    await vi.waitFor(() => {
+      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(1)
+    })
+
+    nativePort.emitMessage({
+      ok: false,
+      error: 'profile_in_use',
+      payload: {
+        profileId: 'desktop-profile-1',
+        clientType: 'tauri',
+        clientVersion: '2.0.0',
+        pid: 42,
+        started: 1700000000000,
+      },
+    })
+
+    await expect(connectPromise).resolves.toBe(false)
+    expect(storageData.profileId).toBe('desktop-profile-1')
+
+    const takeOverPromise = bridge.takeOver()
+    await vi.waitFor(() => {
+      expect(nativePort.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          op: 'takeOver',
+          profileId: 'desktop-profile-1',
+          clientType: 'extension',
+        }),
+      )
+    })
+
+    nativePort.emitMessage({
+      type: 'DaemonInfo',
+      payload: createDaemonInfo({ profileId: 'desktop-profile-1' }),
+    })
+
+    await expect(takeOverPromise).resolves.toBe(true)
+  })
 })
