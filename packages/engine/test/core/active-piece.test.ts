@@ -37,6 +37,17 @@ describe('ActivePiece', () => {
 
       expect(piece.outstandingRequests).toBe(2)
     })
+
+    it('should not treat request churn as data progress', () => {
+      vi.useFakeTimers()
+      const initialDataActivity = piece.lastDataActivity
+
+      vi.advanceTimersByTime(5000)
+      piece.addRequest(0, 'peer1')
+
+      expect(piece.lastDataActivity).toBe(initialDataActivity)
+      vi.useRealTimers()
+    })
   })
 
   describe('addBlock', () => {
@@ -70,6 +81,17 @@ describe('ActivePiece', () => {
       }
 
       expect(piece.haveAllBlocks).toBe(true)
+    })
+
+    it('should update data activity when a block arrives', () => {
+      vi.useFakeTimers()
+
+      const initialDataActivity = piece.lastDataActivity
+      vi.advanceTimersByTime(5000)
+      piece.addBlock(0, new Uint8Array(BLOCK_SIZE), 'peer1')
+
+      expect(piece.lastDataActivity).toBeGreaterThan(initialDataActivity)
+      vi.useRealTimers()
     })
   })
 

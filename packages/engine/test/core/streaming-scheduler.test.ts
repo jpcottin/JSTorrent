@@ -181,7 +181,7 @@ describe('buildStreamingPlan', () => {
     expect(plan.protectedPieces.has(1)).toBe(true)
   })
 
-  it('does not protect file-locked pieces from preemption during now demand', () => {
+  it('keeps file-locked pieces eligible so within-file work can continue around the cursor', () => {
     const basePriority = new Uint8Array(10).fill(4)
 
     const plan = buildStreamingPlan({
@@ -212,12 +212,12 @@ describe('buildStreamingPlan', () => {
     })
 
     expect(plan.effectivePriority?.[5]).toBe(7)
-    expect(plan.effectivePriority?.[6]).toBe(0)
-    expect(plan.dropPieceIndices.sort((a, b) => a - b)).toEqual([6, 8])
-    expect(plan.suppressedPieces.has(6)).toBe(true)
+    expect(plan.effectivePriority?.[6]).toBe(5)
+    expect(plan.dropPieceIndices.sort((a, b) => a - b)).toEqual([8])
+    expect(plan.suppressedPieces.has(6)).toBe(false)
     expect(plan.suppressedPieces.has(8)).toBe(true)
     expect(plan.protectedPieces.has(5)).toBe(true)
-    expect(plan.protectedPieces.has(6)).toBe(false)
+    expect(plan.protectedPieces.has(6)).toBe(true)
   })
 })
 
@@ -268,7 +268,7 @@ describe('StreamingScheduler', () => {
 
   it('retains suppressed pieces across planner runs while now-demand remains active', () => {
     const scheduler = new StreamingScheduler()
-    const basePriority = new Uint8Array(6).fill(4)
+    const basePriority = new Uint8Array(8).fill(4)
 
     scheduler.updateDemand('file-lock', new Set([0, 1, 2, 3, 4, 5]), 'file')
     scheduler.updateDemand('player', new Set([5]), 'now')
@@ -278,7 +278,7 @@ describe('StreamingScheduler', () => {
       basePiecePriority: basePriority,
       activePieces: [
         {
-          index: 1,
+          index: 6,
           state: 'fullyRequested',
           blocksReceived: 8,
           blocksNeeded: 16,
@@ -288,8 +288,8 @@ describe('StreamingScheduler', () => {
       ],
     })
 
-    expect(first.plan.suppressedPieces).toEqual(new Set([1]))
-    expect(first.plan.effectivePriority?.[1]).toBe(0)
+    expect(first.plan.suppressedPieces).toEqual(new Set([6]))
+    expect(first.plan.effectivePriority?.[6]).toBe(0)
 
     const second = scheduler.buildPlan({
       piecesCount: basePriority.length,
@@ -297,9 +297,9 @@ describe('StreamingScheduler', () => {
       activePieces: [],
     })
 
-    expect(second.previousSuppressedPieces).toEqual(new Set([1]))
-    expect(second.plan.suppressedPieces).toEqual(new Set([1]))
-    expect(second.plan.effectivePriority?.[1]).toBe(0)
+    expect(second.previousSuppressedPieces).toEqual(new Set([6]))
+    expect(second.plan.suppressedPieces).toEqual(new Set([6]))
+    expect(second.plan.effectivePriority?.[6]).toBe(0)
   })
 
   it('releases retained suppression when a piece becomes protected again', () => {

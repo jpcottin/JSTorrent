@@ -186,7 +186,14 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
   const disposeController = new AbortController()
   let disposed = false
   const fileLockToken = `torrent-source-file:${nextStreamingDemandId++}`
+  const aheadDemandToken = `torrent-source-next:${nextStreamingDemandId++}`
   let fileLockActive = false
+  let aheadDemandStartPiece: number | null = null
+  const filePieceIndices =
+    provider.fileSize > 0 ? provider.fileBytesToPieces(0, provider.fileSize) : []
+  const firstFilePiece = filePieceIndices[0] ?? 0
+  const lastFilePiece = filePieceIndices[filePieceIndices.length - 1] ?? -1
+  const expandDemandPieces = (pieces: number[]): Set<number> => new Set(pieces)
 
   interface SignalDemandScope {
     token: string
@@ -201,6 +208,33 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
     if (!fallbackDemandScope) return
     provider.updateStreamingDemand?.(fallbackDemandScope.token, null, 'now')
     fallbackDemandScope = null
+  }
+
+  const updateAheadDemand = (startPiece: number | null): void => {
+    if (!provider.updateStreamingDemand) return
+
+    if (
+      startPiece === null ||
+      filePieceIndices.length === 0 ||
+      lastFilePiece < firstFilePiece ||
+      startPiece > lastFilePiece
+    ) {
+      if (aheadDemandStartPiece === null) return
+      provider.updateStreamingDemand(aheadDemandToken, null, 'next')
+      aheadDemandStartPiece = null
+      return
+    }
+
+    const clampedStartPiece = Math.max(firstFilePiece, startPiece)
+    if (aheadDemandStartPiece === clampedStartPiece) return
+
+    const aheadPieces = new Set<number>()
+    for (let piece = clampedStartPiece; piece <= lastFilePiece; piece++) {
+      aheadPieces.add(piece)
+    }
+
+    provider.updateStreamingDemand(aheadDemandToken, aheadPieces, 'next')
+    aheadDemandStartPiece = clampedStartPiece
   }
 
   const clearSignalDemandScope = (signal: AbortSignal | null | undefined): void => {
@@ -283,6 +317,8 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
         provider.updateStreamingDemand && effectiveSignal
           ? getSignalDemandScope(effectiveSignal)
           : null
+      const demandPieces = expandDemandPieces(pieces)
+      updateAheadDemand(pieces[0] ?? null)
       if (provider.updateStreamingDemand && !effectiveSignal && !fallbackDemandScope) {
         fallbackDemandScope = {
           token: `torrent-source:${nextStreamingDemandId++}`,
@@ -294,19 +330,19 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
         fallbackDemandScope?.token ??
         `torrent-source:${nextStreamingDemandId++}`
       if (signalDemandScope) {
-        for (const piece of pieces) {
+        for (const piece of demandPieces) {
           signalDemandScope.pieces.add(piece)
         }
         provider.updateStreamingDemand(demandToken, new Set(signalDemandScope.pieces), 'now')
       } else if (fallbackDemandScope && provider.updateStreamingDemand) {
-        for (const piece of pieces) {
+        for (const piece of demandPieces) {
           fallbackDemandScope.pieces.add(piece)
         }
         provider.updateStreamingDemand(demandToken, new Set(fallbackDemandScope.pieces), 'now')
       } else if (provider.updateStreamingDemand) {
-        provider.updateStreamingDemand(demandToken, new Set(pieces), 'now')
+        provider.updateStreamingDemand(demandToken, demandPieces, 'now')
       } else {
-        provider.setStreamingPieces(new Set(pieces))
+        provider.setStreamingPieces(demandPieces)
       }
 
       const readController = new AbortController()
@@ -376,6 +412,7 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
         clearSignalDemandScope(signal)
       }
       clearFallbackDemandScope()
+      updateAheadDemand(null)
       provider.setStreamingPieces(null)
       disposeController.abort()
     }

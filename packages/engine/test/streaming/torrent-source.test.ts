@@ -172,16 +172,21 @@ describe('TorrentSource', () => {
       expect.stringMatching(/^torrent-source-file:/),
       0,
     )
-    expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(1)
+    expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(2)
 
-    const [token, pieces, urgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    const [aheadToken, aheadPieces, aheadUrgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    expect(aheadToken).toMatch(/^torrent-source-next:/)
+    expect(aheadPieces).toEqual(new Set([0, 1, 2, 3]))
+    expect(aheadUrgency).toBe('next')
+
+    const [token, pieces, urgency] = mockTorrent.updateStreamingDemand.mock.calls[1]
     expect(token).toMatch(/^torrent-source:/)
     expect(pieces).toEqual(new Set([0]))
     expect(urgency).toBe('now')
 
     controller.abort()
 
-    expect(mockTorrent.updateStreamingDemand.mock.calls[1]).toEqual([token, null, 'now'])
+    expect(mockTorrent.updateStreamingDemand.mock.calls[2]).toEqual([token, null, 'now'])
   })
 
   it('reuses one tokenized demand window across unsignaled startup reads until a segment signal takes over', async () => {
@@ -197,10 +202,19 @@ describe('TorrentSource', () => {
     await source._read(0, 100)
     await source._read(20000, 33000)
 
-    expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(2)
-    const [firstToken, firstPieces, firstUrgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(4)
+    const [aheadToken, aheadPieces, aheadUrgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    const [firstToken, firstPieces, firstUrgency] = mockTorrent.updateStreamingDemand.mock.calls[1]
+    const [secondAheadToken, secondAheadPieces, secondAheadUrgency] =
+      mockTorrent.updateStreamingDemand.mock.calls[2]
     const [secondToken, secondPieces, secondUrgency] =
-      mockTorrent.updateStreamingDemand.mock.calls[1]
+      mockTorrent.updateStreamingDemand.mock.calls[3]
+    expect(aheadToken).toMatch(/^torrent-source-next:/)
+    expect(aheadPieces).toEqual(new Set([0, 1, 2, 3]))
+    expect(aheadUrgency).toBe('next')
+    expect(secondAheadToken).toBe(aheadToken)
+    expect(secondAheadPieces).toEqual(new Set([1, 2, 3]))
+    expect(secondAheadUrgency).toBe('next')
     expect(firstToken).toMatch(/^torrent-source:/)
     expect(secondToken).toBe(firstToken)
     expect(firstPieces).toEqual(new Set([0]))
@@ -210,7 +224,7 @@ describe('TorrentSource', () => {
 
     source.setCurrentSignal(new AbortController().signal)
 
-    expect(mockTorrent.updateStreamingDemand.mock.calls[2]).toEqual([firstToken, null, 'now'])
+    expect(mockTorrent.updateStreamingDemand.mock.calls[4]).toEqual([firstToken, null, 'now'])
   })
 
   it('reuses one tokenized demand window across reads sharing the same current signal', async () => {
@@ -228,10 +242,19 @@ describe('TorrentSource', () => {
     await source._read(0, 100)
     await source._read(20000, 33000)
 
-    expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(2)
-    const [firstToken, firstPieces, firstUrgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(4)
+    const [aheadToken, aheadPieces, aheadUrgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    const [firstToken, firstPieces, firstUrgency] = mockTorrent.updateStreamingDemand.mock.calls[1]
+    const [secondAheadToken, secondAheadPieces, secondAheadUrgency] =
+      mockTorrent.updateStreamingDemand.mock.calls[2]
     const [secondToken, secondPieces, secondUrgency] =
-      mockTorrent.updateStreamingDemand.mock.calls[1]
+      mockTorrent.updateStreamingDemand.mock.calls[3]
+    expect(aheadToken).toMatch(/^torrent-source-next:/)
+    expect(aheadPieces).toEqual(new Set([0, 1, 2, 3]))
+    expect(aheadUrgency).toBe('next')
+    expect(secondAheadToken).toBe(aheadToken)
+    expect(secondAheadPieces).toEqual(new Set([1, 2, 3]))
+    expect(secondAheadUrgency).toBe('next')
     expect(firstToken).toMatch(/^torrent-source:/)
     expect(secondToken).toBe(firstToken)
     expect(firstPieces).toEqual(new Set([0]))
@@ -241,7 +264,7 @@ describe('TorrentSource', () => {
 
     source.setCurrentSignal(new AbortController().signal)
 
-    expect(mockTorrent.updateStreamingDemand.mock.calls[2]).toEqual([firstToken, null, 'now'])
+    expect(mockTorrent.updateStreamingDemand.mock.calls[4]).toEqual([firstToken, null, 'now'])
   })
 
   it('waits for missing pieces then resolves with correct bytes', async () => {
@@ -298,7 +321,6 @@ describe('TorrentSource', () => {
     const controller = new AbortController()
     const promise = source._read(0, 100, controller.signal)
 
-    // First call: setStreamingPieces(new Set([0]))
     expect(mockTorrent.setStreamingPieces).toHaveBeenCalledWith(new Set([0]))
 
     controller.abort()
@@ -323,15 +345,20 @@ describe('TorrentSource', () => {
     const controller = new AbortController()
     const promise = source._read(0, 100, controller.signal)
 
-    expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(1)
-    const [token, pieces, urgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(2)
+    const [aheadToken, aheadPieces, aheadUrgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    expect(aheadToken).toMatch(/^torrent-source-next:/)
+    expect(aheadPieces).toEqual(new Set([0, 1, 2, 3]))
+    expect(aheadUrgency).toBe('next')
+
+    const [token, pieces, urgency] = mockTorrent.updateStreamingDemand.mock.calls[1]
     expect(token).toMatch(/^torrent-source:/)
     expect(pieces).toEqual(new Set([0]))
     expect(urgency).toBe('now')
 
     controller.abort()
 
-    expect(mockTorrent.updateStreamingDemand.mock.calls[1]).toEqual([token, null, 'now'])
+    expect(mockTorrent.updateStreamingDemand.mock.calls[2]).toEqual([token, null, 'now'])
     await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
   })
 

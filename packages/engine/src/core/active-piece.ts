@@ -52,6 +52,8 @@ export class ActivePiece {
 
   // Activity tracking for stale piece cleanup
   private _lastActivity: number = Date.now()
+  // Tracks actual receive progress; request churn must not reset this.
+  private _lastDataActivity: number = Date.now()
 
   /**
    * Timestamp when this piece became active.
@@ -83,6 +85,10 @@ export class ActivePiece {
 
   get lastActivity(): number {
     return this._lastActivity
+  }
+
+  get lastDataActivity(): number {
+    return this._lastDataActivity
   }
 
   /**
@@ -250,6 +256,7 @@ export class ActivePiece {
     this._blocksReceivedCount++
     this.blockSenders.set(blockIndex, peerId)
     this._lastActivity = Date.now()
+    this._lastDataActivity = this._lastActivity
 
     // Clear requests for this block - it's been fulfilled
     this.blockRequests.delete(blockIndex)
@@ -290,6 +297,7 @@ export class ActivePiece {
     this._blocksReceivedCount++
     this.blockSenders.set(blockIndex, peerId)
     this._lastActivity = Date.now()
+    this._lastDataActivity = this._lastActivity
 
     // Clear requests for this block - it's been fulfilled
     this.blockRequests.delete(blockIndex)
@@ -589,6 +597,8 @@ export class ActivePiece {
     this.blockRequests.clear()
     this.blockSenders.clear()
     this._activatedAt = Date.now()
+    this._lastActivity = this._activatedAt
+    this._lastDataActivity = this._activatedAt
     // Phase 7: Reset unrequested count - all blocks become unrequested again
     this._unrequestedCount = this.blocksNeeded
     // Note: buffer is NOT cleared - for pooling, the caller can reuse it

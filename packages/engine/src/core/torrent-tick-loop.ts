@@ -561,11 +561,15 @@ export class TorrentTickLoop extends EngineComponent {
 
     // --- Phase 3: Piece-level no-data timeout ---
     // If no data arrives for a piece for PIECE_NO_DATA_TIMEOUT_MS, snub all
-    // requesting peers. This is more aggressive than per-request timeout and
-    // catches peers that accept requests but don't send data.
+    // requesting peers. Use receive activity, not request churn, otherwise a
+    // re-request loop can keep a dead piece alive indefinitely while no blocks
+    // are actually arriving.
     let pieceTimeoutSnubs = 0
     for (const piece of activePieces.downloadingValues()) {
-      if (piece.outstandingRequests > 0 && now - piece.lastActivity > PIECE_NO_DATA_TIMEOUT_MS) {
+      if (
+        piece.outstandingRequests > 0 &&
+        now - piece.lastDataActivity > PIECE_NO_DATA_TIMEOUT_MS
+      ) {
         const requestingPeers = piece.getRequestingPeers()
         for (const peerId of requestingPeers) {
           const peer = this.findPeerById(peerId)
@@ -574,7 +578,7 @@ export class TorrentTickLoop extends EngineComponent {
             pieceTimeoutSnubs++
             this.logger.debug(
               `Piece timeout snub: peer ${peer.remoteAddress}:${peer.remotePort} ` +
-                `(piece ${piece.index} inactive for ${now - piece.lastActivity}ms)`,
+                `(piece ${piece.index} no-data for ${now - piece.lastDataActivity}ms)`,
             )
           }
         }
