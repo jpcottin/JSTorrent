@@ -265,4 +265,73 @@ describe('StreamingScheduler', () => {
     expect(second.plan.suppressedPieces.size).toBe(0)
     expect(second.plan.effectivePriority).toBe(basePriority)
   })
+
+  it('retains suppressed pieces across planner runs while now-demand remains active', () => {
+    const scheduler = new StreamingScheduler()
+    const basePriority = new Uint8Array(6).fill(4)
+
+    scheduler.updateDemand('file-lock', new Set([0, 1, 2, 3, 4, 5]), 'file')
+    scheduler.updateDemand('player', new Set([5]), 'now')
+
+    const first = scheduler.buildPlan({
+      piecesCount: basePriority.length,
+      basePiecePriority: basePriority,
+      activePieces: [
+        {
+          index: 1,
+          state: 'fullyRequested',
+          blocksReceived: 8,
+          blocksNeeded: 16,
+          outstandingRequests: 8,
+          requests: [{ blockIndex: 0, peerId: 'peer-1' }],
+        },
+      ],
+    })
+
+    expect(first.plan.suppressedPieces).toEqual(new Set([1]))
+    expect(first.plan.effectivePriority?.[1]).toBe(0)
+
+    const second = scheduler.buildPlan({
+      piecesCount: basePriority.length,
+      basePiecePriority: basePriority,
+      activePieces: [],
+    })
+
+    expect(second.previousSuppressedPieces).toEqual(new Set([1]))
+    expect(second.plan.suppressedPieces).toEqual(new Set([1]))
+    expect(second.plan.effectivePriority?.[1]).toBe(0)
+  })
+
+  it('releases retained suppression when a piece becomes protected again', () => {
+    const scheduler = new StreamingScheduler()
+    const basePriority = new Uint8Array(6).fill(4)
+
+    scheduler.updateDemand('file-lock', new Set([0, 1, 2, 3, 4, 5]), 'file')
+    scheduler.updateDemand('player', new Set([5]), 'now')
+    scheduler.buildPlan({
+      piecesCount: basePriority.length,
+      basePiecePriority: basePriority,
+      activePieces: [
+        {
+          index: 1,
+          state: 'fullyRequested',
+          blocksReceived: 8,
+          blocksNeeded: 16,
+          outstandingRequests: 8,
+          requests: [{ blockIndex: 0, peerId: 'peer-1' }],
+        },
+      ],
+    })
+
+    scheduler.updateDemand('player', new Set([1]), 'now')
+    const next = scheduler.buildPlan({
+      piecesCount: basePriority.length,
+      basePiecePriority: basePriority,
+      activePieces: [],
+    })
+
+    expect(next.plan.suppressedPieces.has(1)).toBe(false)
+    expect(next.plan.protectedPieces.has(1)).toBe(true)
+    expect(next.plan.effectivePriority?.[1]).toBe(7)
+  })
 })

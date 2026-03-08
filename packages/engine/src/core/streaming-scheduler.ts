@@ -179,13 +179,38 @@ export class StreamingScheduler {
     plan: StreamingPlan
   } {
     const previousSuppressedPieces = new Set(this.currentPlan.suppressedPieces)
-    this.currentPlan = buildStreamingPlan({
+    const plan = buildStreamingPlan({
       ...input,
       demands: [...this.demands.values()],
     })
+    this.retainSuppressedPieces(previousSuppressedPieces, plan)
+    this.currentPlan = plan
     return {
       previousSuppressedPieces,
       plan: this.currentPlan,
+    }
+  }
+
+  private retainSuppressedPieces(
+    previousSuppressedPieces: Set<number>,
+    plan: StreamingPlan,
+  ): void {
+    if (!plan.effectivePriority || previousSuppressedPieces.size === 0) return
+
+    let shouldRetain = false
+    for (const demand of this.demands.values()) {
+      if (demand.urgency === 'now' || demand.urgency === 'file') {
+        shouldRetain = true
+        break
+      }
+    }
+    if (!shouldRetain) return
+
+    for (const pieceIndex of previousSuppressedPieces) {
+      if (pieceIndex < 0 || pieceIndex >= plan.effectivePriority.length) continue
+      if (plan.protectedPieces.has(pieceIndex)) continue
+      plan.suppressedPieces.add(pieceIndex)
+      plan.effectivePriority[pieceIndex] = PRIORITY_SKIP
     }
   }
 
