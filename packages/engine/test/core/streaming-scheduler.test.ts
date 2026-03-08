@@ -180,6 +180,43 @@ describe('buildStreamingPlan', () => {
     expect(plan.protectedPieces.has(0)).toBe(false)
     expect(plan.protectedPieces.has(1)).toBe(true)
   })
+
+  it('protects file-locked pieces from preemption during now demand', () => {
+    const basePriority = new Uint8Array(10).fill(4)
+
+    const plan = buildStreamingPlan({
+      piecesCount: basePriority.length,
+      basePiecePriority: basePriority,
+      demands: [
+        { token: 'file-lock', urgency: 'file', pieces: new Set([5, 6, 7]) },
+        { token: 'player', urgency: 'now', pieces: new Set([5]) },
+      ],
+      activePieces: [
+        {
+          index: 6,
+          state: 'partial',
+          blocksReceived: 1,
+          blocksNeeded: 16,
+          outstandingRequests: 2,
+          requests: [{ blockIndex: 0, peerId: 'peer-1' }],
+        },
+        {
+          index: 8,
+          state: 'partial',
+          blocksReceived: 1,
+          blocksNeeded: 16,
+          outstandingRequests: 2,
+          requests: [{ blockIndex: 1, peerId: 'peer-2' }],
+        },
+      ],
+    })
+
+    expect(plan.effectivePriority?.[5]).toBe(7)
+    expect(plan.effectivePriority?.[6]).toBe(6)
+    expect(plan.dropPieceIndices).toEqual([8])
+    expect(plan.suppressedPieces.has(6)).toBe(false)
+    expect(plan.suppressedPieces.has(8)).toBe(true)
+  })
 })
 
 describe('StreamingScheduler', () => {

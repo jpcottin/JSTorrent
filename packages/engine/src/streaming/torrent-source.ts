@@ -132,6 +132,10 @@ export function createStreamingFileProvider(
     },
     fileBytesToPieces: (offset, length) => torrent.fileBytesToPieces(fileIndex, offset, length),
     setStreamingPieces: (pieces) => torrent.setStreamingPieces(pieces),
+    updateStreamingFileLock:
+      'updateStreamingFileLock' in torrent
+        ? (token, enabled) => torrent.updateStreamingFileLock(token, enabled ? fileIndex : null)
+        : undefined,
     updateStreamingDemand:
       'updateStreamingDemand' in torrent
         ? (token, pieces, urgency) => torrent.updateStreamingDemand(token, pieces, urgency)
@@ -180,6 +184,8 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
 ): InstanceType<T> {
   const disposeController = new AbortController()
   let disposed = false
+  const fileLockToken = `torrent-source-file:${nextStreamingDemandId++}`
+  let fileLockActive = false
 
   // Create a concrete subclass that implements the abstract methods
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -217,6 +223,11 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
       console.log(
         `[torrent-source] read start=${start} end=${end} len=${length} ${summarizePieces(pieces)}`,
       )
+
+      if (provider.updateStreamingFileLock && !fileLockActive) {
+        provider.updateStreamingFileLock(fileLockToken, true)
+        fileLockActive = true
+      }
 
       const demandToken = `torrent-source:${nextStreamingDemandId++}`
       if (provider.updateStreamingDemand) {
@@ -284,6 +295,10 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
       if (disposed) return
       disposed = true
       console.log('[torrent-source] dispose')
+      if (provider.updateStreamingFileLock && fileLockActive) {
+        provider.updateStreamingFileLock(fileLockToken, false)
+        fileLockActive = false
+      }
       provider.setStreamingPieces(null)
       disposeController.abort()
     }

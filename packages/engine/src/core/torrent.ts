@@ -213,6 +213,7 @@ export class Torrent extends EngineComponent {
   // File priority manager
   private _filePriorityManager!: FilePriorityManager
   private _streamingScheduler: StreamingScheduler = new StreamingScheduler()
+  private _streamingFileLocks: Map<string, number> = new Map()
 
   // Piece requester (handles piece selection and requesting)
   private _pieceRequester?: TorrentPieceRequester
@@ -1352,6 +1353,37 @@ export class Torrent extends EngineComponent {
     if (changed) {
       this.syncStreamingScheduler()
     }
+  }
+
+  /**
+   * Temporarily lock scheduling to a streamed file without mutating persisted user priorities.
+   */
+  updateStreamingFileLock(token: string, fileIndex: number | null): void {
+    const previous = this._streamingFileLocks.get(token)
+    if (fileIndex === null) {
+      if (previous === undefined) return
+      this._streamingFileLocks.delete(token)
+      this._streamingScheduler.updateDemand(`file-lock:${token}`, null, 'file')
+    } else {
+      if (previous === fileIndex) return
+      this._streamingFileLocks.set(token, fileIndex)
+
+      const file = this.files[fileIndex]
+      const pieces =
+        file && file.length > 0
+          ? new Set(this.fileBytesToPieces(fileIndex, 0, file.length))
+          : new Set<number>()
+      this._streamingScheduler.updateDemand(`file-lock:${token}`, pieces, 'file')
+    }
+
+    this.syncStreamingFileLocks()
+    this.syncStreamingScheduler()
+  }
+
+  private syncStreamingFileLocks(): void {
+    const lockedFiles =
+      this._streamingFileLocks.size > 0 ? new Set(this._streamingFileLocks.values()) : null
+    this._filePriorityManager.setStreamingFileLocks(lockedFiles)
   }
 
   private syncStreamingScheduler(): void {

@@ -54,6 +54,7 @@ export class FilePriorityManager extends EngineComponent {
   private _pieceClassification: PieceClassification[] = []
   private _piecePriority: Uint8Array | null = null
   private _streamingPieces: Set<number> | null = null
+  private _streamingFileLocks: Set<number> | null = null
 
   // Callbacks
   private readonly getPiecesCount: () => number
@@ -304,6 +305,16 @@ export class FilePriorityManager extends EngineComponent {
     this.recomputePiecePriority()
   }
 
+  /**
+   * Temporarily lock scheduling to the given file indices while streaming.
+   * This does not mutate persisted user file priorities.
+   */
+  setStreamingFileLocks(fileIndices: Set<number> | null): void {
+    this._streamingFileLocks =
+      fileIndices && fileIndices.size > 0 ? new Set(fileIndices) : null
+    this.recomputePiecePriority()
+  }
+
   // === Private Methods ===
 
   /**
@@ -404,12 +415,15 @@ export class FilePriorityManager extends EngineComponent {
 
     const files = this.getFiles()
     const pieceLength = this.standardPieceLength
+    const streamingFileLocks = this._streamingFileLocks
+    const hasStreamingFileLock = streamingFileLocks !== null && streamingFileLocks.size > 0
 
     for (let pieceIndex = 0; pieceIndex < piecesCount; pieceIndex++) {
       const pieceStart = pieceIndex * pieceLength
       const pieceEnd = pieceStart + this.getPieceLength(pieceIndex)
 
       let maxPriority = 0 // Start as skip
+      let touchesLockedFile = false
 
       for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
         const file = files[fileIndex]
@@ -417,22 +431,33 @@ export class FilePriorityManager extends EngineComponent {
 
         // Check if piece overlaps with this file
         if (pieceStart < fileEnd && pieceEnd > file.offset) {
-          const filePriority = this._filePriorities[fileIndex] ?? 0
-
-          // Map file priority to piece priority contribution
           let contribution = 0
-          if (filePriority === 2) {
-            contribution = 6 // High priority
-          } else if (filePriority === 0) {
-            contribution = 4 // Normal priority
+          if (hasStreamingFileLock) {
+            if (streamingFileLocks.has(fileIndex)) {
+              touchesLockedFile = true
+              contribution = 6 // Stream-locked file priority
+            }
+          } else {
+            const filePriority = this._filePriorities[fileIndex] ?? 0
+
+            // Map file priority to piece priority contribution
+            if (filePriority === 2) {
+              contribution = 6 // High priority
+            } else if (filePriority === 0) {
+              contribution = 4 // Normal priority
+            }
           }
-          // filePriority === 1 (skip) contributes 0
 
           maxPriority = Math.max(maxPriority, contribution)
 
           // Early exit if we hit high priority (can't go higher)
           if (maxPriority === 6) break
         }
+      }
+
+      if (hasStreamingFileLock && !touchesLockedFile) {
+        this._piecePriority[pieceIndex] = 0
+        continue
       }
 
       this._piecePriority[pieceIndex] = maxPriority

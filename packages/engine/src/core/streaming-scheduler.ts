@@ -1,4 +1,4 @@
-export type StreamingDemandUrgency = 'metadata' | 'next' | 'now'
+export type StreamingDemandUrgency = 'metadata' | 'next' | 'file' | 'now'
 
 export interface StreamingDemand {
   token: string
@@ -36,6 +36,7 @@ export interface StreamingPlan {
 
 const PRIORITY_SKIP = 0
 const PRIORITY_METADATA = 5
+const PRIORITY_FILE = 6
 const PRIORITY_NEXT = 6
 const PRIORITY_NOW = 7
 const LOW_PROGRESS_PARTIAL_DROP_THRESHOLD = 0.25
@@ -44,6 +45,8 @@ function urgencyToPriority(urgency: StreamingDemandUrgency): number {
   switch (urgency) {
     case 'metadata':
       return PRIORITY_METADATA
+    case 'file':
+      return PRIORITY_FILE
     case 'next':
       return PRIORITY_NEXT
     case 'now':
@@ -75,11 +78,15 @@ export function buildStreamingPlan(input: StreamingPlannerInput): StreamingPlan 
   const effectivePriority = new Uint8Array(basePiecePriority)
   const protectedPieces = new Set<number>()
   let hasNowDemand = false
+  let hasFileDemand = false
 
   for (const demand of demands) {
     const demandPriority = urgencyToPriority(demand.urgency)
     if (demand.urgency === 'now' && demand.pieces.size > 0) {
       hasNowDemand = true
+    }
+    if (demand.urgency === 'file' && demand.pieces.size > 0) {
+      hasFileDemand = true
     }
 
     for (const pieceIndex of demand.pieces) {
@@ -93,7 +100,7 @@ export function buildStreamingPlan(input: StreamingPlannerInput): StreamingPlan 
   const suppressedPieces = new Set<number>()
   const dropPieceIndices: number[] = []
 
-  if (hasNowDemand) {
+  if (hasNowDemand || hasFileDemand) {
     for (const piece of activePieces) {
       if (protectedPieces.has(piece.index)) continue
       if (piece.state === 'fullyResponded') continue

@@ -21,6 +21,7 @@ interface MockTorrentOpts {
   /** Pieces that are already downloaded. */
   availablePieces?: Set<number>
   includeTokenizedDemandApi?: boolean
+  includeStreamingFileLockApi?: boolean
 }
 
 function createMockTorrent(opts: MockTorrentOpts) {
@@ -94,6 +95,12 @@ function createMockTorrent(opts: MockTorrentOpts) {
     })
   }
 
+  if (opts.includeStreamingFileLockApi) {
+    Object.assign(mock, {
+      updateStreamingFileLock: vi.fn((_token: string, _enabled: boolean) => undefined),
+    })
+  }
+
   return mock
 }
 
@@ -151,6 +158,7 @@ describe('TorrentSource', () => {
       fileLength: 65536,
       availablePieces: new Set([0, 1, 2, 3]),
       includeTokenizedDemandApi: true,
+      includeStreamingFileLockApi: true,
     })
 
     const source = createTorrentSource(MockSourceBase, mockTorrent as unknown as Torrent, 0)
@@ -158,6 +166,11 @@ describe('TorrentSource', () => {
     await source._read(0, 100)
 
     expect(mockTorrent.setStreamingPieces).not.toHaveBeenCalled()
+    expect(mockTorrent.updateStreamingFileLock).toHaveBeenCalledTimes(1)
+    expect(mockTorrent.updateStreamingFileLock).toHaveBeenCalledWith(
+      expect.stringMatching(/^torrent-source-file:/),
+      0,
+    )
     expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(2)
 
     const [token, pieces, urgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
@@ -238,6 +251,7 @@ describe('TorrentSource', () => {
       fileLength: 65536,
       availablePieces: new Set(),
       includeTokenizedDemandApi: true,
+      includeStreamingFileLockApi: true,
     })
 
     const source = createTorrentSource(MockSourceBase, mockTorrent as unknown as Torrent, 0)
@@ -315,5 +329,26 @@ describe('TorrentSource', () => {
     expect(mockTorrent.setStreamingPieces).toHaveBeenCalledWith(null)
     await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
     expect(mockTorrent.readFileBytes).not.toHaveBeenCalled()
+  })
+
+  it('clears the streaming file lock when disposed', async () => {
+    mockTorrent = createMockTorrent({
+      fileLength: 65536,
+      availablePieces: new Set(),
+      includeStreamingFileLockApi: true,
+    })
+
+    const source = createTorrentSource(MockSourceBase, mockTorrent as unknown as Torrent, 0)
+    const promise = source._read(0, 100)
+
+    expect(mockTorrent.updateStreamingFileLock).toHaveBeenCalledTimes(1)
+    const [token, enabled] = mockTorrent.updateStreamingFileLock.mock.calls[0]
+    expect(token).toMatch(/^torrent-source-file:/)
+    expect(enabled).toBe(0)
+
+    source._dispose()
+
+    expect(mockTorrent.updateStreamingFileLock.mock.calls[1]).toEqual([token, null])
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
   })
 })

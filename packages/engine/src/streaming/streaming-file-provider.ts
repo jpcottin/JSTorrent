@@ -41,6 +41,7 @@ export interface StreamingFileProvider {
   readonly fileSize: number
   fileBytesToPieces(offset: number, length: number): number[]
   setStreamingPieces(pieces: Set<number> | null): void
+  updateStreamingFileLock?(token: string, enabled: boolean): void
   updateStreamingDemand?(
     token: string,
     pieces: Set<number> | null,

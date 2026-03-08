@@ -327,4 +327,41 @@ describe('Piece Selection Filtering', () => {
       }
     })
   })
+
+  describe('streaming file lock', () => {
+    it('locks effective piece selection to the streamed file without mutating user priorities', async () => {
+      const buffer = createMultiFileTorrent({
+        name: 'test-folder',
+        files: [
+          { path: 'video.mkv', length: 50000 },
+          { path: 'extras.bin', length: 50000 },
+        ],
+        pieceLength: 16384,
+      })
+
+      const { torrent } = await engine.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      expect(torrent.filePriorities).toEqual([0, 0])
+      expect(torrent.shouldRequestPiece(0)).toBe(true)
+      expect(torrent.shouldRequestPiece(4)).toBe(true)
+
+      torrent.updateStreamingFileLock('player', 0)
+
+      expect(torrent.filePriorities).toEqual([0, 0])
+      expect(torrent.piecePriority?.[0]).toBe(6)
+      expect(torrent.piecePriority?.[1]).toBe(6)
+      expect(torrent.piecePriority?.[2]).toBe(6)
+      expect(torrent.piecePriority?.[3]).toBe(6)
+      expect(torrent.piecePriority?.[4]).toBe(0)
+      expect(torrent.shouldRequestPiece(0)).toBe(true)
+      expect(torrent.shouldRequestPiece(4)).toBe(false)
+
+      torrent.updateStreamingFileLock('player', null)
+
+      expect(torrent.piecePriority?.[0]).toBe(4)
+      expect(torrent.piecePriority?.[4]).toBe(4)
+      expect(torrent.shouldRequestPiece(4)).toBe(true)
+    })
+  })
 })

@@ -27,6 +27,7 @@ interface HostPendingWait {
 
 type HostMessage =
   | { type: 'setStreamingPieces'; pieces: number[] | null }
+  | { type: 'updateStreamingFileLock'; token: string; enabled: boolean }
   | {
       type: 'updateStreamingDemand'
       token: string
@@ -133,6 +134,11 @@ export function createVideoPopupSessionHost(
 
     if (message.type === 'setStreamingPieces') {
       provider.setStreamingPieces(message.pieces ? new Set(message.pieces) : null)
+      return
+    }
+
+    if (message.type === 'updateStreamingFileLock') {
+      provider.updateStreamingFileLock?.(message.token, message.enabled)
       return
     }
 
@@ -352,6 +358,14 @@ export function createRemoteStreamingFileProvider(
         channel.postMessage({
           type: 'setStreamingPieces',
           pieces: pieces ? [...pieces] : null,
+        } satisfies HostMessage)
+      },
+      updateStreamingFileLock: (token, enabled) => {
+        if (disposed) return
+        channel.postMessage({
+          type: 'updateStreamingFileLock',
+          token,
+          enabled,
         } satisfies HostMessage)
       },
       updateStreamingDemand: (token, pieces, urgency) => {
