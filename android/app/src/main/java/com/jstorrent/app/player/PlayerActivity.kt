@@ -44,6 +44,7 @@ import com.jstorrent.app.R
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -84,6 +85,9 @@ class PlayerActivity : ComponentActivity() {
             lifecycleScope.launch {
                 prepareAndStartPlayback(request)
             }
+            lifecycleScope.launch {
+                monitorPlaybackTorrent(request.infoHash)
+            }
         }
 
         setContent {
@@ -120,7 +124,7 @@ class PlayerActivity : ComponentActivity() {
         bufferingMessage = getString(R.string.player_loading_video)
 
         try {
-            val preparationResult = withContext(Dispatchers.IO) {
+            withContext(Dispatchers.IO) {
                 app.ensureEngineStarted()
                 TorrentPlaybackCoordinator(app.engineServiceRepository)
                     .prepareForPlayback(
@@ -141,9 +145,7 @@ class PlayerActivity : ComponentActivity() {
 
             player = exoPlayer
             screenState = PlayerScreenState.Ready(
-                fileName = request.fileName,
-                filePath = request.filePath,
-                result = preparationResult
+                fileName = request.fileName
             )
         } catch (t: Throwable) {
             releasePlayer()
@@ -186,6 +188,31 @@ class PlayerActivity : ComponentActivity() {
         player = null
     }
 
+    private suspend fun monitorPlaybackTorrent(infoHash: String) {
+        var hasSeenPlaybackTorrent = false
+
+        app.engineServiceRepository.state.collectLatest { state ->
+            if (screenState !is PlayerScreenState.Ready || isFinishing || isDestroyed) {
+                return@collectLatest
+            }
+
+            val torrents = state?.torrents ?: return@collectLatest
+            val torrent = torrents.firstOrNull { it.infoHash == infoHash }
+            if (torrent != null) {
+                hasSeenPlaybackTorrent = true
+            }
+
+            val playbackUnavailable = (hasSeenPlaybackTorrent && torrent == null) ||
+                torrent?.userState == "stopped" ||
+                torrent?.status == "stopped"
+
+            if (playbackUnavailable) {
+                releasePlayer()
+                finish()
+            }
+        }
+    }
+
     private fun buildPlayerErrorMessage(error: androidx.media3.common.PlaybackException): String {
         val rootCause = generateSequence(error.cause) { it.cause }.lastOrNull()
         val usefulCause = generateSequence(error.cause) { it.cause }
@@ -206,11 +233,7 @@ class PlayerActivity : ComponentActivity() {
 
 private sealed interface PlayerScreenState {
     data object Preparing : PlayerScreenState
-    data class Ready(
-        val fileName: String,
-        val filePath: String,
-        val result: PlaybackPreparationResult
-    ) : PlayerScreenState
+    data class Ready(val fileName: String) : PlayerScreenState
     data class Error(val message: String) : PlayerScreenState
 }
 
@@ -311,42 +334,6 @@ private fun PlayerActivityScreen(
                                     text = playerErrorMessage,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                            }
-                        }
-                    }
-
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(16.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                        tonalElevation = 3.dp
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = state.fileName,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = state.filePath,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            if (state.result.fileUnskipped || state.result.torrentStarted) {
-                                Text(
-                                    text = when {
-                                        state.result.fileUnskipped && state.result.torrentStarted ->
-                                            stringResource(R.string.player_prepared_resumed_and_selected)
-                                        state.result.fileUnskipped ->
-                                            stringResource(R.string.player_file_unskipped)
-                                        else ->
-                                            stringResource(R.string.player_torrent_resumed)
-                                    },
-                                    style = MaterialTheme.typography.labelMedium
                                 )
                             }
                         }
