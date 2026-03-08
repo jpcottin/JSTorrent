@@ -20,6 +20,7 @@ interface MockTorrentOpts {
   pieceLength?: number
   /** Pieces that are already downloaded. */
   availablePieces?: Set<number>
+  includeTokenizedDemandApi?: boolean
 }
 
 function createMockTorrent(opts: MockTorrentOpts) {
@@ -84,6 +85,15 @@ function createMockTorrent(opts: MockTorrentOpts) {
     },
   }
 
+  if (opts.includeTokenizedDemandApi) {
+    Object.assign(mock, {
+      updateStreamingDemand: vi.fn(
+        (_token: string, _pieces: Set<number> | null, _urgency?: 'metadata' | 'next' | 'now') =>
+          undefined,
+      ),
+    })
+  }
+
   return mock
 }
 
@@ -134,6 +144,27 @@ describe('TorrentSource', () => {
     await source._read(start, end)
 
     expect(mockTorrent.setStreamingPieces).toHaveBeenCalledWith(new Set([1, 2]))
+  })
+
+  it('uses tokenized streaming demand when available and clears it after a successful read', async () => {
+    mockTorrent = createMockTorrent({
+      fileLength: 65536,
+      availablePieces: new Set([0, 1, 2, 3]),
+      includeTokenizedDemandApi: true,
+    })
+
+    const source = createTorrentSource(MockSourceBase, mockTorrent as unknown as Torrent, 0)
+
+    await source._read(0, 100)
+
+    expect(mockTorrent.setStreamingPieces).not.toHaveBeenCalled()
+    expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(2)
+
+    const [token, pieces, urgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    expect(token).toMatch(/^torrent-source:/)
+    expect(pieces).toEqual(new Set([0]))
+    expect(urgency).toBe('now')
+    expect(mockTorrent.updateStreamingDemand.mock.calls[1]).toEqual([token, null, 'now'])
   })
 
   it('waits for missing pieces then resolves with correct bytes', async () => {
@@ -200,6 +231,30 @@ describe('TorrentSource', () => {
 
     // Suppress unhandled rejection
     await promise.catch(() => {})
+  })
+
+  it('clears tokenized streaming demand on abort', async () => {
+    mockTorrent = createMockTorrent({
+      fileLength: 65536,
+      availablePieces: new Set(),
+      includeTokenizedDemandApi: true,
+    })
+
+    const source = createTorrentSource(MockSourceBase, mockTorrent as unknown as Torrent, 0)
+
+    const controller = new AbortController()
+    const promise = source._read(0, 100, controller.signal)
+
+    expect(mockTorrent.updateStreamingDemand).toHaveBeenCalledTimes(1)
+    const [token, pieces, urgency] = mockTorrent.updateStreamingDemand.mock.calls[0]
+    expect(token).toMatch(/^torrent-source:/)
+    expect(pieces).toEqual(new Set([0]))
+    expect(urgency).toBe('now')
+
+    controller.abort()
+
+    expect(mockTorrent.updateStreamingDemand.mock.calls[1]).toEqual([token, null, 'now'])
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
   })
 
   it('handles reads spanning multiple pieces', async () => {

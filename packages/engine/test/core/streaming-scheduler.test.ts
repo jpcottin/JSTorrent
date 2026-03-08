@@ -91,6 +91,95 @@ describe('buildStreamingPlan', () => {
     expect(plan.effectivePriority?.[1]).toBe(6)
     expect(plan.effectivePriority?.[2]).toBe(7)
   })
+
+  it('does not drop protected or fully responded pieces during now-demand preemption', () => {
+    const basePriority = new Uint8Array(8).fill(4)
+
+    const plan = buildStreamingPlan({
+      piecesCount: basePriority.length,
+      basePiecePriority: basePriority,
+      demands: [{ token: 'player', urgency: 'now', pieces: new Set([2]) }],
+      activePieces: [
+        {
+          index: 2,
+          state: 'partial',
+          blocksReceived: 1,
+          blocksNeeded: 16,
+          outstandingRequests: 2,
+          requests: [{ blockIndex: 0, peerId: 'peer-1' }],
+        },
+        {
+          index: 3,
+          state: 'fullyResponded',
+          blocksReceived: 16,
+          blocksNeeded: 16,
+          outstandingRequests: 0,
+          requests: [],
+        },
+        {
+          index: 4,
+          state: 'partial',
+          blocksReceived: 1,
+          blocksNeeded: 16,
+          outstandingRequests: 2,
+          requests: [{ blockIndex: 1, peerId: 'peer-2' }],
+        },
+      ],
+    })
+
+    expect(plan.dropPieceIndices).toEqual([4])
+    expect(plan.suppressedPieces.has(2)).toBe(false)
+    expect(plan.suppressedPieces.has(3)).toBe(false)
+    expect(plan.suppressedPieces.has(4)).toBe(true)
+    expect(plan.effectivePriority?.[2]).toBe(7)
+    expect(plan.effectivePriority?.[3]).toBe(4)
+    expect(plan.effectivePriority?.[4]).toBe(0)
+  })
+
+  it('does not suppress active work when only metadata or next demands exist', () => {
+    const basePriority = new Uint8Array(6).fill(4)
+
+    const plan = buildStreamingPlan({
+      piecesCount: basePriority.length,
+      basePiecePriority: basePriority,
+      demands: [
+        { token: 'metadata', urgency: 'metadata', pieces: new Set([0]) },
+        { token: 'read-ahead', urgency: 'next', pieces: new Set([1]) },
+      ],
+      activePieces: [
+        {
+          index: 4,
+          state: 'fullyRequested',
+          blocksReceived: 4,
+          blocksNeeded: 16,
+          outstandingRequests: 12,
+          requests: [{ blockIndex: 0, peerId: 'peer-1' }],
+        },
+      ],
+    })
+
+    expect(plan.dropPieceIndices).toEqual([])
+    expect(plan.suppressedPieces.size).toBe(0)
+    expect(plan.effectivePriority?.[0]).toBe(5)
+    expect(plan.effectivePriority?.[1]).toBe(6)
+    expect(plan.effectivePriority?.[4]).toBe(4)
+  })
+
+  it('ignores skipped pieces in streaming demand windows', () => {
+    const basePriority = new Uint8Array([0, 4, 4])
+
+    const plan = buildStreamingPlan({
+      piecesCount: basePriority.length,
+      basePiecePriority: basePriority,
+      demands: [{ token: 'player', urgency: 'now', pieces: new Set([0, 1]) }],
+      activePieces: [],
+    })
+
+    expect(plan.effectivePriority?.[0]).toBe(0)
+    expect(plan.effectivePriority?.[1]).toBe(7)
+    expect(plan.protectedPieces.has(0)).toBe(false)
+    expect(plan.protectedPieces.has(1)).toBe(true)
+  })
 })
 
 describe('StreamingScheduler', () => {
@@ -101,5 +190,40 @@ describe('StreamingScheduler', () => {
     expect(scheduler.updateDemand('a', new Set([1, 2]), 'now')).toBe(false)
     expect(scheduler.updateDemand('a', null, 'now')).toBe(true)
     expect(scheduler.updateDemand('a', null, 'now')).toBe(false)
+  })
+
+  it('reports previously suppressed pieces when now-demand is removed', () => {
+    const scheduler = new StreamingScheduler()
+    const basePriority = new Uint8Array(6).fill(4)
+
+    scheduler.updateDemand('player', new Set([5]), 'now')
+    const first = scheduler.buildPlan({
+      piecesCount: basePriority.length,
+      basePiecePriority: basePriority,
+      activePieces: [
+        {
+          index: 1,
+          state: 'fullyRequested',
+          blocksReceived: 8,
+          blocksNeeded: 16,
+          outstandingRequests: 8,
+          requests: [{ blockIndex: 0, peerId: 'peer-1' }],
+        },
+      ],
+    })
+
+    expect(first.previousSuppressedPieces.size).toBe(0)
+    expect(first.plan.suppressedPieces).toEqual(new Set([1]))
+
+    scheduler.updateDemand('player', null, 'now')
+    const second = scheduler.buildPlan({
+      piecesCount: basePriority.length,
+      basePiecePriority: basePriority,
+      activePieces: [],
+    })
+
+    expect(second.previousSuppressedPieces).toEqual(new Set([1]))
+    expect(second.plan.suppressedPieces.size).toBe(0)
+    expect(second.plan.effectivePriority).toBe(basePriority)
   })
 })

@@ -4,7 +4,7 @@
  * Uses a mock Torrent backed by a synthetic MKV buffer — no seeder or
  * fixtures needed.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildMkvKeyframeIndex,
   buildMkvPrebuiltKeyframeIndex,
@@ -157,6 +157,7 @@ function buildMkvBuffer(
  */
 function createMockTorrent(buffer: Uint8Array) {
   const setStreamingPieces = vi.fn()
+  const updateStreamingDemand = vi.fn()
   const waitForPieces = vi.fn().mockResolvedValue(undefined)
   const readFileBytes = vi.fn((_fileIndex: number, offset: number, length: number) =>
     Promise.resolve(buffer.subarray(offset, offset + length)),
@@ -166,13 +167,25 @@ function createMockTorrent(buffer: Uint8Array) {
   const torrent = {
     files: [{ length: buffer.length, path: 'video.mkv', offset: 0 }],
     setStreamingPieces,
+    updateStreamingDemand,
     waitForPieces,
     readFileBytes,
     fileBytesToPieces,
   } as unknown as Torrent
 
-  return { torrent, setStreamingPieces, waitForPieces, readFileBytes, fileBytesToPieces }
+  return {
+    torrent,
+    setStreamingPieces,
+    updateStreamingDemand,
+    waitForPieces,
+    readFileBytes,
+    fileBytesToPieces,
+  }
 }
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 // --- Tests ---
 
@@ -218,6 +231,8 @@ describe('buildMkvKeyframeIndex', () => {
     const buffer = buildMkvBuffer([{ cueTime: 0, track: 1, clusterOffset: 1000 }])
     const { torrent, setStreamingPieces } = createMockTorrent(buffer)
 
+    delete (torrent as Torrent & { updateStreamingDemand?: unknown }).updateStreamingDemand
+
     await buildMkvKeyframeIndex(torrent, 0)
 
     // Called during reads (with piece sets) and cleared after (with null)
@@ -237,6 +252,8 @@ describe('buildMkvKeyframeIndex', () => {
     const buffer = buildMkvBuffer([{ cueTime: 0, track: 1, clusterOffset: 1000 }])
     const { torrent, setStreamingPieces, waitForPieces } = createMockTorrent(buffer)
 
+    delete (torrent as Torrent & { updateStreamingDemand?: unknown }).updateStreamingDemand
+
     // Fail on the second waitForPieces call
     let callCount = 0
     waitForPieces.mockImplementation(() => {
@@ -250,6 +267,26 @@ describe('buildMkvKeyframeIndex', () => {
     // setStreamingPieces(null) should still be called in finally
     const lastCall = setStreamingPieces.mock.calls[setStreamingPieces.mock.calls.length - 1]
     expect(lastCall[0]).toBeNull()
+  })
+
+  it('uses tokenized metadata demand when available and clears the same token', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(12345)
+
+    const buffer = buildMkvBuffer([{ cueTime: 0, track: 1, clusterOffset: 1000 }])
+    const { torrent, setStreamingPieces, updateStreamingDemand } = createMockTorrent(buffer)
+
+    await buildMkvKeyframeIndex(torrent, 0)
+
+    expect(setStreamingPieces).not.toHaveBeenCalled()
+    expect(updateStreamingDemand.mock.calls.length).toBeGreaterThanOrEqual(2)
+
+    const [token, pieces, urgency] = updateStreamingDemand.mock.calls[0]
+    expect(token).toBe('mkv-index:0:12345')
+    expect(pieces).toEqual(new Set([0]))
+    expect(urgency).toBe('metadata')
+
+    const lastCall = updateStreamingDemand.mock.calls[updateStreamingDemand.mock.calls.length - 1]
+    expect(lastCall).toEqual([token, null, 'metadata'])
   })
 
   it('supports cancellation via AbortSignal', async () => {

@@ -209,4 +209,50 @@ describe('video popup session transport', () => {
     remote.dispose()
     host.dispose()
   })
+
+  it('propagates popup wait aborts to the host-side wait signal', async () => {
+    let hostWaitSignal: AbortSignal | undefined
+    const provider: StreamingFileProvider = {
+      fileSize: 100,
+      fileBytesToPieces: (_offset, _length) => [0],
+      setStreamingPieces: vi.fn(),
+      updateStreamingDemand: vi.fn(),
+      waitForPieces: vi.fn(
+        (_pieceIndices: number[], signal?: AbortSignal) =>
+          new Promise<void>((_resolve, reject) => {
+            hostWaitSignal = signal
+            signal?.addEventListener('abort', () => {
+              reject(new DOMException('Aborted', 'AbortError'))
+            })
+          }),
+      ),
+      readFileBytes: vi.fn().mockResolvedValue(new Uint8Array([1])),
+      buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(null),
+    }
+
+    const host = createVideoPopupSessionHost('session-abort', provider, createChannel)
+    const remote = createRemoteStreamingFileProvider(
+      {
+        sessionId: 'session-abort',
+        fileName: 'movie.mkv',
+        fileSize: 100,
+        fileOffset: 0,
+        pieceLength: 16_384,
+      },
+      { createChannel },
+    )
+
+    const controller = new AbortController()
+    const waitPromise = remote.provider.waitForPieces([0], controller.signal)
+
+    await Promise.resolve()
+    controller.abort()
+
+    await expect(waitPromise).rejects.toMatchObject({ name: 'AbortError' })
+    await Promise.resolve()
+    expect(hostWaitSignal?.aborted).toBe(true)
+
+    remote.dispose()
+    host.dispose()
+  })
 })
