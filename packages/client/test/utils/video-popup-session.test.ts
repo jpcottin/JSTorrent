@@ -304,4 +304,55 @@ describe('video popup session transport', () => {
     remote.dispose()
     host.dispose()
   })
+
+  it('clears tokenized streaming demand and file locks when the popup session closes', async () => {
+    const provider: StreamingFileProvider = {
+      fileSize: 100,
+      fileBytesToPieces: (_offset, _length) => [0],
+      setStreamingPieces: vi.fn(),
+      updateStreamingFileLock: vi.fn(),
+      updateStreamingDemand: vi.fn(),
+      waitForPieces: vi.fn().mockResolvedValue(undefined),
+      readFileBytes: vi.fn().mockResolvedValue(new Uint8Array([1])),
+      buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(null),
+    }
+
+    const host = createVideoPopupSessionHost('session-token-cleanup', provider, createChannel)
+    const remote = createRemoteStreamingFileProvider(
+      {
+        sessionId: 'session-token-cleanup',
+        fileName: 'movie.mkv',
+        fileSize: 100,
+        fileOffset: 0,
+        pieceLength: 16_384,
+      },
+      { createChannel },
+    )
+
+    remote.provider.updateStreamingFileLock?.('stream-file', true)
+    remote.provider.updateStreamingDemand?.('player-now', new Set([6, 7]), 'now')
+    remote.provider.updateStreamingDemand?.('player-next', new Set([8, 9]), 'next')
+    await Promise.resolve()
+
+    remote.dispose()
+    await Promise.resolve()
+
+    expect(provider.updateStreamingFileLock).toHaveBeenCalledWith('stream-file', true)
+    expect(provider.updateStreamingDemand).toHaveBeenCalledWith(
+      'player-now',
+      new Set([6, 7]),
+      'now',
+    )
+    expect(provider.updateStreamingDemand).toHaveBeenCalledWith(
+      'player-next',
+      new Set([8, 9]),
+      'next',
+    )
+    expect(provider.updateStreamingDemand).toHaveBeenCalledWith('player-now', null, 'now')
+    expect(provider.updateStreamingDemand).toHaveBeenCalledWith('player-next', null, 'now')
+    expect(provider.updateStreamingFileLock).toHaveBeenCalledWith('stream-file', false)
+    expect(provider.setStreamingPieces).toHaveBeenCalledWith(null)
+
+    host.dispose()
+  })
 })

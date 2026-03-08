@@ -115,6 +115,8 @@ export function createVideoPopupSessionHost(
 ): VideoPopupSessionHost {
   const channel = createChannel(getChannelName(sessionId))
   const pendingWaits = new Map<string, HostPendingWait>()
+  const activeStreamingDemandTokens = new Set<string>()
+  const activeStreamingFileLockTokens = new Set<string>()
   let disposed = false
 
   const cleanupPendingWait = (id: string) => {
@@ -139,10 +141,20 @@ export function createVideoPopupSessionHost(
 
     if (message.type === 'updateStreamingFileLock') {
       provider.updateStreamingFileLock?.(message.token, message.enabled)
+      if (message.enabled) {
+        activeStreamingFileLockTokens.add(message.token)
+      } else {
+        activeStreamingFileLockTokens.delete(message.token)
+      }
       return
     }
 
     if (message.type === 'updateStreamingDemand') {
+      if (message.pieces && message.pieces.length > 0) {
+        activeStreamingDemandTokens.add(message.token)
+      } else {
+        activeStreamingDemandTokens.delete(message.token)
+      }
       if (provider.updateStreamingDemand) {
         provider.updateStreamingDemand(
           message.token,
@@ -227,6 +239,14 @@ export function createVideoPopupSessionHost(
   const dispose = () => {
     if (disposed) return
     disposed = true
+    for (const token of activeStreamingDemandTokens) {
+      provider.updateStreamingDemand?.(token, null, 'now')
+    }
+    activeStreamingDemandTokens.clear()
+    for (const token of activeStreamingFileLockTokens) {
+      provider.updateStreamingFileLock?.(token, false)
+    }
+    activeStreamingFileLockTokens.clear()
     provider.setStreamingPieces(null)
     for (const pending of pendingWaits.values()) {
       pending.controller.abort()
