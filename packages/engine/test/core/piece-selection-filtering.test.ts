@@ -363,5 +363,40 @@ describe('Piece Selection Filtering', () => {
       expect(torrent.piecePriority?.[4]).toBe(4)
       expect(torrent.shouldRequestPiece(4)).toBe(true)
     })
+
+    it('releases the streamed file lock once that file completes', async () => {
+      const buffer = createMultiFileTorrent({
+        name: 'test-folder',
+        files: [
+          { path: 'video.mkv', length: 50000 },
+          { path: 'extras.bin', length: 50000 },
+        ],
+        pieceLength: 16384,
+      })
+
+      const { torrent } = await engine.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      torrent.updateStreamingFileLock('player', 0)
+      expect(torrent.shouldRequestPiece(4)).toBe(false)
+
+      torrent.markPieceVerified(0)
+      ;(torrent as { updateFileProgressForVerifiedPiece(index: number): void }).updateFileProgressForVerifiedPiece(0)
+      torrent.markPieceVerified(1)
+      ;(torrent as { updateFileProgressForVerifiedPiece(index: number): void }).updateFileProgressForVerifiedPiece(1)
+      torrent.markPieceVerified(2)
+      ;(torrent as { updateFileProgressForVerifiedPiece(index: number): void }).updateFileProgressForVerifiedPiece(2)
+      torrent.markPieceVerified(3)
+      ;(torrent as { updateFileProgressForVerifiedPiece(index: number): void }).updateFileProgressForVerifiedPiece(3)
+
+      expect(torrent.files[0]?.isComplete).toBe(true)
+      expect(torrent.piecePriority?.[4]).toBe(4)
+      expect(torrent.shouldRequestPiece(4)).toBe(true)
+
+      torrent.updateStreamingFileLock('player', 0)
+
+      expect(torrent.piecePriority?.[4]).toBe(4)
+      expect(torrent.shouldRequestPiece(4)).toBe(true)
+    })
   })
 })

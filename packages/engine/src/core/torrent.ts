@@ -899,6 +899,7 @@ export class Torrent extends EngineComponent {
     for (const file of this._files) {
       file.updateForPiece(index)
     }
+    this.cleanupCompletedStreamingFileLocks()
   }
 
   markPieceVerified(index: number): void {
@@ -1463,22 +1464,41 @@ export class Torrent extends EngineComponent {
    */
   updateStreamingFileLock(token: string, fileIndex: number | null): void {
     const previous = this._streamingFileLocks.get(token)
-    if (fileIndex === null) {
+    const nextFileIndex =
+      fileIndex !== null && !this.files[fileIndex]?.isComplete ? fileIndex : null
+
+    if (nextFileIndex === null) {
       if (previous === undefined) return
       this._streamingFileLocks.delete(token)
       this._streamingScheduler.updateDemand(`file-lock:${token}`, null, 'file')
     } else {
-      if (previous === fileIndex) return
-      this._streamingFileLocks.set(token, fileIndex)
+      if (previous === nextFileIndex) return
+      this._streamingFileLocks.set(token, nextFileIndex)
 
-      const file = this.files[fileIndex]
+      const file = this.files[nextFileIndex]
       const pieces =
         file && file.length > 0
-          ? new Set(this.fileBytesToPieces(fileIndex, 0, file.length))
+          ? new Set(this.fileBytesToPieces(nextFileIndex, 0, file.length))
           : new Set<number>()
       this._streamingScheduler.updateDemand(`file-lock:${token}`, pieces, 'file')
     }
 
+    this.syncStreamingFileLocks()
+    this.syncStreamingScheduler()
+  }
+
+  private cleanupCompletedStreamingFileLocks(): void {
+    if (this._streamingFileLocks.size === 0) return
+
+    let changed = false
+    for (const [token, fileIndex] of this._streamingFileLocks.entries()) {
+      if (!this.files[fileIndex]?.isComplete) continue
+      this._streamingFileLocks.delete(token)
+      this._streamingScheduler.updateDemand(`file-lock:${token}`, null, 'file')
+      changed = true
+    }
+
+    if (!changed) return
     this.syncStreamingFileLocks()
     this.syncStreamingScheduler()
   }
