@@ -3,6 +3,7 @@ import type { PrebuiltKeyframeIndex, StreamingFileProvider } from '@jstorrent/en
 import { createTorrentSourceFromProvider } from '@jstorrent/engine'
 import { PlaysVideoEngine, Source } from 'playsvideo'
 import type { KeyframeIndex } from 'playsvideo'
+import { VideoPieceTimeline } from './VideoPieceTimeline'
 
 export interface VideoPlayerProps {
   provider: StreamingFileProvider
@@ -115,23 +116,33 @@ export function VideoPlayer({
         </button>
       )}
 
-      {phase === 'loading' && <div style={statusStyle}>Loading {fileName}...</div>}
-
-      {phase === 'error' && (
-        <div style={statusStyle}>
-          <div style={{ color: 'var(--accent-error, #f44)' }}>Failed to play: {errorMessage}</div>
+      <div style={contentStyle}>
+        <div style={headerStyle}>
+          <div style={fileNameStyle}>{fileName}</div>
         </div>
-      )}
 
-      <video
-        ref={videoRef}
-        controls
-        autoPlay
-        style={{
-          ...videoStyle,
-          display: phase === 'ready' ? 'block' : 'none',
-        }}
-      />
+        <VideoPieceTimeline provider={provider} />
+
+        <div style={mediaAreaStyle}>
+          {phase === 'loading' && <div style={statusStyle}>Loading {fileName}...</div>}
+
+          {phase === 'error' && (
+            <div style={statusStyle}>
+              <div style={{ color: 'var(--accent-error, #f44)' }}>Failed to play: {errorMessage}</div>
+            </div>
+          )}
+
+          <video
+            ref={videoRef}
+            controls
+            autoPlay
+            style={{
+              ...videoStyle,
+              display: phase === 'ready' ? 'block' : 'none',
+            }}
+          />
+        </div>
+      </div>
     </div>
   )
 }
@@ -146,7 +157,29 @@ const overlayStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
+  padding: '32px 24px',
+  overflow: 'auto',
   zIndex: 2000,
+}
+
+const contentStyle: React.CSSProperties = {
+  width: 'min(1100px, 100%)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '12px',
+}
+
+const headerStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+}
+
+const fileNameStyle: React.CSSProperties = {
+  color: '#fff',
+  fontSize: '14px',
+  fontWeight: 600,
+  wordBreak: 'break-word',
 }
 
 const closeButtonStyle: React.CSSProperties = {
@@ -167,15 +200,25 @@ const closeButtonStyle: React.CSSProperties = {
   zIndex: 1,
 }
 
+const mediaAreaStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: '220px',
+}
+
 const videoStyle: React.CSSProperties = {
-  maxWidth: '95vw',
-  maxHeight: '90vh',
-  borderRadius: '4px',
+  width: '100%',
+  maxWidth: '100%',
+  maxHeight: '78vh',
+  borderRadius: '8px',
+  background: '#000',
 }
 
 const statusStyle: React.CSSProperties = {
   color: '#fff',
   fontSize: '16px',
+  textAlign: 'center',
 }
 
 function toPlaysVideoKeyframeIndex(prebuilt: PrebuiltKeyframeIndex): KeyframeIndex {

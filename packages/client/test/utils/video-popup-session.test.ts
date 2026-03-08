@@ -3,7 +3,11 @@ import {
   createRemoteStreamingFileProvider,
   createVideoPopupSessionHost,
 } from '../../src/utils/video-popup-session'
-import type { PrebuiltKeyframeIndex, StreamingFileProvider } from '@jstorrent/engine'
+import {
+  type PrebuiltKeyframeIndex,
+  type StreamingFilePieceSnapshot,
+  type StreamingFileProvider,
+} from '@jstorrent/engine'
 import type { VideoPopupLaunchOptions } from '../../src/host/types'
 
 interface MessageListener {
@@ -174,6 +178,43 @@ describe('video popup session transport', () => {
 
     await expect(remote.provider.buildPrebuiltKeyframeIndex?.()).resolves.toEqual(index)
     expect(provider.buildPrebuiltKeyframeIndex).toHaveBeenCalledTimes(1)
+
+    remote.dispose()
+    host.dispose()
+  })
+
+  it('proxies file piece timeline snapshots over the popup session channel', async () => {
+    const snapshot: StreamingFilePieceSnapshot = {
+      piecesTotal: 4,
+      piecesCompleted: 2,
+      bitfieldHex: 'a0',
+      activePieces: [{ index: 2, state: 2 }],
+    }
+    const provider: StreamingFileProvider = {
+      fileSize: 100,
+      fileBytesToPieces: (_offset, _length) => [0],
+      setStreamingPieces: vi.fn(),
+      updateStreamingDemand: vi.fn(),
+      waitForPieces: vi.fn().mockResolvedValue(undefined),
+      readFileBytes: vi.fn().mockResolvedValue(new Uint8Array([1])),
+      buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(null),
+      getPieceTimelineSnapshot: vi.fn().mockResolvedValue(snapshot),
+    }
+
+    const host = createVideoPopupSessionHost('session-piece-timeline', provider, createChannel)
+    const remote = createRemoteStreamingFileProvider(
+      {
+        sessionId: 'session-piece-timeline',
+        fileName: 'movie.mkv',
+        fileSize: 100,
+        fileOffset: 0,
+        pieceLength: 16_384,
+      },
+      { createChannel },
+    )
+
+    await expect(remote.provider.getPieceTimelineSnapshot?.()).resolves.toEqual(snapshot)
+    expect(provider.getPieceTimelineSnapshot).toHaveBeenCalledTimes(1)
 
     remote.dispose()
     host.dispose()

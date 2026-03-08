@@ -26,8 +26,13 @@
  */
 
 import type { Torrent } from '../core/torrent'
+import { toHex } from '../utils/buffer'
 import { buildMkvPrebuiltKeyframeIndex, isMkvFile } from './mkv-keyframe-index'
-import type { StreamingFileProvider } from './streaming-file-provider'
+import {
+  StreamingPieceState,
+  type StreamingFilePieceSnapshot,
+  type StreamingFileProvider,
+} from './streaming-file-provider'
 
 /**
  * The shape of mediabunny's ReadResult (not importing to avoid dependency).
@@ -52,6 +57,53 @@ function summarizePieces(pieces: number[]): string {
   return `pieces=${pieces[0]}..${pieces[pieces.length - 1]} (${pieces.length})`
 }
 
+function getStreamingPieceState(piece: {
+  haveAllBlocks: boolean
+  hasUnrequestedBlocks: boolean
+}): (typeof StreamingPieceState)[keyof typeof StreamingPieceState] {
+  if (piece.haveAllBlocks) {
+    return StreamingPieceState.FullyResponded
+  }
+  if (piece.hasUnrequestedBlocks) {
+    return StreamingPieceState.Partial
+  }
+  return StreamingPieceState.FullyRequested
+}
+
+function buildFilePieceSnapshot(
+  torrent: Torrent,
+  filePieceIndices: number[],
+  pieceIndexToRelative: Map<number, number>,
+): StreamingFilePieceSnapshot {
+  const bytes = new Uint8Array(Math.ceil(filePieceIndices.length / 8))
+  let piecesCompleted = 0
+
+  for (let i = 0; i < filePieceIndices.length; i++) {
+    if (!torrent.bitfield?.get(filePieceIndices[i])) continue
+    bytes[Math.floor(i / 8)] |= 1 << (7 - (i % 8))
+    piecesCompleted++
+  }
+
+  const activePieces = torrent
+    .getActivePieces()
+    .map((piece) => {
+      const relativeIndex = pieceIndexToRelative.get(piece.index)
+      if (relativeIndex === undefined) return null
+      return {
+        index: relativeIndex,
+        state: getStreamingPieceState(piece),
+      }
+    })
+    .filter((piece): piece is NonNullable<typeof piece> => piece !== null)
+
+  return {
+    piecesTotal: filePieceIndices.length,
+    piecesCompleted,
+    bitfieldHex: toHex(bytes),
+    activePieces,
+  }
+}
+
 let nextStreamingDemandId = 0
 
 /**
@@ -67,6 +119,11 @@ export function createStreamingFileProvider(
   const file = torrent.files[fileIndex]
   if (!file) {
     throw new Error(`Invalid file index: ${fileIndex}`)
+  }
+  const filePieceIndices = file.length > 0 ? torrent.fileBytesToPieces(fileIndex, 0, file.length) : []
+  const pieceIndexToRelative = new Map<number, number>()
+  for (let i = 0; i < filePieceIndices.length; i++) {
+    pieceIndexToRelative.set(filePieceIndices[i], i)
   }
 
   return {
@@ -87,6 +144,8 @@ export function createStreamingFileProvider(
       }
       return buildMkvPrebuiltKeyframeIndex(torrent, fileIndex)
     },
+    getPieceTimelineSnapshot: () =>
+      Promise.resolve(buildFilePieceSnapshot(torrent, filePieceIndices, pieceIndexToRelative)),
   }
 }
 

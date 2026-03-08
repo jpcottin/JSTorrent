@@ -13,6 +13,30 @@ export interface PrebuiltKeyframeIndex {
   keyframeTimestampsSec: number[]
 }
 
+export const StreamingPieceState = {
+  Missing: 0,
+  Partial: 1,
+  FullyRequested: 2,
+  FullyResponded: 3,
+  Completed: 4,
+} as const
+
+export type StreamingPieceState = (typeof StreamingPieceState)[keyof typeof StreamingPieceState]
+
+export interface StreamingActivePieceInfo {
+  /** File-relative piece index (0..piecesTotal-1). */
+  index: number
+  state: StreamingPieceState
+}
+
+export interface StreamingFilePieceSnapshot {
+  piecesTotal: number
+  piecesCompleted: number
+  /** Hex-encoded file-relative bitfield. */
+  bitfieldHex: string
+  activePieces: StreamingActivePieceInfo[]
+}
+
 export interface StreamingFileProvider {
   readonly fileSize: number
   fileBytesToPieces(offset: number, length: number): number[]
@@ -25,4 +49,5 @@ export interface StreamingFileProvider {
   waitForPieces(pieceIndices: number[], signal?: AbortSignal): Promise<void>
   readFileBytes(offset: number, length: number): Promise<Uint8Array>
   buildPrebuiltKeyframeIndex?(): Promise<PrebuiltKeyframeIndex | null>
+  getPieceTimelineSnapshot?(): Promise<StreamingFilePieceSnapshot | null>
 }

@@ -1,4 +1,8 @@
-import type { PrebuiltKeyframeIndex, StreamingFileProvider } from '@jstorrent/engine'
+import type {
+  PrebuiltKeyframeIndex,
+  StreamingFilePieceSnapshot,
+  StreamingFileProvider,
+} from '@jstorrent/engine'
 import type { VideoPopupLaunchOptions } from '../host/types'
 
 type ChannelMessageEvent = MessageEvent<unknown>
@@ -32,7 +36,11 @@ type HostMessage =
   | {
       type: 'call'
       id: string
-      method: 'waitForPieces' | 'readFileBytes' | 'buildPrebuiltKeyframeIndex'
+      method:
+        | 'waitForPieces'
+        | 'readFileBytes'
+        | 'buildPrebuiltKeyframeIndex'
+        | 'getPieceTimelineSnapshot'
       args: unknown[]
     }
   | { type: 'abort'; id: string }
@@ -194,6 +202,17 @@ export function createVideoPopupSessionHost(
         .catch((error) => {
           reply({ type: 'error', id: message.id, message: makeError(error).message })
         })
+      return
+    }
+
+    if (message.method === 'getPieceTimelineSnapshot') {
+      Promise.resolve(provider.getPieceTimelineSnapshot ? provider.getPieceTimelineSnapshot() : null)
+        .then((snapshot) => {
+          reply({ type: 'result', id: message.id, value: snapshot ?? null })
+        })
+        .catch((error) => {
+          reply({ type: 'error', id: message.id, message: makeError(error).message })
+        })
     }
   }
 
@@ -258,7 +277,11 @@ export function createRemoteStreamingFileProvider(
   channel.addEventListener('message', onMessage)
 
   const postCall = <T>(
-    method: 'waitForPieces' | 'readFileBytes' | 'buildPrebuiltKeyframeIndex',
+    method:
+      | 'waitForPieces'
+      | 'readFileBytes'
+      | 'buildPrebuiltKeyframeIndex'
+      | 'getPieceTimelineSnapshot',
     args: unknown[],
     signal?: AbortSignal,
   ): Promise<T> => {
@@ -345,6 +368,8 @@ export function createRemoteStreamingFileProvider(
       readFileBytes: (offset, length) => postCall<Uint8Array>('readFileBytes', [offset, length]),
       buildPrebuiltKeyframeIndex: () =>
         postCall<PrebuiltKeyframeIndex | null>('buildPrebuiltKeyframeIndex', []),
+      getPieceTimelineSnapshot: () =>
+        postCall<StreamingFilePieceSnapshot | null>('getPieceTimelineSnapshot', []),
     },
     dispose,
   }
