@@ -1,7 +1,8 @@
-import { BLOCK_SIZE } from './active-piece'
+import { BLOCK_SIZE, type ActivePiece } from './active-piece'
 import { ActivePieceManager } from './active-piece-manager'
 import { PieceAvailability } from './piece-availability'
 import { EndgameManager } from './endgame-manager'
+import { buildStreamingOverlayPlan } from './streaming-request-overlay'
 import { EngineComponent, ILoggingEngine } from '../logging/logger'
 import { BitField } from '../utils/bitfield'
 
@@ -206,12 +207,86 @@ export class TorrentPieceRequester extends EngineComponent {
       }
     }
 
+    const rawAvailability = availability.rawAvailability
+    const piecePriority = this.deps.getPiecePriority()
+
+    const queueStreamingBlocksFromPiece = (piece: ActivePiece, requestLimit: number): boolean => {
+      if (peer.requestsPending >= requestLimit) return true
+      if (!peer.isSeed && !peerBitfield?.get(piece.index)) return true
+      if (!isEndgame && !piece.hasUnrequestedBlocks) return true
+
+      const neededBlocks = isEndgame
+        ? piece.getNeededBlocksEndgame(
+            peerId,
+            requestLimit - peer.requestsPending,
+            maxDuplicateRequests,
+          )
+        : piece.getNeededBlocks(requestLimit - peer.requestsPending)
+
+      for (const block of neededBlocks) {
+        if (peer.requestsPending >= requestLimit) break
+        if (
+          this.deps.isDownloadRateLimited() &&
+          !this.deps.tryConsumeDownloadBandwidth(block.length)
+        ) {
+          flushPending()
+          this.deps.scheduleRateLimitRetry(block.length, () => {})
+          return false
+        }
+
+        pendingRequests.push({ index: piece.index, begin: block.begin, length: block.length })
+        peer.requestsPending++
+
+        const blockIndex = Math.floor(block.begin / BLOCK_SIZE)
+        piece.addRequest(blockIndex, peerId, now)
+
+        if (!piece.hasUnrequestedBlocks) {
+          activePieces.promoteToFullyRequested(piece.index)
+        }
+      }
+
+      return true
+    }
+
+    const streamingOverlay = buildStreamingOverlayPlan({
+      peer,
+      peerId,
+      activePieces,
+      piecePriority,
+      availability,
+      bitfield: this.deps.getBitfield(),
+      pieceCount: this.deps.getPieceCount(),
+      firstNeededPiece: this.deps.getFirstNeededPiece(),
+      pipelineLimit: pipelineLimit - peer.requestsPending,
+    })
+
+    if (streamingOverlay.reservedSlots > 0) {
+      const overlayLimit = Math.min(pipelineLimit, peer.requestsPending + streamingOverlay.reservedSlots)
+
+      for (const piece of streamingOverlay.activePieces) {
+        if (peer.requestsPending >= overlayLimit) break
+        if (!queueStreamingBlocksFromPiece(piece, overlayLimit)) {
+          return
+        }
+      }
+
+      for (const pieceIndex of streamingOverlay.newPieceIndices) {
+        if (peer.requestsPending >= overlayLimit) break
+
+        const piece = activePieces.getOrCreate(pieceIndex)
+        if (!piece) break
+        this.deps.removePieceFromAllIndices(pieceIndex)
+
+        if (!queueStreamingBlocksFromPiece(piece, overlayLimit)) {
+          return
+        }
+      }
+    }
+
     // PHASE 1: Request from existing partial pieces (rarest-first with soft affinity)
     // Two-pass soft affinity: prefer pieces where this peer already has in-flight requests.
     // This reduces piece fragmentation without hard-locking pieces to peers.
     // Like libtorrent's requested_from() — a sort preference, not a hard lock.
-    const rawAvailability = availability.rawAvailability
-    const piecePriority = this.deps.getPiecePriority()
 
     if (rawAvailability && piecePriority) {
       const sortedPartials = activePieces.getPartialsRarestFirst(
