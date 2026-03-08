@@ -134,6 +134,11 @@ interface NetworkInterfaceInfo {
   prefixLength: number
 }
 
+interface GatewayInfo {
+  ip: string
+  interfaceName?: string
+}
+
 function isPrivateLanAddress(address: string): boolean {
   if (address.startsWith('10.')) return true
   if (address.startsWith('192.168.')) return true
@@ -152,13 +157,27 @@ function isShareableIpv4Address(address: string): boolean {
   return true
 }
 
-function pickLanAddress(interfaces: NetworkInterfaceInfo[]): string | null {
-  const candidates = interfaces
-    .map((iface) => iface.address)
-    .filter(isShareableIpv4Address)
+function pickLanAddress(
+  interfaces: NetworkInterfaceInfo[],
+  gateway: GatewayInfo | null,
+): string | null {
+  const candidates = interfaces.filter((iface) => isShareableIpv4Address(iface.address))
 
-  const preferred = candidates.find(isPrivateLanAddress)
-  return preferred ?? candidates[0] ?? null
+  if (gateway?.interfaceName) {
+    const gatewayCandidates = candidates.filter((iface) => iface.name === gateway.interfaceName)
+    const preferredGatewayCandidate = gatewayCandidates.find((iface) =>
+      isPrivateLanAddress(iface.address),
+    )
+    if (preferredGatewayCandidate) {
+      return preferredGatewayCandidate.address
+    }
+    if (gatewayCandidates[0]) {
+      return gatewayCandidates[0].address
+    }
+  }
+
+  const preferred = candidates.find((iface) => isPrivateLanAddress(iface.address))
+  return preferred?.address ?? candidates[0]?.address ?? null
 }
 
 // ============================================================================
@@ -625,15 +644,26 @@ export class DaemonBridge {
       throw new Error('Companion did not return a media port')
     }
 
-    const networkResponse = await fetch(
-      `http://${daemonInfo.host}:${daemonInfo.port}/network/interfaces`,
-    )
-    if (!networkResponse.ok) {
-      throw new Error(`Failed to query network interfaces: ${networkResponse.status}`)
-    }
+    const [interfaces, gateway] = await Promise.all([
+      fetch(`http://${daemonInfo.host}:${daemonInfo.port}/network/interfaces`).then(
+        async (response) => {
+          if (!response.ok) {
+            throw new Error(`Failed to query network interfaces: ${response.status}`)
+          }
+          return (await response.json()) as NetworkInterfaceInfo[]
+        },
+      ),
+      fetch(`http://${daemonInfo.host}:${daemonInfo.port}/network/gateway`)
+        .then(async (response) => {
+          if (!response.ok) {
+            return null
+          }
+          return (await response.json()) as GatewayInfo | null
+        })
+        .catch(() => null),
+    ])
 
-    const interfaces = (await networkResponse.json()) as NetworkInterfaceInfo[]
-    const lanAddress = pickLanAddress(interfaces)
+    const lanAddress = pickLanAddress(interfaces, gateway)
     if (!lanAddress) {
       throw new Error('No LAN IPv4 address available for sharing')
     }
