@@ -34,6 +34,8 @@ class CompanionHttpServer(
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager
 ) {
+    private val httpStreams = HttpStreamSessionRegistry()
+
     // Pure Netty HTTP server for all HTTP endpoints
     private var httpServer: NettyHttpServer? = null
 
@@ -69,7 +71,7 @@ class CompanionHttpServer(
 
         // Start Netty HTTP server on preferred port
         try {
-            val http = NettyHttpServer(deps, fileManager, preferredPort)
+            val http = NettyHttpServer(deps, fileManager, httpStreams, preferredPort)
             http.start()
             httpServer = http
             Log.i(TAG, "Netty HTTP server started on port ${http.boundPort}")
@@ -83,7 +85,7 @@ class CompanionHttpServer(
 
         // Start JavaWebSocketServer for /io and /control on port+1
         try {
-            val ws = JavaWebSocketServer(deps, fileManager)
+            val ws = JavaWebSocketServer(deps, fileManager, httpStreams)
             // Wire up control session callbacks so broadcasts work
             ws.setControlSessionCallbacks(
                 onRegistered = { session -> registerControlSession(session) },
@@ -135,6 +137,7 @@ class CompanionHttpServer(
         // Clear control sessions and power state
         controlSessions.clear()
         sessionDownloadCounts.clear()
+        httpStreams.clear()
 
         Log.i(TAG, "Server stopped")
     }

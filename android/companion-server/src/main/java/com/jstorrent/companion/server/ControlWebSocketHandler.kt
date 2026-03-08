@@ -10,6 +10,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.json.*
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.UUID
 
 private const val TAG = "ControlWebSocketHandler"
 
@@ -27,6 +28,7 @@ private const val TAG = "ControlWebSocketHandler"
 class ControlWebSocketHandler(
     private val session: WebSocketSession,
     private val deps: CompanionServerDeps,
+    private val httpStreams: HttpStreamSessionRegistry,
     private val onSessionRegistered: (ControlWebSocketHandler) -> Unit,
     private val onSessionUnregistered: (ControlWebSocketHandler) -> Unit,
     private val onPowerHintReceived: (ControlWebSocketHandler, Int) -> Unit = { _, _ -> }
@@ -46,6 +48,7 @@ class ControlWebSocketHandler(
     private val framesReceived = AtomicLong(0)
     private val framesSent = AtomicLong(0)
     private val connectTime = System.currentTimeMillis()
+    private val sessionOwnerId = "ctrl-${UUID.randomUUID()}"
 
     // ==========================================================================
     // Main run loop
@@ -195,6 +198,7 @@ class ControlWebSocketHandler(
             Protocol.OP_CTRL_OPEN_FILE -> handleOpenFile(envelope, payload)
             Protocol.OP_CTRL_OPEN_FOLDER -> handleOpenFolder(envelope, payload)
             Protocol.OP_CTRL_POWER_HINT -> handlePowerHint(envelope, payload)
+            Protocol.OP_CTRL_REGISTER_HTTP_STREAM -> handleRegisterHttpStream(envelope, payload)
             else -> {
                 sendError(envelope.requestId, "Unknown opcode: ${envelope.opcode}")
             }
@@ -257,6 +261,51 @@ class ControlWebSocketHandler(
             onPowerHintReceived(this, activeDownloads)
         } catch (e: Exception) {
             Log.e(TAG, "POWER_HINT error: ${e.message}")
+        }
+    }
+
+    private fun handleRegisterHttpStream(envelope: Protocol.Envelope, payload: ByteArray) {
+        val opcode = Protocol.OP_CTRL_REGISTER_HTTP_STREAM
+        try {
+            val request = json.parseToJsonElement(String(payload)).jsonObject
+            val streamToken = request["streamToken"]?.jsonPrimitive?.content
+                ?: return sendJsonResponse(envelope.requestId, opcode, false, "Missing streamToken")
+            val rootKey = request["rootKey"]?.jsonPrimitive?.content
+                ?: return sendJsonResponse(envelope.requestId, opcode, false, "Missing rootKey")
+            val path = request["path"]?.jsonPrimitive?.content
+                ?: return sendJsonResponse(envelope.requestId, opcode, false, "Missing path")
+            val fileSize = request["fileSize"]?.jsonPrimitive?.longOrNull
+                ?: return sendJsonResponse(envelope.requestId, opcode, false, "Missing fileSize")
+            val mimeType = request["mimeType"]?.jsonPrimitive?.contentOrNull
+
+            if (streamToken.isBlank() || streamToken.length > 256) {
+                return sendJsonResponse(envelope.requestId, opcode, false, "Invalid streamToken")
+            }
+            if (rootKey.isBlank()) {
+                return sendJsonResponse(envelope.requestId, opcode, false, "Invalid rootKey")
+            }
+            if (path.isBlank() || path.contains("..")) {
+                return sendJsonResponse(envelope.requestId, opcode, false, "Invalid path")
+            }
+            if (fileSize < 0) {
+                return sendJsonResponse(envelope.requestId, opcode, false, "Invalid fileSize")
+            }
+            if (deps.rootStore.resolveKey(rootKey) == null) {
+                return sendJsonResponse(envelope.requestId, opcode, false, "Invalid rootKey")
+            }
+
+            httpStreams.register(
+                ownerId = sessionOwnerId,
+                token = streamToken,
+                rootKey = rootKey,
+                path = path,
+                fileSize = fileSize,
+                mimeType = mimeType,
+            )
+            sendJsonResponse(envelope.requestId, opcode, true, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "REGISTER_HTTP_STREAM error: ${e.message}")
+            sendJsonResponse(envelope.requestId, opcode, false, e.message ?: "Unknown error")
         }
     }
 
@@ -460,9 +509,10 @@ class ControlWebSocketHandler(
     // ==========================================================================
 
     private fun cleanup() {
+        val revokedStreams = httpStreams.revokeOwnedBy(sessionOwnerId)
         val duration = (System.currentTimeMillis() - connectTime) / 1000.0
         Log.i(TAG, "Session closed after ${String.format("%.1f", duration)}s: " +
-            "recv=${framesReceived.get()} frames, sent=${framesSent.get()} frames")
+            "recv=${framesReceived.get()} frames, sent=${framesSent.get()} frames, revokedStreams=$revokedStreams")
 
         onSessionUnregistered(this)
         scope.cancel()

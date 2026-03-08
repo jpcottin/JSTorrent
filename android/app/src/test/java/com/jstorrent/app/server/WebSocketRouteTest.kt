@@ -48,6 +48,7 @@ class WebSocketRouteTest {
         assertFalse(isOpcodeAllowedForIO(Protocol.OP_CTRL_EVENT))
         assertFalse(isOpcodeAllowedForIO(Protocol.OP_CTRL_OPEN_FILE))
         assertFalse(isOpcodeAllowedForIO(Protocol.OP_CTRL_OPEN_FOLDER))
+        assertFalse(isOpcodeAllowedForIO(Protocol.OP_CTRL_REGISTER_HTTP_STREAM))
     }
 
     // =========================================================================
@@ -69,6 +70,7 @@ class WebSocketRouteTest {
         assertTrue(isOpcodeAllowedForControl(Protocol.OP_CTRL_EVENT))
         assertTrue(isOpcodeAllowedForControl(Protocol.OP_CTRL_OPEN_FILE))
         assertTrue(isOpcodeAllowedForControl(Protocol.OP_CTRL_OPEN_FOLDER))
+        assertTrue(isOpcodeAllowedForControl(Protocol.OP_CTRL_REGISTER_HTTP_STREAM))
     }
 
     @Test

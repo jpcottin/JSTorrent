@@ -45,6 +45,7 @@ private const val TAG = "JavaWebSocketServer"
 class JavaWebSocketServer(
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
+    private val httpStreams: com.jstorrent.companion.server.HttpStreamSessionRegistry,
     port: Int = 0
 ) {
     private var server: InnerServer? = null
@@ -93,6 +94,7 @@ class JavaWebSocketServer(
                     port,
                     deps,
                     fileManager,
+                    httpStreams,
                     scope,
                     onControlSessionRegistered,
                     onControlSessionUnregistered,
@@ -154,6 +156,7 @@ private class InnerServer(
     port: Int,
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
+    private val httpStreams: com.jstorrent.companion.server.HttpStreamSessionRegistry,
     private val scope: CoroutineScope,
     private val onControlSessionRegistered: ((ControlWebSocketHandler) -> Unit)?,
     private val onControlSessionUnregistered: ((ControlWebSocketHandler) -> Unit)?,
@@ -284,6 +287,7 @@ private class InnerServer(
                 val handler = ControlWebSocketHandler(
                     wsSession,
                     deps,
+                    httpStreams,
                     onSessionRegistered = { onControlSessionRegistered?.invoke(it) },
                     onSessionUnregistered = { onControlSessionUnregistered?.invoke(it) },
                     onPowerHintReceived = { session, count -> onPowerHintReceived?.invoke(session, count) }

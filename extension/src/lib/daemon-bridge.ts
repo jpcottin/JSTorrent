@@ -100,6 +100,7 @@ const STORAGE_KEY_PORT = 'android:daemonPort'
 const STORAGE_KEY_HOST_OVERRIDE = 'debug:companionHost'
 const STORAGE_KEY_HAS_CONNECTED = 'daemon:hasConnectedSuccessfully'
 const STORAGE_KEY_LAST_CONNECTED = 'daemon:lastConnectedTime'
+const OP_CTRL_REGISTER_HTTP_STREAM = 0xec
 
 // ============================================================================
 // Host Constants
@@ -119,6 +120,12 @@ const CHROMEOS_HOSTS = [CHROMEOS_ANDROID_HOST, CHROMEOS_CROSTINI_HOST]
 
 /** Storage key for last successful host */
 const STORAGE_KEY_HOST = 'android:daemonHost'
+
+function createOpaqueStreamToken(): string {
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
 
 // ============================================================================
 // DaemonBridge Class
@@ -543,6 +550,40 @@ export class DaemonBridge {
       return this.sendNativeRequest('revealInFolder', { rootKey, path })
     }
     return this.sendControlRequest(0xea, { rootKey, path })
+  }
+
+  /**
+   * Register an opaque media URL with the Android companion and return it.
+   * The token behaves like a bearer capability, so callers should treat the URL as secret.
+   */
+  async createHttpStreamUrl(
+    rootKey: string,
+    path: string,
+    fileSize: number,
+    mimeType?: string | null,
+  ): Promise<string | null> {
+    const daemonInfo = this.state.daemonInfo
+    if (
+      this.state.platform !== 'chromeos' ||
+      daemonInfo?.host !== CHROMEOS_ANDROID_HOST ||
+      !daemonInfo.port
+    ) {
+      return null
+    }
+
+    const streamToken = createOpaqueStreamToken()
+    const result = await this.sendControlRequest(OP_CTRL_REGISTER_HTTP_STREAM, {
+      streamToken,
+      rootKey,
+      path,
+      fileSize,
+      mimeType: mimeType ?? null,
+    })
+    if (!result.ok) {
+      throw new Error(result.error || 'Failed to register HTTP stream')
+    }
+
+    return `http://${daemonInfo.host}:${daemonInfo.port}/stream/${streamToken}`
   }
 
   /**
