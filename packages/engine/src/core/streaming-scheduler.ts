@@ -92,7 +92,11 @@ export function buildStreamingPlan(input: StreamingPlannerInput): StreamingPlan 
     for (const pieceIndex of demand.pieces) {
       if (pieceIndex < 0 || pieceIndex >= piecesCount) continue
       if (basePiecePriority[pieceIndex] === PRIORITY_SKIP) continue
-      protectedPieces.add(pieceIndex)
+      // File-lock demand constrains eligibility to the streamed file, but it
+      // must not shield stale same-file work from preemption by a newer now window.
+      if (demand.urgency !== 'file') {
+        protectedPieces.add(pieceIndex)
+      }
       effectivePriority[pieceIndex] = Math.max(effectivePriority[pieceIndex], demandPriority)
     }
   }

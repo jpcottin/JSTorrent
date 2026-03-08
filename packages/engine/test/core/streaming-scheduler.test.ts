@@ -181,7 +181,7 @@ describe('buildStreamingPlan', () => {
     expect(plan.protectedPieces.has(1)).toBe(true)
   })
 
-  it('protects file-locked pieces from preemption during now demand', () => {
+  it('does not protect file-locked pieces from preemption during now demand', () => {
     const basePriority = new Uint8Array(10).fill(4)
 
     const plan = buildStreamingPlan({
@@ -212,10 +212,12 @@ describe('buildStreamingPlan', () => {
     })
 
     expect(plan.effectivePriority?.[5]).toBe(7)
-    expect(plan.effectivePriority?.[6]).toBe(6)
-    expect(plan.dropPieceIndices).toEqual([8])
-    expect(plan.suppressedPieces.has(6)).toBe(false)
+    expect(plan.effectivePriority?.[6]).toBe(0)
+    expect(plan.dropPieceIndices.sort((a, b) => a - b)).toEqual([6, 8])
+    expect(plan.suppressedPieces.has(6)).toBe(true)
     expect(plan.suppressedPieces.has(8)).toBe(true)
+    expect(plan.protectedPieces.has(5)).toBe(true)
+    expect(plan.protectedPieces.has(6)).toBe(false)
   })
 })
 
