@@ -153,6 +153,16 @@ data class TorrentDetails(
 )
 
 /**
+ * Metadata returned when opening an Android-native playback session.
+ */
+@Serializable
+data class PlaybackSessionInfo(
+    val ok: Boolean,
+    val fileSize: Long? = null,
+    val error: String? = null
+)
+
+/**
  * Compact state pushed from engine every 500ms.
  * Includes piece changes (diffs) for efficient updates.
  *

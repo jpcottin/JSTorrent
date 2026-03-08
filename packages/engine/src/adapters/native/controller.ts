@@ -70,6 +70,15 @@ function getTorrentSize(t: Torrent): number {
 // Queue for commands that arrive before engine is ready
 // This prevents commands from being silently dropped during engine startup
 const commandQueue: Array<() => void> = []
+const playbackSessions = new Map<
+  string,
+  {
+    infoHash: string
+    fileIndex: number
+    demandToken: string
+    fileLockToken: string
+  }
+>()
 
 /**
  * Flush all queued commands. Called after engine is ready.
@@ -127,6 +136,19 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
     console.log(`[controller] ${caller}: Engine not ready, queueing command`)
     commandQueue.push(command)
     return false
+  }
+
+  const closePlaybackSessionInternal = (sessionId: string): void => {
+    const session = playbackSessions.get(sessionId)
+    if (!session) return
+
+    const engine = getEngine()
+    const torrent = engine?.getTorrent(session.infoHash)
+    if (torrent) {
+      torrent.updateStreamingDemand(session.demandToken, null, 'now')
+      torrent.updateStreamingFileLock(session.fileLockToken, null)
+    }
+    playbackSessions.delete(sessionId)
   }
 
   // ============================================================
@@ -804,6 +826,114 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
   // ============================================================
   // QUERIES (Native → JS) - Returns JSON
   // ============================================================
+
+  /**
+   * Open a playback session for a specific torrent file.
+   * The session keeps a file lock active until closed.
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_playback_open = async (
+    sessionId: string,
+    infoHash: string,
+    fileIndexStr: string,
+  ): Promise<{
+    ok: boolean
+    fileSize?: number
+    error?: string
+  }> => {
+    const engine = requireEngine('playback_open')
+    if (!engine) {
+      return { ok: false, error: 'Engine not ready' }
+    }
+
+    const torrent = engine.getTorrent(infoHash)
+    if (!torrent || !torrent.files) {
+      return { ok: false, error: 'Torrent not found' }
+    }
+
+    const fileIndex = Number.parseInt(fileIndexStr, 10)
+    if (!Number.isFinite(fileIndex) || fileIndex < 0 || fileIndex >= torrent.files.length) {
+      return { ok: false, error: 'Invalid file index' }
+    }
+
+    closePlaybackSessionInternal(sessionId)
+
+    const file = torrent.files[fileIndex]
+    const demandToken = `android-player:${sessionId}:demand`
+    const fileLockToken = `android-player:${sessionId}:file-lock`
+
+    torrent.updateStreamingFileLock(fileLockToken, fileIndex)
+    playbackSessions.set(sessionId, {
+      infoHash,
+      fileIndex,
+      demandToken,
+      fileLockToken,
+    })
+
+    return {
+      ok: true,
+      fileSize: file.length,
+    }
+  }
+
+  /**
+   * Read bytes for an active playback session.
+   * Resolves directly to a Uint8Array for native playback consumption.
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_playback_read = async (
+    sessionId: string,
+    offsetStr: string,
+    lengthStr: string,
+  ): Promise<Uint8Array> => {
+    const engine = requireEngine('playback_read')
+    if (!engine) {
+      throw new Error('Engine not ready')
+    }
+
+    const session = playbackSessions.get(sessionId)
+    if (!session) {
+      throw new Error('Playback session not found')
+    }
+
+    const torrent = engine.getTorrent(session.infoHash)
+    if (!torrent || !torrent.files) {
+      throw new Error('Torrent not found')
+    }
+
+    const file = torrent.files[session.fileIndex]
+    if (!file) {
+      throw new Error('File not found')
+    }
+
+    const offset = Number.parseInt(offsetStr, 10)
+    const requestedLength = Number.parseInt(lengthStr, 10)
+    if (
+      !Number.isFinite(offset) ||
+      !Number.isFinite(requestedLength) ||
+      offset < 0 ||
+      requestedLength < 0
+    ) {
+      throw new Error('Invalid offset/length')
+    }
+
+    if (offset >= file.length) {
+      torrent.updateStreamingDemand(session.demandToken, null, 'now')
+      return new Uint8Array(0)
+    }
+
+    const length = Math.min(requestedLength, file.length - offset)
+    const pieces = torrent.fileBytesToPieces(session.fileIndex, offset, length)
+    torrent.updateStreamingDemand(session.demandToken, new Set(pieces), 'now')
+
+    await torrent.waitForPieces(pieces)
+    return torrent.readFileBytes(session.fileIndex, offset, length)
+  }
+
+  /**
+   * Close an active playback session and clear any streaming demand it created.
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_playback_close = (sessionId: string): void => {
+    closePlaybackSessionInternal(sessionId)
+  }
 
   /**
    * Get the list of all torrents with summary info.

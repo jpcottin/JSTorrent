@@ -23,6 +23,7 @@ import com.jstorrent.quickjs.model.PeerInfo
 import com.jstorrent.quickjs.model.PeerListResponse
 import com.jstorrent.quickjs.model.PieceInfo
 import com.jstorrent.quickjs.model.TorrentDetails
+import com.jstorrent.quickjs.model.PlaybackSessionInfo
 import com.jstorrent.quickjs.model.DhtStats
 import com.jstorrent.quickjs.model.EngineStats
 import com.jstorrent.quickjs.model.EngineMemoryStats
@@ -823,6 +824,55 @@ class EngineController(
             Log.e(TAG, "Failed to parse torrent details", e)
             null
         }
+    }
+
+    /**
+     * Open a native playback session for a specific torrent file.
+     */
+    suspend fun openPlaybackSessionAsync(
+        sessionId: String,
+        infoHash: String,
+        fileIndex: Int
+    ): PlaybackSessionInfo {
+        val eng = requireEngine()
+        val resultJson = eng.callGlobalFunctionAwaitPromise(
+            "__jstorrent_playback_open",
+            sessionId,
+            infoHash,
+            fileIndex.toString()
+        ) ?: return PlaybackSessionInfo(ok = false, error = "Playback open returned no result")
+
+        return try {
+            json.decodeFromString<PlaybackSessionInfo>(resultJson)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse playback session info", e)
+            PlaybackSessionInfo(ok = false, error = e.message ?: "Failed to parse playback session info")
+        }
+    }
+
+    /**
+     * Read bytes from an active native playback session.
+     */
+    suspend fun readPlaybackBytesAsync(
+        sessionId: String,
+        offset: Long,
+        length: Int
+    ): ByteArray {
+        val eng = requireEngine()
+        return eng.callGlobalFunctionAwaitPromiseBinary(
+            "__jstorrent_playback_read",
+            sessionId,
+            offset.toString(),
+            length.toString()
+        ) ?: ByteArray(0)
+    }
+
+    /**
+     * Close an active native playback session.
+     */
+    fun closePlaybackSession(sessionId: String) {
+        val eng = engine ?: return
+        eng.callGlobalFunction("__jstorrent_playback_close", sessionId)
     }
 
     /**

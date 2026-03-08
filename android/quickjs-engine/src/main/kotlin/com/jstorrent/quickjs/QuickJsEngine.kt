@@ -40,6 +40,7 @@ class QuickJsEngine : Closeable {
     // Promise await support
     private val nextPromiseCallbackId = AtomicInteger(1)
     private val pendingPromiseCallbacks = ConcurrentHashMap<Int, CancellableContinuation<String?>>()
+    private val pendingBinaryPromiseCallbacks = ConcurrentHashMap<Int, CancellableContinuation<ByteArray?>>()
     @Volatile
     private var closed = false
 
@@ -311,6 +312,19 @@ class QuickJsEngine : Closeable {
         }
         pendingPromiseCallbacks.clear()
 
+        val pendingBinaryCount = pendingBinaryPromiseCallbacks.size
+        if (pendingBinaryCount > 0) {
+            Log.i(TAG, "Cancelling $pendingBinaryCount pending binary promise callbacks")
+        }
+        pendingBinaryPromiseCallbacks.forEach { (_, cont) ->
+            try {
+                cont.resumeWithException(QuickJsException("Engine closed while awaiting binary promise"))
+            } catch (e: IllegalStateException) {
+                // Already resumed, ignore
+            }
+        }
+        pendingBinaryPromiseCallbacks.clear()
+
         // Clear all timers first to prevent callbacks from firing after context is closed
         jsThread.clearAllTimers()
         jsThread.post {
@@ -544,6 +558,92 @@ class QuickJsEngine : Closeable {
                         cont.resumeWithException(e)
                     } catch (ex: IllegalStateException) {
                         // Already resumed, ignore
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Call a global JavaScript function and await its Promise result as binary data.
+     *
+     * The JS function should resolve to an ArrayBuffer or Uint8Array. Null resolves
+     * to null. Promise rejection becomes [QuickJsException].
+     */
+    suspend fun callGlobalFunctionAwaitPromiseBinary(funcName: String, vararg args: String?): ByteArray? {
+        if (closed) {
+            throw QuickJsException("Engine is closed")
+        }
+
+        return suspendCancellableCoroutine { cont ->
+            val callbackId = nextPromiseCallbackId.getAndIncrement()
+            val resolveName = "__promise_resolve_binary_$callbackId"
+            val rejectName = "__promise_reject_binary_$callbackId"
+
+            pendingBinaryPromiseCallbacks[callbackId] = cont
+
+            fun cleanup() {
+                pendingBinaryPromiseCallbacks.remove(callbackId)
+                jsThread.post {
+                    try {
+                        context.evaluate("delete globalThis.$resolveName; delete globalThis.$rejectName")
+                    } catch (_: Exception) {
+                        // Context may already be closed.
+                    }
+                }
+            }
+
+            cont.invokeOnCancellation {
+                cleanup()
+            }
+
+            jsThread.post {
+                try {
+                    context.setGlobalFunctionWithBinary(resolveName, 0) { _, binary ->
+                        cleanup()
+                        try {
+                            cont.resume(binary)
+                        } catch (_: IllegalStateException) {
+                            // Already resumed (e.g. cancelled), ignore.
+                        }
+                        null
+                    }
+
+                    context.setGlobalFunction(rejectName) { rejectArgs ->
+                        cleanup()
+                        try {
+                            cont.resumeWithException(
+                                QuickJsException(rejectArgs.firstOrNull() ?: "Promise rejected")
+                            )
+                        } catch (_: IllegalStateException) {
+                            // Already resumed, ignore.
+                        }
+                        null
+                    }
+
+                    val escapedArgs = args.joinToString(", ") { arg ->
+                        if (arg == null) "null" else "JSON.parse(${escapeForJs(toJson(arg))})"
+                    }
+
+                    val js = """
+                        (async () => {
+                            try {
+                                const result = await $funcName($escapedArgs);
+                                $resolveName(result === undefined ? null : result);
+                            } catch (e) {
+                                $rejectName(String(e));
+                            }
+                        })()
+                    """.trimIndent()
+
+                    context.evaluate(js, "promise-await-binary-$callbackId.js")
+                    jsThread.scheduleJobPump(context)
+                } catch (e: Throwable) {
+                    cleanup()
+                    try {
+                        cont.resumeWithException(e)
+                    } catch (_: IllegalStateException) {
+                        // Already resumed, ignore.
                     }
                 }
             }

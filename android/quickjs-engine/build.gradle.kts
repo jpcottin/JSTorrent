@@ -82,21 +82,16 @@ tasks.register("buildEngineBundle") {
         val assetsDir = file("src/main/assets")
         val bundleFile = file("src/main/assets/engine.bundle.js")
 
-        // Check if source bundle already exists (pre-built by CI or local dev)
-        if (!sourceBundle.exists()) {
-            println(">>> Building TypeScript engine bundle...")
-            // Run pnpm bundle:native in packages/engine
-            // Use shell invocation to properly inherit PATH
-            exec {
-                workingDir = rootProject.file("../packages/engine")
-                if (System.getProperty("os.name").lowercase().contains("windows")) {
-                    commandLine("cmd", "/c", "pnpm bundle:native")
-                } else {
-                    commandLine("sh", "-c", "pnpm bundle:native")
-                }
+        println(">>> Building TypeScript engine bundle...")
+        // Run pnpm bundle:native in packages/engine
+        // Use shell invocation to properly inherit PATH
+        exec {
+            workingDir = rootProject.file("../packages/engine")
+            if (System.getProperty("os.name").lowercase().contains("windows")) {
+                commandLine("cmd", "/c", "pnpm bundle:native")
+            } else {
+                commandLine("sh", "-c", "pnpm bundle:native")
             }
-        } else {
-            println(">>> Using pre-built engine bundle")
         }
 
         // Ensure assets directory exists
