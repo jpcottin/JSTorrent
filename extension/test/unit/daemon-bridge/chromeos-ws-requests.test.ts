@@ -88,6 +88,35 @@ describe('chromeos ws-requests', () => {
     })
   })
 
+  it('treats plain-text OP_ERROR payloads as non-fatal control errors', async () => {
+    const ws = {
+      readyState: 1,
+      send: vi.fn(),
+    } as unknown as WebSocket
+
+    const pendingControlRequests = new Map()
+
+    const promise = sendControlRequestOverWebSocket({
+      ws,
+      pendingControlRequests,
+      opcode: 0xed,
+      payload: {},
+      requestIdFactory: () => 55,
+      timeoutMs: 100,
+    })
+
+    const frame = new Uint8Array(
+      buildControlFrame(0x7f, 55, new TextEncoder().encode('Unknown opcode: 237')),
+    )
+    const result = handleControlResponseFrame(frame, pendingControlRequests)
+
+    expect(result).toEqual({ kind: 'resolved', requestId: 55 })
+    await expect(promise).resolves.toEqual({
+      ok: false,
+      error: 'Unknown opcode: 237',
+    })
+  })
+
   it('returns missing for unknown request ids', () => {
     const pendingControlRequests = new Map()
     const pendingKvRequests = new Map()

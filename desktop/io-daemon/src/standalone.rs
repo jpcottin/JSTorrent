@@ -76,18 +76,8 @@ pub struct StatusResponse {
     pub install_id: Option<String>,
     pub version: Option<String>,
     pub token_valid: Option<bool>,
-    /// Capabilities for UI adaptation
-    pub capabilities: Option<Capabilities>,
     /// WebSocket port for /control endpoint (same as port in standalone mode)
     pub io_port: Option<u16>,
-}
-
-#[derive(Serialize)]
-pub struct Capabilities {
-    /// Whether download roots can be added/removed (false in standalone mode)
-    pub roots_manageable: bool,
-    /// Whether LAN share/direct playback URLs are supported
-    pub lan_share_urls: bool,
 }
 
 #[derive(Deserialize)]
@@ -150,10 +140,6 @@ async fn status_handler(
         install_id: config.install_id.clone(),
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
         token_valid,
-        capabilities: Some(Capabilities {
-            roots_manageable: false, // Standalone mode has fixed root
-            lan_share_urls: true,
-        }),
         io_port: Some(state.port),
     })
 }
@@ -301,10 +287,6 @@ mod tests {
             install_id: Some("176d95f1".into()),
             version: Some("0.1.29".into()),
             token_valid: Some(true),
-            capabilities: Some(Capabilities {
-                roots_manageable: false,
-                lan_share_urls: true,
-            }),
             io_port: Some(7800),
         };
         let json = serde_json::to_string(&response).unwrap();

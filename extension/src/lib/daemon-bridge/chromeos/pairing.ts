@@ -3,7 +3,6 @@ export interface PairingStatus {
   extensionId: string | null
   installId: string | null
   version: string | null
-  capabilities?: { roots_manageable?: boolean; lan_share_urls?: boolean }
   ioPort?: number
   streamingPort?: number
 }
@@ -21,7 +20,6 @@ export interface EnsurePairingOptions {
     host: string,
     port: number,
     version?: string | null,
-    capabilities?: { roots_manageable?: boolean; lan_share_urls?: boolean },
     ioPort?: number,
     streamingPort?: number,
   ) => Promise<void>
@@ -64,7 +62,6 @@ export async function ensureChromeosPairedAndConnect(
         host,
         port,
         status.version,
-        status.capabilities,
         status.ioPort,
         status.streamingPort,
       )
@@ -79,7 +76,6 @@ export async function ensureChromeosPairedAndConnect(
         host,
         port,
         newStatus.version,
-        newStatus.capabilities,
         newStatus.ioPort,
         newStatus.streamingPort,
       )
@@ -104,7 +100,6 @@ export async function ensureChromeosPairedAndConnect(
           host,
           port,
           status.version,
-          status.capabilities,
           status.ioPort,
           status.streamingPort,
         )

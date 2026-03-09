@@ -70,6 +70,8 @@ object Protocol {
 
     // HTTP media stream registration (0xEC)
     const val OP_CTRL_REGISTER_HTTP_STREAM: Byte = 0xEC.toByte()
+    // Control-plane capability discovery (0xED)
+    const val OP_CTRL_GET_CAPABILITIES: Byte = 0xED.toByte()
 
     // Opcode sets for route validation
     val HANDSHAKE_OPCODES = setOf(
@@ -91,6 +93,7 @@ object Protocol {
         OP_CTRL_OPEN_FILE, OP_CTRL_OPEN_FOLDER,
         OP_CTRL_POWER_HINT,
         OP_CTRL_REGISTER_HTTP_STREAM,
+        OP_CTRL_GET_CAPABILITIES,
     )
 
     /**

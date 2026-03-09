@@ -1,5 +1,6 @@
 import {
   buildControlFrame,
+  readControlFrameHeader,
   readControlFramePayload,
   readControlFrameRequestId,
 } from '../protocol/control-frame'
@@ -141,9 +142,22 @@ export function handleControlResponseFrame(
   }
 
   try {
+    const header = readControlFrameHeader(frame)
     const payload = readControlFramePayload(frame)
-    const json = new TextDecoder().decode(payload)
-    const response = JSON.parse(json) as ControlResponse
+    const text = new TextDecoder().decode(payload)
+    let response: ControlResponse
+    try {
+      response = JSON.parse(text) as ControlResponse
+    } catch {
+      if (header.opcode === 0x7f) {
+        response = {
+          ok: false,
+          error: text || `Request failed with opcode 0x${header.opcode.toString(16)}`,
+        }
+      } else {
+        throw new Error(`Failed to parse response: ${text}`)
+      }
+    }
     pending.resolve(response)
   } catch (e) {
     pending.resolve({ ok: false, error: `Failed to parse response: ${e}` })

@@ -102,6 +102,7 @@ const STORAGE_KEY_HOST_OVERRIDE = 'debug:companionHost'
 const STORAGE_KEY_HAS_CONNECTED = 'daemon:hasConnectedSuccessfully'
 const STORAGE_KEY_LAST_CONNECTED = 'daemon:lastConnectedTime'
 const OP_CTRL_REGISTER_HTTP_STREAM = 0xec
+const OP_CTRL_GET_CAPABILITIES = 0xed
 
 // ============================================================================
 // Host Constants
@@ -433,8 +434,8 @@ export class DaemonBridge {
       installId,
       fetchStatus: (h, p) => this.fetchStatus(h, p),
       requestPairing: (h, p) => this.requestPairing(h, p),
-      completeConnection: (h, p, version, capabilities, ioPort, streamingPort) =>
-        this.completeConnection(h, p, version, capabilities, ioPort, streamingPort),
+      completeConnection: (h, p, version, ioPort, streamingPort) =>
+        this.completeConnection(h, p, version, ioPort, streamingPort),
       wait: (ms) => new Promise((r) => setTimeout(r, ms)),
       conflictRetryMs: 2000,
       pollIntervalMs: 1000,
@@ -476,7 +477,6 @@ export class DaemonBridge {
     extensionId: string | null
     installId: string | null
     version: string | null
-    capabilities?: { roots_manageable?: boolean; lan_share_urls?: boolean }
     ioPort?: number
     streamingPort?: number
   }> {
@@ -515,7 +515,6 @@ export class DaemonBridge {
     host: string,
     port: number,
     version?: string | null,
-    capabilities?: { roots_manageable?: boolean; lan_share_urls?: boolean },
     ioPort?: number,
     streamingPort?: number,
   ): Promise<void> {
@@ -535,14 +534,18 @@ export class DaemonBridge {
     }
     await this.connectWebSocket(host, ioPort, token)
 
-    const daemonCapabilities = buildDaemonCapabilities(capabilities)
+    const advertisedCapabilities = await this.fetchChromeosCapabilities().catch((error) => {
+      console.warn('[DaemonBridge] Capability probe failed, continuing without capabilities:', error)
+      return undefined
+    })
+    const daemonCapabilities = buildDaemonCapabilities(advertisedCapabilities)
     const daemonInfo = buildConnectedDaemonInfo({
       port,
       token,
       version,
       roots,
       host,
-      capabilities,
+      capabilities: advertisedCapabilities,
       ioPort,
       streamingPort,
     })
@@ -557,8 +560,27 @@ export class DaemonBridge {
     await chrome.storage.local.set({ [STORAGE_KEY_HAS_CONNECTED]: true })
     this.startHealthCheck(host, port)
     console.log(
-      `[DaemonBridge] Connected successfully to ${host}:${port} (roots_manageable: ${daemonCapabilities.roots_manageable})`,
+      `[DaemonBridge] Connected successfully to ${host}:${port} (roots_manageable: ${daemonCapabilities.roots_manageable}, lan_share_urls: ${daemonCapabilities.lan_share_urls})`,
     )
+  }
+
+  private async fetchChromeosCapabilities(): Promise<
+    { roots_manageable?: boolean; lan_share_urls?: boolean } | undefined
+  > {
+    const response = await this.sendControlRequest(OP_CTRL_GET_CAPABILITIES, {})
+    if (!response.ok) {
+      return undefined
+    }
+
+    const capabilities = response.capabilities
+    if (typeof capabilities !== 'object' || capabilities == null) {
+      return undefined
+    }
+
+    return capabilities as {
+      roots_manageable?: boolean
+      lan_share_urls?: boolean
+    }
   }
 
   /**
@@ -997,7 +1019,6 @@ export class DaemonBridge {
         host,
         port,
         status.version,
-        status.capabilities,
         status.ioPort,
         status.streamingPort,
       )

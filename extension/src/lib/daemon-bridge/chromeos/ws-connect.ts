@@ -123,7 +123,13 @@ export async function connectChromeosControlWebSocket(
         onControlEvent(data)
       } else if (opcode >= 0xe3 && opcode <= 0xe8) {
         onKvResponse(data)
-      } else if (opcode === 0xe9 || opcode === 0xea || opcode === 0xec) {
+      } else if (
+        opcode === 0x7f ||
+        opcode === 0xe9 ||
+        opcode === 0xea ||
+        opcode === 0xec ||
+        opcode === 0xed
+      ) {
         onControlResponse(data)
       }
     }

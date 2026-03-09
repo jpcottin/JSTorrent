@@ -51,6 +51,8 @@ const OP_UDP_CLOSE: u8 = 0x24;
 const OP_UDP_JOIN_MULTICAST: u8 = 0x25;
 const OP_UDP_LEAVE_MULTICAST: u8 = 0x26;
 
+const OP_CTRL_GET_CAPABILITIES: u8 = 0xED;
+
 const PROTOCOL_VERSION: u8 = 1;
 
 pub fn routes() -> Router<Arc<AppState>> {
@@ -1077,6 +1079,18 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                             }
                         }
                     }
+                }
+                OP_CTRL_GET_CAPABILITIES => {
+                    let payload = serde_json::json!({
+                        "ok": true,
+                        "capabilities": {
+                            "roots_manageable": false,
+                            "lan_share_urls": true,
+                        }
+                    })
+                    .to_string()
+                    .into_bytes();
+                    send_msg(&tx, OP_CTRL_GET_CAPABILITIES, env.request_id, payload).await;
                 }
                 _ => {
                     // Unknown opcode

@@ -200,6 +200,7 @@ class ControlWebSocketHandler(
             Protocol.OP_CTRL_OPEN_FOLDER -> handleOpenFolder(envelope, payload)
             Protocol.OP_CTRL_POWER_HINT -> handlePowerHint(envelope, payload)
             Protocol.OP_CTRL_REGISTER_HTTP_STREAM -> handleRegisterHttpStream(envelope, payload)
+            Protocol.OP_CTRL_GET_CAPABILITIES -> handleGetCapabilities(envelope)
             else -> {
                 sendError(envelope.requestId, "Unknown opcode: ${envelope.opcode}")
             }
@@ -323,6 +324,23 @@ class ControlWebSocketHandler(
             Log.e(TAG, "REGISTER_HTTP_STREAM error: ${e.message}")
             sendJsonResponse(envelope.requestId, opcode, false, e.message ?: "Unknown error")
         }
+    }
+
+    private fun handleGetCapabilities(envelope: Protocol.Envelope) {
+        sendJsonResponse(
+            requestId = envelope.requestId,
+            opcode = Protocol.OP_CTRL_GET_CAPABILITIES,
+            response = buildJsonObject {
+                put("ok", true)
+                put(
+                    "capabilities",
+                    buildJsonObject {
+                        put("roots_manageable", true)
+                        put("lan_share_urls", true)
+                    }
+                )
+            }
+        )
     }
 
     // ==========================================================================
