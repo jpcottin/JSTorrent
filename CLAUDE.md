@@ -247,13 +247,13 @@ touch "tauri-app/src-tauri/binaries/jstorrent-io-daemon-$TRIPLE"
 
 ## Installing Dependencies
 
-**IMPORTANT**: Never run `pnpm install` directly. Use the wrapper script instead:
+Use normal `pnpm install`.
 
 ```bash
-./scripts/pnpm-install.sh
+pnpm install
 ```
 
-This temporarily disables `.pnpmfile.cjs` (which overrides some deps to local links for development) so that `pnpm-lock.yaml` stays CI-compatible. Running raw `pnpm install` will bake local link paths into the lockfile and break CI.
+If you are developing against a local `playsvideo` checkout, relink it manually after install as described above.
 
 ## TypeScript Editing Workflow
 
