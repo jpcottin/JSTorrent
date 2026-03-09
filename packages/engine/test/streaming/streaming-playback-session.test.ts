@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { StreamingPlaybackSession } from '../../src/streaming/streaming-playback-session'
+import { StreamingContainerFormats, StreamingPlaybackModes } from '../../src'
 import type { StreamingFileProvider } from '../../src/streaming/streaming-file-provider'
 
 function createProvider(): StreamingFileProvider {
@@ -32,22 +33,53 @@ describe('StreamingPlaybackSession', () => {
       durationSec: 12.5,
       keyframeTimestampsSec: [0, 4, 8, 12],
     }
+    provider.getPlaybackCapabilities = vi.fn().mockResolvedValue({
+      supportedModes: [StreamingPlaybackModes.Hls],
+      preferredMode: StreamingPlaybackModes.Hls,
+      containerFormat: StreamingContainerFormats.Matroska,
+      canPrepareMetadata: true,
+    })
     provider.buildPrebuiltKeyframeIndex = vi.fn().mockResolvedValue(index)
     const session = new StreamingPlaybackSession(provider, {
       tokenPrefix: 'test-session',
       logPrefix: '[test-session]',
     })
 
+    await expect(session.getPlaybackCapabilities()).resolves.toEqual({
+      supportedModes: [StreamingPlaybackModes.Hls],
+      preferredMode: StreamingPlaybackModes.Hls,
+      containerFormat: StreamingContainerFormats.Matroska,
+      canPrepareMetadata: true,
+    })
     await expect(session.getPreparedPlaybackMetadata()).resolves.toBeNull()
     await expect(session.preparePlaybackMetadata()).resolves.toEqual({
+      capabilities: {
+        supportedModes: [StreamingPlaybackModes.Hls],
+        preferredMode: StreamingPlaybackModes.Hls,
+        containerFormat: StreamingContainerFormats.Matroska,
+        canPrepareMetadata: true,
+      },
       prebuiltKeyframeIndex: index,
     })
     await expect(session.getPreparedPlaybackMetadata()).resolves.toEqual({
+      capabilities: {
+        supportedModes: [StreamingPlaybackModes.Hls],
+        preferredMode: StreamingPlaybackModes.Hls,
+        containerFormat: StreamingContainerFormats.Matroska,
+        canPrepareMetadata: true,
+      },
       prebuiltKeyframeIndex: index,
     })
     await expect(session.preparePlaybackMetadata()).resolves.toEqual({
+      capabilities: {
+        supportedModes: [StreamingPlaybackModes.Hls],
+        preferredMode: StreamingPlaybackModes.Hls,
+        containerFormat: StreamingContainerFormats.Matroska,
+        canPrepareMetadata: true,
+      },
       prebuiltKeyframeIndex: index,
     })
+    expect(provider.getPlaybackCapabilities).toHaveBeenCalledTimes(1)
     expect(provider.buildPrebuiltKeyframeIndex).toHaveBeenCalledTimes(1)
   })
 

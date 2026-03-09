@@ -2,9 +2,12 @@ import type { Torrent } from '../core/torrent'
 import { toHex } from '../utils/buffer'
 import { buildMkvPrebuiltKeyframeIndex, isMkvFile } from './mkv-keyframe-index'
 import {
+  StreamingContainerFormat,
+  StreamingPlaybackMode,
   StreamingPieceState,
   type ByteRangeStreamingSession,
   type PreparedPlaybackMetadata,
+  type StreamingPlaybackCapabilities,
   type StreamingPlayerController,
   type StreamingFilePieceSnapshot,
   type StreamingFileProvider,
@@ -15,6 +18,26 @@ function summarizePieces(pieces: number[]): string {
   if (pieces.length === 0) return 'pieces=0'
   if (pieces.length <= 6) return `pieces=${pieces.join(',')}`
   return `pieces=${pieces[0]}..${pieces[pieces.length - 1]} (${pieces.length})`
+}
+
+function getPlaybackContainerFormat(filename: string): StreamingPlaybackCapabilities['containerFormat'] {
+  const lower = filename.toLowerCase()
+  if (lower.endsWith('.mkv') || lower.endsWith('.webm')) {
+    return StreamingContainerFormat.Matroska
+  }
+  if (lower.endsWith('.mp4') || lower.endsWith('.m4v') || lower.endsWith('.mov')) {
+    return StreamingContainerFormat.Mp4
+  }
+  return StreamingContainerFormat.Unknown
+}
+
+function createDefaultPlaybackCapabilities(): StreamingPlaybackCapabilities {
+  return {
+    supportedModes: [StreamingPlaybackMode.Hls],
+    preferredMode: StreamingPlaybackMode.Hls,
+    containerFormat: StreamingContainerFormat.Unknown,
+    canPrepareMetadata: false,
+  }
 }
 
 function getStreamingPieceState(piece: {
@@ -86,11 +109,19 @@ export function createStreamingFileProvider(
   for (let i = 0; i < filePieceIndices.length; i++) {
     pieceIndexToRelative.set(filePieceIndices[i], i)
   }
+  const containerFormat = getPlaybackContainerFormat(file.path)
+  const playbackCapabilities: StreamingPlaybackCapabilities = {
+    supportedModes: [StreamingPlaybackMode.Hls],
+    preferredMode: StreamingPlaybackMode.Hls,
+    containerFormat,
+    canPrepareMetadata: containerFormat === StreamingContainerFormat.Matroska,
+  }
 
   return {
     get fileSize() {
       return file.length
     },
+    getPlaybackCapabilities: () => playbackCapabilities,
     fileBytesToPieces: (offset, length) => torrent.fileBytesToPieces(fileIndex, offset, length),
     setStreamingPieces: (pieces) => torrent.setStreamingPieces(pieces),
     updateStreamingFileLock:
@@ -168,6 +199,7 @@ export class StreamingPlaybackSession
   private fileLockActive = false
   private aheadDemandStartPiece: number | null = null
   private fallbackDemandScope: { token: string; pieces: Set<number> } | null = null
+  private playbackCapabilities: StreamingPlaybackCapabilities | null = null
   private preparedPlaybackMetadataReady = false
   private preparedPlaybackMetadata: PreparedPlaybackMetadata | null = null
   private preparingPlaybackMetadata: Promise<PreparedPlaybackMetadata | null> | null = null
@@ -193,6 +225,21 @@ export class StreamingPlaybackSession
   open(): { fileSize: number } {
     this.ensureFileLock()
     return { fileSize: this.provider.fileSize }
+  }
+
+  getPlaybackCapabilities(): Promise<StreamingPlaybackCapabilities> {
+    if (this.playbackCapabilities) {
+      return Promise.resolve(this.playbackCapabilities)
+    }
+
+    const nextCapabilities = this.provider.getPlaybackCapabilities
+      ? this.provider.getPlaybackCapabilities()
+      : createDefaultPlaybackCapabilities()
+
+    return Promise.resolve(nextCapabilities).then((capabilities) => {
+      this.playbackCapabilities = capabilities
+      return capabilities
+    })
   }
 
   setCurrentSignal(signal: AbortSignal | null): void {
@@ -548,18 +595,21 @@ export class StreamingPlaybackSession
   }
 
   private loadPreparedPlaybackMetadata(): Promise<PreparedPlaybackMetadata | null> {
-    if (!this.provider.buildPrebuiltKeyframeIndex) {
-      return Promise.resolve(null)
-    }
-
-    return this.provider.buildPrebuiltKeyframeIndex().then((prebuiltKeyframeIndex) => {
-      if (!prebuiltKeyframeIndex) {
-        return null
+    return this.getPlaybackCapabilities().then((capabilities) => {
+      if (!this.provider.buildPrebuiltKeyframeIndex) {
+        return { capabilities } satisfies PreparedPlaybackMetadata
       }
 
-      return {
-        prebuiltKeyframeIndex,
-      } satisfies PreparedPlaybackMetadata
+      return this.provider.buildPrebuiltKeyframeIndex().then((prebuiltKeyframeIndex) => {
+        if (!prebuiltKeyframeIndex) {
+          return { capabilities } satisfies PreparedPlaybackMetadata
+        }
+
+        return {
+          capabilities,
+          prebuiltKeyframeIndex,
+        } satisfies PreparedPlaybackMetadata
+      })
     })
   }
 }

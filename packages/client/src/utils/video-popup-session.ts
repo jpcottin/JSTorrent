@@ -1,6 +1,7 @@
 import type {
   ByteRangeStreamingSession,
   PreparedPlaybackMetadata,
+  StreamingPlaybackCapabilities,
   StreamingPlaybackHandle,
   StreamingPlayerController,
   StreamingFilePieceSnapshot,
@@ -35,6 +36,7 @@ type HostMessage =
       method:
         | 'read'
         | 'waitForRange'
+        | 'getPlaybackCapabilities'
         | 'preparePlaybackMetadata'
         | 'getPreparedPlaybackMetadata'
         | 'getPieceTimelineSnapshot'
@@ -118,6 +120,21 @@ export function createVideoPopupSessionHost(
     }
 
     if (message.type !== 'call') return
+
+    if (message.method === 'getPlaybackCapabilities') {
+      Promise.resolve(
+        playback.controller?.getPlaybackCapabilities
+          ? playback.controller.getPlaybackCapabilities()
+          : null,
+      )
+        .then((capabilities) => {
+          reply({ type: 'result', id: message.id, value: capabilities ?? null })
+        })
+        .catch((error) => {
+          reply({ type: 'error', id: message.id, message: makeError(error).message })
+        })
+      return
+    }
 
     if (message.method === 'preparePlaybackMetadata') {
       Promise.resolve(
@@ -247,6 +264,7 @@ export function createRemoteByteRangeStreamingSession(
     method:
       | 'read'
       | 'waitForRange'
+      | 'getPlaybackCapabilities'
       | 'preparePlaybackMetadata'
       | 'getPreparedPlaybackMetadata'
       | 'getPieceTimelineSnapshot',
@@ -315,6 +333,8 @@ export function createRemoteByteRangeStreamingSession(
   }
 
   const controller: StreamingPlayerController = {
+    getPlaybackCapabilities: () =>
+      postCall<StreamingPlaybackCapabilities | null>('getPlaybackCapabilities', []),
     preparePlaybackMetadata: () =>
       postCall<PreparedPlaybackMetadata | null>('preparePlaybackMetadata', []),
     getPreparedPlaybackMetadata: () =>

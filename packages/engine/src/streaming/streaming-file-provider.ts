@@ -13,6 +13,23 @@ export interface PrebuiltKeyframeIndex {
   keyframeTimestampsSec: number[]
 }
 
+export const StreamingPlaybackMode = {
+  DirectBytes: 'direct-bytes',
+  Hls: 'hls',
+} as const
+
+export type StreamingPlaybackMode =
+  (typeof StreamingPlaybackMode)[keyof typeof StreamingPlaybackMode]
+
+export const StreamingContainerFormat = {
+  Matroska: 'matroska',
+  Mp4: 'mp4',
+  Unknown: 'unknown',
+} as const
+
+export type StreamingContainerFormat =
+  (typeof StreamingContainerFormat)[keyof typeof StreamingContainerFormat]
+
 export type StreamingHintUrgency = 'metadata' | 'next' | 'now'
 
 export const StreamingPieceState = {
@@ -51,10 +68,19 @@ export interface ByteRangeStreamingSession {
 }
 
 export interface PreparedPlaybackMetadata {
+  capabilities?: StreamingPlaybackCapabilities
   prebuiltKeyframeIndex?: PrebuiltKeyframeIndex | null
 }
 
+export interface StreamingPlaybackCapabilities {
+  supportedModes: StreamingPlaybackMode[]
+  preferredMode: StreamingPlaybackMode
+  containerFormat: StreamingContainerFormat
+  canPrepareMetadata: boolean
+}
+
 export interface StreamingPlayerController {
+  getPlaybackCapabilities?(): Promise<StreamingPlaybackCapabilities | null>
   preparePlaybackMetadata?(): Promise<PreparedPlaybackMetadata | null>
   getPreparedPlaybackMetadata?(): Promise<PreparedPlaybackMetadata | null>
 }
@@ -67,6 +93,9 @@ export interface StreamingPlaybackHandle {
 
 export interface StreamingFileProvider extends StreamingVisualization {
   readonly fileSize: number
+  getPlaybackCapabilities?():
+    | StreamingPlaybackCapabilities
+    | Promise<StreamingPlaybackCapabilities>
   fileBytesToPieces(offset: number, length: number): number[]
   setStreamingPieces(pieces: Set<number> | null): void
   updateStreamingFileLock?(token: string, enabled: boolean): void

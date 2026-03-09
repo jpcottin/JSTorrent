@@ -3,6 +3,8 @@ import type {
   ByteRangeStreamingSession,
   PreparedPlaybackMetadata,
   PrebuiltKeyframeIndex,
+  StreamingPlaybackCapabilities,
+  StreamingPlaybackMode,
   StreamingPlayerController,
   StreamingVisualization,
 } from '@jstorrent/engine'
@@ -10,6 +12,9 @@ import { createTorrentSourceFromSession } from '@jstorrent/engine'
 import { PlaysVideoEngine, Source } from 'playsvideo'
 import type { KeyframeIndex } from 'playsvideo'
 import { VideoPieceTimeline } from './VideoPieceTimeline'
+
+const HLS_MODE: StreamingPlaybackMode = 'hls'
+const POPUP_PLAYBACK_MODE_PREFERENCE: StreamingPlaybackMode[] = [HLS_MODE, 'direct-bytes']
 
 export interface VideoPlayerProps {
   bytes: ByteRangeStreamingSession
@@ -75,10 +80,29 @@ export function VideoPlayer({
       let keyframeIndex: KeyframeIndex | undefined
 
       try {
+        const playbackCapabilities = await controller?.getPlaybackCapabilities?.()
+        const selectedMode = selectPlaybackMode(playbackCapabilities)
         const preparedMetadata = await loadPreparedPlaybackMetadata(controller)
         if (disposed) return
         if (preparedMetadata?.prebuiltKeyframeIndex) {
           keyframeIndex = toPlaysVideoKeyframeIndex(preparedMetadata.prebuiltKeyframeIndex)
+        }
+        console.log('[VideoPlayer] selected playback mode', {
+          selectedMode,
+          supportedModes: playbackCapabilities?.supportedModes ?? [HLS_MODE],
+          containerFormat:
+            preparedMetadata?.capabilities?.containerFormat ??
+            playbackCapabilities?.containerFormat ??
+            'unknown',
+        })
+
+        if (selectedMode !== HLS_MODE) {
+          setState((s) => ({
+            ...s,
+            phase: 'error',
+            errorMessage: `Playback mode ${selectedMode} is not implemented in the popup player`,
+          }))
+          return
         }
       } catch (error) {
         console.warn('[VideoPlayer] prebuilt keyframe index unavailable, falling back', error)
@@ -369,6 +393,22 @@ async function loadPreparedPlaybackMetadata(
   }
 
   return controller.getPreparedPlaybackMetadata?.() ?? null
+}
+
+function selectPlaybackMode(
+  capabilities?: StreamingPlaybackCapabilities | null,
+): StreamingPlaybackMode {
+  if (!capabilities) {
+    return HLS_MODE
+  }
+
+  for (const mode of POPUP_PLAYBACK_MODE_PREFERENCE) {
+    if (capabilities.supportedModes.includes(mode)) {
+      return mode
+    }
+  }
+
+  return capabilities.preferredMode
 }
 
 function toPlaysVideoKeyframeIndex(prebuilt: PrebuiltKeyframeIndex): KeyframeIndex {

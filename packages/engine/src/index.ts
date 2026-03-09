@@ -168,12 +168,19 @@ export type {
   PreparedPlaybackMetadata,
   PrebuiltKeyframeIndex,
   StreamingActivePieceInfo,
+  StreamingContainerFormat,
+  StreamingPlaybackCapabilities,
   StreamingFilePieceSnapshot,
   StreamingFileProvider,
   StreamingPlaybackHandle,
   StreamingPlayerController,
+  StreamingPlaybackMode,
   StreamingHintUrgency,
   StreamingVisualization,
+} from './streaming/streaming-file-provider'
+export {
+  StreamingContainerFormat as StreamingContainerFormats,
+  StreamingPlaybackMode as StreamingPlaybackModes,
 } from './streaming/streaming-file-provider'
 export { parseMkvCueIndex, parseMkvCues, type MkvCuePoint } from './streaming/mkv-cue-parser'
 export {

@@ -7,12 +7,18 @@ import type {
   ByteRangeStreamingSession,
   PreparedPlaybackMetadata,
   PrebuiltKeyframeIndex,
+  StreamingContainerFormat,
+  StreamingPlaybackCapabilities,
   StreamingPlaybackHandle,
+  StreamingPlaybackMode,
   StreamingPlayerController,
   StreamingFilePieceSnapshot,
   StreamingVisualization,
 } from '@jstorrent/engine'
 import type { VideoPopupLaunchOptions } from '../../src/host/types'
+
+const HLS_MODE: StreamingPlaybackMode = 'hls'
+const MATROSKA_CONTAINER: StreamingContainerFormat = 'matroska'
 
 interface MessageListener {
   (event: MessageEvent<unknown>): void
@@ -146,10 +152,18 @@ describe('video popup session transport', () => {
       durationSec: 12.5,
       keyframeTimestampsSec: [0, 4, 8, 12],
     }
+    const capabilities: StreamingPlaybackCapabilities = {
+      supportedModes: [HLS_MODE],
+      preferredMode: HLS_MODE,
+      containerFormat: MATROSKA_CONTAINER,
+      canPrepareMetadata: true,
+    }
     const preparedMetadata: PreparedPlaybackMetadata = {
+      capabilities,
       prebuiltKeyframeIndex: index,
     }
     const controller = {
+      getPlaybackCapabilities: vi.fn().mockResolvedValue(capabilities),
       preparePlaybackMetadata: vi.fn().mockResolvedValue(preparedMetadata),
       getPreparedPlaybackMetadata: vi.fn().mockResolvedValue(preparedMetadata),
     }
@@ -160,12 +174,16 @@ describe('video popup session transport', () => {
       createChannel,
     })
 
+    await expect(remote.playback.controller?.getPlaybackCapabilities?.()).resolves.toEqual(
+      capabilities,
+    )
     await expect(remote.playback.controller?.preparePlaybackMetadata?.()).resolves.toEqual(
       preparedMetadata,
     )
     await expect(remote.playback.controller?.getPreparedPlaybackMetadata?.()).resolves.toEqual(
       preparedMetadata,
     )
+    expect(controller.getPlaybackCapabilities).toHaveBeenCalledTimes(1)
     expect(controller.preparePlaybackMetadata).toHaveBeenCalledTimes(1)
     expect(controller.getPreparedPlaybackMetadata).toHaveBeenCalledTimes(1)
 
