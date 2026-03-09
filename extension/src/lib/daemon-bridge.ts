@@ -535,7 +535,10 @@ export class DaemonBridge {
     await this.connectWebSocket(host, ioPort, token)
 
     const advertisedCapabilities = await this.fetchChromeosCapabilities().catch((error) => {
-      console.warn('[DaemonBridge] Capability probe failed, continuing without capabilities:', error)
+      console.warn(
+        '[DaemonBridge] Capability probe failed, continuing without capabilities:',
+        error,
+      )
       return undefined
     })
     const daemonCapabilities = buildDaemonCapabilities(advertisedCapabilities)
@@ -1016,13 +1019,7 @@ export class DaemonBridge {
 
     // Already paired with us? Try connecting
     if (status.paired && status.extensionId === extensionId && status.installId === telemetryId) {
-      await this.completeConnection(
-        host,
-        port,
-        status.version,
-        status.ioPort,
-        status.streamingPort,
-      )
+      await this.completeConnection(host, port, status.version, status.ioPort, status.streamingPort)
       return
     }
 

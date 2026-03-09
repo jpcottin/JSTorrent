@@ -161,9 +161,7 @@ describe('chromeos ws-connect', () => {
     const event = new Uint8Array(buildControlFrame(0xe1, 2, new TextEncoder().encode('{}')))
     const kv = new Uint8Array(buildControlFrame(0xe3, 3, new TextEncoder().encode('{}')))
     const control = new Uint8Array(buildControlFrame(0xe9, 4, new TextEncoder().encode('{}')))
-    const capabilities = new Uint8Array(
-      buildControlFrame(0xed, 5, new TextEncoder().encode('{}')),
-    )
+    const capabilities = new Uint8Array(buildControlFrame(0xed, 5, new TextEncoder().encode('{}')))
     const error = new Uint8Array(
       buildControlFrame(0x7f, 6, new TextEncoder().encode('Unknown opcode')),
     )

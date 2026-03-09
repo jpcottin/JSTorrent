@@ -58,13 +58,7 @@ export async function ensureChromeosPairedAndConnect(
     const status = await fetchStatus(host, port)
 
     if (isPairedForCurrentClient(status, extensionId, installId)) {
-      await completeConnection(
-        host,
-        port,
-        status.version,
-        status.ioPort,
-        status.streamingPort,
-      )
+      await completeConnection(host, port, status.version, status.ioPort, status.streamingPort)
       return 'connected'
     }
 
@@ -96,13 +90,7 @@ export async function ensureChromeosPairedAndConnect(
     try {
       const status = await fetchStatus(host, port)
       if (isPairedForCurrentClient(status, extensionId, installId)) {
-        await completeConnection(
-          host,
-          port,
-          status.version,
-          status.ioPort,
-          status.streamingPort,
-        )
+        await completeConnection(host, port, status.version, status.ioPort, status.streamingPort)
         return 'connected'
       }
     } catch {

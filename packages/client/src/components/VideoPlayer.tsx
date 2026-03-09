@@ -226,7 +226,7 @@ export function VideoPlayer({
 
       <div style={contentStyle}>
         <div style={headerStyle}>
-            <div style={fileNameStyle}>{fileName}</div>
+          <div style={fileNameStyle}>{fileName}</div>
           <div style={headerActionsStyle}>
             <button
               type="button"
