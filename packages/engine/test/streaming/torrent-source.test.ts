@@ -33,7 +33,7 @@ function createMockTorrent(opts: MockTorrentOpts) {
   let waitReject: ((err: Error) => void) | null = null
 
   const mock = {
-    files: [{ length: opts.fileLength }],
+    files: [{ length: opts.fileLength, path: 'test.mp4' }],
 
     fileBytesToPieces: vi.fn((_fileIndex: number, offset: number, length: number): number[] => {
       const first = Math.floor(offset / pieceLength)
