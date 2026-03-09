@@ -145,6 +145,12 @@ pub struct ProfileListEntry {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct DaemonCapabilities {
+    pub roots_manageable: bool,
+    pub lan_share_urls: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
 pub enum ResponsePayload {
     Empty,
@@ -157,6 +163,8 @@ pub enum ResponsePayload {
         roots: Vec<DownloadRoot>,
         #[serde(rename = "addToken", skip_serializing_if = "Option::is_none")]
         add_token: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        capabilities: Option<DaemonCapabilities>,
         #[serde(rename = "desktopVersion", skip_serializing_if = "Option::is_none")]
         desktop_version: Option<String>,
     },

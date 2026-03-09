@@ -41,7 +41,14 @@ private data class StatusResponse(
     val extensionId: String? = null,
     val installId: String? = null,
     val version: String? = null,
-    val tokenValid: Boolean? = null
+    val tokenValid: Boolean? = null,
+    val capabilities: StatusCapabilities? = null
+)
+
+@Serializable
+private data class StatusCapabilities(
+    val roots_manageable: Boolean,
+    val lan_share_urls: Boolean
 )
 
 @Serializable
@@ -431,7 +438,11 @@ private class NettyHttpHandler(
             extensionId = deps.tokenStore.extensionId,
             installId = deps.tokenStore.installId,
             version = deps.versionName,
-            tokenValid = tokenValid
+            tokenValid = tokenValid,
+            capabilities = StatusCapabilities(
+                roots_manageable = true,
+                lan_share_urls = true
+            )
         )
 
         sendJsonResponse(ctx, request, HttpResponseStatus.OK, json.encodeToString(response))

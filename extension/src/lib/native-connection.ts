@@ -12,6 +12,8 @@ export interface DownloadRoot {
 export interface DaemonCapabilities {
   /** Whether download roots can be added/removed. False for standalone Crostini mode. */
   roots_manageable: boolean
+  /** Whether the daemon can mint LAN share / direct playback URLs for completed files. */
+  lan_share_urls: boolean
 }
 
 export interface DaemonInfo {

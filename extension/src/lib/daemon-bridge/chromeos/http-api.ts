@@ -4,7 +4,7 @@ export interface ChromeosDaemonStatus {
   extensionId: string | null
   installId: string | null
   version: string | null
-  capabilities?: { roots_manageable?: boolean }
+  capabilities?: { roots_manageable?: boolean; lan_share_urls?: boolean }
   ioPort?: number
   streamingPort?: number
 }

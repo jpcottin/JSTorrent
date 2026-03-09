@@ -86,6 +86,8 @@ pub struct StatusResponse {
 pub struct Capabilities {
     /// Whether download roots can be added/removed (false in standalone mode)
     pub roots_manageable: bool,
+    /// Whether LAN share/direct playback URLs are supported
+    pub lan_share_urls: bool,
 }
 
 #[derive(Deserialize)]
@@ -150,6 +152,7 @@ async fn status_handler(
         token_valid,
         capabilities: Some(Capabilities {
             roots_manageable: false, // Standalone mode has fixed root
+            lan_share_urls: true,
         }),
         io_port: Some(state.port),
     })
@@ -300,6 +303,7 @@ mod tests {
             token_valid: Some(true),
             capabilities: Some(Capabilities {
                 roots_manageable: false,
+                lan_share_urls: true,
             }),
             io_port: Some(7800),
         };

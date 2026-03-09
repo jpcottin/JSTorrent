@@ -90,16 +90,20 @@ function ChromeAppContent({
             }
           : undefined
       }
-      onCreateDirectPlaybackUrl={async (torrentHash, file) => {
-        const result = await engineManager.createLanShareUrl(torrentHash, file.path)
-        if (!result.ok || !result.url) {
-          return null
-        }
-        return {
-          url: result.url,
-          mimeType: result.mimeType ?? null,
-        }
-      }}
+      onCreateDirectPlaybackUrl={
+        supportsLanShare
+          ? async (torrentHash, file) => {
+              const result = await engineManager.createLanShareUrl(torrentHash, file.path)
+              if (!result.ok || !result.url) {
+                return null
+              }
+              return {
+                url: result.url,
+                mimeType: result.mimeType ?? null,
+              }
+            }
+          : undefined
+      }
       onOpenVideoPopup={
         supportsVideoPopup
           ? async (options) => {
@@ -191,8 +195,7 @@ function App() {
   // ChromeOS bootstrap action callbacks
   const chromeosBootstrap = useChromeOSBootstrap()
   const supportsVideoPopup = ioBridgeState.platform !== 'tauri'
-  const supportsLanShare =
-    ioBridgeState.platform === 'chromeos' || ioBridgeState.platform === 'desktop'
+  const supportsLanShare = ioBridgeState.daemonInfo?.capabilities?.lan_share_urls === true
 
   // Track previous status to detect transitions
   const prevStatusRef = useRef<ConnectionStatus | null>(null)

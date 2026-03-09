@@ -46,6 +46,11 @@ interface GatewayInfo {
   interfaceName?: string
 }
 
+interface DaemonCapabilityPayload {
+  roots_manageable?: boolean
+  lan_share_urls?: boolean
+}
+
 function createOpaqueStreamToken(): string {
   const bytes = new Uint8Array(24)
   crypto.getRandomValues(bytes)
@@ -221,6 +226,7 @@ export class TauriChannel implements HostChannel {
         token: string
         version?: string
         roots?: DownloadRoot[]
+        capabilities?: DaemonCapabilityPayload
         profileId?: string
         clientType?: string
         clientVersion?: string
@@ -234,7 +240,7 @@ export class TauriChannel implements HostChannel {
     // Note: response.type ('DaemonInfo') is missing due to serde #[serde(flatten)]
     // dropping the tag from adjacently-tagged enums. Check payload fields instead.
     if (response.ok && response.payload?.port) {
-      const { port, token, version, roots, profileId } = response.payload
+      const { port, token, version, roots, capabilities, profileId } = response.payload
       this.daemonInfo = { port, token }
       if (profileId) {
         try {
@@ -246,7 +252,21 @@ export class TauriChannel implements HostChannel {
       this.updateState({
         status: 'connected',
         platform: 'tauri',
-        daemonInfo: { port, token, version, roots: roots ?? [], host: '127.0.0.1', profileId },
+        daemonInfo: {
+          port,
+          token,
+          version,
+          roots: roots ?? [],
+          host: '127.0.0.1',
+          capabilities:
+            capabilities == null
+              ? undefined
+              : {
+                  roots_manageable: capabilities.roots_manageable !== false,
+                  lan_share_urls: capabilities.lan_share_urls === true,
+                },
+          profileId,
+        },
         roots: roots ?? [],
         lastError: null,
       })
@@ -456,6 +476,9 @@ export class TauriChannel implements HostChannel {
     if (!daemonInfo?.port || !daemonInfo.token) {
       return null
     }
+    if (daemonInfo.capabilities?.lan_share_urls !== true) {
+      return null
+    }
 
     const daemonHost = daemonInfo.host ?? '127.0.0.1'
     const streamToken = createOpaqueStreamToken()
@@ -604,6 +627,7 @@ export class TauriChannel implements HostChannel {
           const token = response.payload.token as string
           const version = response.payload.version as string | undefined
           const roots = (response.payload.roots as DownloadRoot[] | undefined) ?? []
+          const capabilities = response.payload.capabilities as DaemonCapabilityPayload | undefined
           const profileId = response.payload.profileId as string | undefined
           this.daemonInfo = { port, token }
           if (profileId) {
@@ -616,7 +640,21 @@ export class TauriChannel implements HostChannel {
           this.updateState({
             status: 'connected',
             platform: 'tauri',
-            daemonInfo: { port, token, version, roots, host: '127.0.0.1', profileId },
+            daemonInfo: {
+              port,
+              token,
+              version,
+              roots,
+              host: '127.0.0.1',
+              capabilities:
+                capabilities == null
+                  ? undefined
+                  : {
+                      roots_manageable: capabilities.roots_manageable !== false,
+                      lan_share_urls: capabilities.lan_share_urls === true,
+                    },
+              profileId,
+            },
             roots,
             lastError: null,
           })

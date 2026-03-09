@@ -476,7 +476,7 @@ export class DaemonBridge {
     extensionId: string | null
     installId: string | null
     version: string | null
-    capabilities?: { roots_manageable?: boolean }
+    capabilities?: { roots_manageable?: boolean; lan_share_urls?: boolean }
     ioPort?: number
     streamingPort?: number
   }> {
@@ -515,7 +515,7 @@ export class DaemonBridge {
     host: string,
     port: number,
     version?: string | null,
-    capabilities?: { roots_manageable?: boolean },
+    capabilities?: { roots_manageable?: boolean; lan_share_urls?: boolean },
     ioPort?: number,
     streamingPort?: number,
   ): Promise<void> {
@@ -621,6 +621,9 @@ export class DaemonBridge {
   ): Promise<string | null> {
     const daemonInfo = this.state.daemonInfo
     if (!daemonInfo?.port) {
+      return null
+    }
+    if (daemonInfo.capabilities?.lan_share_urls !== true) {
       return null
     }
 

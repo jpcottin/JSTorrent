@@ -3,7 +3,7 @@ export interface PairingStatus {
   extensionId: string | null
   installId: string | null
   version: string | null
-  capabilities?: { roots_manageable?: boolean }
+  capabilities?: { roots_manageable?: boolean; lan_share_urls?: boolean }
   ioPort?: number
   streamingPort?: number
 }
@@ -21,7 +21,7 @@ export interface EnsurePairingOptions {
     host: string,
     port: number,
     version?: string | null,
-    capabilities?: { roots_manageable?: boolean },
+    capabilities?: { roots_manageable?: boolean; lan_share_urls?: boolean },
     ioPort?: number,
     streamingPort?: number,
   ) => Promise<void>

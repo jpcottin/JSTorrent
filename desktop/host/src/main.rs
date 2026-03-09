@@ -13,7 +13,7 @@ mod updater;
 mod win_foreground;
 
 use anyhow::Result;
-use protocol::{Event, Operation, Request, Response, ResponsePayload};
+use protocol::{DaemonCapabilities, Event, Operation, Request, Response, ResponsePayload};
 use state::State;
 use std::sync::Arc;
 use tokio::io;
@@ -371,6 +371,10 @@ async fn do_handshake(
             version: env!("CARGO_PKG_VERSION").to_string(),
             roots,
             add_token: rpc_info.add_token,
+            capabilities: Some(DaemonCapabilities {
+                roots_manageable: true,
+                lan_share_urls: true,
+            }),
             desktop_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         })
     } else {

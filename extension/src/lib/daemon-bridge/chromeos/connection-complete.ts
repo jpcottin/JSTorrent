@@ -20,9 +20,11 @@ export async function fetchChromeosRoots(options: {
 
 export function buildDaemonCapabilities(capabilities?: {
   roots_manageable?: boolean
+  lan_share_urls?: boolean
 }): DaemonCapabilities {
   return {
     roots_manageable: capabilities?.roots_manageable !== false,
+    lan_share_urls: capabilities?.lan_share_urls === true,
   }
 }
 
@@ -32,7 +34,7 @@ export function buildConnectedDaemonInfo(options: {
   version?: string | null
   roots: DownloadRoot[]
   host: string
-  capabilities?: { roots_manageable?: boolean }
+  capabilities?: { roots_manageable?: boolean; lan_share_urls?: boolean }
   ioPort?: number
   streamingPort?: number
 }): DaemonInfo {

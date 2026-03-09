@@ -209,6 +209,37 @@ describe('TauriChannel', () => {
       channel.disconnect()
     })
 
+    it('preserves daemon capabilities from the handshake payload', async () => {
+      invokeHandler = vi.fn(async (cmd) => {
+        if (cmd === 'host_handshake') {
+          return {
+            ok: true,
+            payload: {
+              port: 54321,
+              token: 'test-token',
+              version: '0.2.0',
+              roots: [],
+              capabilities: {
+                roots_manageable: true,
+                lan_share_urls: true,
+              },
+            },
+          }
+        }
+        return {}
+      })
+
+      const channel = new TauriChannel()
+      await channel.connect()
+
+      expect(channel.getState().daemonInfo?.capabilities).toEqual({
+        roots_manageable: true,
+        lan_share_urls: true,
+      })
+
+      channel.disconnect()
+    })
+
     it('sets disconnected state on handshake failure', async () => {
       invokeHandler = vi.fn(async (cmd) => {
         if (cmd === 'host_handshake') {
