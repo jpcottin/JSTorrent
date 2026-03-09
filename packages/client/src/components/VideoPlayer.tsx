@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type {
   ByteRangeStreamingSession,
-  PreparedPlaybackMetadata,
-  PrebuiltKeyframeIndex,
   StreamingPlaybackCapabilities,
   StreamingPlaybackMode,
   StreamingPlaybackOption,
@@ -10,8 +8,19 @@ import type {
   StreamingVisualization,
 } from '@jstorrent/engine'
 import { createTorrentSourceFromSession } from '@jstorrent/engine'
-import { PlaysVideoEngine, Source } from 'playsvideo'
-import type { KeyframeIndex } from 'playsvideo'
+import {
+  createBrowserPlaybackCapabilities,
+  demuxSource,
+  evaluatePlaybackOptions,
+  PlaysVideoEngine,
+  Source,
+} from 'playsvideo'
+import type {
+  DirectPlaybackOption as PlaysVideoDirectPlaybackOption,
+  PlaybackEvaluationResult,
+  PlaybackMediaMetadata,
+  PlaybackOption as PlaysVideoPlaybackOption,
+} from 'playsvideo'
 import { VideoPieceTimeline } from './VideoPieceTimeline'
 
 const DIRECT_BYTES_MODE = 'direct-bytes' as const
@@ -64,25 +73,21 @@ export function VideoPlayer({
     let cleanupPlayback = () => {}
 
     void (async () => {
-      let keyframeIndex: KeyframeIndex | undefined
-
       try {
-        const playbackCapabilities = await controller?.getPlaybackCapabilities?.()
-        const playbackOptions = await controller?.getPlaybackOptions?.()
-        const selectedOption = selectPlaybackOption(playbackOptions, playbackCapabilities)
+        const [playbackCapabilities, playbackOptions] = await Promise.all([
+          controller?.getPlaybackCapabilities?.(),
+          controller?.getPlaybackOptions?.(),
+        ])
+        if (disposed) return
+        const playbackDecision = await recommendPlayback(video, bytes, playbackOptions)
         if (disposed) return
         console.log('[VideoPlayer] selected playback mode', {
-          selectedMode: selectedOption.mode,
+          selectedMode: playbackDecision.mode,
           playbackOptions: playbackOptions ?? [{ mode: HLS_MODE }],
           supportedModes: playbackCapabilities?.supportedModes ?? [HLS_MODE],
           containerFormat: playbackCapabilities?.containerFormat ?? 'unknown',
+          recommendation: summarizePlaybackEvaluation(playbackDecision.evaluation),
         })
-
-        const preparedMetadata = await loadPreparedPlaybackMetadata(controller)
-        if (disposed) return
-        if (preparedMetadata?.prebuiltKeyframeIndex) {
-          keyframeIndex = toPlaysVideoKeyframeIndex(preparedMetadata.prebuiltKeyframeIndex)
-        }
 
         const engine = new PlaysVideoEngine(video)
         engineRef.current = engine
@@ -99,16 +104,14 @@ export function VideoPlayer({
           setState((s) => ({ ...s, phase: 'error', errorMessage: e.detail.message }))
         }) as EventListener)
 
-        if (selectedOption.mode === DIRECT_BYTES_MODE) {
+        if (playbackDecision.mode === DIRECT_BYTES_MODE && playbackDecision.url) {
           console.log(
             '[VideoPlayer] loadUrl',
             fileName,
             'url=',
-            selectedOption.url,
-            'prebuiltKeyframes=',
-            keyframeIndex?.keyframes.length ?? 0,
+            playbackDecision.url,
           )
-          engine.loadUrl(selectedOption.url, keyframeIndex ? { keyframeIndex } : undefined)
+          engine.loadUrl(playbackDecision.url)
           return
         }
       } catch (error) {
@@ -126,10 +129,8 @@ export function VideoPlayer({
         fileName,
         'fileSize=',
         bytes.fileSize,
-        'prebuiltKeyframes=',
-        keyframeIndex?.keyframes.length ?? 0,
       )
-      engine.loadSource(source, keyframeIndex ? { keyframeIndex } : undefined)
+      engine.loadSource(source)
     })()
 
     return () => {
@@ -392,21 +393,6 @@ const statusStyle: React.CSSProperties = {
   textAlign: 'center',
 }
 
-async function loadPreparedPlaybackMetadata(
-  controller?: StreamingPlayerController,
-): Promise<PreparedPlaybackMetadata | null> {
-  if (!controller) {
-    return null
-  }
-
-  const prepared = await controller.preparePlaybackMetadata?.()
-  if (prepared) {
-    return prepared
-  }
-
-  return controller.getPreparedPlaybackMetadata?.() ?? null
-}
-
 function selectPlaybackMode(
   capabilities?: StreamingPlaybackCapabilities | null,
 ): StreamingPlaybackMode {
@@ -439,12 +425,136 @@ function selectPlaybackOption(
   return options.find((candidate) => candidate.mode === fallbackMode) ?? { mode: HLS_MODE }
 }
 
-function toPlaysVideoKeyframeIndex(prebuilt: PrebuiltKeyframeIndex): KeyframeIndex {
-  return {
-    duration: prebuilt.durationSec,
-    keyframes: prebuilt.keyframeTimestampsSec.map((timestamp, sequenceNumber) => ({
-      timestamp,
-      sequenceNumber,
-    })),
+interface PlaybackDecision {
+  mode: StreamingPlaybackMode
+  url?: string
+  evaluation: PlaybackEvaluationResult | null
+}
+
+async function recommendPlayback(
+  video: HTMLVideoElement,
+  bytes: ByteRangeStreamingSession,
+  playbackOptions?: StreamingPlaybackOption[] | null,
+): Promise<PlaybackDecision> {
+  const options = playbackOptions ?? [{ mode: HLS_MODE }]
+  const directOption = options.find(isDirectBytePlaybackOption)
+  if (!directOption?.url) {
+    return {
+      mode: selectPlaybackOption(playbackOptions).mode,
+      evaluation: null,
+    }
   }
+
+  const evaluation = evaluatePlaybackOptions({
+    options: toPlaysVideoPlaybackOptions(options, directOption),
+    media: await loadPlaybackMediaMetadata(bytes),
+    capabilities: createBrowserPlaybackCapabilities(video),
+    preferenceOrder: ['direct-url', 'hls'],
+  })
+
+  if (evaluation.recommended?.option.mode === 'direct-url') {
+    return {
+      mode: DIRECT_BYTES_MODE,
+      url: directOption.url,
+      evaluation,
+    }
+  }
+
+  return {
+    mode: HLS_MODE,
+    evaluation,
+  }
+}
+
+async function loadPlaybackMediaMetadata(
+  session: ByteRangeStreamingSession,
+): Promise<PlaybackMediaMetadata> {
+  const demux = await demuxSource(createPlaybackProbeSource(session))
+  try {
+    return {
+      sourceVideoCodec: demux.videoCodec,
+      sourceAudioCodec: demux.audioCodec,
+      videoCodec: demux.videoDecoderConfig.codec,
+      audioCodec: demux.audioDecoderConfig?.codec ?? null,
+    }
+  } finally {
+    demux.dispose()
+  }
+}
+
+function createPlaybackProbeSource(session: ByteRangeStreamingSession): Source {
+  class PlaybackProbeSource extends Source {
+    _retrieveSize(): number {
+      return session.fileSize
+    }
+
+    _read(
+      start: number,
+      end: number,
+      signal?: AbortSignal,
+    ): Promise<{ bytes: Uint8Array; view: DataView; offset: number }> | null {
+      if (start < 0 || end < start || end > session.fileSize) {
+        return null
+      }
+
+      return session.read(start, end - start, signal).then((bytes) => ({
+        bytes,
+        view: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+        offset: start,
+      }))
+    }
+
+    _dispose(): void {
+      // Demux probing should not own the playback session lifetime.
+    }
+  }
+
+  return new PlaybackProbeSource()
+}
+
+function isDirectBytePlaybackOption(
+  option: StreamingPlaybackOption,
+): option is Extract<StreamingPlaybackOption, { mode: typeof DIRECT_BYTES_MODE }> {
+  return option.mode === DIRECT_BYTES_MODE
+}
+
+function toPlaysVideoPlaybackOptions(
+  options: StreamingPlaybackOption[],
+  directOption: Extract<StreamingPlaybackOption, { mode: typeof DIRECT_BYTES_MODE }>,
+): PlaysVideoPlaybackOption[] {
+  const playbackOptions: PlaysVideoPlaybackOption[] = []
+
+  for (const option of options) {
+    if (option.mode === HLS_MODE) {
+      playbackOptions.push({ mode: 'hls' })
+      continue
+    }
+
+    if (option === directOption) {
+      playbackOptions.push({
+        mode: 'direct-url',
+        url: directOption.url,
+        mimeType: directOption.mimeType ?? null,
+      } satisfies PlaysVideoDirectPlaybackOption)
+    }
+  }
+
+  if (!playbackOptions.some((option) => option.mode === 'hls')) {
+    playbackOptions.push({ mode: 'hls' })
+  }
+
+  return playbackOptions
+}
+
+function summarizePlaybackEvaluation(evaluation: PlaybackEvaluationResult | null): string | null {
+  if (!evaluation) {
+    return null
+  }
+
+  return evaluation.evaluations
+    .map((candidate) => {
+      const diagnostics = candidate.diagnostics.map((diag) => diag.code).join(',')
+      return `${candidate.option.mode}:${candidate.status}:${diagnostics}`
+    })
+    .join(' | ')
 }

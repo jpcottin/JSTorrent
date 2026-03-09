@@ -168,7 +168,6 @@ export type {
   DirectBytePlaybackOption,
   HlsPlaybackOption,
   PreparedPlaybackMetadata,
-  PrebuiltKeyframeIndex,
   StreamingActivePieceInfo,
   StreamingContainerFormat,
   StreamingPlaybackCapabilities,
@@ -185,12 +184,6 @@ export {
   StreamingContainerFormat as StreamingContainerFormats,
   StreamingPlaybackMode as StreamingPlaybackModes,
 } from './streaming/streaming-file-provider'
-export { parseMkvCueIndex, parseMkvCues, type MkvCuePoint } from './streaming/mkv-cue-parser'
-export {
-  buildMkvKeyframeIndex,
-  buildMkvPrebuiltKeyframeIndex,
-  isMkvFile,
-} from './streaming/mkv-keyframe-index'
 
 // Version
 export { VERSION, versionToAzureusCode, azureusCodeToVersion } from './version'

@@ -29,17 +29,12 @@ function createProvider(): StreamingFileProvider {
 describe('StreamingPlaybackSession', () => {
   it('prepares and caches playback metadata through the player-controller surface', async () => {
     const provider = createProvider()
-    const index = {
-      durationSec: 12.5,
-      keyframeTimestampsSec: [0, 4, 8, 12],
-    }
     provider.getPlaybackCapabilities = vi.fn().mockResolvedValue({
       supportedModes: [StreamingPlaybackModes.Hls],
       preferredMode: StreamingPlaybackModes.Hls,
       containerFormat: StreamingContainerFormats.Matroska,
-      canPrepareMetadata: true,
+      canPrepareMetadata: false,
     })
-    provider.buildPrebuiltKeyframeIndex = vi.fn().mockResolvedValue(index)
     const session = new StreamingPlaybackSession(provider, {
       tokenPrefix: 'test-session',
       logPrefix: '[test-session]',
@@ -49,7 +44,7 @@ describe('StreamingPlaybackSession', () => {
       supportedModes: [StreamingPlaybackModes.Hls],
       preferredMode: StreamingPlaybackModes.Hls,
       containerFormat: StreamingContainerFormats.Matroska,
-      canPrepareMetadata: true,
+      canPrepareMetadata: false,
     })
     await expect(session.getPlaybackOptions()).resolves.toEqual([
       { mode: StreamingPlaybackModes.Hls },
@@ -60,30 +55,26 @@ describe('StreamingPlaybackSession', () => {
         supportedModes: [StreamingPlaybackModes.Hls],
         preferredMode: StreamingPlaybackModes.Hls,
         containerFormat: StreamingContainerFormats.Matroska,
-        canPrepareMetadata: true,
+        canPrepareMetadata: false,
       },
-      prebuiltKeyframeIndex: index,
     })
     await expect(session.getPreparedPlaybackMetadata()).resolves.toEqual({
       capabilities: {
         supportedModes: [StreamingPlaybackModes.Hls],
         preferredMode: StreamingPlaybackModes.Hls,
         containerFormat: StreamingContainerFormats.Matroska,
-        canPrepareMetadata: true,
+        canPrepareMetadata: false,
       },
-      prebuiltKeyframeIndex: index,
     })
     await expect(session.preparePlaybackMetadata()).resolves.toEqual({
       capabilities: {
         supportedModes: [StreamingPlaybackModes.Hls],
         preferredMode: StreamingPlaybackModes.Hls,
         containerFormat: StreamingContainerFormats.Matroska,
-        canPrepareMetadata: true,
+        canPrepareMetadata: false,
       },
-      prebuiltKeyframeIndex: index,
     })
     expect(provider.getPlaybackCapabilities).toHaveBeenCalledTimes(1)
-    expect(provider.buildPrebuiltKeyframeIndex).toHaveBeenCalledTimes(1)
   })
 
   it('waitForRange maps bytes to pieces and forwards abortable waits', async () => {

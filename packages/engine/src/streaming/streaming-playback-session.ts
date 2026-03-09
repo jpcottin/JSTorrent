@@ -1,6 +1,5 @@
 import type { Torrent } from '../core/torrent'
 import { toHex } from '../utils/buffer'
-import { buildMkvPrebuiltKeyframeIndex, isMkvFile } from './mkv-keyframe-index'
 import {
   StreamingContainerFormat,
   StreamingPlaybackMode,
@@ -128,7 +127,7 @@ export function createStreamingFileProvider(
     supportedModes: [StreamingPlaybackMode.Hls],
     preferredMode: StreamingPlaybackMode.Hls,
     containerFormat,
-    canPrepareMetadata: containerFormat === StreamingContainerFormat.Matroska,
+    canPrepareMetadata: false,
   }
 
   return {
@@ -148,12 +147,6 @@ export function createStreamingFileProvider(
         : undefined,
     waitForPieces: (indices, signal) => torrent.waitForPieces(indices, signal),
     readFileBytes: (offset, length) => torrent.readFileBytes(fileIndex, offset, length),
-    buildPrebuiltKeyframeIndex: () => {
-      if (!isMkvFile(file.path)) {
-        return Promise.resolve(null)
-      }
-      return buildMkvPrebuiltKeyframeIndex(torrent, fileIndex)
-    },
     getPieceTimelineSnapshot: () =>
       Promise.resolve(buildFilePieceSnapshot(torrent, filePieceIndices, pieceIndexToRelative)),
   }
@@ -617,21 +610,8 @@ export class StreamingPlaybackSession
   }
 
   private loadPreparedPlaybackMetadata(): Promise<PreparedPlaybackMetadata | null> {
-    return this.getPlaybackCapabilities().then((capabilities) => {
-      if (!this.provider.buildPrebuiltKeyframeIndex) {
-        return { capabilities } satisfies PreparedPlaybackMetadata
-      }
-
-      return this.provider.buildPrebuiltKeyframeIndex().then((prebuiltKeyframeIndex) => {
-        if (!prebuiltKeyframeIndex) {
-          return { capabilities } satisfies PreparedPlaybackMetadata
-        }
-
-        return {
-          capabilities,
-          prebuiltKeyframeIndex,
-        } satisfies PreparedPlaybackMetadata
-      })
-    })
+    return this.getPlaybackCapabilities().then((capabilities) => ({
+      capabilities,
+    }))
   }
 }

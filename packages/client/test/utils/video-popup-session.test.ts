@@ -7,7 +7,6 @@ import type {
   ByteRangeStreamingSession,
   DirectBytePlaybackOption,
   PreparedPlaybackMetadata,
-  PrebuiltKeyframeIndex,
   StreamingContainerFormat,
   StreamingPlaybackCapabilities,
   StreamingPlaybackOption,
@@ -149,20 +148,15 @@ describe('video popup session transport', () => {
     expect(onSessionClosed).toHaveBeenCalledTimes(1)
   })
 
-  it('proxies prebuilt keyframe index requests over the popup session channel', async () => {
-    const index: PrebuiltKeyframeIndex = {
-      durationSec: 12.5,
-      keyframeTimestampsSec: [0, 4, 8, 12],
-    }
+  it('proxies prepared playback metadata requests over the popup session channel', async () => {
     const capabilities: StreamingPlaybackCapabilities = {
       supportedModes: [HLS_MODE],
       preferredMode: HLS_MODE,
       containerFormat: MATROSKA_CONTAINER,
-      canPrepareMetadata: true,
+      canPrepareMetadata: false,
     }
     const preparedMetadata: PreparedPlaybackMetadata = {
       capabilities,
-      prebuiltKeyframeIndex: index,
     }
     const playbackOptions: StreamingPlaybackOption[] = [
       {

@@ -8,11 +8,6 @@
  * This is a single-file-scoped view — no fileIndex parameter because it's
  * bound at construction time via createStreamingFileProvider().
  */
-export interface PrebuiltKeyframeIndex {
-  durationSec: number
-  keyframeTimestampsSec: number[]
-}
-
 export const StreamingPlaybackMode = {
   DirectBytes: 'direct-bytes',
   Hls: 'hls',
@@ -69,7 +64,6 @@ export interface ByteRangeStreamingSession {
 
 export interface PreparedPlaybackMetadata {
   capabilities?: StreamingPlaybackCapabilities
-  prebuiltKeyframeIndex?: PrebuiltKeyframeIndex | null
 }
 
 export interface DirectBytePlaybackOption {
@@ -117,5 +111,4 @@ export interface StreamingFileProvider extends StreamingVisualization {
   ): void
   waitForPieces(pieceIndices: number[], signal?: AbortSignal): Promise<void>
   readFileBytes(offset: number, length: number): Promise<Uint8Array>
-  buildPrebuiltKeyframeIndex?(): Promise<PrebuiltKeyframeIndex | null>
 }
