@@ -1,31 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import type {
   ByteRangeStreamingSession,
-  StreamingPlaybackCapabilities,
-  StreamingPlaybackMode,
   StreamingPlaybackOption,
   StreamingPlayerController,
   StreamingVisualization,
 } from '@jstorrent/engine'
 import { createTorrentSourceFromSession } from '@jstorrent/engine'
-import {
-  createBrowserPlaybackCapabilities,
-  demuxSource,
-  evaluatePlaybackOptions,
-  PlaysVideoEngine,
-  Source,
-} from 'playsvideo'
+import { PlaysVideoEngine, Source } from 'playsvideo'
 import type {
-  DirectPlaybackOption as PlaysVideoDirectPlaybackOption,
+  PlaybackDecisionDetail,
   PlaybackEvaluationResult,
-  PlaybackMediaMetadata,
   PlaybackOption as PlaysVideoPlaybackOption,
 } from 'playsvideo'
 import { VideoPieceTimeline } from './VideoPieceTimeline'
 
 const DIRECT_BYTES_MODE = 'direct-bytes' as const
 const HLS_MODE = 'hls' as const
-const PLAYER_PLAYBACK_MODE_PREFERENCE: StreamingPlaybackMode[] = [DIRECT_BYTES_MODE, HLS_MODE]
 
 export interface VideoPlayerProps {
   bytes: ByteRangeStreamingSession
@@ -70,72 +60,55 @@ export function VideoPlayer({
     if (!video) return
 
     let disposed = false
-    let cleanupPlayback = () => {}
 
     void (async () => {
+      let playbackOptions: StreamingPlaybackOption[] | null = null
       try {
-        const [playbackCapabilities, playbackOptions] = await Promise.all([
-          controller?.getPlaybackCapabilities?.(),
-          controller?.getPlaybackOptions?.(),
-        ])
-        if (disposed) return
-        const playbackDecision = await recommendPlayback(video, bytes, playbackOptions)
-        if (disposed) return
-        console.log('[VideoPlayer] selected playback mode', {
-          selectedMode: playbackDecision.mode,
-          playbackOptions: playbackOptions ?? [{ mode: HLS_MODE }],
-          supportedModes: playbackCapabilities?.supportedModes ?? [HLS_MODE],
-          containerFormat: playbackCapabilities?.containerFormat ?? 'unknown',
-          recommendation: summarizePlaybackEvaluation(playbackDecision.evaluation),
-        })
-
-        const engine = new PlaysVideoEngine(video)
-        engineRef.current = engine
-
-        engine.addEventListener('ready', () => {
-          if (disposed) return
-          console.log('[VideoPlayer] ready')
-          setState((s) => ({ ...s, phase: 'ready' }))
-        })
-
-        engine.addEventListener('error', ((e: CustomEvent<{ message: string }>) => {
-          if (disposed) return
-          console.error('[VideoPlayer] error:', e.detail.message)
-          setState((s) => ({ ...s, phase: 'error', errorMessage: e.detail.message }))
-        }) as EventListener)
-
-        if (playbackDecision.mode === DIRECT_BYTES_MODE && playbackDecision.url) {
-          console.log(
-            '[VideoPlayer] loadUrl',
-            fileName,
-            'url=',
-            playbackDecision.url,
-          )
-          engine.loadUrl(playbackDecision.url)
-          return
-        }
+        playbackOptions = (await controller?.getPlaybackOptions?.()) ?? null
       } catch (error) {
-        console.warn('[VideoPlayer] playback preparation unavailable, falling back', error)
+        console.warn('[VideoPlayer] playback options unavailable, defaulting to HLS', error)
       }
-
       if (disposed) return
 
-      const source = createTorrentSourceFromSession(Source, bytes)
-      const engine = engineRef.current ?? new PlaysVideoEngine(video)
+      const engine = new PlaysVideoEngine(video)
       engineRef.current = engine
 
-      console.log(
-        '[VideoPlayer] loadSource',
-        fileName,
-        'fileSize=',
-        bytes.fileSize,
-      )
-      engine.loadSource(source)
+      engine.addEventListener('ready', () => {
+        if (disposed) return
+        console.log('[VideoPlayer] ready')
+        setState((s) => ({ ...s, phase: 'ready' }))
+      })
+
+      engine.addEventListener('playbackdecision', ((e: CustomEvent<PlaybackDecisionDetail>) => {
+        if (disposed) return
+        console.log('[VideoPlayer] playback decision', {
+          fileName,
+          selectedMode: e.detail.evaluation.recommended?.option.mode ?? HLS_MODE,
+          recommendation: summarizePlaybackEvaluation(e.detail.evaluation),
+        })
+      }) as EventListener)
+
+      engine.addEventListener('error', ((e: CustomEvent<{ message: string }>) => {
+        if (disposed) return
+        console.error('[VideoPlayer] error:', e.detail.message)
+        setState((s) => ({ ...s, phase: 'error', errorMessage: e.detail.message }))
+      }) as EventListener)
+
+      const source = createTorrentSourceFromSession(Source, bytes)
+      const options = toPlaysVideoPlaybackOptions(playbackOptions)
+
+      console.log('[VideoPlayer] loadWithOptions', fileName, {
+        playbackOptions: options,
+        fileSize: bytes.fileSize,
+      })
+      engine.loadWithOptions({
+        source,
+        options,
+      })
     })()
 
     return () => {
       disposed = true
-      cleanupPlayback()
       engineRef.current?.destroy()
       engineRef.current = null
       video.pause()
@@ -393,125 +366,6 @@ const statusStyle: React.CSSProperties = {
   textAlign: 'center',
 }
 
-function selectPlaybackMode(
-  capabilities?: StreamingPlaybackCapabilities | null,
-): StreamingPlaybackMode {
-  if (!capabilities) {
-    return HLS_MODE
-  }
-
-  for (const mode of PLAYER_PLAYBACK_MODE_PREFERENCE) {
-    if (capabilities.supportedModes.includes(mode)) {
-      return mode
-    }
-  }
-
-  return capabilities.preferredMode
-}
-
-function selectPlaybackOption(
-  playbackOptions?: StreamingPlaybackOption[] | null,
-  capabilities?: StreamingPlaybackCapabilities | null,
-): StreamingPlaybackOption {
-  const options = playbackOptions ?? [{ mode: HLS_MODE }]
-
-  for (const mode of PLAYER_PLAYBACK_MODE_PREFERENCE) {
-    const option = options.find((candidate) => candidate.mode === mode)
-    if (!option) continue
-    return option
-  }
-
-  const fallbackMode = selectPlaybackMode(capabilities)
-  return options.find((candidate) => candidate.mode === fallbackMode) ?? { mode: HLS_MODE }
-}
-
-interface PlaybackDecision {
-  mode: StreamingPlaybackMode
-  url?: string
-  evaluation: PlaybackEvaluationResult | null
-}
-
-async function recommendPlayback(
-  video: HTMLVideoElement,
-  bytes: ByteRangeStreamingSession,
-  playbackOptions?: StreamingPlaybackOption[] | null,
-): Promise<PlaybackDecision> {
-  const options = playbackOptions ?? [{ mode: HLS_MODE }]
-  const directOption = options.find(isDirectBytePlaybackOption)
-  if (!directOption?.url) {
-    return {
-      mode: selectPlaybackOption(playbackOptions).mode,
-      evaluation: null,
-    }
-  }
-
-  const evaluation = evaluatePlaybackOptions({
-    options: toPlaysVideoPlaybackOptions(options, directOption),
-    media: await loadPlaybackMediaMetadata(bytes),
-    capabilities: createBrowserPlaybackCapabilities(video),
-    preferenceOrder: ['direct-url', 'hls'],
-  })
-
-  if (evaluation.recommended?.option.mode === 'direct-url') {
-    return {
-      mode: DIRECT_BYTES_MODE,
-      url: directOption.url,
-      evaluation,
-    }
-  }
-
-  return {
-    mode: HLS_MODE,
-    evaluation,
-  }
-}
-
-async function loadPlaybackMediaMetadata(
-  session: ByteRangeStreamingSession,
-): Promise<PlaybackMediaMetadata> {
-  const demux = await demuxSource(createPlaybackProbeSource(session))
-  try {
-    return {
-      sourceVideoCodec: demux.videoCodec,
-      sourceAudioCodec: demux.audioCodec,
-      videoCodec: demux.videoDecoderConfig.codec,
-      audioCodec: demux.audioDecoderConfig?.codec ?? null,
-    }
-  } finally {
-    demux.dispose()
-  }
-}
-
-function createPlaybackProbeSource(session: ByteRangeStreamingSession): Source {
-  class PlaybackProbeSource extends Source {
-    _retrieveSize(): number {
-      return session.fileSize
-    }
-
-    _read(
-      start: number,
-      end: number,
-      signal?: AbortSignal,
-    ): Promise<{ bytes: Uint8Array; view: DataView; offset: number }> | null {
-      if (start < 0 || end < start || end > session.fileSize) {
-        return null
-      }
-
-      return session.read(start, end - start, signal).then((bytes) => ({
-        bytes,
-        view: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-        offset: start,
-      }))
-    }
-
-    _dispose(): void {
-      // Demux probing should not own the playback session lifetime.
-    }
-  }
-
-  return new PlaybackProbeSource()
-}
-
 function isDirectBytePlaybackOption(
   option: StreamingPlaybackOption,
 ): option is Extract<StreamingPlaybackOption, { mode: typeof DIRECT_BYTES_MODE }> {
@@ -519,23 +373,23 @@ function isDirectBytePlaybackOption(
 }
 
 function toPlaysVideoPlaybackOptions(
-  options: StreamingPlaybackOption[],
-  directOption: Extract<StreamingPlaybackOption, { mode: typeof DIRECT_BYTES_MODE }>,
+  options?: StreamingPlaybackOption[] | null,
 ): PlaysVideoPlaybackOption[] {
+  const playbackOptionsInput = options ?? [{ mode: HLS_MODE }]
   const playbackOptions: PlaysVideoPlaybackOption[] = []
 
-  for (const option of options) {
+  for (const option of playbackOptionsInput) {
     if (option.mode === HLS_MODE) {
       playbackOptions.push({ mode: 'hls' })
       continue
     }
 
-    if (option === directOption) {
+    if (isDirectBytePlaybackOption(option)) {
       playbackOptions.push({
         mode: 'direct-url',
-        url: directOption.url,
-        mimeType: directOption.mimeType ?? null,
-      } satisfies PlaysVideoDirectPlaybackOption)
+        url: option.url,
+        mimeType: option.mimeType ?? null,
+      })
     }
   }
 
