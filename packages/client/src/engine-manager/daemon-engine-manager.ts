@@ -181,6 +181,7 @@ export class DaemonEngineManager implements IEngineManager {
       'rootsManageable:',
       this.rootsManageable,
     )
+    console.log('[DaemonEngineManager] daemon capabilities:', daemonInfo.capabilities ?? null)
     console.log(
       '[DaemonEngineManager] profileId:',
       daemonInfo.profileId ?? 'none',

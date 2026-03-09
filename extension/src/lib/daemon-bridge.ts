@@ -539,6 +539,7 @@ export class DaemonBridge {
       return undefined
     })
     const daemonCapabilities = buildDaemonCapabilities(advertisedCapabilities)
+    console.log('[DaemonBridge] Advertised capabilities:', advertisedCapabilities ?? null)
     const daemonInfo = buildConnectedDaemonInfo({
       port,
       token,
