@@ -35,7 +35,7 @@ export function VideoPlayer({
   controller,
   diagnostics,
   fileName,
-  playbackPolicy = 'auto',
+  playbackPolicy: initialPlaybackPolicy = 'auto',
   onClose,
   closeOnBackdrop = true,
   closeOnEscape = true,
@@ -50,6 +50,7 @@ export function VideoPlayer({
     bytes: ByteRangeStreamingSession
   }>({ phase: 'loading', errorMessage: null, bytes })
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [playbackPolicy, setPlaybackPolicy] = useState<PlaybackPolicy>(initialPlaybackPolicy)
 
   // Reset state when session changes (avoids setState in effect body)
   if (state.bytes !== bytes) {
@@ -59,10 +60,15 @@ export function VideoPlayer({
   const { phase, errorMessage } = state
 
   useEffect(() => {
+    setPlaybackPolicy(initialPlaybackPolicy)
+  }, [initialPlaybackPolicy])
+
+  useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
     let disposed = false
+    setState((s) => ({ ...s, phase: 'loading', errorMessage: null }))
 
     void (async () => {
       let playbackOptions: StreamingPlaybackOption[] | null = null
@@ -220,15 +226,31 @@ export function VideoPlayer({
 
       <div style={contentStyle}>
         <div style={headerStyle}>
-          <div style={fileNameStyle}>{fileName}</div>
-          <button
-            type="button"
-            style={secondaryButtonStyle}
-            onClick={() => void toggleFullscreen()}
-            title={isFullscreen ? 'Exit fullscreen (F)' : 'Enter fullscreen (F)'}
-          >
-            {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-          </button>
+            <div style={fileNameStyle}>{fileName}</div>
+          <div style={headerActionsStyle}>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              onClick={() =>
+                setPlaybackPolicy((current) => (current === 'auto' ? 'force-hls' : 'auto'))
+              }
+              title={
+                playbackPolicy === 'auto'
+                  ? 'Automatic playback selection'
+                  : 'Force HLS/remux playback'
+              }
+            >
+              {playbackPolicy === 'auto' ? 'Mode: Auto' : 'Mode: Force HLS'}
+            </button>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              onClick={() => void toggleFullscreen()}
+              title={isFullscreen ? 'Exit fullscreen (F)' : 'Enter fullscreen (F)'}
+            >
+              {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            </button>
+          </div>
         </div>
 
         <VideoPieceTimeline diagnostics={diagnostics} />
@@ -293,6 +315,7 @@ const headerStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
+  gap: '12px',
 }
 
 const fileNameStyle: React.CSSProperties = {
@@ -300,6 +323,13 @@ const fileNameStyle: React.CSSProperties = {
   fontSize: '14px',
   fontWeight: 600,
   wordBreak: 'break-word',
+}
+
+const headerActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  flexShrink: 0,
 }
 
 const secondaryButtonStyle: React.CSSProperties = {
