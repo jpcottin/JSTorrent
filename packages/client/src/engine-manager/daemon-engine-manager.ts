@@ -613,12 +613,7 @@ export class DaemonEngineManager implements IEngineManager {
 
     const mimeType = guessMimeType(file.path)
     try {
-      const url = await this.channel.createLanShareUrl(
-        root.key,
-        file.path,
-        file.length,
-        mimeType,
-      )
+      const url = await this.channel.createLanShareUrl(root.key, file.path, file.length, mimeType)
       if (!url) {
         return { ok: false, error: 'LAN sharing is not available on this host' }
       }

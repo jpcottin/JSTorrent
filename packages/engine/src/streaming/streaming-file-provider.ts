@@ -106,9 +106,7 @@ export interface StreamingPlaybackHandle {
 
 export interface StreamingFileProvider extends StreamingVisualization {
   readonly fileSize: number
-  getPlaybackCapabilities?():
-    | StreamingPlaybackCapabilities
-    | Promise<StreamingPlaybackCapabilities>
+  getPlaybackCapabilities?(): StreamingPlaybackCapabilities | Promise<StreamingPlaybackCapabilities>
   fileBytesToPieces(offset: number, length: number): number[]
   setStreamingPieces(pieces: Set<number> | null): void
   updateStreamingFileLock?(token: string, enabled: boolean): void

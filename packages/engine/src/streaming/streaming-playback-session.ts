@@ -22,7 +22,9 @@ function summarizePieces(pieces: number[]): string {
   return `pieces=${pieces[0]}..${pieces[pieces.length - 1]} (${pieces.length})`
 }
 
-function getPlaybackContainerFormat(filename: string): StreamingPlaybackCapabilities['containerFormat'] {
+function getPlaybackContainerFormat(
+  filename: string,
+): StreamingPlaybackCapabilities['containerFormat'] {
   const lower = filename.toLowerCase()
   if (lower.endsWith('.mkv') || lower.endsWith('.webm')) {
     return StreamingContainerFormat.Matroska
@@ -479,7 +481,9 @@ export class StreamingPlaybackSession
     if (this.preparingPlaybackMetadata) {
       return this.preparingPlaybackMetadata
     }
-    return Promise.resolve(this.preparedPlaybackMetadataReady ? this.preparedPlaybackMetadata : null)
+    return Promise.resolve(
+      this.preparedPlaybackMetadataReady ? this.preparedPlaybackMetadata : null,
+    )
   }
 
   getPieceTimelineSnapshot(): Promise<StreamingFilePieceSnapshot | null> {

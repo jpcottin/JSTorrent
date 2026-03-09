@@ -639,10 +639,7 @@ export class DaemonBridge {
       if (!result.ok) {
         throw new Error(result.error || 'Failed to register HTTP stream')
       }
-      mediaPort =
-        typeof result.mediaPort === 'number'
-          ? result.mediaPort
-          : Number(result.mediaPort)
+      mediaPort = typeof result.mediaPort === 'number' ? result.mediaPort : Number(result.mediaPort)
     } else if (this.state.platform === 'desktop') {
       const response = await fetch(`http://${daemonHost}:${daemonInfo.port}/stream/register`, {
         method: 'POST',
@@ -665,10 +662,7 @@ export class DaemonBridge {
       if (!result.ok) {
         throw new Error(result.error || 'Failed to register HTTP stream')
       }
-      mediaPort =
-        typeof result.mediaPort === 'number'
-          ? result.mediaPort
-          : Number(result.mediaPort)
+      mediaPort = typeof result.mediaPort === 'number' ? result.mediaPort : Number(result.mediaPort)
     } else {
       return null
     }
@@ -680,14 +674,12 @@ export class DaemonBridge {
     const [interfaces, gateway] = await Promise.all([
       fetch(`http://${daemonHost}:${daemonInfo.port}/network/interfaces`, {
         headers: this.state.platform === 'desktop' ? { 'X-JST-Auth': daemonInfo.token } : {},
-      }).then(
-        async (response) => {
-          if (!response.ok) {
-            throw new Error(`Failed to query network interfaces: ${response.status}`)
-          }
-          return (await response.json()) as NetworkInterfaceInfo[]
-        },
-      ),
+      }).then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to query network interfaces: ${response.status}`)
+        }
+        return (await response.json()) as NetworkInterfaceInfo[]
+      }),
       fetch(`http://${daemonHost}:${daemonInfo.port}/network/gateway`, {
         headers: this.state.platform === 'desktop' ? { 'X-JST-Auth': daemonInfo.token } : {},
       })

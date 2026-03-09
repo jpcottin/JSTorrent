@@ -460,20 +460,23 @@ export class TauriChannel implements HostChannel {
     const daemonHost = daemonInfo.host ?? '127.0.0.1'
     const streamToken = createOpaqueStreamToken()
 
-    const registerResponse = await fetch(`http://${daemonHost}:${daemonInfo.port}/stream/register`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-JST-Auth': daemonInfo.token,
+    const registerResponse = await fetch(
+      `http://${daemonHost}:${daemonInfo.port}/stream/register`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-JST-Auth': daemonInfo.token,
+        },
+        body: JSON.stringify({
+          streamToken,
+          rootKey,
+          path,
+          fileSize,
+          mimeType: mimeType ?? null,
+        }),
       },
-      body: JSON.stringify({
-        streamToken,
-        rootKey,
-        path,
-        fileSize,
-        mimeType: mimeType ?? null,
-      }),
-    })
+    )
     if (!registerResponse.ok) {
       throw new Error(`Failed to register HTTP stream: ${registerResponse.status}`)
     }

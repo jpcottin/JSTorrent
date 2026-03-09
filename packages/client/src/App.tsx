@@ -85,9 +85,9 @@ function ChromeAppContent({
               if (!result.ok || !result.url) {
                 standaloneAlert(`Failed to create LAN share URL: ${result.error}`)
                 return
+              }
+              await copyTextToClipboard(result.url)
             }
-            await copyTextToClipboard(result.url)
-          }
           : undefined
       }
       onCreateDirectPlaybackUrl={async (torrentHash, file) => {

@@ -80,15 +80,20 @@ export function VideoPlayer({
         })
 
         if (selectedOption.mode === DIRECT_BYTES_MODE) {
-          cleanupPlayback = startDirectBytePlayback(video, selectedOption, () => {
-            if (disposed) return
-            console.log('[VideoPlayer] ready')
-            setState((s) => ({ ...s, phase: 'ready' }))
-          }, (message) => {
-            if (disposed) return
-            console.error('[VideoPlayer] error:', message)
-            setState((s) => ({ ...s, phase: 'error', errorMessage: message }))
-          })
+          cleanupPlayback = startDirectBytePlayback(
+            video,
+            selectedOption,
+            () => {
+              if (disposed) return
+              console.log('[VideoPlayer] ready')
+              setState((s) => ({ ...s, phase: 'ready' }))
+            },
+            (message) => {
+              if (disposed) return
+              console.error('[VideoPlayer] error:', message)
+              setState((s) => ({ ...s, phase: 'error', errorMessage: message }))
+            },
+          )
           return
         }
 
