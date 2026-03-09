@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type {
   ByteRangeStreamingSession,
-  DirectBytePlaybackOption,
   PreparedPlaybackMetadata,
   PrebuiltKeyframeIndex,
   StreamingPlaybackCapabilities,
@@ -70,7 +69,7 @@ export function VideoPlayer({
       try {
         const playbackCapabilities = await controller?.getPlaybackCapabilities?.()
         const playbackOptions = await controller?.getPlaybackOptions?.()
-        const selectedOption = selectPlaybackOption(video, playbackOptions, playbackCapabilities)
+        const selectedOption = selectPlaybackOption(playbackOptions, playbackCapabilities)
         if (disposed) return
         console.log('[VideoPlayer] selected playback mode', {
           selectedMode: selectedOption.mode,
@@ -79,28 +78,38 @@ export function VideoPlayer({
           containerFormat: playbackCapabilities?.containerFormat ?? 'unknown',
         })
 
-        if (selectedOption.mode === DIRECT_BYTES_MODE) {
-          cleanupPlayback = startDirectBytePlayback(
-            video,
-            selectedOption,
-            () => {
-              if (disposed) return
-              console.log('[VideoPlayer] ready')
-              setState((s) => ({ ...s, phase: 'ready' }))
-            },
-            (message) => {
-              if (disposed) return
-              console.error('[VideoPlayer] error:', message)
-              setState((s) => ({ ...s, phase: 'error', errorMessage: message }))
-            },
-          )
-          return
-        }
-
         const preparedMetadata = await loadPreparedPlaybackMetadata(controller)
         if (disposed) return
         if (preparedMetadata?.prebuiltKeyframeIndex) {
           keyframeIndex = toPlaysVideoKeyframeIndex(preparedMetadata.prebuiltKeyframeIndex)
+        }
+
+        const engine = new PlaysVideoEngine(video)
+        engineRef.current = engine
+
+        engine.addEventListener('ready', () => {
+          if (disposed) return
+          console.log('[VideoPlayer] ready')
+          setState((s) => ({ ...s, phase: 'ready' }))
+        })
+
+        engine.addEventListener('error', ((e: CustomEvent<{ message: string }>) => {
+          if (disposed) return
+          console.error('[VideoPlayer] error:', e.detail.message)
+          setState((s) => ({ ...s, phase: 'error', errorMessage: e.detail.message }))
+        }) as EventListener)
+
+        if (selectedOption.mode === DIRECT_BYTES_MODE) {
+          console.log(
+            '[VideoPlayer] loadUrl',
+            fileName,
+            'url=',
+            selectedOption.url,
+            'prebuiltKeyframes=',
+            keyframeIndex?.keyframes.length ?? 0,
+          )
+          engine.loadUrl(selectedOption.url, keyframeIndex ? { keyframeIndex } : undefined)
+          return
         }
       } catch (error) {
         console.warn('[VideoPlayer] playback preparation unavailable, falling back', error)
@@ -109,20 +118,8 @@ export function VideoPlayer({
       if (disposed) return
 
       const source = createTorrentSourceFromSession(Source, bytes)
-      const engine = new PlaysVideoEngine(video)
+      const engine = engineRef.current ?? new PlaysVideoEngine(video)
       engineRef.current = engine
-
-      engine.addEventListener('ready', () => {
-        if (disposed) return
-        console.log('[VideoPlayer] ready')
-        setState((s) => ({ ...s, phase: 'ready' }))
-      })
-
-      engine.addEventListener('error', ((e: CustomEvent<{ message: string }>) => {
-        if (disposed) return
-        console.error('[VideoPlayer] error:', e.detail.message)
-        setState((s) => ({ ...s, phase: 'error', errorMessage: e.detail.message }))
-      }) as EventListener)
 
       console.log(
         '[VideoPlayer] loadSource',
@@ -427,7 +424,6 @@ function selectPlaybackMode(
 }
 
 function selectPlaybackOption(
-  video: HTMLVideoElement,
   playbackOptions?: StreamingPlaybackOption[] | null,
   capabilities?: StreamingPlaybackCapabilities | null,
 ): StreamingPlaybackOption {
@@ -436,51 +432,11 @@ function selectPlaybackOption(
   for (const mode of PLAYER_PLAYBACK_MODE_PREFERENCE) {
     const option = options.find((candidate) => candidate.mode === mode)
     if (!option) continue
-    if (option.mode === DIRECT_BYTES_MODE && !canPlayDirectBytes(video, option)) {
-      continue
-    }
     return option
   }
 
   const fallbackMode = selectPlaybackMode(capabilities)
   return options.find((candidate) => candidate.mode === fallbackMode) ?? { mode: HLS_MODE }
-}
-
-function canPlayDirectBytes(
-  video: HTMLVideoElement,
-  option: StreamingPlaybackOption,
-): option is DirectBytePlaybackOption {
-  if (option.mode !== DIRECT_BYTES_MODE) {
-    return false
-  }
-  if (!option.mimeType) {
-    return false
-  }
-  return video.canPlayType(option.mimeType) !== ''
-}
-
-function startDirectBytePlayback(
-  video: HTMLVideoElement,
-  option: DirectBytePlaybackOption,
-  onReady: () => void,
-  onError: (message: string) => void,
-): () => void {
-  const handleCanPlay = () => onReady()
-  const handleError = () => {
-    const mediaError = video.error
-    const code = mediaError?.code
-    onError(code ? `Direct playback failed (media error ${code})` : 'Direct playback failed')
-  }
-
-  video.addEventListener('canplay', handleCanPlay)
-  video.addEventListener('error', handleError)
-  video.src = option.url
-  video.load()
-
-  return () => {
-    video.removeEventListener('canplay', handleCanPlay)
-    video.removeEventListener('error', handleError)
-  }
 }
 
 function toPlaysVideoKeyframeIndex(prebuilt: PrebuiltKeyframeIndex): KeyframeIndex {

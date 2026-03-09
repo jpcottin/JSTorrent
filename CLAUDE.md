@@ -17,6 +17,19 @@ This loads PATH entries for:
 - Rust/Cargo
 - Other development tools
 
+### Local `playsvideo` Development
+
+When developing JSTorrent against a local `playsvideo` checkout, keep the committed dependency on the published package for CI compatibility, then relink locally after installs:
+
+```bash
+pnpm install
+pnpm --dir packages/client link /Users/kgraehl/code/playsvideo
+```
+
+Notes:
+- `pnpm install` can replace the local link with the declared dependency, so rerun the link command when you want to resume local `playsvideo` development.
+- If JSTorrent needs newer `playsvideo` exports, also make sure the local `playsvideo` checkout is built or running in watch mode.
+
 ## Product Deployments
 
 JSTorrent ships as multiple products that share the same TypeScript engine but run in different configurations depending on platform.
