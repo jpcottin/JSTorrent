@@ -20,18 +20,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material3.CircularProgressIndicator
@@ -787,41 +783,6 @@ private fun PlayerReadyContent(
             )
         }
 
-        if (isFullscreen && !isInPictureInPicture) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PlayerOverlayButton(
-                        icon = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.player_close),
-                        onClick = onClose
-                    )
-                    PlayerOverlayButton(
-                        icon = Icons.Filled.PictureInPictureAlt,
-                        contentDescription = stringResource(R.string.player_enter_picture_in_picture),
-                        onClick = onEnterPictureInPicture
-                    )
-                    PlayerOverflowMenu(
-                        hasExternalSubtitle = hasExternalSubtitle,
-                        onLoadSubtitle = onLoadSubtitle,
-                        onClearSubtitle = onClearSubtitle,
-                        useOverlayButton = true
-                    )
-                }
-                PlayerOverlayButton(
-                    icon = Icons.Filled.FullscreenExit,
-                    contentDescription = stringResource(R.string.player_exit_fullscreen),
-                    onClick = { onSetFullscreen(false) }
-                )
-            }
-        }
-
         if (bufferingMessage != null) {
             LoadingState(
                 modifier = Modifier
@@ -863,50 +824,19 @@ private fun PlayerReadyContent(
 }
 
 @Composable
-private fun PlayerOverlayButton(
-    modifier: Modifier = Modifier,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit
-) {
-    Surface(
-        modifier = modifier,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-        tonalElevation = 4.dp
-    ) {
-        IconButton(onClick = onClick) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription
-            )
-        }
-    }
-}
-
-@Composable
 private fun PlayerOverflowMenu(
     hasExternalSubtitle: Boolean,
     onLoadSubtitle: () -> Unit,
-    onClearSubtitle: () -> Unit,
-    useOverlayButton: Boolean = false
+    onClearSubtitle: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
 
     Box {
-        if (useOverlayButton) {
-            PlayerOverlayButton(
-                icon = Icons.Filled.MoreVert,
-                contentDescription = stringResource(R.string.player_more_options),
-                onClick = { expanded = true }
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = Icons.Filled.MoreVert,
+                contentDescription = stringResource(R.string.player_more_options)
             )
-        } else {
-            IconButton(onClick = { expanded = true }) {
-                Icon(
-                    imageVector = Icons.Filled.MoreVert,
-                    contentDescription = stringResource(R.string.player_more_options)
-                )
-            }
         }
 
         DropdownMenu(
