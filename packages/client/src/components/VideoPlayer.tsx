@@ -11,6 +11,7 @@ import type {
   PlaybackDecisionDetail,
   PlaybackEvaluationResult,
   PlaybackOption as PlaysVideoPlaybackOption,
+  PlaybackPolicy,
 } from 'playsvideo'
 import { VideoPieceTimeline } from './VideoPieceTimeline'
 
@@ -22,6 +23,7 @@ export interface VideoPlayerProps {
   controller?: StreamingPlayerController
   diagnostics?: StreamingVisualization
   fileName: string
+  playbackPolicy?: PlaybackPolicy
   onClose: () => void
   closeOnBackdrop?: boolean
   closeOnEscape?: boolean
@@ -33,6 +35,7 @@ export function VideoPlayer({
   controller,
   diagnostics,
   fileName,
+  playbackPolicy = 'auto',
   onClose,
   closeOnBackdrop = true,
   closeOnEscape = true,
@@ -83,6 +86,7 @@ export function VideoPlayer({
         if (disposed) return
         console.log('[VideoPlayer] playback decision', {
           fileName,
+          playbackPolicy: e.detail.playbackPolicy,
           selectedMode: e.detail.evaluation.recommended?.option.mode ?? HLS_MODE,
           recommendation: summarizePlaybackEvaluation(e.detail.evaluation),
         })
@@ -98,12 +102,14 @@ export function VideoPlayer({
       const options = toPlaysVideoPlaybackOptions(playbackOptions)
 
       console.log('[VideoPlayer] loadWithOptions', fileName, {
+        playbackPolicy,
         playbackOptions: options,
         fileSize: bytes.fileSize,
       })
       engine.loadWithOptions({
         source,
         options,
+        playbackPolicy,
       })
     })()
 
@@ -115,7 +121,7 @@ export function VideoPlayer({
       video.removeAttribute('src')
       video.load()
     }
-  }, [bytes, controller, fileName])
+  }, [bytes, controller, fileName, playbackPolicy])
 
   const toggleFullscreen = async () => {
     const target = fullscreenTargetRef.current
