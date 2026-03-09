@@ -3,8 +3,12 @@ import { toHex } from '../utils/buffer'
 import { buildMkvPrebuiltKeyframeIndex, isMkvFile } from './mkv-keyframe-index'
 import {
   StreamingPieceState,
+  type ByteRangeStreamingSession,
+  type PrebuiltKeyframeIndex,
   type StreamingFilePieceSnapshot,
   type StreamingFileProvider,
+  type StreamingHintUrgency,
+  type StreamingVisualization,
 } from './streaming-file-provider'
 
 function summarizePieces(pieces: number[]): string {
@@ -116,6 +120,10 @@ interface SignalDemandScope {
   abortListener: () => void
 }
 
+interface HintDemandScope {
+  token: string
+}
+
 function createAbortController(): AbortController | null {
   return typeof AbortController !== 'undefined' ? new AbortController() : null
 }
@@ -134,13 +142,22 @@ export interface StreamingPlaybackSessionOptions {
   logPrefix?: string
 }
 
+export function createStreamingPlaybackSession(
+  provider: StreamingFileProvider,
+  options: StreamingPlaybackSessionOptions = {},
+): StreamingPlaybackSession {
+  return new StreamingPlaybackSession(provider, options)
+}
+
 /**
  * Shared streaming-session state machine used by both desktop and Android playback.
  *
  * Owns file locking, now/next demand windows, fallback demand accumulation for
  * startup reads, and abort/dispose cleanup.
  */
-export class StreamingPlaybackSession {
+export class StreamingPlaybackSession
+  implements ByteRangeStreamingSession, StreamingVisualization
+{
   private readonly disposeController = createAbortController()
   private readonly tokenPrefix: string
   private readonly logPrefix: string
@@ -150,6 +167,7 @@ export class StreamingPlaybackSession {
   private readonly firstFilePiece: number
   private readonly lastFilePiece: number
   private readonly signalDemandScopes = new Map<AbortSignal, SignalDemandScope>()
+  private readonly hintDemandScopes = new Map<string, HintDemandScope>()
 
   private currentSignal: AbortSignal | null = null
   private closed = false
@@ -189,7 +207,7 @@ export class StreamingPlaybackSession {
     this.currentSignal = signal
   }
 
-  read(start: number, length: number, signal?: AbortSignal): Promise<Uint8Array> | null {
+  read(start: number, length: number, signal?: AbortSignal): Promise<Uint8Array> {
     if (this.closed) {
       this.log('read rejected after close start=%d end=%d', start, start + length)
       return Promise.reject(createAbortError())
@@ -197,13 +215,11 @@ export class StreamingPlaybackSession {
 
     const effectiveSignal = signal ?? this.currentSignal
 
-    let pieces: number[]
-    try {
-      pieces = this.provider.fileBytesToPieces(start, length)
-    } catch {
-      this.warn('fileBytesToPieces failed start=%d end=%d', start, start + length)
-      return null
+    if (length === 0) {
+      return Promise.resolve(new Uint8Array(0))
     }
+
+    const pieces = this.getPiecesForRange(start, length)
 
     this.log(
       'read start=%d end=%d len=%d %s',
@@ -309,6 +325,110 @@ export class StreamingPlaybackSession {
       })
   }
 
+  waitForRange(start: number, length: number, signal?: AbortSignal): Promise<void> {
+    if (this.closed) {
+      this.log('wait rejected after close start=%d end=%d', start, start + length)
+      return Promise.reject(createAbortError())
+    }
+
+    if (length === 0) {
+      return Promise.resolve()
+    }
+
+    const effectiveSignal = signal ?? this.currentSignal
+    const pieces = this.getPiecesForRange(start, length)
+
+    this.log(
+      'wait start=%d end=%d len=%d %s',
+      start,
+      start + length,
+      length,
+      summarizePieces(pieces),
+    )
+
+    this.ensureFileLock()
+
+    const waitController = createAbortController()
+    const waitSignal = waitController?.signal
+    const abortWait = () => {
+      this.log(
+        'wait abort start=%d end=%d len=%d %s',
+        start,
+        start + length,
+        length,
+        summarizePieces(pieces),
+      )
+      waitController?.abort()
+    }
+
+    effectiveSignal?.addEventListener('abort', abortWait, { once: true })
+    this.disposeController?.signal.addEventListener('abort', abortWait, { once: true })
+
+    if (effectiveSignal?.aborted || this.disposeController?.signal.aborted) {
+      abortWait()
+    }
+
+    const waitStartedAt = Date.now()
+    return this.provider
+      .waitForPieces(pieces, waitSignal)
+      .then(() => {
+        if (waitSignal?.aborted) {
+          throw createAbortError()
+        }
+        this.log(
+          'wait ready start=%d end=%d waited_ms=%d %s',
+          start,
+          start + length,
+          Date.now() - waitStartedAt,
+          summarizePieces(pieces),
+        )
+      })
+      .finally(() => {
+        effectiveSignal?.removeEventListener('abort', abortWait)
+        this.disposeController?.signal.removeEventListener('abort', abortWait)
+      })
+  }
+
+  setHint(hintId: string, offset: number, length: number, urgency: StreamingHintUrgency): void {
+    if (!hintId) {
+      throw new Error('Hint id is required')
+    }
+
+    if (this.closed || !this.provider.updateStreamingDemand) {
+      return
+    }
+
+    if (length <= 0) {
+      this.clearHint(hintId)
+      return
+    }
+
+    const pieces = this.getPiecesForRange(offset, length)
+    const scope = this.getHintDemandScope(hintId)
+    this.ensureFileLock()
+    this.provider.updateStreamingDemand(scope.token, new Set(pieces), urgency)
+  }
+
+  clearHint(hintId: string): void {
+    if (!hintId) return
+    const scope = this.hintDemandScopes.get(hintId)
+    if (!scope) return
+    this.hintDemandScopes.delete(hintId)
+    this.provider.updateStreamingDemand?.(scope.token, null, 'now')
+  }
+
+  buildPrebuiltKeyframeIndex(): Promise<PrebuiltKeyframeIndex | null> {
+    return this.provider.buildPrebuiltKeyframeIndex
+      ? this.provider.buildPrebuiltKeyframeIndex()
+      : Promise.resolve(null)
+  }
+
+  getPieceTimelineSnapshot(): Promise<StreamingFilePieceSnapshot | null> {
+    return this.provider.getPieceTimelineSnapshot
+      ? this.provider.getPieceTimelineSnapshot()
+      : Promise.resolve(null)
+  }
+
   close(): void {
     if (this.closed) return
     this.closed = true
@@ -319,6 +439,9 @@ export class StreamingPlaybackSession {
     }
     for (const signal of this.signalDemandScopes.keys()) {
       this.clearSignalDemandScope(signal)
+    }
+    for (const hintId of this.hintDemandScopes.keys()) {
+      this.clearHint(hintId)
     }
     this.clearFallbackDemandScope()
     this.updateAheadDemand(null)
@@ -394,10 +517,41 @@ export class StreamingPlaybackSession {
     return scope
   }
 
-  private createToken(kind?: 'file' | 'next'): string {
+  private getHintDemandScope(hintId: string): HintDemandScope {
+    const existing = this.hintDemandScopes.get(hintId)
+    if (existing) return existing
+
+    const scope: HintDemandScope = {
+      token: this.createToken('hint'),
+    }
+    this.hintDemandScopes.set(hintId, scope)
+    return scope
+  }
+
+  private getPiecesForRange(offset: number, length: number): number[] {
+    if (!Number.isFinite(offset) || !Number.isFinite(length) || offset < 0 || length < 0) {
+      throw new RangeError(`Invalid range: offset=${offset} length=${length}`)
+    }
+    if (offset > this.fileSize || offset + length > this.fileSize) {
+      throw new RangeError(`Invalid range: offset=${offset} length=${length}`)
+    }
+    if (length === 0) {
+      return []
+    }
+
+    try {
+      return this.provider.fileBytesToPieces(offset, length)
+    } catch {
+      this.warn('fileBytesToPieces failed start=%d end=%d', offset, offset + length)
+      throw new RangeError(`Invalid range: offset=${offset} length=${length}`)
+    }
+  }
+
+  private createToken(kind?: 'file' | 'next' | 'hint'): string {
     const id = nextStreamingDemandId++
     if (kind === 'file') return `${this.tokenPrefix}-file:${id}`
     if (kind === 'next') return `${this.tokenPrefix}-next:${id}`
+    if (kind === 'hint') return `${this.tokenPrefix}-hint:${id}`
     return `${this.tokenPrefix}:${id}`
   }
 

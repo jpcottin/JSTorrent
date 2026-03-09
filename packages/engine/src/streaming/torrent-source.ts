@@ -26,8 +26,11 @@
  */
 
 import type { Torrent } from '../core/torrent'
-import { createStreamingFileProvider, StreamingPlaybackSession } from './streaming-playback-session'
-import type { StreamingFileProvider } from './streaming-file-provider'
+import {
+  createStreamingFileProvider,
+  createStreamingPlaybackSession,
+} from './streaming-playback-session'
+import type { ByteRangeStreamingSession, StreamingFileProvider } from './streaming-file-provider'
 
 /**
  * The shape of mediabunny's ReadResult (not importing to avoid dependency).
@@ -45,6 +48,9 @@ export interface ReadResult {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SourceConstructor = abstract new (...args: any[]) => any
+type AbortAwareStreamingSession = ByteRangeStreamingSession & {
+  setCurrentSignal?(signal: AbortSignal | null): void
+}
 
 /**
  * Create a mediabunny-compatible Source backed by torrent piece data.
@@ -65,21 +71,12 @@ export function createTorrentSource<T extends SourceConstructor>(
   return createTorrentSourceFromProvider(SourceClass, provider)
 }
 
-/**
- * Create a mediabunny-compatible Source from a StreamingFileProvider.
- *
- * This is the lower-level factory — use when you have a pre-built provider
- * (e.g., a postMessage proxy).
- */
-export function createTorrentSourceFromProvider<T extends SourceConstructor>(
+export function createTorrentSourceFromSession<T extends SourceConstructor>(
   SourceClass: T,
-  provider: StreamingFileProvider,
+  session: ByteRangeStreamingSession,
 ): InstanceType<T> {
   let disposed = false
-  const session = new StreamingPlaybackSession(provider, {
-    tokenPrefix: 'torrent-source',
-    logPrefix: '[torrent-source]',
-  })
+  const abortAwareSession = session as AbortAwareStreamingSession
 
   // Create a concrete subclass that implements the abstract methods
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -89,7 +86,7 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
 
     setCurrentSignal(signal: AbortSignal | null): void {
       this.currentSignal = signal
-      session.setCurrentSignal(signal)
+      abortAwareSession.setCurrentSignal?.(signal)
     }
 
     _retrieveSize(): number {
@@ -102,10 +99,12 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
         return Promise.reject(new DOMException('Aborted', 'AbortError'))
       }
 
-      const result = session.read(start, end - start, signal)
-      if (!result) return null
+      if (start < 0 || end < start || end > session.fileSize) {
+        return null
+      }
 
-      return result.then((bytes) => ({
+      const effectiveSignal = signal ?? this.currentSignal ?? undefined
+      return session.read(start, end - start, effectiveSignal).then((bytes) => ({
         bytes,
         view: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
         offset: start,
@@ -120,4 +119,21 @@ export function createTorrentSourceFromProvider<T extends SourceConstructor>(
   }
 
   return new TorrentSource() as InstanceType<T>
+}
+
+/**
+ * Create a mediabunny-compatible Source from a StreamingFileProvider.
+ *
+ * This is the lower-level factory — use when you have a pre-built provider
+ * (e.g., a postMessage proxy).
+ */
+export function createTorrentSourceFromProvider<T extends SourceConstructor>(
+  SourceClass: T,
+  provider: StreamingFileProvider,
+): InstanceType<T> {
+  const session = createStreamingPlaybackSession(provider, {
+    tokenPrefix: 'torrent-source',
+    logPrefix: '[torrent-source]',
+  })
+  return createTorrentSourceFromSession(SourceClass, session)
 }

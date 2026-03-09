@@ -326,15 +326,11 @@ function buildVideoPlayerPopupUrl(message: {
   sessionId: string
   fileName: string
   fileSize: number
-  fileOffset: number
-  pieceLength: number
 }): string {
   const url = new URL(chrome.runtime.getURL(VIDEO_PLAYER_PAGE))
   url.searchParams.set('sessionId', message.sessionId)
   url.searchParams.set('fileName', message.fileName)
   url.searchParams.set('fileSize', String(message.fileSize))
-  url.searchParams.set('fileOffset', String(message.fileOffset))
-  url.searchParams.set('pieceLength', String(message.pieceLength))
   return url.toString()
 }
 
@@ -348,8 +344,6 @@ async function openVideoPlayerPopup(message: {
   sessionId: string
   fileName: string
   fileSize: number
-  fileOffset: number
-  pieceLength: number
 }): Promise<void> {
   const url = buildVideoPlayerPopupUrl(message)
   const hadExisting = await closeVideoPlayerPopup()
@@ -751,8 +745,6 @@ function handleMessage(
     sessionId?: string
     fileName?: string
     fileSize?: number
-    fileOffset?: number
-    pieceLength?: number
   },
   sendResponse: SendResponse,
 ): boolean {
@@ -873,19 +865,13 @@ function handleMessage(
   }
 
   if (message.type === 'OPEN_VIDEO_PLAYER_POPUP') {
-    const { sessionId, fileName, fileSize, fileOffset, pieceLength } = message
-    if (
-      !sessionId ||
-      !fileName ||
-      typeof fileSize !== 'number' ||
-      typeof fileOffset !== 'number' ||
-      typeof pieceLength !== 'number'
-    ) {
+    const { sessionId, fileName, fileSize } = message
+    if (!sessionId || !fileName || typeof fileSize !== 'number') {
       sendResponse({ ok: false, error: 'Missing popup player parameters' })
       return true
     }
 
-    openVideoPlayerPopup({ sessionId, fileName, fileSize, fileOffset, pieceLength })
+    openVideoPlayerPopup({ sessionId, fileName, fileSize })
       .then(() => sendResponse({ ok: true }))
       .catch((e: unknown) => sendResponse({ ok: false, error: String(e) }))
     return true

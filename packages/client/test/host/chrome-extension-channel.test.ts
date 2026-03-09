@@ -590,8 +590,6 @@ describe('ChromeExtensionChannel', () => {
         sessionId: 'session-1',
         fileName: 'movie.mkv',
         fileSize: 123,
-        fileOffset: 456,
-        pieceLength: 16384,
       }
 
       sendMessageResponse = { ok: true }
@@ -604,6 +602,24 @@ describe('ChromeExtensionChannel', () => {
         },
         expect.any(Function),
       )
+
+      channel.disconnect()
+    })
+
+    it('openVideoPlayerPopup throws host error details on failure', async () => {
+      sendMessageResponse = { ok: false }
+      const channel = new ChromeExtensionChannel()
+      await channel.connect()
+
+      sendMessageResponse = { ok: false, error: 'popup create failed' }
+
+      await expect(
+        channel.openVideoPlayerPopup({
+          sessionId: 'session-1',
+          fileName: 'movie.mkv',
+          fileSize: 123,
+        }),
+      ).rejects.toThrow('popup create failed')
 
       channel.disconnect()
     })

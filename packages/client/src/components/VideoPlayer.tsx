@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import type { PrebuiltKeyframeIndex, StreamingFileProvider } from '@jstorrent/engine'
-import { createTorrentSourceFromProvider } from '@jstorrent/engine'
+import type {
+  ByteRangeStreamingSession,
+  PrebuiltKeyframeIndex,
+  StreamingVisualization,
+} from '@jstorrent/engine'
+import { createTorrentSourceFromSession } from '@jstorrent/engine'
 import { PlaysVideoEngine, Source } from 'playsvideo'
 import type { KeyframeIndex } from 'playsvideo'
 import { VideoPieceTimeline } from './VideoPieceTimeline'
 
 export interface VideoPlayerProps {
-  provider: StreamingFileProvider
+  session: ByteRangeStreamingSession & StreamingVisualization
   fileName: string
   onClose: () => void
   closeOnBackdrop?: boolean
@@ -15,7 +19,7 @@ export interface VideoPlayerProps {
 }
 
 export function VideoPlayer({
-  provider,
+  session,
   fileName,
   onClose,
   closeOnBackdrop = true,
@@ -28,13 +32,13 @@ export function VideoPlayer({
   const [state, setState] = useState<{
     phase: 'loading' | 'ready' | 'error'
     errorMessage: string | null
-    provider: StreamingFileProvider
-  }>({ phase: 'loading', errorMessage: null, provider })
+    session: ByteRangeStreamingSession & StreamingVisualization
+  }>({ phase: 'loading', errorMessage: null, session })
   const [isFullscreen, setIsFullscreen] = useState(false)
 
-  // Reset state when provider changes (avoids setState in effect body)
-  if (state.provider !== provider) {
-    setState({ phase: 'loading', errorMessage: null, provider })
+  // Reset state when session changes (avoids setState in effect body)
+  if (state.session !== session) {
+    setState({ phase: 'loading', errorMessage: null, session })
   }
 
   const { phase, errorMessage } = state
@@ -45,7 +49,7 @@ export function VideoPlayer({
 
     let disposed = false
 
-    const source = createTorrentSourceFromProvider(Source, provider)
+    const source = createTorrentSourceFromSession(Source, session)
     const engine = new PlaysVideoEngine(video)
     engineRef.current = engine
 
@@ -65,7 +69,7 @@ export function VideoPlayer({
       let keyframeIndex: KeyframeIndex | undefined
 
       try {
-        const prebuilt = await provider.buildPrebuiltKeyframeIndex?.()
+        const prebuilt = await session.buildPrebuiltKeyframeIndex?.()
         if (disposed) return
         if (prebuilt) {
           keyframeIndex = toPlaysVideoKeyframeIndex(prebuilt)
@@ -80,7 +84,7 @@ export function VideoPlayer({
         '[VideoPlayer] loadSource',
         fileName,
         'fileSize=',
-        provider.fileSize,
+        session.fileSize,
         'prebuiltKeyframes=',
         keyframeIndex?.keyframes.length ?? 0,
       )
@@ -95,7 +99,7 @@ export function VideoPlayer({
       video.removeAttribute('src')
       video.load()
     }
-  }, [fileName, provider])
+  }, [fileName, session])
 
   const toggleFullscreen = async () => {
     const target = fullscreenTargetRef.current
@@ -205,7 +209,7 @@ export function VideoPlayer({
           </button>
         </div>
 
-        <VideoPieceTimeline provider={provider} />
+        <VideoPieceTimeline session={session} />
 
         <div
           ref={fullscreenTargetRef}

@@ -1,7 +1,9 @@
 import type {
+  ByteRangeStreamingSession,
   PrebuiltKeyframeIndex,
   StreamingFilePieceSnapshot,
-  StreamingFileProvider,
+  StreamingHintUrgency,
+  StreamingVisualization,
 } from '@jstorrent/engine'
 import type { VideoPopupLaunchOptions } from '../host/types'
 
@@ -21,29 +23,25 @@ interface PendingCall {
   reject: (error: Error) => void
 }
 
-interface HostPendingWait {
+interface HostPendingCall {
   controller: AbortController
 }
 
 type HostMessage =
-  | { type: 'setStreamingPieces'; pieces: number[] | null }
-  | { type: 'updateStreamingFileLock'; token: string; enabled: boolean }
-  | {
-      type: 'updateStreamingDemand'
-      token: string
-      pieces: number[] | null
-      urgency?: 'metadata' | 'next' | 'now'
-    }
   | {
       type: 'call'
       id: string
-      method:
-        | 'waitForPieces'
-        | 'readFileBytes'
-        | 'buildPrebuiltKeyframeIndex'
-        | 'getPieceTimelineSnapshot'
+      method: 'read' | 'waitForRange' | 'buildPrebuiltKeyframeIndex' | 'getPieceTimelineSnapshot'
       args: unknown[]
     }
+  | {
+      type: 'setHint'
+      hintId: string
+      offset: number
+      length: number
+      urgency: StreamingHintUrgency
+    }
+  | { type: 'clearHint'; hintId: string }
   | { type: 'abort'; id: string }
   | { type: 'close' }
 
@@ -56,12 +54,12 @@ export interface VideoPopupSessionHost {
   dispose(): void
 }
 
-export interface RemoteStreamingProviderHandle {
-  provider: StreamingFileProvider
+export interface RemoteByteRangeStreamingSessionHandle {
+  session: ByteRangeStreamingSession & StreamingVisualization
   dispose(): void
 }
 
-export interface RemoteStreamingProviderOptions {
+export interface RemoteByteRangeStreamingSessionOptions {
   onSessionClosed?: () => void
   createChannel?: ChannelFactory
 }
@@ -86,41 +84,17 @@ function makeError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
 }
 
-function fileBytesToPieces(
-  fileOffset: number,
-  pieceLength: number,
-  fileSize: number,
-  offset: number,
-  length: number,
-): number[] {
-  if (offset < 0 || length <= 0 || offset + length > fileSize) {
-    throw new Error(`Invalid range: offset=${offset} length=${length} fileLength=${fileSize}`)
-  }
-
-  const torrentStart = fileOffset + offset
-  const torrentEnd = torrentStart + length
-  const firstPiece = Math.floor(torrentStart / pieceLength)
-  const lastPiece = Math.floor((torrentEnd - 1) / pieceLength)
-  const pieces: number[] = []
-  for (let i = firstPiece; i <= lastPiece; i++) {
-    pieces.push(i)
-  }
-  return pieces
-}
-
 export function createVideoPopupSessionHost(
   sessionId: string,
-  provider: StreamingFileProvider,
+  session: ByteRangeStreamingSession & StreamingVisualization,
   createChannel: ChannelFactory = createDefaultChannel,
 ): VideoPopupSessionHost {
   const channel = createChannel(getChannelName(sessionId))
-  const pendingWaits = new Map<string, HostPendingWait>()
-  const activeStreamingDemandTokens = new Set<string>()
-  const activeStreamingFileLockTokens = new Set<string>()
+  const pendingCalls = new Map<string, HostPendingCall>()
   let disposed = false
 
-  const cleanupPendingWait = (id: string) => {
-    pendingWaits.delete(id)
+  const cleanupPendingCall = (id: string) => {
+    pendingCalls.delete(id)
   }
 
   const reply = (message: PopupMessage) => {
@@ -134,42 +108,23 @@ export function createVideoPopupSessionHost(
     const message = event.data as HostMessage
     if (!message || typeof message !== 'object' || !('type' in message)) return
 
-    if (message.type === 'setStreamingPieces') {
-      provider.setStreamingPieces(message.pieces ? new Set(message.pieces) : null)
-      return
-    }
-
-    if (message.type === 'updateStreamingFileLock') {
-      provider.updateStreamingFileLock?.(message.token, message.enabled)
-      if (message.enabled) {
-        activeStreamingFileLockTokens.add(message.token)
-      } else {
-        activeStreamingFileLockTokens.delete(message.token)
+    if (message.type === 'setHint') {
+      try {
+        session.setHint(message.hintId, message.offset, message.length, message.urgency)
+      } catch (error) {
+        console.warn('[video-popup-session] failed to set hint', error)
       }
       return
     }
 
-    if (message.type === 'updateStreamingDemand') {
-      if (message.pieces && message.pieces.length > 0) {
-        activeStreamingDemandTokens.add(message.token)
-      } else {
-        activeStreamingDemandTokens.delete(message.token)
-      }
-      if (provider.updateStreamingDemand) {
-        provider.updateStreamingDemand(
-          message.token,
-          message.pieces ? new Set(message.pieces) : null,
-          message.urgency,
-        )
-      } else {
-        provider.setStreamingPieces(message.pieces ? new Set(message.pieces) : null)
-      }
+    if (message.type === 'clearHint') {
+      session.clearHint(message.hintId)
       return
     }
 
     if (message.type === 'abort') {
-      pendingWaits.get(message.id)?.controller.abort()
-      cleanupPendingWait(message.id)
+      pendingCalls.get(message.id)?.controller.abort()
+      cleanupPendingCall(message.id)
       return
     }
 
@@ -180,39 +135,9 @@ export function createVideoPopupSessionHost(
 
     if (message.type !== 'call') return
 
-    if (message.method === 'waitForPieces') {
-      const [pieceIndices] = message.args as [number[]]
-      const controller = new AbortController()
-      pendingWaits.set(message.id, { controller })
-      provider
-        .waitForPieces(pieceIndices, controller.signal)
-        .then(() => {
-          cleanupPendingWait(message.id)
-          reply({ type: 'result', id: message.id, value: null })
-        })
-        .catch((error) => {
-          cleanupPendingWait(message.id)
-          reply({ type: 'error', id: message.id, message: makeError(error).message })
-        })
-      return
-    }
-
-    if (message.method === 'readFileBytes') {
-      const [offset, length] = message.args as [number, number]
-      provider
-        .readFileBytes(offset, length)
-        .then((bytes) => {
-          reply({ type: 'result', id: message.id, value: bytes })
-        })
-        .catch((error) => {
-          reply({ type: 'error', id: message.id, message: makeError(error).message })
-        })
-      return
-    }
-
     if (message.method === 'buildPrebuiltKeyframeIndex') {
       Promise.resolve(
-        provider.buildPrebuiltKeyframeIndex ? provider.buildPrebuiltKeyframeIndex() : null,
+        session.buildPrebuiltKeyframeIndex ? session.buildPrebuiltKeyframeIndex() : null,
       )
         .then((index) => {
           reply({ type: 'result', id: message.id, value: index ?? null })
@@ -225,7 +150,7 @@ export function createVideoPopupSessionHost(
 
     if (message.method === 'getPieceTimelineSnapshot') {
       Promise.resolve(
-        provider.getPieceTimelineSnapshot ? provider.getPieceTimelineSnapshot() : null,
+        session.getPieceTimelineSnapshot ? session.getPieceTimelineSnapshot() : null,
       )
         .then((snapshot) => {
           reply({ type: 'result', id: message.id, value: snapshot ?? null })
@@ -233,25 +158,36 @@ export function createVideoPopupSessionHost(
         .catch((error) => {
           reply({ type: 'error', id: message.id, message: makeError(error).message })
         })
+      return
     }
+
+    const controller = new AbortController()
+    pendingCalls.set(message.id, { controller })
+
+    const promise =
+      message.method === 'read'
+        ? session.read(...(message.args as [number, number]), controller.signal)
+        : session.waitForRange(...(message.args as [number, number]), controller.signal)
+
+    promise
+      .then((value) => {
+        cleanupPendingCall(message.id)
+        reply({ type: 'result', id: message.id, value: value ?? null })
+      })
+      .catch((error) => {
+        cleanupPendingCall(message.id)
+        reply({ type: 'error', id: message.id, message: makeError(error).message })
+      })
   }
 
   const dispose = () => {
     if (disposed) return
     disposed = true
-    for (const token of activeStreamingDemandTokens) {
-      provider.updateStreamingDemand?.(token, null, 'now')
-    }
-    activeStreamingDemandTokens.clear()
-    for (const token of activeStreamingFileLockTokens) {
-      provider.updateStreamingFileLock?.(token, false)
-    }
-    activeStreamingFileLockTokens.clear()
-    provider.setStreamingPieces(null)
-    for (const pending of pendingWaits.values()) {
+    for (const pending of pendingCalls.values()) {
       pending.controller.abort()
     }
-    pendingWaits.clear()
+    pendingCalls.clear()
+    session.close()
     channel.postMessage({ type: 'closing' } satisfies PopupMessage)
     channel.removeEventListener('message', onMessage)
     channel.close()
@@ -262,10 +198,10 @@ export function createVideoPopupSessionHost(
   return { dispose }
 }
 
-export function createRemoteStreamingFileProvider(
+export function createRemoteByteRangeStreamingSession(
   descriptor: VideoPopupLaunchOptions,
-  options: RemoteStreamingProviderOptions = {},
-): RemoteStreamingProviderHandle {
+  options: RemoteByteRangeStreamingSessionOptions = {},
+): RemoteByteRangeStreamingSessionHandle {
   const createChannel = options.createChannel ?? createDefaultChannel
   const channel = createChannel(getChannelName(descriptor.sessionId))
   const pendingCalls = new Map<string, PendingCall>()
@@ -305,11 +241,7 @@ export function createRemoteStreamingFileProvider(
   channel.addEventListener('message', onMessage)
 
   const postCall = <T>(
-    method:
-      | 'waitForPieces'
-      | 'readFileBytes'
-      | 'buildPrebuiltKeyframeIndex'
-      | 'getPieceTimelineSnapshot',
+    method: 'read' | 'waitForRange' | 'buildPrebuiltKeyframeIndex' | 'getPieceTimelineSnapshot',
     args: unknown[],
     signal?: AbortSignal,
   ): Promise<T> => {
@@ -364,44 +296,32 @@ export function createRemoteStreamingFileProvider(
     channel.close()
   }
 
+  const postMessage = (message: HostMessage) => {
+    if (disposed) return
+    channel.postMessage(message)
+  }
+
   return {
-    provider: {
+    session: {
       fileSize: descriptor.fileSize,
-      fileBytesToPieces: (offset, length) =>
-        fileBytesToPieces(
-          descriptor.fileOffset,
-          descriptor.pieceLength,
-          descriptor.fileSize,
+      read: (offset, length, signal) => postCall<Uint8Array>('read', [offset, length], signal),
+      waitForRange: (offset, length, signal) =>
+        postCall<void>('waitForRange', [offset, length], signal).then(() => undefined),
+      setHint: (hintId, offset, length, urgency) => {
+        postMessage({
+          type: 'setHint',
+          hintId,
           offset,
           length,
-        ),
-      setStreamingPieces: (pieces) => {
-        if (disposed) return
-        channel.postMessage({
-          type: 'setStreamingPieces',
-          pieces: pieces ? [...pieces] : null,
-        } satisfies HostMessage)
-      },
-      updateStreamingFileLock: (token, enabled) => {
-        if (disposed) return
-        channel.postMessage({
-          type: 'updateStreamingFileLock',
-          token,
-          enabled,
-        } satisfies HostMessage)
-      },
-      updateStreamingDemand: (token, pieces, urgency) => {
-        if (disposed) return
-        channel.postMessage({
-          type: 'updateStreamingDemand',
-          token,
-          pieces: pieces ? [...pieces] : null,
           urgency,
-        } satisfies HostMessage)
+        })
       },
-      waitForPieces: (pieceIndices, signal) =>
-        postCall<void>('waitForPieces', [pieceIndices], signal).then(() => undefined),
-      readFileBytes: (offset, length) => postCall<Uint8Array>('readFileBytes', [offset, length]),
+      clearHint: (hintId) => {
+        postMessage({ type: 'clearHint', hintId })
+      },
+      close: () => {
+        dispose(true)
+      },
       buildPrebuiltKeyframeIndex: () =>
         postCall<PrebuiltKeyframeIndex | null>('buildPrebuiltKeyframeIndex', []),
       getPieceTimelineSnapshot: () =>

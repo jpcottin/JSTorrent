@@ -51,5 +51,5 @@ export { SettingsOverlay } from './components/SettingsOverlay'
 // Video popup session helpers
 export {
   createVideoPopupSessionHost,
-  createRemoteStreamingFileProvider,
+  createRemoteByteRangeStreamingSession,
 } from './utils/video-popup-session'

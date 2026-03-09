@@ -13,6 +13,8 @@ export interface PrebuiltKeyframeIndex {
   keyframeTimestampsSec: number[]
 }
 
+export type StreamingHintUrgency = 'metadata' | 'next' | 'now'
+
 export const StreamingPieceState = {
   Missing: 0,
   Partial: 1,
@@ -37,7 +39,21 @@ export interface StreamingFilePieceSnapshot {
   activePieces: StreamingActivePieceInfo[]
 }
 
-export interface StreamingFileProvider {
+export interface StreamingVisualization {
+  buildPrebuiltKeyframeIndex?(): Promise<PrebuiltKeyframeIndex | null>
+  getPieceTimelineSnapshot?(): Promise<StreamingFilePieceSnapshot | null>
+}
+
+export interface ByteRangeStreamingSession {
+  readonly fileSize: number
+  read(offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array>
+  waitForRange(offset: number, length: number, signal?: AbortSignal): Promise<void>
+  setHint(hintId: string, offset: number, length: number, urgency: StreamingHintUrgency): void
+  clearHint(hintId: string): void
+  close(): void
+}
+
+export interface StreamingFileProvider extends StreamingVisualization {
   readonly fileSize: number
   fileBytesToPieces(offset: number, length: number): number[]
   setStreamingPieces(pieces: Set<number> | null): void
@@ -45,10 +61,8 @@ export interface StreamingFileProvider {
   updateStreamingDemand?(
     token: string,
     pieces: Set<number> | null,
-    urgency?: 'metadata' | 'next' | 'now',
+    urgency?: StreamingHintUrgency,
   ): void
   waitForPieces(pieceIndices: number[], signal?: AbortSignal): Promise<void>
   readFileBytes(offset: number, length: number): Promise<Uint8Array>
-  buildPrebuiltKeyframeIndex?(): Promise<PrebuiltKeyframeIndex | null>
-  getPieceTimelineSnapshot?(): Promise<StreamingFilePieceSnapshot | null>
 }

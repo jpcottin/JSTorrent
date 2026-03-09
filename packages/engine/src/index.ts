@@ -153,13 +153,24 @@ export {
 } from './config'
 
 // Streaming
-export { createTorrentSource, createTorrentSourceFromProvider } from './streaming/torrent-source'
-export { createStreamingFileProvider } from './streaming/streaming-playback-session'
+export {
+  createTorrentSource,
+  createTorrentSourceFromProvider,
+  createTorrentSourceFromSession,
+} from './streaming/torrent-source'
+export {
+  createStreamingFileProvider,
+  createStreamingPlaybackSession,
+  StreamingPlaybackSession,
+} from './streaming/streaming-playback-session'
 export type {
+  ByteRangeStreamingSession,
   PrebuiltKeyframeIndex,
   StreamingActivePieceInfo,
   StreamingFilePieceSnapshot,
   StreamingFileProvider,
+  StreamingHintUrgency,
+  StreamingVisualization,
 } from './streaming/streaming-file-provider'
 export { parseMkvCueIndex, parseMkvCues, type MkvCuePoint } from './streaming/mkv-cue-parser'
 export {

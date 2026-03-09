@@ -578,7 +578,7 @@ export class TauriChannel implements HostChannel {
   }
 
   async openVideoPlayerPopup(_options: VideoPopupLaunchOptions): Promise<boolean> {
-    return false
+    throw new Error('Video popup is not supported in the desktop app')
   }
 
   takeOver(): void {

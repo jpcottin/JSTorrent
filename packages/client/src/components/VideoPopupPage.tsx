@@ -1,19 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { VideoPopupLaunchOptions } from '../host/types'
-import { createRemoteStreamingFileProvider } from '../utils/video-popup-session'
+import { createRemoteByteRangeStreamingSession } from '../utils/video-popup-session'
 import { VideoPlayer } from './VideoPlayer'
 
 function parsePopupDescriptor(): VideoPopupLaunchOptions | null {
   const params = new URLSearchParams(window.location.search)
   const sessionId = params.get('sessionId')
   const fileName = params.get('fileName')
-  const fileSize = Number(params.get('fileSize'))
-  const fileOffset = Number(params.get('fileOffset'))
-  const pieceLength = Number(params.get('pieceLength'))
+  const fileSizeParam = params.get('fileSize')
+  const fileSize = Number(fileSizeParam)
 
-  if (!sessionId || !fileName) return null
-  if (!Number.isFinite(fileSize) || !Number.isFinite(fileOffset) || !Number.isFinite(pieceLength)) {
+  if (!sessionId || !fileName || fileSizeParam === null) return null
+  if (!Number.isFinite(fileSize)) {
     return null
   }
 
@@ -21,8 +20,6 @@ function parsePopupDescriptor(): VideoPopupLaunchOptions | null {
     sessionId,
     fileName,
     fileSize,
-    fileOffset,
-    pieceLength,
   }
 }
 
@@ -30,9 +27,9 @@ export function VideoPopupPage() {
   const descriptor = useMemo(() => parsePopupDescriptor(), [])
   const error = descriptor ? null : 'Missing popup session data'
 
-  const [providerHandle] = useState(() =>
+  const [sessionHandle] = useState(() =>
     descriptor
-      ? createRemoteStreamingFileProvider(descriptor, {
+      ? createRemoteByteRangeStreamingSession(descriptor, {
           onSessionClosed: () => window.close(),
         })
       : null,
@@ -41,20 +38,20 @@ export function VideoPopupPage() {
   useEffect(() => {
     if (!descriptor) return
     document.title = `JSTorrent - ${descriptor.fileName}`
-    return () => providerHandle?.dispose()
-  }, [descriptor, providerHandle])
+    return () => sessionHandle?.dispose()
+  }, [descriptor, sessionHandle])
 
   if (error) {
     return <div style={errorStyle}>{error}</div>
   }
 
-  if (!descriptor || !providerHandle) {
+  if (!descriptor || !sessionHandle) {
     return <div style={loadingStyle}>Opening player...</div>
   }
 
   return (
     <VideoPlayer
-      provider={providerHandle.provider}
+      session={sessionHandle.session}
       fileName={descriptor.fileName}
       onClose={() => window.close()}
       closeOnBackdrop={false}

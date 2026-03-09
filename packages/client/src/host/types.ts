@@ -154,8 +154,6 @@ export interface VideoPopupLaunchOptions {
   sessionId: string
   fileName: string
   fileSize: number
-  fileOffset: number
-  pieceLength: number
 }
 
 // --- Utility ---

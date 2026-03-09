@@ -32,14 +32,20 @@ const engineManager = new DaemonEngineManager(channel)
 window.engineManager = engineManager
 
 const isDevMode = channel.isDevMode()
-const supportsVideoPopup = channel.getState().platform !== 'tauri'
-const supportsLanShare = channel.getState().platform === 'chromeos'
 
 /**
  * ChromeAppContent - Wrapper around AppContent that provides Chrome-specific callbacks.
  * Uses engineManager for file operations and channel for duplicate notifications.
  */
-function ChromeAppContent({ onOpenLoggingSettings }: { onOpenLoggingSettings?: () => void }) {
+function ChromeAppContent({
+  onOpenLoggingSettings,
+  supportsVideoPopup,
+  supportsLanShare,
+}: {
+  onOpenLoggingSettings?: () => void
+  supportsVideoPopup: boolean
+  supportsLanShare: boolean
+}) {
   return (
     <AppContent
       onOpenLoggingSettings={onOpenLoggingSettings}
@@ -87,10 +93,7 @@ function ChromeAppContent({ onOpenLoggingSettings }: { onOpenLoggingSettings?: (
       onOpenVideoPopup={
         supportsVideoPopup
           ? async (options) => {
-              const ok = await channel.openVideoPlayerPopup(options)
-              if (!ok) {
-                standaloneAlert('Failed to open video popup')
-              }
+              await channel.openVideoPlayerPopup(options)
             }
           : undefined
       }
@@ -177,6 +180,8 @@ function App() {
 
   // ChromeOS bootstrap action callbacks
   const chromeosBootstrap = useChromeOSBootstrap()
+  const supportsVideoPopup = ioBridgeState.platform !== 'tauri'
+  const supportsLanShare = ioBridgeState.platform === 'chromeos'
 
   // Track previous status to detect transitions
   const prevStatusRef = useRef<ConnectionStatus | null>(null)
@@ -444,7 +449,11 @@ function App() {
         <div style={{ flex: 1, overflow: 'hidden' }}>
           {engine ? (
             <EngineProvider engine={engine}>
-              <ChromeAppContent onOpenLoggingSettings={handleOpenLoggingSettings} />
+              <ChromeAppContent
+                onOpenLoggingSettings={handleOpenLoggingSettings}
+                supportsVideoPopup={supportsVideoPopup}
+                supportsLanShare={supportsLanShare}
+              />
             </EngineProvider>
           ) : initError ? (
             <div style={{ padding: '40px', textAlign: 'center' }}>

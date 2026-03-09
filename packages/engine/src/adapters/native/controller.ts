@@ -899,11 +899,7 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
     }
 
     const length = Math.min(requestedLength, session.session.fileSize - offset)
-    const result = session.session.read(offset, length)
-    if (!result) {
-      throw new Error('Playback read out of range')
-    }
-    return result
+    return session.session.read(offset, length)
   }
 
   /**
