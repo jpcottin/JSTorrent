@@ -6,6 +6,8 @@ import {
 import type {
   ByteRangeStreamingSession,
   PrebuiltKeyframeIndex,
+  StreamingPlaybackControl,
+  StreamingPlaybackHandle,
   StreamingFilePieceSnapshot,
   StreamingVisualization,
 } from '@jstorrent/engine'
@@ -69,76 +71,63 @@ function createDescriptor(sessionId: string): VideoPopupLaunchOptions {
   }
 }
 
+function createPlaybackHandle(
+  overrides: Partial<ByteRangeStreamingSession> = {},
+  control: StreamingPlaybackControl = {},
+  diagnostics: StreamingVisualization = {},
+): StreamingPlaybackHandle {
+  const bytes: ByteRangeStreamingSession = {
+    fileSize: 100,
+    read: vi.fn().mockResolvedValue(new Uint8Array([1])),
+    waitForRange: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn(),
+    ...overrides,
+  }
+
+  return {
+    bytes,
+    control,
+    diagnostics,
+  }
+}
+
 describe('video popup session transport', () => {
   beforeEach(() => {
     FakeBroadcastChannel.rooms.clear()
   })
 
   it('proxies reads and waits over the popup session channel', async () => {
-    const session: ByteRangeStreamingSession & StreamingVisualization = {
-      fileSize: 100,
-      read: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4])),
-      waitForRange: vi.fn().mockResolvedValue(undefined),
-      setHint: vi.fn(),
-      clearHint: vi.fn(),
-      close: vi.fn(),
-      buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(null),
-    }
+    const playback = createPlaybackHandle(
+      {
+        read: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3, 4])),
+        waitForRange: vi.fn().mockResolvedValue(undefined),
+      },
+      {
+        buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(null),
+      },
+    )
 
-    const host = createVideoPopupSessionHost('session-rpc', session, createChannel)
+    const host = createVideoPopupSessionHost('session-rpc', playback, createChannel)
     const remote = createRemoteByteRangeStreamingSession(createDescriptor('session-rpc'), {
       createChannel,
     })
 
-    await remote.session.waitForRange(4, 8)
-    const bytes = await remote.session.read(10, 4)
+    await remote.playback.bytes.waitForRange(4, 8)
+    const bytes = await remote.playback.bytes.read(10, 4)
 
-    expect(session.waitForRange).toHaveBeenCalledWith(4, 8, expect.any(AbortSignal))
-    expect(session.read).toHaveBeenCalledWith(10, 4, expect.any(AbortSignal))
+    expect(playback.bytes.waitForRange).toHaveBeenCalledWith(4, 8, expect.any(AbortSignal))
+    expect(playback.bytes.read).toHaveBeenCalledWith(10, 4, expect.any(AbortSignal))
     expect([...bytes]).toEqual([1, 2, 3, 4])
 
     remote.dispose()
     host.dispose()
   })
 
-  it('forwards byte-range hints and clears them', async () => {
-    const session: ByteRangeStreamingSession & StreamingVisualization = {
-      fileSize: 100,
-      read: vi.fn().mockResolvedValue(new Uint8Array([1])),
-      waitForRange: vi.fn().mockResolvedValue(undefined),
-      setHint: vi.fn(),
-      clearHint: vi.fn(),
-      close: vi.fn(),
-    }
-
-    const host = createVideoPopupSessionHost('session-hints', session, createChannel)
-    const remote = createRemoteByteRangeStreamingSession(createDescriptor('session-hints'), {
-      createChannel,
-    })
-
-    remote.session.setHint('next', 32, 64, 'next')
-    remote.session.clearHint('next')
-    await Promise.resolve()
-
-    expect(session.setHint).toHaveBeenCalledWith('next', 32, 64, 'next')
-    expect(session.clearHint).toHaveBeenCalledWith('next')
-
-    remote.dispose()
-    host.dispose()
-  })
-
   it('notifies the popup when the host session closes', async () => {
-    const session: ByteRangeStreamingSession & StreamingVisualization = {
-      fileSize: 100,
-      read: vi.fn().mockResolvedValue(new Uint8Array([1])),
-      waitForRange: vi.fn().mockResolvedValue(undefined),
-      setHint: vi.fn(),
-      clearHint: vi.fn(),
-      close: vi.fn(),
-    }
+    const playback = createPlaybackHandle()
 
     const onSessionClosed = vi.fn()
-    const host = createVideoPopupSessionHost('session-close', session, createChannel)
+    const host = createVideoPopupSessionHost('session-close', playback, createChannel)
     createRemoteByteRangeStreamingSession(createDescriptor('session-close'), {
       createChannel,
       onSessionClosed,
@@ -147,7 +136,7 @@ describe('video popup session transport', () => {
     host.dispose()
     await Promise.resolve()
 
-    expect(session.close).toHaveBeenCalledTimes(1)
+    expect(playback.bytes.close).toHaveBeenCalledTimes(1)
     expect(onSessionClosed).toHaveBeenCalledTimes(1)
   })
 
@@ -156,23 +145,18 @@ describe('video popup session transport', () => {
       durationSec: 12.5,
       keyframeTimestampsSec: [0, 4, 8, 12],
     }
-    const session: ByteRangeStreamingSession & StreamingVisualization = {
-      fileSize: 100,
-      read: vi.fn().mockResolvedValue(new Uint8Array([1])),
-      waitForRange: vi.fn().mockResolvedValue(undefined),
-      setHint: vi.fn(),
-      clearHint: vi.fn(),
-      close: vi.fn(),
+    const control = {
       buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(index),
     }
+    const playback = createPlaybackHandle({}, control)
 
-    const host = createVideoPopupSessionHost('session-index', session, createChannel)
+    const host = createVideoPopupSessionHost('session-index', playback, createChannel)
     const remote = createRemoteByteRangeStreamingSession(createDescriptor('session-index'), {
       createChannel,
     })
 
-    await expect(remote.session.buildPrebuiltKeyframeIndex?.()).resolves.toEqual(index)
-    expect(session.buildPrebuiltKeyframeIndex).toHaveBeenCalledTimes(1)
+    await expect(remote.playback.control?.buildPrebuiltKeyframeIndex?.()).resolves.toEqual(index)
+    expect(control.buildPrebuiltKeyframeIndex).toHaveBeenCalledTimes(1)
 
     remote.dispose()
     host.dispose()
@@ -185,24 +169,21 @@ describe('video popup session transport', () => {
       bitfieldHex: 'a0',
       activePieces: [{ index: 2, state: 2 }],
     }
-    const session: ByteRangeStreamingSession & StreamingVisualization = {
-      fileSize: 100,
-      read: vi.fn().mockResolvedValue(new Uint8Array([1])),
-      waitForRange: vi.fn().mockResolvedValue(undefined),
-      setHint: vi.fn(),
-      clearHint: vi.fn(),
-      close: vi.fn(),
+    const diagnostics = {
       getPieceTimelineSnapshot: vi.fn().mockResolvedValue(snapshot),
     }
+    const playback = createPlaybackHandle({}, {}, diagnostics)
 
-    const host = createVideoPopupSessionHost('session-piece-timeline', session, createChannel)
+    const host = createVideoPopupSessionHost('session-piece-timeline', playback, createChannel)
     const remote = createRemoteByteRangeStreamingSession(
       createDescriptor('session-piece-timeline'),
       { createChannel },
     )
 
-    await expect(remote.session.getPieceTimelineSnapshot?.()).resolves.toEqual(snapshot)
-    expect(session.getPieceTimelineSnapshot).toHaveBeenCalledTimes(1)
+    await expect(remote.playback.diagnostics?.getPieceTimelineSnapshot?.()).resolves.toEqual(
+      snapshot,
+    )
+    expect(diagnostics.getPieceTimelineSnapshot).toHaveBeenCalledTimes(1)
 
     remote.dispose()
     host.dispose()
@@ -210,8 +191,7 @@ describe('video popup session transport', () => {
 
   it('propagates popup read aborts to the host-side session signal', async () => {
     let hostReadSignal: AbortSignal | undefined
-    const session: ByteRangeStreamingSession & StreamingVisualization = {
-      fileSize: 100,
+    const playback = createPlaybackHandle({
       read: vi.fn(
         (_offset: number, _length: number, signal?: AbortSignal) =>
           new Promise<Uint8Array>((_resolve, reject) => {
@@ -222,18 +202,15 @@ describe('video popup session transport', () => {
           }),
       ),
       waitForRange: vi.fn().mockResolvedValue(undefined),
-      setHint: vi.fn(),
-      clearHint: vi.fn(),
-      close: vi.fn(),
-    }
+    })
 
-    const host = createVideoPopupSessionHost('session-abort-read', session, createChannel)
+    const host = createVideoPopupSessionHost('session-abort-read', playback, createChannel)
     const remote = createRemoteByteRangeStreamingSession(createDescriptor('session-abort-read'), {
       createChannel,
     })
 
     const controller = new AbortController()
-    const readPromise = remote.session.read(0, 16, controller.signal)
+    const readPromise = remote.playback.bytes.read(0, 16, controller.signal)
 
     await Promise.resolve()
     controller.abort()
@@ -247,16 +224,9 @@ describe('video popup session transport', () => {
   })
 
   it('closes the host session when the remote side disposes', async () => {
-    const session: ByteRangeStreamingSession & StreamingVisualization = {
-      fileSize: 100,
-      read: vi.fn().mockResolvedValue(new Uint8Array([1])),
-      waitForRange: vi.fn().mockResolvedValue(undefined),
-      setHint: vi.fn(),
-      clearHint: vi.fn(),
-      close: vi.fn(),
-    }
+    const playback = createPlaybackHandle()
 
-    const host = createVideoPopupSessionHost('session-dispose', session, createChannel)
+    const host = createVideoPopupSessionHost('session-dispose', playback, createChannel)
     const remote = createRemoteByteRangeStreamingSession(createDescriptor('session-dispose'), {
       createChannel,
     })
@@ -264,7 +234,7 @@ describe('video popup session transport', () => {
     remote.dispose()
     await Promise.resolve()
 
-    expect(session.close).toHaveBeenCalledTimes(1)
+    expect(playback.bytes.close).toHaveBeenCalledTimes(1)
 
     host.dispose()
   })

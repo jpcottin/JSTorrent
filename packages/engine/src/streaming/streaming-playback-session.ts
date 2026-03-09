@@ -5,9 +5,9 @@ import {
   StreamingPieceState,
   type ByteRangeStreamingSession,
   type PrebuiltKeyframeIndex,
+  type StreamingPlaybackControl,
   type StreamingFilePieceSnapshot,
   type StreamingFileProvider,
-  type StreamingHintUrgency,
   type StreamingVisualization,
 } from './streaming-file-provider'
 
@@ -120,10 +120,6 @@ interface SignalDemandScope {
   abortListener: () => void
 }
 
-interface HintDemandScope {
-  token: string
-}
-
 function createAbortController(): AbortController | null {
   return typeof AbortController !== 'undefined' ? new AbortController() : null
 }
@@ -156,7 +152,7 @@ export function createStreamingPlaybackSession(
  * startup reads, and abort/dispose cleanup.
  */
 export class StreamingPlaybackSession
-  implements ByteRangeStreamingSession, StreamingVisualization
+  implements ByteRangeStreamingSession, StreamingPlaybackControl, StreamingVisualization
 {
   private readonly disposeController = createAbortController()
   private readonly tokenPrefix: string
@@ -167,8 +163,6 @@ export class StreamingPlaybackSession
   private readonly firstFilePiece: number
   private readonly lastFilePiece: number
   private readonly signalDemandScopes = new Map<AbortSignal, SignalDemandScope>()
-  private readonly hintDemandScopes = new Map<string, HintDemandScope>()
-
   private currentSignal: AbortSignal | null = null
   private closed = false
   private fileLockActive = false
@@ -389,34 +383,6 @@ export class StreamingPlaybackSession
       })
   }
 
-  setHint(hintId: string, offset: number, length: number, urgency: StreamingHintUrgency): void {
-    if (!hintId) {
-      throw new Error('Hint id is required')
-    }
-
-    if (this.closed || !this.provider.updateStreamingDemand) {
-      return
-    }
-
-    if (length <= 0) {
-      this.clearHint(hintId)
-      return
-    }
-
-    const pieces = this.getPiecesForRange(offset, length)
-    const scope = this.getHintDemandScope(hintId)
-    this.ensureFileLock()
-    this.provider.updateStreamingDemand(scope.token, new Set(pieces), urgency)
-  }
-
-  clearHint(hintId: string): void {
-    if (!hintId) return
-    const scope = this.hintDemandScopes.get(hintId)
-    if (!scope) return
-    this.hintDemandScopes.delete(hintId)
-    this.provider.updateStreamingDemand?.(scope.token, null, 'now')
-  }
-
   buildPrebuiltKeyframeIndex(): Promise<PrebuiltKeyframeIndex | null> {
     return this.provider.buildPrebuiltKeyframeIndex
       ? this.provider.buildPrebuiltKeyframeIndex()
@@ -439,9 +405,6 @@ export class StreamingPlaybackSession
     }
     for (const signal of this.signalDemandScopes.keys()) {
       this.clearSignalDemandScope(signal)
-    }
-    for (const hintId of this.hintDemandScopes.keys()) {
-      this.clearHint(hintId)
     }
     this.clearFallbackDemandScope()
     this.updateAheadDemand(null)
@@ -517,17 +480,6 @@ export class StreamingPlaybackSession
     return scope
   }
 
-  private getHintDemandScope(hintId: string): HintDemandScope {
-    const existing = this.hintDemandScopes.get(hintId)
-    if (existing) return existing
-
-    const scope: HintDemandScope = {
-      token: this.createToken('hint'),
-    }
-    this.hintDemandScopes.set(hintId, scope)
-    return scope
-  }
-
   private getPiecesForRange(offset: number, length: number): number[] {
     if (!Number.isFinite(offset) || !Number.isFinite(length) || offset < 0 || length < 0) {
       throw new RangeError(`Invalid range: offset=${offset} length=${length}`)
@@ -547,11 +499,10 @@ export class StreamingPlaybackSession
     }
   }
 
-  private createToken(kind?: 'file' | 'next' | 'hint'): string {
+  private createToken(kind?: 'file' | 'next'): string {
     const id = nextStreamingDemandId++
     if (kind === 'file') return `${this.tokenPrefix}-file:${id}`
     if (kind === 'next') return `${this.tokenPrefix}-next:${id}`
-    if (kind === 'hint') return `${this.tokenPrefix}-hint:${id}`
     return `${this.tokenPrefix}:${id}`
   }
 

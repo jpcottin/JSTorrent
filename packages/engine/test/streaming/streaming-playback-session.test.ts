@@ -26,30 +26,20 @@ function createProvider(): StreamingFileProvider {
 }
 
 describe('StreamingPlaybackSession', () => {
-  it('keeps a stable token per hint id and clears it on demand', () => {
+  it('delegates prebuilt keyframe index requests through the playback-control surface', async () => {
     const provider = createProvider()
+    const index = {
+      durationSec: 12.5,
+      keyframeTimestampsSec: [0, 4, 8, 12],
+    }
+    provider.buildPrebuiltKeyframeIndex = vi.fn().mockResolvedValue(index)
     const session = new StreamingPlaybackSession(provider, {
       tokenPrefix: 'test-session',
       logPrefix: '[test-session]',
     })
 
-    session.setHint('next', 0, 16384, 'next')
-    session.setHint('next', 16384, 16384, 'next')
-    session.clearHint('next')
-
-    expect(provider.updateStreamingFileLock!).toHaveBeenCalledWith('test-session-file:0', true)
-    expect(provider.updateStreamingDemand!).toHaveBeenCalledTimes(3)
-
-    const [firstToken, firstPieces, firstUrgency] = provider.updateStreamingDemand!.mock.calls[0]
-    const [secondToken, secondPieces, secondUrgency] =
-      provider.updateStreamingDemand!.mock.calls[1]
-    expect(firstToken).toMatch(/^test-session-hint:/)
-    expect(secondToken).toBe(firstToken)
-    expect(firstPieces).toEqual(new Set([0]))
-    expect(secondPieces).toEqual(new Set([1]))
-    expect(firstUrgency).toBe('next')
-    expect(secondUrgency).toBe('next')
-    expect(provider.updateStreamingDemand!.mock.calls[2]).toEqual([firstToken, null, 'now'])
+    await expect(session.buildPrebuiltKeyframeIndex()).resolves.toEqual(index)
+    expect(provider.buildPrebuiltKeyframeIndex).toHaveBeenCalledTimes(1)
   })
 
   it('waitForRange maps bytes to pieces and forwards abortable waits', async () => {

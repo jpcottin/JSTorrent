@@ -1,8 +1,4 @@
-import {
-  fromHex,
-  type ByteRangeStreamingSession,
-  type StreamingVisualization,
-} from '@jstorrent/engine'
+import { fromHex, type StreamingVisualization } from '@jstorrent/engine'
 import {
   PieceBar,
   PieceLegend,
@@ -45,17 +41,17 @@ function toPieceState(state: number): PieceState {
 }
 
 export interface VideoPieceTimelineProps {
-  session: ByteRangeStreamingSession & StreamingVisualization
+  diagnostics?: StreamingVisualization
 }
 
-export function VideoPieceTimeline({ session }: VideoPieceTimelineProps) {
+export function VideoPieceTimeline({ diagnostics }: VideoPieceTimelineProps) {
   const [snapshot, setSnapshot] = useState<Awaited<
     ReturnType<NonNullable<StreamingVisualization['getPieceTimelineSnapshot']>>
   > | null>(null)
   const warnedRef = useRef(false)
 
   useEffect(() => {
-    const getSnapshot = session.getPieceTimelineSnapshot
+    const getSnapshot = diagnostics?.getPieceTimelineSnapshot
     if (!getSnapshot) {
       setSnapshot(null)
       return
@@ -91,7 +87,7 @@ export function VideoPieceTimeline({ session }: VideoPieceTimelineProps) {
       disposed = true
       window.clearInterval(interval)
     }
-  }, [session])
+  }, [diagnostics])
 
   const visualizationData = useMemo<PieceVisualizationData | null>(() => {
     if (!snapshot || snapshot.piecesTotal === 0) return null

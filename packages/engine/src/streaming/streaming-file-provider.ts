@@ -40,7 +40,6 @@ export interface StreamingFilePieceSnapshot {
 }
 
 export interface StreamingVisualization {
-  buildPrebuiltKeyframeIndex?(): Promise<PrebuiltKeyframeIndex | null>
   getPieceTimelineSnapshot?(): Promise<StreamingFilePieceSnapshot | null>
 }
 
@@ -48,12 +47,20 @@ export interface ByteRangeStreamingSession {
   readonly fileSize: number
   read(offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array>
   waitForRange(offset: number, length: number, signal?: AbortSignal): Promise<void>
-  setHint(hintId: string, offset: number, length: number, urgency: StreamingHintUrgency): void
-  clearHint(hintId: string): void
   close(): void
 }
 
-export interface StreamingFileProvider extends StreamingVisualization {
+export interface StreamingPlaybackControl {
+  buildPrebuiltKeyframeIndex?(): Promise<PrebuiltKeyframeIndex | null>
+}
+
+export interface StreamingPlaybackHandle {
+  bytes: ByteRangeStreamingSession
+  control?: StreamingPlaybackControl
+  diagnostics?: StreamingVisualization
+}
+
+export interface StreamingFileProvider extends StreamingPlaybackControl, StreamingVisualization {
   readonly fileSize: number
   fileBytesToPieces(offset: number, length: number): number[]
   setStreamingPieces(pieces: Set<number> | null): void

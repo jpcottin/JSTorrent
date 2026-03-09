@@ -1,405 +1,293 @@
 # Popup Byte-Range Session Refactor
 
 See also:
-- [torrent-file-http-serving.md](torrent-file-http-serving.md) - HTTP serving modes and proposed control-plane additions
+- [torrent-file-http-serving.md](torrent-file-http-serving.md) - HTTP serving modes and control-plane direction
 - [on-demand-streaming.md](on-demand-streaming.md) - current JS streaming pipeline context
-- [streaming-ui-vision.md](streaming-ui-vision.md) - current player/watch UX direction
-- [android-native-streaming-player-mvp.md](android-native-streaming-player-mvp.md) - Android-native playback boundary and byte-source direction
+- [streaming-ui-vision.md](streaming-ui-vision.md) - player/watch UX direction
+- [android-native-streaming-player-mvp.md](android-native-streaming-player-mvp.md) - Android-native byte-source direction
 
 ## Purpose
 
-Sketch a refactor plan for the popup watch-player transport so the future playback/session boundary becomes byte-range-based and torrent-unaware, while still preserving torrent-specific diagnostics like piece visualization.
+Record the cleaner long-term boundary for popup playback after the initial byte-range-session refactor landed in code.
 
-This is meant as a review document for another agent before implementation work starts.
+The key clarification is that we do not want one generic session surface that mixes:
 
-## Why This Refactor Is Worth Doing
+- byte reads
+- torrent prioritization hints
+- media-prep orchestration
+- diagnostics
 
-Today the popup player transport is still engine-shaped rather than consumer-shaped.
+Those concerns should be split explicitly.
 
-Current popup boundary:
+## Direction
 
-- `waitForPieces(pieceIndices)`
-- `setStreamingPieces(Set<piece>)`
-- `updateStreamingDemand(token, Set<piece>, urgency)`
-- `fileBytesToPieces(offset, length)`
-- `readFileBytes(offset, length)`
+We want two primary surfaces and one optional auxiliary surface.
 
-Relevant files:
+### 1. Byte session
 
-- [packages/client/src/utils/video-popup-session.ts](/Users/kgraehl/code/jstorrent/packages/client/src/utils/video-popup-session.ts)
-- [packages/client/src/components/VideoPopupPage.tsx](/Users/kgraehl/code/jstorrent/packages/client/src/components/VideoPopupPage.tsx)
-- [packages/client/src/AppContent.tsx](/Users/kgraehl/code/jstorrent/packages/client/src/AppContent.tsx)
-- [packages/engine/src/streaming/streaming-file-provider.ts](/Users/kgraehl/code/jstorrent/packages/engine/src/streaming/streaming-file-provider.ts)
-- [packages/engine/src/streaming/streaming-playback-session.ts](/Users/kgraehl/code/jstorrent/packages/engine/src/streaming/streaming-playback-session.ts)
+This is the common substrate for:
 
-That shape works for an in-process popup, but it is not the right long-term transport contract for:
+- popup playback
+- blocking torrent-aware `206`
+- HLS segment generation
 
-- daemon-backed blocking `206`
-- future control-WebSocket daemon <-> engine RPC
-- any non-popup consumer that just wants file bytes
-
-The consumer should not need to understand torrent pieces. The engine/session layer should own:
-
-- byte range -> piece mapping
-- `waitForPieces`
-- demand / file lock tokens
-- abort and cleanup policy
-
-This matches the architectural guidance already captured in [torrent-file-http-serving.md](torrent-file-http-serving.md): keep torrent semantics in the engine, keep transport boundaries byte-oriented, and treat piece state as diagnostics rather than the operational API.
-
-This refactor should focus on the future session boundary first, not on rename-only cleanup. Naming cleanup can happen later once the new boundary exists and real call sites can migrate to it.
-
-## Problem Statement
-
-We want two different surfaces:
-
-1. Core playback/session interface
-- byte-range based
-- torrent-unaware
-- suitable for popup playback and future daemon RPC
-
-2. Optional diagnostics/visualization interface
-- torrent-aware
-- piece snapshots and similar metadata for UI/debugging
-
-The refactor should make those two surfaces explicit instead of mixing them together in the popup transport.
-
-## Current Shape
-
-### Popup launch contract
-
-The popup is currently launched with:
-
-- `sessionId`
-- `fileName`
-- `fileSize`
-- `fileOffset`
-- `pieceLength`
-
-Relevant files:
-
-- [packages/client/src/host/types.ts](/Users/kgraehl/code/jstorrent/packages/client/src/host/types.ts)
-- [packages/client/src/components/VideoPopupPage.tsx](/Users/kgraehl/code/jstorrent/packages/client/src/components/VideoPopupPage.tsx)
-- [extension/src/sw.ts](/Users/kgraehl/code/jstorrent/extension/src/sw.ts)
-
-The presence of `fileOffset` and `pieceLength` in the popup descriptor is the clearest sign that the popup-side transport boundary is leaking torrent internals.
-
-### Popup transport contract
-
-In [video-popup-session.ts](/Users/kgraehl/code/jstorrent/packages/client/src/utils/video-popup-session.ts):
-
-- host -> popup messages include:
-  - `setStreamingPieces`
-  - `updateStreamingFileLock`
-  - `updateStreamingDemand`
-  - `call`
-  - `abort`
-  - `close`
-- popup -> host messages include:
-  - `result`
-  - `error`
-  - `closing`
-
-RPC methods currently include:
-
-- `waitForPieces`
-- `readFileBytes`
-- `buildPrebuiltKeyframeIndex`
-- `getPieceTimelineSnapshot`
-
-### Engine/session internals
-
-The right torrent-aware logic is already concentrated lower in the stack:
-
-- [packages/engine/src/streaming/streaming-playback-session.ts](/Users/kgraehl/code/jstorrent/packages/engine/src/streaming/streaming-playback-session.ts)
-- [packages/engine/src/streaming/streaming-file-provider.ts](/Users/kgraehl/code/jstorrent/packages/engine/src/streaming/streaming-file-provider.ts)
-- [packages/engine/src/core/torrent.ts](/Users/kgraehl/code/jstorrent/packages/engine/src/core/torrent.ts)
-
-That is a good place for:
-
-- piece mapping
-- wait policy
-- demand windows
-- lock lifecycle
-
-It is not a good idea to spread those concerns outward into popup transport, daemon transport, and UI-facing contracts separately.
-
-The current name also contributes to the confusion. `StreamingFileProvider` sounds like the generic playback abstraction, but in practice it is the torrent-backed, piece-aware adapter. That is a real naming issue, but it should be treated as follow-up cleanup after the new byte-range session boundary exists.
-
-## Target Shape
-
-### Core interface
-
-Introduce a narrower byte-range-oriented session interface for consumers:
+It should stay minimal and identical across those consumers.
 
 ```ts
 interface ByteRangeStreamingSession {
   readonly fileSize: number
   read(offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array>
-  waitForRange(offset: number, length: number, signal?: AbortSignal): Promise<void>
-  setHint(
-    hintId: string,
-    offset: number,
-    length: number,
-    urgency: 'metadata' | 'next' | 'now',
-  ): void
-  clearHint(hintId: string): void
+  waitForRange?(offset: number, length: number, signal?: AbortSignal): Promise<void>
   close(): void
 }
 ```
 
 Notes:
 
-- `read()` is the essential operation.
-- `waitForRange()` exists for daemon/control-plane parity even if popup mostly relies on blocking `read()`.
-- hints need stable IDs and explicit clearing so seek-driven demand can be updated or canceled cleanly.
-- `close()` is explicit session cleanup.
+- `read()` is the core operation.
+- `waitForRange()` is optional but useful for daemon/control-plane parity.
+- No public hint API belongs here.
+- No piece-aware API belongs here.
 
-### Naming
+### 2. Playback control and media prep
 
-Proposed names:
+This surface is only for players we control, such as the popup player.
 
-- keep `StreamingPlaybackSession` if it becomes the byte-range session implementation
-- introduce a transport-facing name like `ByteRangeStreamingSession` for the consumer contract
-- defer rename-only cleanup of lower-level torrent-facing types until after the new session boundary exists
+It can be richer because it is not the shared substrate for arbitrary HTTP clients or remote receivers.
 
-This gives a cleaner split:
+Responsibilities here include:
 
-- existing torrent-facing provider types = low-level torrent primitives
-- `ByteRangeStreamingSession` = consumer-facing byte-range API
-- `StreamingVisualization` = optional diagnostics
+- deciding playback mode based on platform and player capabilities
+- being passive or active about startup
+- requesting media metadata preparation when useful
+- retrieving prepared playback metadata
 
-### Diagnostics interface
+Conceptually:
 
-Keep torrent-aware visualization as an auxiliary surface:
+```ts
+interface PlaybackControlService {
+  getPlaybackCapabilities(): Promise<PlaybackCapabilities>
+  preparePlaybackMetadata(kind: PlaybackMetadataKind): Promise<void>
+  getPreparedPlaybackMetadata(): Promise<PreparedPlaybackMetadata | null>
+}
+```
+
+This is the right home for operations like prebuilding a keyframe index. It is not the right home for torrent scheduling hints.
+
+### 3. Optional diagnostics
+
+Diagnostics stay separate from both of the above.
 
 ```ts
 interface StreamingVisualization {
   getPieceTimelineSnapshot?(): Promise<StreamingFilePieceSnapshot | null>
-  buildPrebuiltKeyframeIndex?(): Promise<PrebuiltKeyframeIndex | null>
 }
 ```
 
-This keeps piece visualization available without making piece-level operations part of the core transport contract.
+This keeps torrent-aware visualization available without leaking torrent internals into the operational API.
 
-### Popup launch contract after refactor
+## Why This Split Is Cleaner
 
-The popup launch descriptor should shrink toward:
+### Public clients do not speak hints
+
+We want the future network-facing contracts to be:
+
+- plain HTTP `206` range requests
+- HLS playlist and segment requests
+
+Those clients will never send extra torrent-prioritization hints. That means the shared byte-level contract should not require or advertise them.
+
+### Popup does control playback strategy
+
+The popup player is different from an uncontrolled HTTP client.
+
+It may need to choose between:
+
+- direct byte-stream playback
+- HLS-style playback
+- future mode-specific optimizations
+
+That means the popup legitimately needs playback-control and media-prep APIs. It does not mean it should control torrent demand tokens or piece windows directly.
+
+### Metadata prep is different from byte reads
+
+Operations like `buildPrebuiltKeyframeIndex()` are not byte-session primitives.
+
+They are media-prep operations:
+
+- inspect container metadata
+- fetch sparse metadata ranges as needed
+- build a reusable playback artifact
+
+Those operations belong on the playback-control/media-prep surface.
+
+## Current Problems
+
+The initial popup refactor improved the transport substantially, but the conceptual boundary still needs cleanup.
+
+Remaining issues:
+
+- the popup/session shape still suggests hints belong on the public session contract
+- `buildPrebuiltKeyframeIndex()` still reads like a session RPC rather than a media-prep capability
+- diagnostics and operational methods are still too easy to conflate
+
+The next refactor should fix the conceptual boundary, not just rename types.
+
+## Target Popup Model
+
+The popup should receive or construct a handle with clearly separated surfaces:
+
+```ts
+interface PopupPlaybackHandle {
+  bytes: ByteRangeStreamingSession
+  control?: PlaybackControlService
+  diagnostics?: StreamingVisualization
+}
+```
+
+That gives the popup player what it actually needs:
+
+- a uniform byte source
+- optional controlled-player APIs for metadata prep and mode selection
+- optional torrent diagnostics for UI/debugging
+
+## What Should Stay Internal
+
+These remain engine/internal concerns:
+
+- byte range -> piece mapping
+- `waitForPieces`
+- streaming demand tokens
+- file locks
+- forward-download heuristics
+- cleanup on abort/seek/close
+
+Even when a controlled player requests metadata preparation, the scheduling mechanics remain internal to the engine.
+
+## Implications For `206` And HLS
+
+### Blocking torrent-aware `206`
+
+The contract is complete with byte reads and waits.
+
+The server can infer urgency from actual request behavior:
+
+- active range reads are highest priority
+- aborted reads are canceled
+- forward-moving range patterns imply the playback frontier
+
+No public hint surface is required.
+
+### HLS
+
+HLS is not a different byte API.
+
+It is a different consumer/controller over the same byte session.
+
+HLS may need extra media preparation:
+
+- parse container metadata
+- build keyframe index
+- derive segment plan
+- generate init data and segment responses
+
+That work should live in the playback-control/media-prep layer, not in the shared byte session contract.
+
+## Popup Launch Contract
+
+The popup launch descriptor should remain minimal:
 
 - `sessionId`
 - `fileName`
 - `fileSize`
 
-Potentially nothing else is required once the popup talks only to a byte-range session.
-
-That means `fileOffset` and `pieceLength` should no longer be necessary in:
-
-- [packages/client/src/host/types.ts](/Users/kgraehl/code/jstorrent/packages/client/src/host/types.ts)
-- [packages/client/src/components/VideoPopupPage.tsx](/Users/kgraehl/code/jstorrent/packages/client/src/components/VideoPopupPage.tsx)
-- [extension/src/sw.ts](/Users/kgraehl/code/jstorrent/extension/src/sw.ts)
-
-## Mapping From Current API To Target API
-
-Current popup-facing operations:
-
-- `waitForPieces(pieceIndices)`
-- `setStreamingPieces(Set<piece>)`
-- `updateStreamingDemand(token, Set<piece>, urgency)`
-- `updateStreamingFileLock(token, enabled)`
-- `readFileBytes(offset, length)`
-
-Target popup-facing operations:
-
-- `waitForRange(offset, length)`
-- `setHint(hintId, offset, length, urgency)`
-- `clearHint(hintId)`
-- `read(offset, length)`
-- `close`
-
-Internal translation should happen inside the engine/session implementation:
-
-- `waitForRange(offset, length)` ->
-  `fileBytesToPieces(offset, length)` ->
-  `waitForPieces(pieceIndices)`
-
-- `setHint(hintId, offset, length, urgency)` ->
-  `fileBytesToPieces(offset, length)` ->
-  `updateStreamingDemand(tokenForHintId, pieces, urgency)`
-
-- `clearHint(hintId)` ->
-  `updateStreamingDemand(tokenForHintId, null, 'now')`
-
-- `close()` ->
-  clear hint tokens + clear read-scoped demand + release file lock + abort outstanding waits
-
-That keeps the transport byte-based while preserving the current torrent-aware behavior under the hood.
+Transport details like `fileOffset` and `pieceLength` do not belong in the popup launch contract.
 
 ## Recommended Refactor Order
 
-### Phase 1: Extract the future engine-side session boundary
+### Phase 1: Narrow the core session contract
 
 Goal:
 
-- define the future byte-range session abstraction in the engine before changing popup transport
+- make the byte session explicitly byte-oriented and remove public hints from its intended long-term contract
 
 Changes:
 
-- introduce `ByteRangeStreamingSession` above the existing torrent-facing provider layer
-- implement it by adapting current `StreamingPlaybackSession` behavior rather than replacing that behavior
-- keep range -> piece translation, file locks, demand windows, and abort cleanup inside the session implementation
+- keep `read`, `waitForRange`, and `close` as the shared session operations
+- treat any torrent prioritization policy as internal engine behavior
+- stop using the popup session as the place to define public hint semantics
 
 Expected result:
 
-- there is a concrete future-facing session object that popup and daemon transports can proxy directly
+- popup, `206`, and HLS can all describe the same underlying byte session cleanly
 
-### Phase 2: Make streaming hints explicit in the session contract
-
-Goal:
-
-- preserve current demand behavior while making the future transport byte-oriented
-
-Changes:
-
-- add `setHint(hintId, offset, length, urgency)` and `clearHint(hintId)` to the session contract
-- map each `hintId` to a stable internal demand token
-- keep read-scoped demand separate from hint-scoped demand
-- ensure `clearHint()` and `close()` immediately release hint demand
-
-Validation concerns:
-
-- replacing a hint with the same `hintId` should update, not accumulate
-- seek-driven hint changes must not leave stale demand behind
-
-### Phase 3: Add explicit range waiting to the session
+### Phase 2: Introduce a playback-control/media-prep surface
 
 Goal:
 
-- support future control-plane parity without requiring piece-aware RPC
+- give controlled players a richer API without polluting the byte layer
 
 Changes:
 
-- expose `waitForRange(offset, length, signal)` on the engine session
-- implement it via byte-range -> piece mapping plus the existing wait behavior
-- share abort semantics with blocking reads
+- define a `PlaybackControlService`-style contract for controlled-player operations
+- move `buildPrebuiltKeyframeIndex()` conceptually into that surface
+- make playback capabilities and prepared metadata explicit
 
 Expected result:
 
-- future daemon RPC can model `WAIT_FOR_RANGE` / `CANCEL_RANGE_WAIT` directly on the same session shape
+- popup can choose playback mode and request preparation without owning torrent scheduling
 
-### Phase 4: Refactor popup transport to proxy the session directly
+### Phase 3: Split popup transport by concern
 
 Goal:
 
-- make [video-popup-session.ts](/Users/kgraehl/code/jstorrent/packages/client/src/utils/video-popup-session.ts) proxy the future session contract rather than torrent primitives
+- make the transport shape match the architectural split
 
 Changes:
 
-- host side proxies a `ByteRangeStreamingSession`, not a `StreamingFileProvider`
-- popup RPC methods become `read`, `waitForRange`, `setHint`, `clearHint`, and `close`
-- remove popup-side use of `fileBytesToPieces`
-- keep diagnostics as optional extra RPC methods
+- proxy byte-session methods separately from playback-control/media-prep methods
+- keep diagnostics as an optional auxiliary surface
+- remove public hint methods from popup transport
 
 Expected result:
 
-- popup transport becomes the clean reference model for future daemon control RPC
+- popup transport no longer suggests that hints are part of the shared session model
 
-### Phase 5: Cut popup playback to the new session contract
+### Phase 4: Reuse the same byte contract for daemon work
 
 Goal:
 
-- make the public popup boundary match the future architecture with a clean break
+- make future daemon `206` and HLS work reuse the same substrate
 
 Changes:
 
-- make popup playback consume the byte-range session transport directly
-- remove `fileOffset` and `pieceLength` from popup launch/session inputs
-- keep diagnostics optional so playback does not depend on torrent-aware metadata
+- document daemon/control-plane operations in terms of byte waits and lifecycle
+- keep media-prep operations separate from blocking range waits
+- do not invent daemon-specific torrent-hint APIs
 
 Expected result:
 
-- popup playback uses the future session boundary with no rollback path and no legacy transport retained
+- daemon protocols align with the same byte session already used by popup playback
 
-### Phase 6: Align daemon control-WebSocket design with the same contract
+## Success Criteria
 
-Goal:
+- the shared byte session contract is just bytes plus lifecycle
+- popup-specific playback-control APIs are clearly separate
+- metadata prep is described as a controlled-player/media service, not a byte-session primitive
+- no public contract depends on torrent hints or piece-aware operations
+- `206` and HLS are described as different consumers over the same byte substrate
 
-- use the popup refactor as the model for the future blocking `206` control plane
+## Practical Next Step
 
-After the popup refactor, the proposed control messages in [torrent-file-http-serving.md](torrent-file-http-serving.md) should conceptually align with:
+The next implementation step should be the popup-side split:
 
-- `REGISTER_STREAM_SESSION`
-- `READ_RANGE`
-- `WAIT_FOR_RANGE`
-- `CANCEL_RANGE_WAIT`
-- `SET_STREAM_HINT`
-- `CLEAR_STREAM_HINT`
-- `CLOSE_STREAM_SESSION`
+1. Keep the byte session surface minimal.
+2. Move `buildPrebuiltKeyframeIndex()` and related media-prep work behind a playback-control surface.
+3. Remove public hint methods from the popup-facing contract.
 
-At that point the daemon transport is not inventing a new model. It is reusing a byte-range session contract already proven in popup playback.
+That is the cleanest path toward a future where:
 
-## Concrete Review Questions
-
-These are the main questions another agent should review before implementation:
-
-1. Should popup use only blocking `read()`, or should it also issue explicit `waitForRange()` calls for parity with the future daemon transport?
-
-2. What hint IDs should the popup/session use in practice, for example stable IDs such as `metadata` and `next`?
-
-3. Should `StreamingPlaybackSession` itself become the transport-facing session object, or should there be a thinner adapter exposing only the future contract?
-
-4. Is `buildPrebuiltKeyframeIndex()` part of diagnostics, metadata, or a separate optional capability adjacent to the core session contract?
-
-5. Are there any current `VideoPlayer` / `playsvideo` behaviors that still require transport-level control beyond `read`, `waitForRange`, and explicit hints?
-
-## Risks
-
-### Risk: losing current streaming demand behavior
-
-The current popup path has working demand/lock semantics. A naive “just rename methods” refactor could accidentally simplify away behavior that matters for real playback.
-
-Mitigation:
-
-- preserve `StreamingPlaybackSession` behavior first
-- extract the future session boundary before changing popup transport
-- make hint lifecycle explicit rather than folding it into unnamed range updates
-
-### Risk: interface churn without helping daemon work
-
-If the refactor only renames popup methods but still leaks piece details indirectly, it will not actually help the control-WebSocket daemon design.
-
-Mitigation:
-
-- evaluate success by whether daemon RPC can be modeled directly on the new session boundary
-- avoid rename-only cleanup that does not move the future transport shape forward
-
-### Risk: over-designing the contract
-
-It is easy to introduce too many abstractions before the daemon path needs them.
-
-Mitigation:
-
-- keep the target interface minimal
-- expose only `read`, `waitForRange`, explicit hints, and `close`, plus optional diagnostics
-
-## Suggested Success Criteria
-
-This refactor is successful if:
-
-- popup playback no longer requires `pieceLength` or `fileOffset` in its public launch/session boundary
-- popup transport does not expose `waitForPieces()` or raw piece sets
-- popup/session hinting uses explicit byte-range hints with stable IDs and clear cleanup
-- piece visualization still works via an optional diagnostics path
-- the resulting popup session contract is directly reusable as the conceptual model for daemon `READ_RANGE` / `WAIT_FOR_RANGE` / `CANCEL_RANGE_WAIT` / hint RPC
-
-## Suggested First Implementation Slice
-
-If another agent picks this up, the smallest useful first slice is:
-
-1. Introduce a `ByteRangeStreamingSession` around the existing session behavior in the engine.
-2. Add explicit `setHint()` / `clearHint()` semantics backed by stable internal demand tokens.
-3. Add `waitForRange()` on that session.
-4. Leave popup transport unchanged until the engine-side session contract is concrete.
-
-That should be enough to prove the future boundary change without yet rewriting popup transport.
-
-The next slice after that should be a clean popup cutover to the new session transport with no feature flag and no legacy transport retained.
+- popup remains flexible and capability-aware
+- daemon `206` stays simple
+- HLS shares the same byte substrate
+- torrent scheduling details stay internal

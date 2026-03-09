@@ -169,6 +169,8 @@ export type {
   StreamingActivePieceInfo,
   StreamingFilePieceSnapshot,
   StreamingFileProvider,
+  StreamingPlaybackControl,
+  StreamingPlaybackHandle,
   StreamingHintUrgency,
   StreamingVisualization,
 } from './streaming/streaming-file-provider'

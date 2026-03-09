@@ -13,11 +13,7 @@ import {
   createStreamingFileProvider,
   createStreamingPlaybackSession,
 } from '@jstorrent/engine'
-import type {
-  ByteRangeStreamingSession,
-  StreamingVisualization,
-  TorrentFileInfo,
-} from '@jstorrent/engine'
+import type { StreamingPlaybackHandle, TorrentFileInfo } from '@jstorrent/engine'
 import { openExternalUrl } from './utils/external-links'
 import {
   TorrentTable,
@@ -119,7 +115,7 @@ function AppContentInner({
   const [confirmRemoveAll, setConfirmRemoveAll] = useState<Torrent[] | null>(null)
   const [removingData, setRemovingData] = useState(false)
   const [watchingVideo, setWatchingVideo] = useState<{
-    session: ByteRangeStreamingSession & StreamingVisualization
+    playback: StreamingPlaybackHandle
     fileName: string
   } | null>(null)
   const { adapter, torrents, refresh } = useEngineState()
@@ -285,12 +281,22 @@ function AppContentInner({
           throw new Error(torrent.errorMessage ?? 'Torrent could not be started for playback')
         }
 
-        const session = createStreamingPlaybackSession(createStreamingFileProvider(torrent, file.index), {
-          tokenPrefix: 'video-player',
-          logPrefix: '[video-player]',
-        })
+        const session = createStreamingPlaybackSession(
+          createStreamingFileProvider(torrent, file.index),
+          {
+            tokenPrefix: 'video-player',
+            logPrefix: '[video-player]',
+          },
+        )
         console.log('onWatchVideo: created session, opening player')
-        setWatchingVideo({ session, fileName: file.filename })
+        setWatchingVideo({
+          playback: {
+            bytes: session,
+            control: session,
+            diagnostics: session,
+          },
+          fileName: file.filename,
+        })
       } catch (err) {
         console.error('onWatchVideo: failed', err)
         standaloneAlert(
@@ -330,11 +336,18 @@ function AppContentInner({
         popupVideoSessionRef.current?.dispose()
 
         const sessionId = createSessionId()
-        const session = createStreamingPlaybackSession(createStreamingFileProvider(torrent, file.index), {
-          tokenPrefix: 'video-popup',
-          logPrefix: `[video-popup ${sessionId}]`,
+        const session = createStreamingPlaybackSession(
+          createStreamingFileProvider(torrent, file.index),
+          {
+            tokenPrefix: 'video-popup',
+            logPrefix: `[video-popup ${sessionId}]`,
+          },
+        )
+        const sessionHost = createVideoPopupSessionHost(sessionId, {
+          bytes: session,
+          control: session,
+          diagnostics: session,
         })
-        const sessionHost = createVideoPopupSessionHost(sessionId, session)
         popupVideoSessionRef.current = sessionHost
 
         try {
@@ -808,7 +821,9 @@ function AppContentInner({
       {/* Video player modal */}
       {watchingVideo && (
         <VideoPlayer
-          session={watchingVideo.session}
+          bytes={watchingVideo.playback.bytes}
+          control={watchingVideo.playback.control}
+          diagnostics={watchingVideo.playback.diagnostics}
           fileName={watchingVideo.fileName}
           onClose={() => setWatchingVideo(null)}
         />

@@ -104,13 +104,32 @@ The engine has no video dependencies. Android never imports the player package (
 
 ---
 
-## Streaming RPC Protocol
+## Streaming Surfaces
 
-Three messages. Transport-agnostic — works as direct calls, postMessage, WebSocket, or HTTP.
+This section predates the newer byte-range-session split and should now be read as two cooperating surfaces, not one overloaded streaming RPC.
+
+### Byte session
+
+Shared across popup playback, future blocking `206`, and future HLS generation:
+
+```ts
+read(offset, length, signal?) => Promise<Uint8Array>
+waitForRange?(offset, length, signal?) => Promise<void>
+close() => void
+```
+
+### Playback control and media prep
+
+Used only by players we control:
+
+- choose playback mode
+- request metadata preparation
+- retrieve prepared playback metadata
+- coordinate startup UI/progress
 
 ### `open(torrentHash, fileIndex, onProgress?) → StreamInfo`
 
-Adds the torrent (if needed), prioritizes container index pieces, waits for them, parses container, builds keyframe index, generates HLS playlist.
+Adds the torrent if needed, creates the playback handle, optionally prepares playback metadata, and returns enough information for the controlled player to choose a playback strategy.
 
 **Progress callback** (optional, for loading UI):
 ```typescript
@@ -138,13 +157,13 @@ UI maps this to:
 
 ### `segment(streamId, segmentIndex, abortSignal?) → Uint8Array`
 
-Called by hls.js fLoader. Prioritizes the required pieces, waits for them, reads bytes via playsvideo's segment processing, returns fMP4 segment.
+Called by hls.js `fLoader` when the player chooses the HLS path. The segment pipeline reads through the same byte session, performs any required media prep or remuxing, and returns an fMP4 segment.
 
-Abort signal propagates: seek → hls.js aborts in-flight loader → signal cancels `waitForPieces` → priority window shifts to new playhead position.
+Abort signal propagates through the active byte-range read or wait.
 
 ### `close(streamId) → void`
 
-Clears streaming piece priorities, tears down PlaysVideoEngine. If ephemeral (watch page), removes torrent and deletes data.
+Closes the byte session, tears down the playback pipeline, and cleans up any player-owned state. Torrent prioritization remains an engine-internal concern.
 
 ### HTTP Mapping (for daemon)
 
@@ -166,9 +185,9 @@ Get streaming working inside the existing UI page. Full-screen overlay, no new w
 
 1. **`packages/player/` package** — new workspace package. Depends on `playsvideo` and `@jstorrent/engine`.
 
-2. **TorrentSource** — mediabunny Source backed by torrent pieces. Returns data for available pieces, null for missing. Already exists at `packages/engine/src/streaming/torrent-source.ts`.
+2. **TorrentSource** — mediabunny `Source` backed by the shared byte session. Already exists at `packages/engine/src/streaming/torrent-source.ts`.
 
-3. **StreamingSession** — orchestrates the flow: create TorrentSource, ensure pieces are available (waitForPieces + setStreamingPieces), create PlaysVideoEngine with Source, manage lifecycle. Implements `open`/`segment`/`close`.
+3. **StreamingSession** — orchestrates the flow for controlled players: create the byte session, optionally request media prep, create `PlaysVideoEngine` with `Source`, manage lifecycle. Implements `open`/`segment`/`close`.
 
 4. **StreamingRPC interface** — the three-method contract. Phase 1 implementation calls StreamingSession directly (same JS context). Future implementations wrap postMessage, WebSocket, or HTTP.
 

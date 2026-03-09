@@ -1,8 +1,9 @@
 import type {
   ByteRangeStreamingSession,
   PrebuiltKeyframeIndex,
+  StreamingPlaybackControl,
+  StreamingPlaybackHandle,
   StreamingFilePieceSnapshot,
-  StreamingHintUrgency,
   StreamingVisualization,
 } from '@jstorrent/engine'
 import type { VideoPopupLaunchOptions } from '../host/types'
@@ -34,14 +35,6 @@ type HostMessage =
       method: 'read' | 'waitForRange' | 'buildPrebuiltKeyframeIndex' | 'getPieceTimelineSnapshot'
       args: unknown[]
     }
-  | {
-      type: 'setHint'
-      hintId: string
-      offset: number
-      length: number
-      urgency: StreamingHintUrgency
-    }
-  | { type: 'clearHint'; hintId: string }
   | { type: 'abort'; id: string }
   | { type: 'close' }
 
@@ -55,7 +48,7 @@ export interface VideoPopupSessionHost {
 }
 
 export interface RemoteByteRangeStreamingSessionHandle {
-  session: ByteRangeStreamingSession & StreamingVisualization
+  playback: StreamingPlaybackHandle
   dispose(): void
 }
 
@@ -86,7 +79,7 @@ function makeError(error: unknown): Error {
 
 export function createVideoPopupSessionHost(
   sessionId: string,
-  session: ByteRangeStreamingSession & StreamingVisualization,
+  playback: StreamingPlaybackHandle,
   createChannel: ChannelFactory = createDefaultChannel,
 ): VideoPopupSessionHost {
   const channel = createChannel(getChannelName(sessionId))
@@ -108,20 +101,6 @@ export function createVideoPopupSessionHost(
     const message = event.data as HostMessage
     if (!message || typeof message !== 'object' || !('type' in message)) return
 
-    if (message.type === 'setHint') {
-      try {
-        session.setHint(message.hintId, message.offset, message.length, message.urgency)
-      } catch (error) {
-        console.warn('[video-popup-session] failed to set hint', error)
-      }
-      return
-    }
-
-    if (message.type === 'clearHint') {
-      session.clearHint(message.hintId)
-      return
-    }
-
     if (message.type === 'abort') {
       pendingCalls.get(message.id)?.controller.abort()
       cleanupPendingCall(message.id)
@@ -137,7 +116,9 @@ export function createVideoPopupSessionHost(
 
     if (message.method === 'buildPrebuiltKeyframeIndex') {
       Promise.resolve(
-        session.buildPrebuiltKeyframeIndex ? session.buildPrebuiltKeyframeIndex() : null,
+        playback.control?.buildPrebuiltKeyframeIndex
+          ? playback.control.buildPrebuiltKeyframeIndex()
+          : null,
       )
         .then((index) => {
           reply({ type: 'result', id: message.id, value: index ?? null })
@@ -150,7 +131,9 @@ export function createVideoPopupSessionHost(
 
     if (message.method === 'getPieceTimelineSnapshot') {
       Promise.resolve(
-        session.getPieceTimelineSnapshot ? session.getPieceTimelineSnapshot() : null,
+        playback.diagnostics?.getPieceTimelineSnapshot
+          ? playback.diagnostics.getPieceTimelineSnapshot()
+          : null,
       )
         .then((snapshot) => {
           reply({ type: 'result', id: message.id, value: snapshot ?? null })
@@ -166,8 +149,8 @@ export function createVideoPopupSessionHost(
 
     const promise =
       message.method === 'read'
-        ? session.read(...(message.args as [number, number]), controller.signal)
-        : session.waitForRange(...(message.args as [number, number]), controller.signal)
+        ? playback.bytes.read(...(message.args as [number, number]), controller.signal)
+        : playback.bytes.waitForRange(...(message.args as [number, number]), controller.signal)
 
     promise
       .then((value) => {
@@ -187,7 +170,7 @@ export function createVideoPopupSessionHost(
       pending.controller.abort()
     }
     pendingCalls.clear()
-    session.close()
+    playback.bytes.close()
     channel.postMessage({ type: 'closing' } satisfies PopupMessage)
     channel.removeEventListener('message', onMessage)
     channel.close()
@@ -296,36 +279,31 @@ export function createRemoteByteRangeStreamingSession(
     channel.close()
   }
 
-  const postMessage = (message: HostMessage) => {
-    if (disposed) return
-    channel.postMessage(message)
+  const bytes: ByteRangeStreamingSession = {
+    fileSize: descriptor.fileSize,
+    read: (offset, length, signal) => postCall<Uint8Array>('read', [offset, length], signal),
+    waitForRange: (offset, length, signal) =>
+      postCall<void>('waitForRange', [offset, length], signal).then(() => undefined),
+    close: () => {
+      dispose(true)
+    },
+  }
+
+  const control: StreamingPlaybackControl = {
+    buildPrebuiltKeyframeIndex: () =>
+      postCall<PrebuiltKeyframeIndex | null>('buildPrebuiltKeyframeIndex', []),
+  }
+
+  const diagnostics: StreamingVisualization = {
+    getPieceTimelineSnapshot: () =>
+      postCall<StreamingFilePieceSnapshot | null>('getPieceTimelineSnapshot', []),
   }
 
   return {
-    session: {
-      fileSize: descriptor.fileSize,
-      read: (offset, length, signal) => postCall<Uint8Array>('read', [offset, length], signal),
-      waitForRange: (offset, length, signal) =>
-        postCall<void>('waitForRange', [offset, length], signal).then(() => undefined),
-      setHint: (hintId, offset, length, urgency) => {
-        postMessage({
-          type: 'setHint',
-          hintId,
-          offset,
-          length,
-          urgency,
-        })
-      },
-      clearHint: (hintId) => {
-        postMessage({ type: 'clearHint', hintId })
-      },
-      close: () => {
-        dispose(true)
-      },
-      buildPrebuiltKeyframeIndex: () =>
-        postCall<PrebuiltKeyframeIndex | null>('buildPrebuiltKeyframeIndex', []),
-      getPieceTimelineSnapshot: () =>
-        postCall<StreamingFilePieceSnapshot | null>('getPieceTimelineSnapshot', []),
+    playback: {
+      bytes,
+      control,
+      diagnostics,
     },
     dispose,
   }

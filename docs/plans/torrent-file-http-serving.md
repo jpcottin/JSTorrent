@@ -70,12 +70,16 @@ These should be treated as three externally visible serving modes over shared in
 
 Shared internals should stay split roughly like this:
 
-- Torrent-byte session:
-  - file byte range -> piece mapping
-  - wait for pieces
-  - raise/clear streaming demand
-  - cancellation
-  - read file bytes
+- Byte-range session:
+  - `read(offset, length)`
+  - optional `waitForRange(offset, length)`
+  - `close()`
+  - internal file byte range -> piece mapping
+  - internal wait/cancel/priority behavior
+- Playback-control/media-prep service:
+  - player-controlled capability discovery
+  - metadata preparation
+  - prepared playback metadata retrieval
 - Segment service:
   - byte source -> demux/remux/transcode -> HLS segments
 - HTTP adapters:
@@ -121,6 +125,7 @@ The current player does not expose a public HTTP media endpoint.
 - `VideoPlayer` creates a `PlaysVideoEngine` with a torrent-backed `Source`.
 - `StreamingPlaybackSession.read()` handles byte-range-to-piece mapping, `waitForPieces`, streaming demand, and cancellation.
 - HLS exists inside the JS player pipeline via `playsvideo`/`hls.js`, not as public HTTP endpoints.
+- The popup/player may request media prep because it is a controlled client, but that should remain separate from the shared byte-session contract.
 
 Relevant files:
 
@@ -212,6 +217,7 @@ The engine already owns:
 - `waitForPieces`
 - streaming demand / file locking
 - abort/cancellation behavior
+- media-prep implementation details such as sparse metadata reads for keyframe/index building
 
 This logic is concentrated in:
 
@@ -247,11 +253,13 @@ Prefer to keep torrent semantics in the engine and use the daemon as:
 In other words:
 
 - daemon parses `Range`
-- daemon asks engine to wait/prioritize
+- daemon asks engine to wait for a byte range
 - engine decides when ready
 - daemon serves bytes from disk
 
 This avoids duplicating torrent logic inside Rust/Kotlin daemon code.
+
+The daemon-facing contract should stay byte-oriented. It should not grow a public hint API just because the engine uses internal prioritization.
 
 ### HLS over HTTP
 
@@ -263,6 +271,8 @@ Prefer to keep segment logic close to the current JS streaming stack:
 - demux/remux/transcode
 
 Expose that over HTTP instead of rebuilding the media pipeline elsewhere.
+
+HLS should reuse the same byte-range session as `206`, with additional media-prep and segment-planning services layered above it.
 
 ## Minimum Control Protocol Extension for ChromeOS Companion
 
@@ -483,6 +493,8 @@ It only requires a small RPC/control surface so the daemon can ask the engine:
 - "wake me when it is"
 - "cancel that wait"
 
+That is enough for blocking `206`. Media-prep actions for controlled players or HLS planning should be modeled separately from these byte-wait operations.
+
 ### Why this is enough
 
 This keeps the companion protocol small.
@@ -493,6 +505,7 @@ The daemon does not need:
 - piece maps
 - bitfield subscriptions
 - media bytes over WebSocket
+- public hint semantics
 
 It only needs:
 
@@ -538,6 +551,8 @@ There are two viable shapes:
   - open/session metadata
   - playlist text
   - segment bytes or segment readiness
+
+In either shape, the HLS layer should sit above the same byte-range session used for blocking `206`. The difference is in media prep and segment orchestration, not in the underlying byte contract.
 - Still keeps torrent semantics in JS, but pushes more orchestration into the daemon.
 
 Shape A is closer to the current implementation.
