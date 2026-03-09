@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type {
   ByteRangeStreamingSession,
+  PreparedPlaybackMetadata,
   PrebuiltKeyframeIndex,
-  StreamingPlaybackControl,
+  StreamingPlayerController,
   StreamingVisualization,
 } from '@jstorrent/engine'
 import { createTorrentSourceFromSession } from '@jstorrent/engine'
@@ -12,7 +13,7 @@ import { VideoPieceTimeline } from './VideoPieceTimeline'
 
 export interface VideoPlayerProps {
   bytes: ByteRangeStreamingSession
-  control?: StreamingPlaybackControl
+  controller?: StreamingPlayerController
   diagnostics?: StreamingVisualization
   fileName: string
   onClose: () => void
@@ -23,7 +24,7 @@ export interface VideoPlayerProps {
 
 export function VideoPlayer({
   bytes,
-  control,
+  controller,
   diagnostics,
   fileName,
   onClose,
@@ -74,10 +75,10 @@ export function VideoPlayer({
       let keyframeIndex: KeyframeIndex | undefined
 
       try {
-        const prebuilt = await control?.buildPrebuiltKeyframeIndex?.()
+        const preparedMetadata = await loadPreparedPlaybackMetadata(controller)
         if (disposed) return
-        if (prebuilt) {
-          keyframeIndex = toPlaysVideoKeyframeIndex(prebuilt)
+        if (preparedMetadata?.prebuiltKeyframeIndex) {
+          keyframeIndex = toPlaysVideoKeyframeIndex(preparedMetadata.prebuiltKeyframeIndex)
         }
       } catch (error) {
         console.warn('[VideoPlayer] prebuilt keyframe index unavailable, falling back', error)
@@ -104,7 +105,7 @@ export function VideoPlayer({
       video.removeAttribute('src')
       video.load()
     }
-  }, [bytes, control, fileName])
+  }, [bytes, controller, fileName])
 
   const toggleFullscreen = async () => {
     const target = fullscreenTargetRef.current
@@ -353,6 +354,21 @@ const statusStyle: React.CSSProperties = {
   color: '#fff',
   fontSize: '16px',
   textAlign: 'center',
+}
+
+async function loadPreparedPlaybackMetadata(
+  controller?: StreamingPlayerController,
+): Promise<PreparedPlaybackMetadata | null> {
+  if (!controller) {
+    return null
+  }
+
+  const prepared = await controller.preparePlaybackMetadata?.()
+  if (prepared) {
+    return prepared
+  }
+
+  return controller.getPreparedPlaybackMetadata?.() ?? null
 }
 
 function toPlaysVideoKeyframeIndex(prebuilt: PrebuiltKeyframeIndex): KeyframeIndex {

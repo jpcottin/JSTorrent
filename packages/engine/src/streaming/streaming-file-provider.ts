@@ -50,17 +50,22 @@ export interface ByteRangeStreamingSession {
   close(): void
 }
 
-export interface StreamingPlaybackControl {
-  buildPrebuiltKeyframeIndex?(): Promise<PrebuiltKeyframeIndex | null>
+export interface PreparedPlaybackMetadata {
+  prebuiltKeyframeIndex?: PrebuiltKeyframeIndex | null
+}
+
+export interface StreamingPlayerController {
+  preparePlaybackMetadata?(): Promise<PreparedPlaybackMetadata | null>
+  getPreparedPlaybackMetadata?(): Promise<PreparedPlaybackMetadata | null>
 }
 
 export interface StreamingPlaybackHandle {
   bytes: ByteRangeStreamingSession
-  control?: StreamingPlaybackControl
+  controller?: StreamingPlayerController
   diagnostics?: StreamingVisualization
 }
 
-export interface StreamingFileProvider extends StreamingPlaybackControl, StreamingVisualization {
+export interface StreamingFileProvider extends StreamingVisualization {
   readonly fileSize: number
   fileBytesToPieces(offset: number, length: number): number[]
   setStreamingPieces(pieces: Set<number> | null): void
@@ -72,4 +77,5 @@ export interface StreamingFileProvider extends StreamingPlaybackControl, Streami
   ): void
   waitForPieces(pieceIndices: number[], signal?: AbortSignal): Promise<void>
   readFileBytes(offset: number, length: number): Promise<Uint8Array>
+  buildPrebuiltKeyframeIndex?(): Promise<PrebuiltKeyframeIndex | null>
 }

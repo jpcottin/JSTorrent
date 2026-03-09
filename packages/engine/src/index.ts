@@ -165,12 +165,13 @@ export {
 } from './streaming/streaming-playback-session'
 export type {
   ByteRangeStreamingSession,
+  PreparedPlaybackMetadata,
   PrebuiltKeyframeIndex,
   StreamingActivePieceInfo,
   StreamingFilePieceSnapshot,
   StreamingFileProvider,
-  StreamingPlaybackControl,
   StreamingPlaybackHandle,
+  StreamingPlayerController,
   StreamingHintUrgency,
   StreamingVisualization,
 } from './streaming/streaming-file-provider'

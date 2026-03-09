@@ -292,7 +292,7 @@ function AppContentInner({
         setWatchingVideo({
           playback: {
             bytes: session,
-            control: session,
+            controller: session,
             diagnostics: session,
           },
           fileName: file.filename,
@@ -345,7 +345,7 @@ function AppContentInner({
         )
         const sessionHost = createVideoPopupSessionHost(sessionId, {
           bytes: session,
-          control: session,
+          controller: session,
           diagnostics: session,
         })
         popupVideoSessionRef.current = sessionHost
@@ -822,7 +822,7 @@ function AppContentInner({
       {watchingVideo && (
         <VideoPlayer
           bytes={watchingVideo.playback.bytes}
-          control={watchingVideo.playback.control}
+          controller={watchingVideo.playback.controller}
           diagnostics={watchingVideo.playback.diagnostics}
           fileName={watchingVideo.fileName}
           onClose={() => setWatchingVideo(null)}

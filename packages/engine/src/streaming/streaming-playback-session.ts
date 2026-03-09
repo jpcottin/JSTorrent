@@ -4,8 +4,8 @@ import { buildMkvPrebuiltKeyframeIndex, isMkvFile } from './mkv-keyframe-index'
 import {
   StreamingPieceState,
   type ByteRangeStreamingSession,
-  type PrebuiltKeyframeIndex,
-  type StreamingPlaybackControl,
+  type PreparedPlaybackMetadata,
+  type StreamingPlayerController,
   type StreamingFilePieceSnapshot,
   type StreamingFileProvider,
   type StreamingVisualization,
@@ -152,7 +152,7 @@ export function createStreamingPlaybackSession(
  * startup reads, and abort/dispose cleanup.
  */
 export class StreamingPlaybackSession
-  implements ByteRangeStreamingSession, StreamingPlaybackControl, StreamingVisualization
+  implements ByteRangeStreamingSession, StreamingPlayerController, StreamingVisualization
 {
   private readonly disposeController = createAbortController()
   private readonly tokenPrefix: string
@@ -168,6 +168,9 @@ export class StreamingPlaybackSession
   private fileLockActive = false
   private aheadDemandStartPiece: number | null = null
   private fallbackDemandScope: { token: string; pieces: Set<number> } | null = null
+  private preparedPlaybackMetadataReady = false
+  private preparedPlaybackMetadata: PreparedPlaybackMetadata | null = null
+  private preparingPlaybackMetadata: Promise<PreparedPlaybackMetadata | null> | null = null
 
   constructor(
     private readonly provider: StreamingFileProvider,
@@ -383,10 +386,35 @@ export class StreamingPlaybackSession
       })
   }
 
-  buildPrebuiltKeyframeIndex(): Promise<PrebuiltKeyframeIndex | null> {
-    return this.provider.buildPrebuiltKeyframeIndex
-      ? this.provider.buildPrebuiltKeyframeIndex()
-      : Promise.resolve(null)
+  preparePlaybackMetadata(): Promise<PreparedPlaybackMetadata | null> {
+    if (this.preparingPlaybackMetadata) {
+      return this.preparingPlaybackMetadata
+    }
+    if (this.preparedPlaybackMetadataReady) {
+      return Promise.resolve(this.preparedPlaybackMetadata)
+    }
+
+    const preparePromise = this.loadPreparedPlaybackMetadata().then((metadata) => {
+      this.preparedPlaybackMetadata = metadata
+      this.preparedPlaybackMetadataReady = true
+      return metadata
+    })
+
+    const trackedPreparePromise = preparePromise.finally(() => {
+      if (this.preparingPlaybackMetadata === trackedPreparePromise) {
+        this.preparingPlaybackMetadata = null
+      }
+    })
+    this.preparingPlaybackMetadata = trackedPreparePromise
+
+    return trackedPreparePromise
+  }
+
+  getPreparedPlaybackMetadata(): Promise<PreparedPlaybackMetadata | null> {
+    if (this.preparingPlaybackMetadata) {
+      return this.preparingPlaybackMetadata
+    }
+    return Promise.resolve(this.preparedPlaybackMetadataReady ? this.preparedPlaybackMetadata : null)
   }
 
   getPieceTimelineSnapshot(): Promise<StreamingFilePieceSnapshot | null> {
@@ -517,5 +545,21 @@ export class StreamingPlaybackSession
   private format(message: string, args: Array<number | string>): string {
     let i = 0
     return message.replace(/%[ds]/g, () => String(args[i++]))
+  }
+
+  private loadPreparedPlaybackMetadata(): Promise<PreparedPlaybackMetadata | null> {
+    if (!this.provider.buildPrebuiltKeyframeIndex) {
+      return Promise.resolve(null)
+    }
+
+    return this.provider.buildPrebuiltKeyframeIndex().then((prebuiltKeyframeIndex) => {
+      if (!prebuiltKeyframeIndex) {
+        return null
+      }
+
+      return {
+        prebuiltKeyframeIndex,
+      } satisfies PreparedPlaybackMetadata
+    })
   }
 }

@@ -1,8 +1,8 @@
 import type {
   ByteRangeStreamingSession,
-  PrebuiltKeyframeIndex,
-  StreamingPlaybackControl,
+  PreparedPlaybackMetadata,
   StreamingPlaybackHandle,
+  StreamingPlayerController,
   StreamingFilePieceSnapshot,
   StreamingVisualization,
 } from '@jstorrent/engine'
@@ -32,7 +32,12 @@ type HostMessage =
   | {
       type: 'call'
       id: string
-      method: 'read' | 'waitForRange' | 'buildPrebuiltKeyframeIndex' | 'getPieceTimelineSnapshot'
+      method:
+        | 'read'
+        | 'waitForRange'
+        | 'preparePlaybackMetadata'
+        | 'getPreparedPlaybackMetadata'
+        | 'getPieceTimelineSnapshot'
       args: unknown[]
     }
   | { type: 'abort'; id: string }
@@ -114,14 +119,29 @@ export function createVideoPopupSessionHost(
 
     if (message.type !== 'call') return
 
-    if (message.method === 'buildPrebuiltKeyframeIndex') {
+    if (message.method === 'preparePlaybackMetadata') {
       Promise.resolve(
-        playback.control?.buildPrebuiltKeyframeIndex
-          ? playback.control.buildPrebuiltKeyframeIndex()
+        playback.controller?.preparePlaybackMetadata
+          ? playback.controller.preparePlaybackMetadata()
           : null,
       )
         .then((index) => {
           reply({ type: 'result', id: message.id, value: index ?? null })
+        })
+        .catch((error) => {
+          reply({ type: 'error', id: message.id, message: makeError(error).message })
+        })
+      return
+    }
+
+    if (message.method === 'getPreparedPlaybackMetadata') {
+      Promise.resolve(
+        playback.controller?.getPreparedPlaybackMetadata
+          ? playback.controller.getPreparedPlaybackMetadata()
+          : null,
+      )
+        .then((metadata) => {
+          reply({ type: 'result', id: message.id, value: metadata ?? null })
         })
         .catch((error) => {
           reply({ type: 'error', id: message.id, message: makeError(error).message })
@@ -224,7 +244,12 @@ export function createRemoteByteRangeStreamingSession(
   channel.addEventListener('message', onMessage)
 
   const postCall = <T>(
-    method: 'read' | 'waitForRange' | 'buildPrebuiltKeyframeIndex' | 'getPieceTimelineSnapshot',
+    method:
+      | 'read'
+      | 'waitForRange'
+      | 'preparePlaybackMetadata'
+      | 'getPreparedPlaybackMetadata'
+      | 'getPieceTimelineSnapshot',
     args: unknown[],
     signal?: AbortSignal,
   ): Promise<T> => {
@@ -289,9 +314,11 @@ export function createRemoteByteRangeStreamingSession(
     },
   }
 
-  const control: StreamingPlaybackControl = {
-    buildPrebuiltKeyframeIndex: () =>
-      postCall<PrebuiltKeyframeIndex | null>('buildPrebuiltKeyframeIndex', []),
+  const controller: StreamingPlayerController = {
+    preparePlaybackMetadata: () =>
+      postCall<PreparedPlaybackMetadata | null>('preparePlaybackMetadata', []),
+    getPreparedPlaybackMetadata: () =>
+      postCall<PreparedPlaybackMetadata | null>('getPreparedPlaybackMetadata', []),
   }
 
   const diagnostics: StreamingVisualization = {
@@ -302,7 +329,7 @@ export function createRemoteByteRangeStreamingSession(
   return {
     playback: {
       bytes,
-      control,
+      controller,
       diagnostics,
     },
     dispose,

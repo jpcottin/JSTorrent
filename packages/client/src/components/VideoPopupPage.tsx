@@ -52,7 +52,7 @@ export function VideoPopupPage() {
   return (
     <VideoPlayer
       bytes={sessionHandle.playback.bytes}
-      control={sessionHandle.playback.control}
+      controller={sessionHandle.playback.controller}
       diagnostics={sessionHandle.playback.diagnostics}
       fileName={descriptor.fileName}
       onClose={() => window.close()}

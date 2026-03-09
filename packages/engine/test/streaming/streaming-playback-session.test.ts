@@ -26,7 +26,7 @@ function createProvider(): StreamingFileProvider {
 }
 
 describe('StreamingPlaybackSession', () => {
-  it('delegates prebuilt keyframe index requests through the playback-control surface', async () => {
+  it('prepares and caches playback metadata through the player-controller surface', async () => {
     const provider = createProvider()
     const index = {
       durationSec: 12.5,
@@ -38,7 +38,16 @@ describe('StreamingPlaybackSession', () => {
       logPrefix: '[test-session]',
     })
 
-    await expect(session.buildPrebuiltKeyframeIndex()).resolves.toEqual(index)
+    await expect(session.getPreparedPlaybackMetadata()).resolves.toBeNull()
+    await expect(session.preparePlaybackMetadata()).resolves.toEqual({
+      prebuiltKeyframeIndex: index,
+    })
+    await expect(session.getPreparedPlaybackMetadata()).resolves.toEqual({
+      prebuiltKeyframeIndex: index,
+    })
+    await expect(session.preparePlaybackMetadata()).resolves.toEqual({
+      prebuiltKeyframeIndex: index,
+    })
     expect(provider.buildPrebuiltKeyframeIndex).toHaveBeenCalledTimes(1)
   })
 

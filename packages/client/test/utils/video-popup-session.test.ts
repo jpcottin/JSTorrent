@@ -5,9 +5,10 @@ import {
 } from '../../src/utils/video-popup-session'
 import type {
   ByteRangeStreamingSession,
+  PreparedPlaybackMetadata,
   PrebuiltKeyframeIndex,
-  StreamingPlaybackControl,
   StreamingPlaybackHandle,
+  StreamingPlayerController,
   StreamingFilePieceSnapshot,
   StreamingVisualization,
 } from '@jstorrent/engine'
@@ -73,7 +74,7 @@ function createDescriptor(sessionId: string): VideoPopupLaunchOptions {
 
 function createPlaybackHandle(
   overrides: Partial<ByteRangeStreamingSession> = {},
-  control: StreamingPlaybackControl = {},
+  controller: StreamingPlayerController = {},
   diagnostics: StreamingVisualization = {},
 ): StreamingPlaybackHandle {
   const bytes: ByteRangeStreamingSession = {
@@ -86,7 +87,7 @@ function createPlaybackHandle(
 
   return {
     bytes,
-    control,
+    controller,
     diagnostics,
   }
 }
@@ -103,7 +104,7 @@ describe('video popup session transport', () => {
         waitForRange: vi.fn().mockResolvedValue(undefined),
       },
       {
-        buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(null),
+        preparePlaybackMetadata: vi.fn().mockResolvedValue(null),
       },
     )
 
@@ -145,18 +146,28 @@ describe('video popup session transport', () => {
       durationSec: 12.5,
       keyframeTimestampsSec: [0, 4, 8, 12],
     }
-    const control = {
-      buildPrebuiltKeyframeIndex: vi.fn().mockResolvedValue(index),
+    const preparedMetadata: PreparedPlaybackMetadata = {
+      prebuiltKeyframeIndex: index,
     }
-    const playback = createPlaybackHandle({}, control)
+    const controller = {
+      preparePlaybackMetadata: vi.fn().mockResolvedValue(preparedMetadata),
+      getPreparedPlaybackMetadata: vi.fn().mockResolvedValue(preparedMetadata),
+    }
+    const playback = createPlaybackHandle({}, controller)
 
     const host = createVideoPopupSessionHost('session-index', playback, createChannel)
     const remote = createRemoteByteRangeStreamingSession(createDescriptor('session-index'), {
       createChannel,
     })
 
-    await expect(remote.playback.control?.buildPrebuiltKeyframeIndex?.()).resolves.toEqual(index)
-    expect(control.buildPrebuiltKeyframeIndex).toHaveBeenCalledTimes(1)
+    await expect(remote.playback.controller?.preparePlaybackMetadata?.()).resolves.toEqual(
+      preparedMetadata,
+    )
+    await expect(remote.playback.controller?.getPreparedPlaybackMetadata?.()).resolves.toEqual(
+      preparedMetadata,
+    )
+    expect(controller.preparePlaybackMetadata).toHaveBeenCalledTimes(1)
+    expect(controller.getPreparedPlaybackMetadata).toHaveBeenCalledTimes(1)
 
     remote.dispose()
     host.dispose()
