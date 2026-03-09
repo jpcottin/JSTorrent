@@ -123,9 +123,15 @@ close() => void
 Used only by players we control:
 
 - choose playback mode
+- enumerate concrete playback options for this file/session
 - request metadata preparation
 - retrieve prepared playback metadata
 - coordinate startup UI/progress
+
+The first concrete split here should be:
+
+- `direct-bytes` for complete files with a daemon-minted HTTP stream URL
+- `hls` for the existing `playsvideo` pipeline over the shared byte session
 
 ### `open(torrentHash, fileIndex, onProgress?) → StreamInfo`
 

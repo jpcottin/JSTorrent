@@ -6,8 +6,10 @@ import {
   StreamingPlaybackMode,
   StreamingPieceState,
   type ByteRangeStreamingSession,
+  type HlsPlaybackOption,
   type PreparedPlaybackMetadata,
   type StreamingPlaybackCapabilities,
+  type StreamingPlaybackOption,
   type StreamingPlayerController,
   type StreamingFilePieceSnapshot,
   type StreamingFileProvider,
@@ -38,6 +40,16 @@ function createDefaultPlaybackCapabilities(): StreamingPlaybackCapabilities {
     containerFormat: StreamingContainerFormat.Unknown,
     canPrepareMetadata: false,
   }
+}
+
+function createDefaultPlaybackOptions(
+  capabilities: StreamingPlaybackCapabilities,
+): StreamingPlaybackOption[] {
+  const options: StreamingPlaybackOption[] = []
+  if (capabilities.supportedModes.includes(StreamingPlaybackMode.Hls)) {
+    options.push({ mode: StreamingPlaybackMode.Hls } satisfies HlsPlaybackOption)
+  }
+  return options
 }
 
 function getStreamingPieceState(piece: {
@@ -240,6 +252,12 @@ export class StreamingPlaybackSession
       this.playbackCapabilities = capabilities
       return capabilities
     })
+  }
+
+  getPlaybackOptions(): Promise<StreamingPlaybackOption[]> {
+    return this.getPlaybackCapabilities().then((capabilities) =>
+      createDefaultPlaybackOptions(capabilities),
+    )
   }
 
   setCurrentSignal(signal: AbortSignal | null): void {

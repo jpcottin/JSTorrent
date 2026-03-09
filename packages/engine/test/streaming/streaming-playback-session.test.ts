@@ -51,6 +51,7 @@ describe('StreamingPlaybackSession', () => {
       containerFormat: StreamingContainerFormats.Matroska,
       canPrepareMetadata: true,
     })
+    await expect(session.getPlaybackOptions()).resolves.toEqual([{ mode: StreamingPlaybackModes.Hls }])
     await expect(session.getPreparedPlaybackMetadata()).resolves.toBeNull()
     await expect(session.preparePlaybackMetadata()).resolves.toEqual({
       capabilities: {

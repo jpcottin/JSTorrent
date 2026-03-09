@@ -78,6 +78,7 @@ Shared internals should stay split roughly like this:
   - internal wait/cancel/priority behavior
 - Playback-control/media-prep service:
   - player-controlled capability discovery
+  - per-file playback option discovery
   - metadata preparation
   - prepared playback metadata retrieval
 - Segment service:
@@ -94,6 +95,11 @@ Pragmatic rollout order:
 3. Blocking torrent-aware `206`
 
 This gets a cheap fast path first, then a flexible cast/network path, then the more involved torrent-aware direct-play path.
+
+For controlled players, the first concrete direct-play option should be a daemon-minted HTTP stream URL for complete files. That lets the player controller choose between:
+
+- `direct-bytes` when the file is complete and the browser can probably direct-play it
+- `hls` otherwise
 
 ## Implementation Matrix
 
@@ -126,6 +132,7 @@ The current player does not expose a public HTTP media endpoint.
 - `StreamingPlaybackSession.read()` handles byte-range-to-piece mapping, `waitForPieces`, streaming demand, and cancellation.
 - HLS exists inside the JS player pipeline via `playsvideo`/`hls.js`, not as public HTTP endpoints.
 - The popup/player may request media prep because it is a controlled client, but that should remain separate from the shared byte-session contract.
+- The next controller step is to let the player choose a complete-file daemon URL fast path before falling back to that HLS pipeline.
 
 Relevant files:
 

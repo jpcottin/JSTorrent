@@ -34,6 +34,7 @@ import { standaloneAlert } from './utils/dialogs'
 import type { VideoPopupLaunchOptions } from './host/types'
 import { prepareTorrentForVideoPlayback } from './utils/watch-video'
 import { createVideoPopupSessionHost } from './utils/video-popup-session'
+import { createStreamingPlaybackHandle } from './utils/streaming-player-controller'
 import {
   UBUNTU_SERVER_MAGNET,
   BIG_BUCK_BUNNY_MAGNET,
@@ -64,6 +65,11 @@ export interface AppContentProps {
   onCopyFilePath?: (torrentHash: string, file: FileInfo) => Promise<void>
   /** Handler for copying a LAN share URL (platform-specific) */
   onCopyLanShareUrl?: (torrentHash: string, file: FileInfo) => Promise<void>
+  /** Handler for creating a direct-playback URL for a complete file (platform-specific). */
+  onCreateDirectPlaybackUrl?: (
+    torrentHash: string,
+    file: FileInfo,
+  ) => Promise<{ url: string; mimeType?: string | null } | null>
   /** Handler for opening torrent folder from context menu (platform-specific) */
   onOpenFolder?: (torrentHash: string) => Promise<void>
   /** Handler for duplicate torrent notification (optional) */
@@ -92,6 +98,7 @@ function AppContentInner({
   onRevealInFolder,
   onCopyFilePath,
   onCopyLanShareUrl,
+  onCreateDirectPlaybackUrl,
   onOpenFolder,
   onDuplicateTorrent,
   onTorrentAdded,
@@ -290,11 +297,27 @@ function AppContentInner({
         )
         console.log('onWatchVideo: created session, opening player')
         setWatchingVideo({
-          playback: {
+          playback: createStreamingPlaybackHandle({
             bytes: session,
             controller: session,
             diagnostics: session,
-          },
+            getDirectByteOption:
+              onCreateDirectPlaybackUrl && torrent.isFileComplete(file.index)
+                ? async () => {
+                    const directPlayback = await onCreateDirectPlaybackUrl(torrentHash, {
+                      path: file.path,
+                    })
+                    if (!directPlayback?.url) {
+                      return null
+                    }
+                    return {
+                      mode: 'direct-bytes',
+                      url: directPlayback.url,
+                      mimeType: directPlayback.mimeType ?? null,
+                    }
+                  }
+                : undefined,
+          }),
           fileName: file.filename,
         })
       } catch (err) {
@@ -306,7 +329,7 @@ function AppContentInner({
         )
       }
     },
-    [adapter, refresh],
+    [adapter, onCreateDirectPlaybackUrl, refresh],
   )
 
   const handleWatchVideoInPopup = useCallback(
@@ -343,11 +366,30 @@ function AppContentInner({
             logPrefix: `[video-popup ${sessionId}]`,
           },
         )
-        const sessionHost = createVideoPopupSessionHost(sessionId, {
-          bytes: session,
-          controller: session,
-          diagnostics: session,
-        })
+        const sessionHost = createVideoPopupSessionHost(
+          sessionId,
+          createStreamingPlaybackHandle({
+            bytes: session,
+            controller: session,
+            diagnostics: session,
+            getDirectByteOption:
+              onCreateDirectPlaybackUrl && torrent.isFileComplete(file.index)
+                ? async () => {
+                    const directPlayback = await onCreateDirectPlaybackUrl(torrentHash, {
+                      path: file.path,
+                    })
+                    if (!directPlayback?.url) {
+                      return null
+                    }
+                    return {
+                      mode: 'direct-bytes',
+                      url: directPlayback.url,
+                      mimeType: directPlayback.mimeType ?? null,
+                    }
+                  }
+                : undefined,
+          }),
+        )
         popupVideoSessionRef.current = sessionHost
 
         try {
@@ -372,7 +414,7 @@ function AppContentInner({
         )
       }
     },
-    [adapter, onOpenVideoPopup, refresh],
+    [adapter, onCreateDirectPlaybackUrl, onOpenVideoPopup, refresh],
   )
 
   React.useEffect(() => {

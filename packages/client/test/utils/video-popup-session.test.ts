@@ -5,10 +5,12 @@ import {
 } from '../../src/utils/video-popup-session'
 import type {
   ByteRangeStreamingSession,
+  DirectBytePlaybackOption,
   PreparedPlaybackMetadata,
   PrebuiltKeyframeIndex,
   StreamingContainerFormat,
   StreamingPlaybackCapabilities,
+  StreamingPlaybackOption,
   StreamingPlaybackHandle,
   StreamingPlaybackMode,
   StreamingPlayerController,
@@ -162,8 +164,17 @@ describe('video popup session transport', () => {
       capabilities,
       prebuiltKeyframeIndex: index,
     }
+    const playbackOptions: StreamingPlaybackOption[] = [
+      {
+        mode: 'direct-bytes',
+        url: 'http://127.0.0.1:4321/stream/token',
+        mimeType: 'video/mp4',
+      } satisfies DirectBytePlaybackOption,
+      { mode: HLS_MODE },
+    ]
     const controller = {
       getPlaybackCapabilities: vi.fn().mockResolvedValue(capabilities),
+      getPlaybackOptions: vi.fn().mockResolvedValue(playbackOptions),
       preparePlaybackMetadata: vi.fn().mockResolvedValue(preparedMetadata),
       getPreparedPlaybackMetadata: vi.fn().mockResolvedValue(preparedMetadata),
     }
@@ -177,6 +188,9 @@ describe('video popup session transport', () => {
     await expect(remote.playback.controller?.getPlaybackCapabilities?.()).resolves.toEqual(
       capabilities,
     )
+    await expect(remote.playback.controller?.getPlaybackOptions?.()).resolves.toEqual(
+      playbackOptions,
+    )
     await expect(remote.playback.controller?.preparePlaybackMetadata?.()).resolves.toEqual(
       preparedMetadata,
     )
@@ -184,6 +198,7 @@ describe('video popup session transport', () => {
       preparedMetadata,
     )
     expect(controller.getPlaybackCapabilities).toHaveBeenCalledTimes(1)
+    expect(controller.getPlaybackOptions).toHaveBeenCalledTimes(1)
     expect(controller.preparePlaybackMetadata).toHaveBeenCalledTimes(1)
     expect(controller.getPreparedPlaybackMetadata).toHaveBeenCalledTimes(1)
 

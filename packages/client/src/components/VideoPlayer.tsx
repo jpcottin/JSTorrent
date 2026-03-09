@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type {
   ByteRangeStreamingSession,
+  DirectBytePlaybackOption,
   PreparedPlaybackMetadata,
   PrebuiltKeyframeIndex,
   StreamingPlaybackCapabilities,
   StreamingPlaybackMode,
+  StreamingPlaybackOption,
   StreamingPlayerController,
   StreamingVisualization,
 } from '@jstorrent/engine'
@@ -13,8 +15,9 @@ import { PlaysVideoEngine, Source } from 'playsvideo'
 import type { KeyframeIndex } from 'playsvideo'
 import { VideoPieceTimeline } from './VideoPieceTimeline'
 
-const HLS_MODE: StreamingPlaybackMode = 'hls'
-const POPUP_PLAYBACK_MODE_PREFERENCE: StreamingPlaybackMode[] = [HLS_MODE, 'direct-bytes']
+const DIRECT_BYTES_MODE = 'direct-bytes' as const
+const HLS_MODE = 'hls' as const
+const PLAYER_PLAYBACK_MODE_PREFERENCE: StreamingPlaybackMode[] = [DIRECT_BYTES_MODE, HLS_MODE]
 
 export interface VideoPlayerProps {
   bytes: ByteRangeStreamingSession
@@ -59,56 +62,62 @@ export function VideoPlayer({
     if (!video) return
 
     let disposed = false
-
-    const source = createTorrentSourceFromSession(Source, bytes)
-    const engine = new PlaysVideoEngine(video)
-    engineRef.current = engine
-
-    engine.addEventListener('ready', () => {
-      if (disposed) return
-      console.log('[VideoPlayer] ready')
-      setState((s) => ({ ...s, phase: 'ready' }))
-    })
-
-    engine.addEventListener('error', ((e: CustomEvent<{ message: string }>) => {
-      if (disposed) return
-      console.error('[VideoPlayer] error:', e.detail.message)
-      setState((s) => ({ ...s, phase: 'error', errorMessage: e.detail.message }))
-    }) as EventListener)
+    let cleanupPlayback = () => {}
 
     void (async () => {
       let keyframeIndex: KeyframeIndex | undefined
 
       try {
         const playbackCapabilities = await controller?.getPlaybackCapabilities?.()
-        const selectedMode = selectPlaybackMode(playbackCapabilities)
+        const playbackOptions = await controller?.getPlaybackOptions?.()
+        const selectedOption = selectPlaybackOption(video, playbackOptions, playbackCapabilities)
+        if (disposed) return
+        console.log('[VideoPlayer] selected playback mode', {
+          selectedMode: selectedOption.mode,
+          playbackOptions: playbackOptions ?? [{ mode: HLS_MODE }],
+          supportedModes: playbackCapabilities?.supportedModes ?? [HLS_MODE],
+          containerFormat: playbackCapabilities?.containerFormat ?? 'unknown',
+        })
+
+        if (selectedOption.mode === DIRECT_BYTES_MODE) {
+          cleanupPlayback = startDirectBytePlayback(video, selectedOption, () => {
+            if (disposed) return
+            console.log('[VideoPlayer] ready')
+            setState((s) => ({ ...s, phase: 'ready' }))
+          }, (message) => {
+            if (disposed) return
+            console.error('[VideoPlayer] error:', message)
+            setState((s) => ({ ...s, phase: 'error', errorMessage: message }))
+          })
+          return
+        }
+
         const preparedMetadata = await loadPreparedPlaybackMetadata(controller)
         if (disposed) return
         if (preparedMetadata?.prebuiltKeyframeIndex) {
           keyframeIndex = toPlaysVideoKeyframeIndex(preparedMetadata.prebuiltKeyframeIndex)
         }
-        console.log('[VideoPlayer] selected playback mode', {
-          selectedMode,
-          supportedModes: playbackCapabilities?.supportedModes ?? [HLS_MODE],
-          containerFormat:
-            preparedMetadata?.capabilities?.containerFormat ??
-            playbackCapabilities?.containerFormat ??
-            'unknown',
-        })
-
-        if (selectedMode !== HLS_MODE) {
-          setState((s) => ({
-            ...s,
-            phase: 'error',
-            errorMessage: `Playback mode ${selectedMode} is not implemented in the popup player`,
-          }))
-          return
-        }
       } catch (error) {
-        console.warn('[VideoPlayer] prebuilt keyframe index unavailable, falling back', error)
+        console.warn('[VideoPlayer] playback preparation unavailable, falling back', error)
       }
 
       if (disposed) return
+
+      const source = createTorrentSourceFromSession(Source, bytes)
+      const engine = new PlaysVideoEngine(video)
+      engineRef.current = engine
+
+      engine.addEventListener('ready', () => {
+        if (disposed) return
+        console.log('[VideoPlayer] ready')
+        setState((s) => ({ ...s, phase: 'ready' }))
+      })
+
+      engine.addEventListener('error', ((e: CustomEvent<{ message: string }>) => {
+        if (disposed) return
+        console.error('[VideoPlayer] error:', e.detail.message)
+        setState((s) => ({ ...s, phase: 'error', errorMessage: e.detail.message }))
+      }) as EventListener)
 
       console.log(
         '[VideoPlayer] loadSource',
@@ -123,7 +132,8 @@ export function VideoPlayer({
 
     return () => {
       disposed = true
-      engine.destroy()
+      cleanupPlayback()
+      engineRef.current?.destroy()
       engineRef.current = null
       video.pause()
       video.removeAttribute('src')
@@ -402,13 +412,70 @@ function selectPlaybackMode(
     return HLS_MODE
   }
 
-  for (const mode of POPUP_PLAYBACK_MODE_PREFERENCE) {
+  for (const mode of PLAYER_PLAYBACK_MODE_PREFERENCE) {
     if (capabilities.supportedModes.includes(mode)) {
       return mode
     }
   }
 
   return capabilities.preferredMode
+}
+
+function selectPlaybackOption(
+  video: HTMLVideoElement,
+  playbackOptions?: StreamingPlaybackOption[] | null,
+  capabilities?: StreamingPlaybackCapabilities | null,
+): StreamingPlaybackOption {
+  const options = playbackOptions ?? [{ mode: HLS_MODE }]
+
+  for (const mode of PLAYER_PLAYBACK_MODE_PREFERENCE) {
+    const option = options.find((candidate) => candidate.mode === mode)
+    if (!option) continue
+    if (option.mode === DIRECT_BYTES_MODE && !canPlayDirectBytes(video, option)) {
+      continue
+    }
+    return option
+  }
+
+  const fallbackMode = selectPlaybackMode(capabilities)
+  return options.find((candidate) => candidate.mode === fallbackMode) ?? { mode: HLS_MODE }
+}
+
+function canPlayDirectBytes(
+  video: HTMLVideoElement,
+  option: StreamingPlaybackOption,
+): option is DirectBytePlaybackOption {
+  if (option.mode !== DIRECT_BYTES_MODE) {
+    return false
+  }
+  if (!option.mimeType) {
+    return false
+  }
+  return video.canPlayType(option.mimeType) !== ''
+}
+
+function startDirectBytePlayback(
+  video: HTMLVideoElement,
+  option: DirectBytePlaybackOption,
+  onReady: () => void,
+  onError: (message: string) => void,
+): () => void {
+  const handleCanPlay = () => onReady()
+  const handleError = () => {
+    const mediaError = video.error
+    const code = mediaError?.code
+    onError(code ? `Direct playback failed (media error ${code})` : 'Direct playback failed')
+  }
+
+  video.addEventListener('canplay', handleCanPlay)
+  video.addEventListener('error', handleError)
+  video.src = option.url
+  video.load()
+
+  return () => {
+    video.removeEventListener('canplay', handleCanPlay)
+    video.removeEventListener('error', handleError)
+  }
 }
 
 function toPlaysVideoKeyframeIndex(prebuilt: PrebuiltKeyframeIndex): KeyframeIndex {

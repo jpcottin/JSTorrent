@@ -19,6 +19,7 @@ export interface FileOperationResult {
 
 export interface LanShareResult extends FileOperationResult {
   url?: string
+  mimeType?: string | null
 }
 
 /**

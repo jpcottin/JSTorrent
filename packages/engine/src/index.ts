@@ -165,6 +165,8 @@ export {
 } from './streaming/streaming-playback-session'
 export type {
   ByteRangeStreamingSession,
+  DirectBytePlaybackOption,
+  HlsPlaybackOption,
   PreparedPlaybackMetadata,
   PrebuiltKeyframeIndex,
   StreamingActivePieceInfo,
@@ -173,6 +175,7 @@ export type {
   StreamingFilePieceSnapshot,
   StreamingFileProvider,
   StreamingPlaybackHandle,
+  StreamingPlaybackOption,
   StreamingPlayerController,
   StreamingPlaybackMode,
   StreamingHintUrgency,

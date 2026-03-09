@@ -611,17 +611,18 @@ export class DaemonEngineManager implements IEngineManager {
     const root = this.engine.storageRootManager.getRootForTorrent(torrentHash)
     if (!root) return { ok: false, error: 'No storage root for torrent' }
 
+    const mimeType = guessMimeType(file.path)
     try {
       const url = await this.channel.createLanShareUrl(
         root.key,
         file.path,
         file.length,
-        guessMimeType(file.path),
+        mimeType,
       )
       if (!url) {
         return { ok: false, error: 'LAN sharing is not available on this host' }
       }
-      return { ok: true, url }
+      return { ok: true, url, mimeType }
     } catch (e) {
       return { ok: false, error: String(e) }
     }

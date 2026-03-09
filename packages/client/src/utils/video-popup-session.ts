@@ -3,6 +3,7 @@ import type {
   PreparedPlaybackMetadata,
   StreamingPlaybackCapabilities,
   StreamingPlaybackHandle,
+  StreamingPlaybackOption,
   StreamingPlayerController,
   StreamingFilePieceSnapshot,
   StreamingVisualization,
@@ -37,6 +38,7 @@ type HostMessage =
         | 'read'
         | 'waitForRange'
         | 'getPlaybackCapabilities'
+        | 'getPlaybackOptions'
         | 'preparePlaybackMetadata'
         | 'getPreparedPlaybackMetadata'
         | 'getPieceTimelineSnapshot'
@@ -129,6 +131,19 @@ export function createVideoPopupSessionHost(
       )
         .then((capabilities) => {
           reply({ type: 'result', id: message.id, value: capabilities ?? null })
+        })
+        .catch((error) => {
+          reply({ type: 'error', id: message.id, message: makeError(error).message })
+        })
+      return
+    }
+
+    if (message.method === 'getPlaybackOptions') {
+      Promise.resolve(
+        playback.controller?.getPlaybackOptions ? playback.controller.getPlaybackOptions() : null,
+      )
+        .then((playbackOptions) => {
+          reply({ type: 'result', id: message.id, value: playbackOptions ?? null })
         })
         .catch((error) => {
           reply({ type: 'error', id: message.id, message: makeError(error).message })
@@ -265,6 +280,7 @@ export function createRemoteByteRangeStreamingSession(
       | 'read'
       | 'waitForRange'
       | 'getPlaybackCapabilities'
+      | 'getPlaybackOptions'
       | 'preparePlaybackMetadata'
       | 'getPreparedPlaybackMetadata'
       | 'getPieceTimelineSnapshot',
@@ -335,6 +351,7 @@ export function createRemoteByteRangeStreamingSession(
   const controller: StreamingPlayerController = {
     getPlaybackCapabilities: () =>
       postCall<StreamingPlaybackCapabilities | null>('getPlaybackCapabilities', []),
+    getPlaybackOptions: () => postCall<StreamingPlaybackOption[] | null>('getPlaybackOptions', []),
     preparePlaybackMetadata: () =>
       postCall<PreparedPlaybackMetadata | null>('preparePlaybackMetadata', []),
     getPreparedPlaybackMetadata: () =>

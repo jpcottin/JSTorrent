@@ -72,6 +72,18 @@ export interface PreparedPlaybackMetadata {
   prebuiltKeyframeIndex?: PrebuiltKeyframeIndex | null
 }
 
+export interface DirectBytePlaybackOption {
+  mode: typeof StreamingPlaybackMode.DirectBytes
+  url: string
+  mimeType?: string | null
+}
+
+export interface HlsPlaybackOption {
+  mode: typeof StreamingPlaybackMode.Hls
+}
+
+export type StreamingPlaybackOption = DirectBytePlaybackOption | HlsPlaybackOption
+
 export interface StreamingPlaybackCapabilities {
   supportedModes: StreamingPlaybackMode[]
   preferredMode: StreamingPlaybackMode
@@ -81,6 +93,7 @@ export interface StreamingPlaybackCapabilities {
 
 export interface StreamingPlayerController {
   getPlaybackCapabilities?(): Promise<StreamingPlaybackCapabilities | null>
+  getPlaybackOptions?(): Promise<StreamingPlaybackOption[] | null>
   preparePlaybackMetadata?(): Promise<PreparedPlaybackMetadata | null>
   getPreparedPlaybackMetadata?(): Promise<PreparedPlaybackMetadata | null>
 }

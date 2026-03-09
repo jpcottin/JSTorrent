@@ -85,11 +85,21 @@ function ChromeAppContent({
               if (!result.ok || !result.url) {
                 standaloneAlert(`Failed to create LAN share URL: ${result.error}`)
                 return
-              }
-              await copyTextToClipboard(result.url)
             }
+            await copyTextToClipboard(result.url)
+          }
           : undefined
       }
+      onCreateDirectPlaybackUrl={async (torrentHash, file) => {
+        const result = await engineManager.createLanShareUrl(torrentHash, file.path)
+        if (!result.ok || !result.url) {
+          return null
+        }
+        return {
+          url: result.url,
+          mimeType: result.mimeType ?? null,
+        }
+      }}
       onOpenVideoPopup={
         supportsVideoPopup
           ? async (options) => {
@@ -181,7 +191,8 @@ function App() {
   // ChromeOS bootstrap action callbacks
   const chromeosBootstrap = useChromeOSBootstrap()
   const supportsVideoPopup = ioBridgeState.platform !== 'tauri'
-  const supportsLanShare = ioBridgeState.platform === 'chromeos'
+  const supportsLanShare =
+    ioBridgeState.platform === 'chromeos' || ioBridgeState.platform === 'desktop'
 
   // Track previous status to detect transitions
   const prevStatusRef = useRef<ConnectionStatus | null>(null)

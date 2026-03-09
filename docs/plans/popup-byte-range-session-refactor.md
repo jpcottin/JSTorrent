@@ -58,6 +58,7 @@ It can be richer because it is not the shared substrate for arbitrary HTTP clien
 Responsibilities here include:
 
 - deciding playback mode based on platform and player capabilities
+- exposing concrete playback options for this file/session
 - being passive or active about startup
 - requesting media metadata preparation when useful
 - retrieving prepared playback metadata
@@ -67,12 +68,19 @@ Conceptually:
 ```ts
 interface PlaybackControlService {
   getPlaybackCapabilities(): Promise<PlaybackCapabilities>
+  getPlaybackOptions(): Promise<PlaybackOption[]>
   preparePlaybackMetadata(kind: PlaybackMetadataKind): Promise<void>
   getPreparedPlaybackMetadata(): Promise<PreparedPlaybackMetadata | null>
 }
 ```
 
 This is the right home for operations like prebuilding a keyframe index. It is not the right home for torrent scheduling hints.
+
+The first concrete non-HLS option should be:
+
+- `direct-bytes` backed by a daemon-minted HTTP stream URL
+- only when the file is fully complete on disk
+- only on hosts that can register and expose that URL
 
 ### 3. Optional diagnostics
 
@@ -148,7 +156,7 @@ interface PopupPlaybackHandle {
 That gives the popup player what it actually needs:
 
 - a uniform byte source
-- optional controlled-player APIs for metadata prep and mode selection
+- optional controlled-player APIs for metadata prep and concrete mode selection
 - optional torrent diagnostics for UI/debugging
 
 ## What Should Stay Internal
@@ -230,12 +238,13 @@ Goal:
 Changes:
 
 - define a `PlaybackControlService`-style contract for controlled-player operations
+- add a concrete `getPlaybackOptions()` method for per-file session options
 - move `buildPrebuiltKeyframeIndex()` conceptually into that surface
 - make playback capabilities and prepared metadata explicit
 
 Expected result:
 
-- popup can choose playback mode and request preparation without owning torrent scheduling
+- popup can choose between HLS and complete-file direct-byte playback without owning torrent scheduling
 
 ### Phase 3: Split popup transport by concern
 
