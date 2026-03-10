@@ -14,6 +14,11 @@ export class NodeIoDaemonRootStore {
     return [...this.roots.values()].map((root) => ({ ...root }))
   }
 
+  get(key: string): NodeIoDaemonRoot | null {
+    const root = this.roots.get(key)
+    return root ? { ...root } : null
+  }
+
   add(root: NodeIoDaemonRoot): void {
     this.roots.set(root.key, { ...root })
     this.emitChange()

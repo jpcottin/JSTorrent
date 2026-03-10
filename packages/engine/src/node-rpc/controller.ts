@@ -3,6 +3,11 @@ import { Torrent } from '../core/torrent'
 import { infoHashFromBytes } from '../utils/infohash'
 import { createNodeEngine, NodeEngineConfig } from '../presets/node'
 import { globalLogStore, LogLevel } from '../logging/logger'
+import {
+  createStreamingFileProvider,
+  createStreamingPlaybackSession,
+} from '../streaming/streaming-playback-session'
+import type { ByteRangeStreamingSession } from '../streaming/streaming-file-provider'
 
 const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
   '.mp4': 'video/mp4',
@@ -55,6 +60,11 @@ export interface TorrentFileContentInfo {
   fileSize: number
   complete: boolean
   mimeType: string | null
+}
+
+export interface TorrentFileStreamingHandle {
+  info: TorrentFileContentInfo
+  session: ByteRangeStreamingSession
 }
 
 export class EngineController {
@@ -211,6 +221,35 @@ export class EngineController {
     }
 
     return torrent.readFileBytes(fileIndex, offset, length)
+  }
+
+  createTorrentFileStreamingHandle(id: string, fileIndex: number): TorrentFileStreamingHandle {
+    if (!this.engine) {
+      throw new Error('EngineNotRunning')
+    }
+
+    const torrent = this.engine.getTorrent(id)
+    if (!torrent) {
+      throw new Error('TorrentNotFound')
+    }
+
+    const file = torrent.files[fileIndex]
+    if (!file) {
+      throw new Error('TorrentFileNotFound')
+    }
+
+    return {
+      info: {
+        ok: true,
+        id,
+        fileIndex,
+        filePath: file.path,
+        fileSize: file.length,
+        complete: torrent.isFileComplete(fileIndex),
+        mimeType: guessMimeType(file.path),
+      },
+      session: createStreamingPlaybackSession(createStreamingFileProvider(torrent, fileIndex)),
+    }
   }
 
   pauseTorrent(id: string): void {

@@ -4,6 +4,10 @@ import { createNodeIoDaemonCapabilities } from './capabilities'
 import type { NodeIoDaemonExternalCapabilities } from './control-protocol'
 import { createTestFolderPickerRoot } from './folder-picker'
 import { NodeIoDaemonIoSession } from './io-session'
+import {
+  NodeIoDaemonHashMismatchError,
+  NodeIoDaemonRootFileSystem,
+} from './root-filesystem'
 import type { NodeIoDaemonConfig, NodeIoDaemonHttpStatus, NodeIoDaemonStatus } from './types'
 import { NodeIoDaemonRootStore } from './root-store'
 
@@ -184,6 +188,223 @@ export class NodeIoDaemonRuntime {
       return
     }
 
+    if (pathname.startsWith('/read/') && req.method === 'GET') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystem(pathname.slice('/read/'.length))
+      if (!fileSystem) {
+        this.sendText(res, 404, 'Unknown root')
+        return
+      }
+
+      const relativePath = this.readPathHeader(req)
+      if (relativePath === null) {
+        this.sendText(res, 400, 'Missing X-Path-Base64')
+        return
+      }
+
+      const offset = this.readIntegerHeader(req, 'x-offset')
+      const length = this.readIntegerHeader(req, 'x-length')
+      if (offset === null || length === null || offset < 0 || length < 0) {
+        this.sendText(res, 400, 'Invalid read range')
+        return
+      }
+
+      try {
+        const bytes = await fileSystem.read(relativePath, offset, length)
+        res.statusCode = 200
+        res.setHeader('Content-Type', 'application/octet-stream')
+        res.setHeader('Content-Length', String(bytes.byteLength))
+        res.end(Buffer.from(bytes))
+      } catch (error) {
+        this.sendText(res, 500, error instanceof Error ? error.message : String(error))
+      }
+      return
+    }
+
+    if (pathname.startsWith('/write/') && req.method === 'POST') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystem(pathname.slice('/write/'.length))
+      if (!fileSystem) {
+        this.sendText(res, 404, 'Unknown root')
+        return
+      }
+
+      const relativePath = this.readPathHeader(req)
+      if (relativePath === null) {
+        this.sendText(res, 400, 'Missing X-Path-Base64')
+        return
+      }
+
+      const offset = this.readIntegerHeader(req, 'x-offset')
+      if (offset === null || offset < 0) {
+        this.sendText(res, 400, 'Invalid X-Offset')
+        return
+      }
+
+      const expectedSha1 = this.readFirstHeader(req, 'x-expected-sha1')
+      const body = await this.readBinaryBody(req)
+
+      try {
+        await fileSystem.write(relativePath, offset, body, expectedSha1)
+        this.sendText(res, 200, 'ok')
+      } catch (error) {
+        if (error instanceof NodeIoDaemonHashMismatchError) {
+          this.sendText(res, 409, error.message)
+          return
+        }
+        this.sendText(res, 500, error instanceof Error ? error.message : String(error))
+      }
+      return
+    }
+
+    if (pathname.startsWith('/write-batch/') && req.method === 'POST') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystem(pathname.slice('/write-batch/'.length))
+      if (!fileSystem) {
+        this.sendText(res, 404, 'Unknown root')
+        return
+      }
+
+      try {
+        const writes = this.parseWriteBatchPayload(await this.readBinaryBody(req))
+        await fileSystem.writeBatch(writes)
+        this.sendText(res, 200, 'ok')
+      } catch (error) {
+        if (error instanceof NodeIoDaemonHashMismatchError) {
+          this.sendText(res, 409, error.message)
+          return
+        }
+        this.sendText(res, 500, error instanceof Error ? error.message : String(error))
+      }
+      return
+    }
+
+    if (pathname === '/ops/exists' && req.method === 'GET') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystemFromRequest(req)
+      const relativePath = this.readQueryPath(req)
+      if (!fileSystem || relativePath === null) {
+        this.sendText(res, 400, 'Missing root_key or path')
+        return
+      }
+
+      this.sendJson(res, 200, { exists: await fileSystem.exists(relativePath) })
+      return
+    }
+
+    if (pathname === '/ops/stat' && req.method === 'GET') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystemFromRequest(req)
+      const relativePath = this.readQueryPath(req)
+      if (!fileSystem || relativePath === null) {
+        this.sendText(res, 400, 'Missing root_key or path')
+        return
+      }
+
+      try {
+        this.sendJson(res, 200, await fileSystem.stat(relativePath))
+      } catch (error) {
+        this.sendText(res, 404, error instanceof Error ? error.message : String(error))
+      }
+      return
+    }
+
+    if (pathname === '/files/ensure_dir' && req.method === 'POST') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const body = await this.readJsonBody(req)
+      const rootKey = body && typeof body === 'object' ? (body as Record<string, unknown>).root_key : null
+      const relativePath = body && typeof body === 'object' ? (body as Record<string, unknown>).path : null
+      if (typeof rootKey !== 'string' || typeof relativePath !== 'string') {
+        this.sendText(res, 400, 'Missing root_key or path')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystem(rootKey)
+      if (!fileSystem) {
+        this.sendText(res, 404, 'Unknown root')
+        return
+      }
+
+      await fileSystem.ensureDir(relativePath)
+      this.sendJson(res, 200, { ok: true })
+      return
+    }
+
+    if (pathname === '/ops/truncate' && req.method === 'POST') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const body = await this.readJsonBody(req)
+      const rootKey = body && typeof body === 'object' ? (body as Record<string, unknown>).root_key : null
+      const relativePath = body && typeof body === 'object' ? (body as Record<string, unknown>).path : null
+      const length = body && typeof body === 'object' ? (body as Record<string, unknown>).length : null
+      if (typeof rootKey !== 'string' || typeof relativePath !== 'string' || typeof length !== 'number') {
+        this.sendText(res, 400, 'Missing root_key, path, or length')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystem(rootKey)
+      if (!fileSystem) {
+        this.sendText(res, 404, 'Unknown root')
+        return
+      }
+
+      await fileSystem.truncate(relativePath, length)
+      this.sendJson(res, 200, { ok: true })
+      return
+    }
+
+    if (pathname === '/ops/delete' && req.method === 'POST') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const body = await this.readJsonBody(req)
+      const rootKey = body && typeof body === 'object' ? (body as Record<string, unknown>).root_key : null
+      const relativePath = body && typeof body === 'object' ? (body as Record<string, unknown>).path : null
+      if (typeof rootKey !== 'string' || typeof relativePath !== 'string') {
+        this.sendText(res, 400, 'Missing root_key or path')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystem(rootKey)
+      if (!fileSystem) {
+        this.sendText(res, 404, 'Unknown root')
+        return
+      }
+
+      await fileSystem.delete(relativePath)
+      this.sendJson(res, 200, { ok: true })
+      return
+    }
+
     this.sendText(res, 404, 'Not Found')
   }
 
@@ -272,6 +493,28 @@ export class NodeIoDaemonRuntime {
     return this.readFirstHeader(req, 'x-jst-auth')
   }
 
+  private readPathHeader(req: http.IncomingMessage): string | null {
+    const value = this.readFirstHeader(req, 'x-path-base64')
+    if (!value) {
+      return null
+    }
+
+    try {
+      return Buffer.from(value, 'base64').toString('utf8')
+    } catch {
+      return null
+    }
+  }
+
+  private readIntegerHeader(req: http.IncomingMessage, name: string): number | null {
+    const value = this.readFirstHeader(req, name)
+    if (value === null) {
+      return null
+    }
+    const parsed = Number.parseInt(value, 10)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
   private isHttpAuthAccepted(token: string | null): boolean {
     if (this.pairedToken !== null) {
       return token === this.pairedToken
@@ -353,6 +596,91 @@ export class NodeIoDaemonRuntime {
       return value[0] ?? null
     }
     return value ?? null
+  }
+
+  private getRootFileSystem(rootKey: string): NodeIoDaemonRootFileSystem | null {
+    const root = this.rootStore.get(rootKey)
+    if (!root) {
+      return null
+    }
+    return new NodeIoDaemonRootFileSystem(root.uri)
+  }
+
+  private getRootFileSystemFromRequest(req: http.IncomingMessage): NodeIoDaemonRootFileSystem | null {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    const rootKey = url.searchParams.get('root_key')
+    if (!rootKey) {
+      return null
+    }
+    return this.getRootFileSystem(rootKey)
+  }
+
+  private readQueryPath(req: http.IncomingMessage): string | null {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    return url.searchParams.get('path')
+  }
+
+  private async readBinaryBody(req: http.IncomingMessage): Promise<Uint8Array> {
+    const chunks: Buffer[] = []
+    for await (const chunk of req) {
+      chunks.push(Buffer.from(chunk))
+    }
+    return new Uint8Array(Buffer.concat(chunks))
+  }
+
+  private parseWriteBatchPayload(payload: Uint8Array): Array<{
+    path: string
+    position: number
+    data: Uint8Array
+    expectedHashHex: string
+  }> {
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+    const decoder = new TextDecoder()
+    let offset = 0
+    const count = view.getUint32(offset, true)
+    offset += 4
+
+    const writes: Array<{
+      path: string
+      position: number
+      data: Uint8Array
+      expectedHashHex: string
+    }> = []
+
+    for (let index = 0; index < count; index += 1) {
+      const rootKeyLength = payload[offset]
+      offset += 1 + rootKeyLength
+
+      const pathLength = view.getUint16(offset, true)
+      offset += 2
+      const relativePath = decoder.decode(payload.subarray(offset, offset + pathLength))
+      offset += pathLength
+
+      const lowPosition = view.getUint32(offset, true)
+      const highPosition = view.getUint32(offset + 4, true)
+      const position = highPosition * 0x100000000 + lowPosition
+      offset += 8
+
+      const dataLength = view.getUint32(offset, true)
+      offset += 4
+      const data = payload.slice(offset, offset + dataLength)
+      offset += dataLength
+
+      const expectedHashHex = decoder.decode(payload.subarray(offset, offset + 40))
+      offset += 40
+
+      const callbackIdLength = payload[offset]
+      offset += 1 + callbackIdLength
+
+      writes.push({
+        path: relativePath,
+        position,
+        data,
+        expectedHashHex,
+      })
+    }
+
+    return writes
   }
 
   private async readJsonBody(req: http.IncomingMessage): Promise<unknown> {

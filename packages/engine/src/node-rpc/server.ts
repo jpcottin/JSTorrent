@@ -1,6 +1,15 @@
 import * as http from 'http'
 import { EngineController } from './controller'
 
+function createAbortError(): Error {
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException('Aborted', 'AbortError')
+  }
+  const error = new Error('Aborted')
+  error.name = 'AbortError'
+  return error
+}
+
 interface HttpByteRange {
   start: number
   endInclusive: number
@@ -143,9 +152,22 @@ export class HttpRpcServer {
     try {
       const pathname = new URL(url ?? '/', 'http://127.0.0.1').pathname
       const contentMatch = pathname.match(/^\/torrent\/([^/]+)\/files\/(\d+)\/content$/)
+      const streamMatch = pathname.match(/^\/torrent\/([^/]+)\/files\/(\d+)\/stream$/)
 
       if (contentMatch && (method === 'GET' || method === 'HEAD')) {
-        await this.handleTorrentFileContent(req, res, decodeURIComponent(contentMatch[1]), contentMatch[2])
+        await this.handleTorrentFileContent(
+          req,
+          res,
+          decodeURIComponent(contentMatch[1]),
+          contentMatch[2],
+        )
+      } else if (streamMatch && (method === 'GET' || method === 'HEAD')) {
+        await this.handleTorrentFileStream(
+          req,
+          res,
+          decodeURIComponent(streamMatch[1]),
+          streamMatch[2],
+        )
       } else if (url === '/engine/start' && method === 'POST') {
         const body = await this.readBody(req)
         this.controller.startEngine(body.config)
@@ -322,6 +344,110 @@ export class HttpRpcServer {
         return
       }
       this.sendText(res, 500, message)
+    }
+  }
+
+  private async handleTorrentFileStream(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    torrentId: string,
+    fileIndexText: string,
+  ): Promise<void> {
+    const fileIndex = Number.parseInt(fileIndexText, 10)
+    if (!Number.isFinite(fileIndex) || fileIndex < 0) {
+      this.sendText(res, 404, 'Not Found')
+      return
+    }
+
+    let sessionClosed = false
+    let session:
+      | ReturnType<EngineController['createTorrentFileStreamingHandle']>['session']
+      | null = null
+    const requestAbort = new AbortController()
+    const abortRequest = () => {
+      if (!requestAbort.signal.aborted) {
+        requestAbort.abort(createAbortError())
+      }
+    }
+    req.on('aborted', abortRequest)
+    req.on('close', abortRequest)
+    res.on('close', abortRequest)
+
+    const closeSession = () => {
+      if (sessionClosed) return
+      sessionClosed = true
+      session?.close()
+    }
+
+    try {
+      const handle = this.controller.createTorrentFileStreamingHandle(torrentId, fileIndex)
+      session = handle.session
+      const range = resolveHttpByteRange(req.headers.range, handle.info.fileSize)
+      if (!range) {
+        res.statusCode = 416
+        res.setHeader('Accept-Ranges', 'bytes')
+        res.setHeader('Content-Range', `bytes */${handle.info.fileSize}`)
+        res.setHeader('Content-Length', '0')
+        res.end()
+        return
+      }
+
+      const contentLength = getContentLength(range)
+      res.statusCode = range.partial ? 206 : 200
+      res.setHeader('Content-Type', handle.info.mimeType ?? 'application/octet-stream')
+      res.setHeader('Accept-Ranges', 'bytes')
+      res.setHeader('Cache-Control', 'private, no-store')
+      res.setHeader('Pragma', 'no-cache')
+      res.setHeader('Content-Length', String(contentLength))
+      if (range.partial) {
+        res.setHeader('Content-Range', getContentRangeHeader(range))
+      }
+
+      if (req.method === 'HEAD') {
+        res.end()
+        return
+      }
+
+      const chunkSize = 256 * 1024
+      let nextOffset = range.start
+      while (
+        nextOffset <= range.endInclusive &&
+        !requestAbort.signal.aborted &&
+        !req.destroyed &&
+        !res.destroyed
+      ) {
+        const bytesToRead = Math.min(chunkSize, range.endInclusive - nextOffset + 1)
+        const chunk = await session.read(nextOffset, bytesToRead, requestAbort.signal)
+        if (chunk.byteLength === 0) {
+          throw new Error('Unexpected empty read while streaming file')
+        }
+        nextOffset += chunk.byteLength
+        res.write(Buffer.from(chunk))
+      }
+
+      if (!res.writableEnded && !res.destroyed) {
+        res.end()
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      const name = err instanceof Error ? err.name : ''
+      if (name === 'AbortError' || message === 'Aborted') {
+        return
+      }
+      if (message === 'TorrentNotFound' || message === 'TorrentFileNotFound') {
+        this.sendText(res, 404, 'Not Found')
+        return
+      }
+      if (message === 'EngineNotRunning') {
+        this.sendText(res, 503, 'Engine not running')
+        return
+      }
+      this.sendText(res, 500, message)
+    } finally {
+      closeSession()
+      req.off('aborted', abortRequest)
+      req.off('close', abortRequest)
+      res.off('close', abortRequest)
     }
   }
 
