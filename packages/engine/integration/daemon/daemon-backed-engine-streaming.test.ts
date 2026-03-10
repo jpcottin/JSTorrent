@@ -1,300 +1,48 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import * as crypto from 'node:crypto'
-import * as fs from 'node:fs'
-import * as http from 'node:http'
-import * as os from 'node:os'
-import * as path from 'node:path'
-import { BtEngine } from '../../src/core/bt-engine'
-import { TorrentCreator } from '../../src/core/torrent-creator'
-import { DaemonBackedEngine } from '../../src/adapters/daemon/daemon-backed-engine'
-import { MemorySessionStore } from '../../src/adapters/memory/memory-session-store'
-import { MemoryConfigHub } from '../../src/config/memory-config-hub'
-import { NodeHasher, NodeSocketFactory, NodeStorageHandle, ScopedNodeFileSystem } from '../../src/adapters/node'
-import { SimpleTracker } from '../../test/helpers/simple-tracker'
-import { startDaemon, type DaemonHarness } from './helpers/daemon-harness'
-
-interface HttpResponseData {
-  statusCode: number
-  headers: http.IncomingHttpHeaders
-  body: Buffer
-}
-
-interface StreamingHttpRequest {
-  req: http.ClientRequest
-  response: Promise<HttpResponseData>
-}
+import type { DaemonBackedEngineStreamingFixture } from './helpers/daemon-backed-engine-streaming'
+import {
+  createDaemonBackedEngineStreamingFixture,
+  delay,
+  makeRequest,
+  startRequest,
+  waitForCondition,
+} from './helpers/daemon-backed-engine-streaming'
+import { startDaemon } from './helpers/daemon-harness'
 
 describe('DaemonBackedEngine with Rust daemon streaming', () => {
-  let daemon: DaemonHarness | null = null
-  let seeder: BtEngine | null = null
-  let daemonBackedEngine: DaemonBackedEngine | null = null
-  let tracker: SimpleTracker | null = null
-  let tempDir: string | null = null
-
-  async function makeRequest(
-    port: number,
-    requestPath: string,
-    options: {
-      method?: string
-      headers?: Record<string, string>
-      body?: string
-    } = {},
-  ): Promise<HttpResponseData> {
-    return await new Promise((resolve, reject) => {
-      const req = http.request(
-        {
-          host: '127.0.0.1',
-          port,
-          path: requestPath,
-          method: options.method ?? 'GET',
-          agent: false,
-          headers: {
-            Connection: 'close',
-            ...options.headers,
-          },
-        },
-        (res) => {
-          const chunks: Buffer[] = []
-          res.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
-          res.on('end', () => {
-            resolve({
-              statusCode: res.statusCode ?? 0,
-              headers: res.headers,
-              body: Buffer.concat(chunks),
-            })
-          })
-        },
-      )
-      req.on('error', reject)
-      req.end(options.body)
-    })
-  }
-
-  function startRequest(
-    port: number,
-    requestPath: string,
-    options: {
-      method?: string
-      headers?: Record<string, string>
-      body?: string
-    } = {},
-  ): StreamingHttpRequest {
-    const req = http.request({
-      host: '127.0.0.1',
-      port,
-      path: requestPath,
-      method: options.method ?? 'GET',
-      agent: false,
-      headers: {
-        Connection: 'close',
-        ...options.headers,
-      },
-    })
-
-    const response = new Promise<HttpResponseData>((resolve, reject) => {
-      req.on('response', (res) => {
-        const chunks: Buffer[] = []
-        res.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
-        res.on('end', () => {
-          resolve({
-            statusCode: res.statusCode ?? 0,
-            headers: res.headers,
-            body: Buffer.concat(chunks),
-          })
-        })
-      })
-      req.on('error', reject)
-    })
-
-    req.end(options.body)
-    return { req, response }
-  }
-
-  function delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
-  }
-
-  async function waitForCondition(
-    condition: () => boolean,
-    timeoutMs = 5000,
-    stepMs = 10,
-  ): Promise<void> {
-    const startedAt = Date.now()
-    while (!condition()) {
-      if (Date.now() - startedAt > timeoutMs) {
-        throw new Error('Timed out waiting for condition')
-      }
-      await delay(stepMs)
-    }
-  }
-
-  async function cleanupDaemonBackedEngine(): Promise<void> {
-    if (!daemonBackedEngine) return
-    for (const torrent of [...daemonBackedEngine.engine.torrents]) {
-      await daemonBackedEngine.engine.removeTorrent(torrent)
-    }
-    await daemonBackedEngine.destroy()
-    daemonBackedEngine = null
-  }
-
-  async function createStreamingFixture(options: { fileSize?: number; preloadBytes?: number } = {}) {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rust-daemon-streaming-'))
-    const seedDir = path.join(tempDir, 'seed')
-    const downloadDir = path.join(tempDir, 'download')
-    fs.mkdirSync(seedDir, { recursive: true })
-    fs.mkdirSync(downloadDir, { recursive: true })
-
-    tracker = new SimpleTracker({ udpPort: 0 })
-    const ports = await tracker.start()
-    const trackerUrl = `udp://127.0.0.1:${ports.udpPort}`
-
-    const fileName = 'fixture.bin'
-    const fileContent = crypto.randomBytes(options.fileSize ?? 512 * 1024)
-    const downloadPath = path.join(downloadDir, fileName)
-    fs.writeFileSync(path.join(seedDir, fileName), fileContent)
-    const sparseHandle = fs.openSync(downloadPath, 'w')
-    fs.ftruncateSync(sparseHandle, fileContent.length)
-    fs.closeSync(sparseHandle)
-    if (options.preloadBytes && options.preloadBytes > 0) {
-      const preloadLength = Math.min(options.preloadBytes, fileContent.length)
-      const preloadHandle = fs.openSync(downloadPath, 'r+')
-      fs.writeSync(preloadHandle, fileContent.subarray(0, preloadLength), 0, preloadLength, 0)
-      fs.closeSync(preloadHandle)
-    }
-
-    const torrentBuffer = await TorrentCreator.create(
-      new NodeStorageHandle('fixture', 'fixture', seedDir),
-      fileName,
-      new NodeHasher(),
-      {
-        announceList: [[trackerUrl]],
-        pieceLength: 16 * 1024,
-      },
-    )
-
-    seeder = new BtEngine({
-      socketFactory: new NodeSocketFactory(),
-      fileSystem: new ScopedNodeFileSystem(seedDir),
-      downloadPath: seedDir,
-      port: 0,
-      config: new MemoryConfigHub({
-        dhtEnabled: false,
-        upnpEnabled: false,
-      }),
-    })
-    const { torrent: seedingTorrent } = await seeder.addTorrent(torrentBuffer)
-    if (!seedingTorrent) {
-      throw new Error('Failed to add seeding torrent')
-    }
-    await seedingTorrent.recheckData()
-    await seedingTorrent.start()
-
-    daemon = await startDaemon({
-      roots: [{ key: 'root-a', path: downloadDir, displayName: 'Download Root' }],
-    })
-
-    daemonBackedEngine = await DaemonBackedEngine.create({
-      daemon: {
-        port: daemon.port,
-        authToken: daemon.token,
-        host: '127.0.0.1',
-      },
-      controlStream: {
-        host: '127.0.0.1',
-        port: daemon.port,
-        token: daemon.token,
-        extensionId: 'test-extension',
-        installId: daemon.installId,
-      },
-      contentRoots: [
-        {
-          key: 'root-a',
-          label: 'Download Root',
-          path: downloadDir,
-        },
-      ],
-      defaultContentRoot: 'root-a',
-      sessionStore: new MemorySessionStore(),
-      config: new MemoryConfigHub({
-        dhtEnabled: false,
-        upnpEnabled: false,
-      }),
-      port: 0,
-    })
-
-    const { torrent } = await daemonBackedEngine.engine.addTorrent(torrentBuffer)
-    if (!torrent) {
-      throw new Error('Failed to add daemon-backed torrent')
-    }
-
-    return {
-      fileName,
-      fileContent,
-      torrent,
-    }
-  }
-
-  async function registerStreamToken(
-    streamToken: string,
-    torrentId: string,
-    fileName: string,
-    fileSize: number,
-  ): Promise<number> {
-    const { mediaPort } = await daemonBackedEngine!.registerHttpStream(
-      {
-        host: '127.0.0.1',
-        port: daemon!.port,
-        token: daemon!.token,
-        extensionId: 'test-extension',
-        installId: daemon!.installId,
-      },
-      {
-        streamToken,
-        torrentId,
-        fileIndex: 0,
-        rootKey: 'root-a',
-        path: fileName,
-        fileSize,
-        mimeType: 'application/octet-stream',
-      },
-    )
-    return mediaPort
-  }
+  let fixture: DaemonBackedEngineStreamingFixture | null = null
 
   afterEach(async () => {
-    await cleanupDaemonBackedEngine()
-    if (seeder) {
-      for (const torrent of [...seeder.torrents]) {
-        await seeder.removeTorrent(torrent)
-      }
-      await seeder.destroy()
-      seeder = null
-    }
-    if (tracker) {
-      await tracker.close()
-      tracker = null
-    }
-    if (tempDir) {
-      fs.rmSync(tempDir, { recursive: true, force: true })
-      tempDir = null
-    }
-    if (daemon) {
-      await daemon.cleanup()
-      daemon = null
-    }
+    await fixture?.cleanup()
+    fixture = null
   })
+
+  async function createStreamingFixture(
+    options: { fileSize?: number; preloadBytes?: number } = {},
+  ): Promise<DaemonBackedEngineStreamingFixture> {
+    fixture = await createDaemonBackedEngineStreamingFixture({
+      ...options,
+      async startDaemon(downloadDir) {
+        const daemon = await startDaemon({
+          roots: [{ key: 'root-a', path: downloadDir, displayName: 'Download Root' }],
+        })
+        return {
+          port: daemon.port,
+          token: daemon.token,
+          installId: daemon.installId,
+          stop: daemon.cleanup,
+        }
+      },
+    })
+    return fixture
+  }
 
   it(
     'blocks a tokenized HTTP range until torrent bytes are available through the Rust daemon',
     async () => {
       const fixture = await createStreamingFixture()
 
-      const mediaPort = await registerStreamToken(
-        'blocking-stream-token',
-        fixture.torrent.infoHashStr,
-        fixture.fileName,
-        fixture.fileContent.length,
-      )
+      const mediaPort = await fixture.registerStreamToken('blocking-stream-token')
 
       let settled = false
       const responsePromise = startRequest(mediaPort, '/stream/blocking-stream-token', {
@@ -326,7 +74,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
       const fixture = await createStreamingFixture({
         fileSize: 2 * 256 * 1024 + 8192,
       })
-      const controlStream = daemonBackedEngine!.getControlStreamService()
+      const controlStream = fixture.daemonBackedEngine.getControlStreamService()
       expect(controlStream).not.toBeNull()
 
       const originalWaitForRange = (controlStream as any).waitForRange.bind(controlStream)
@@ -339,12 +87,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
         return await originalWaitForRange(sessionId, offset, requestedLength)
       }
 
-      const mediaPort = await registerStreamToken(
-        'multi-chunk-stream-token',
-        fixture.torrent.infoHashStr,
-        fixture.fileName,
-        fixture.fileContent.length,
-      )
+      const mediaPort = await fixture.registerStreamToken('multi-chunk-stream-token')
 
       let settled = false
       const responsePromise = makeRequest(mediaPort, '/stream/multi-chunk-stream-token', {
@@ -381,12 +124,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
       await waitForCondition(() => fixture.torrent.hasPiece(0))
       await fixture.torrent.userStop()
 
-      const mediaPort = await registerStreamToken(
-        'mixed-stopped-stream-token',
-        fixture.torrent.infoHashStr,
-        fixture.fileName,
-        fixture.fileContent.length,
-      )
+      const mediaPort = await fixture.registerStreamToken('mixed-stopped-stream-token')
 
       const [completeResponse, incompleteResponse] = await Promise.all([
         makeRequest(mediaPort, '/stream/mixed-stopped-stream-token', {
@@ -419,12 +157,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
       await waitForCondition(() => fixture.torrent.hasPiece(0))
       await fixture.torrent.setFilePriorityAsync(0, 1)
 
-      const mediaPort = await registerStreamToken(
-        'mixed-skipped-stream-token',
-        fixture.torrent.infoHashStr,
-        fixture.fileName,
-        fixture.fileContent.length,
-      )
+      const mediaPort = await fixture.registerStreamToken('mixed-skipped-stream-token')
 
       const [completeResponse, incompleteResponse] = await Promise.all([
         makeRequest(mediaPort, '/stream/mixed-skipped-stream-token', {
@@ -452,12 +185,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
 
     await fixture.torrent.userStop()
 
-    const mediaPort = await registerStreamToken(
-      'stopped-stream-token',
-      fixture.torrent.infoHashStr,
-      fixture.fileName,
-      fixture.fileContent.length,
-    )
+    const mediaPort = await fixture.registerStreamToken('stopped-stream-token')
 
     const response = await makeRequest(mediaPort, '/stream/stopped-stream-token', {
       headers: {
@@ -472,14 +200,9 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
   it('returns 404 after torrent removal revokes the registered token', async () => {
     const fixture = await createStreamingFixture()
 
-    const mediaPort = await registerStreamToken(
-      'removed-stream-token',
-      fixture.torrent.infoHashStr,
-      fixture.fileName,
-      fixture.fileContent.length,
-    )
+    const mediaPort = await fixture.registerStreamToken('removed-stream-token')
 
-    await daemonBackedEngine!.engine.removeTorrent(fixture.torrent)
+    await fixture.daemonBackedEngine.engine.removeTorrent(fixture.torrent)
     await delay(50)
 
     const response = await makeRequest(mediaPort, '/stream/removed-stream-token', {
@@ -495,12 +218,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     'serves two concurrent blocking requests on the same token independently',
     async () => {
       const fixture = await createStreamingFixture()
-      const mediaPort = await registerStreamToken(
-        'concurrent-stream-token',
-        fixture.torrent.infoHashStr,
-        fixture.fileName,
-        fixture.fileContent.length,
-      )
+      const mediaPort = await fixture.registerStreamToken('concurrent-stream-token')
 
       let firstSettled = false
       let secondSettled = false
@@ -542,12 +260,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     'canceling one concurrent request does not cancel another on the same token',
     async () => {
       const fixture = await createStreamingFixture()
-      const mediaPort = await registerStreamToken(
-        'cancel-isolation-stream-token',
-        fixture.torrent.infoHashStr,
-        fixture.fileName,
-        fixture.fileContent.length,
-      )
+      const mediaPort = await fixture.registerStreamToken('cancel-isolation-stream-token')
 
       const firstRequest = startRequest(mediaPort, '/stream/cancel-isolation-stream-token', {
         headers: {
@@ -576,12 +289,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     'fans out torrent stop to multiple concurrent blocking requests on the same token',
     async () => {
       const fixture = await createStreamingFixture()
-      const mediaPort = await registerStreamToken(
-        'concurrent-stop-stream-token',
-        fixture.torrent.infoHashStr,
-        fixture.fileName,
-        fixture.fileContent.length,
-      )
+      const mediaPort = await fixture.registerStreamToken('concurrent-stop-stream-token')
 
       let firstSettled = false
       let secondSettled = false
@@ -625,12 +333,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     'fans out torrent removal to multiple concurrent blocking requests on the same token',
     async () => {
       const fixture = await createStreamingFixture()
-      const mediaPort = await registerStreamToken(
-        'concurrent-remove-stream-token',
-        fixture.torrent.infoHashStr,
-        fixture.fileName,
-        fixture.fileContent.length,
-      )
+      const mediaPort = await fixture.registerStreamToken('concurrent-remove-stream-token')
 
       let firstSettled = false
       let secondSettled = false
@@ -663,7 +366,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
       expect(firstSettled).toBe(false)
       expect(secondSettled).toBe(false)
 
-      await daemonBackedEngine!.engine.removeTorrent(fixture.torrent)
+      await fixture.daemonBackedEngine.engine.removeTorrent(fixture.torrent)
       await delay(50)
 
       const [firstResponse, secondResponse] = await Promise.all([
