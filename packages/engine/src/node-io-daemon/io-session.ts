@@ -58,6 +58,7 @@ export interface NodeIoDaemonIoSessionOptions {
   getExpectedAuthToken: () => string | null
   bootstrapMode: NodeIoDaemonBootstrapMode
   getExternalCapabilities: () => NodeIoDaemonExternalCapabilities
+  handleFolderPickerRequest: () => Promise<unknown>
   onClose: () => void
 }
 
@@ -353,8 +354,12 @@ export class NodeIoDaemonIoSession {
       return
     }
 
+    if (envelope.msgType === CONTROL_OP_OPEN_FOLDER_PICKER) {
+      void this.handleFolderPickerRequest(envelope.requestId)
+      return
+    }
+
     if (
-      envelope.msgType === CONTROL_OP_OPEN_FOLDER_PICKER ||
       envelope.msgType === CONTROL_OP_OPEN_FILE ||
       envelope.msgType === CONTROL_OP_REVEAL_IN_FOLDER ||
       envelope.msgType === CONTROL_OP_REGISTER_HTTP_STREAM
@@ -370,6 +375,18 @@ export class NodeIoDaemonIoSession {
       ok: false,
       error: `Unsupported /control opcode ${envelope.msgType}`,
     })
+  }
+
+  private async handleFolderPickerRequest(requestId: number): Promise<void> {
+    try {
+      const response = await this.options.handleFolderPickerRequest()
+      this.sendControlResponse(CONTROL_OP_OPEN_FOLDER_PICKER, requestId, response)
+    } catch (error) {
+      this.sendControlResponse(CONTROL_OP_OPEN_FOLDER_PICKER, requestId, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   private handleTcpConnect(requestId: number, payload: Uint8Array): void {

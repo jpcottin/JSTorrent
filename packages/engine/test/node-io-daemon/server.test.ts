@@ -314,6 +314,50 @@ describe('node-io-daemon server', () => {
     }
   })
 
+  it('auto-picks a temp-backed root in test mode when folder picker is requested', async () => {
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'test',
+    })
+    await daemon.start()
+
+    const control = new ControlConnection('127.0.0.1', daemon.getStatus().port, 'ignored')
+    const ws = await connectAuthenticatedControlWebSocket(daemon.getStatus().port, 'ignored')
+
+    try {
+      const rootsChangedPromise = new Promise<string[]>((resolve) => {
+        const unsubscribe = control.onRootsChanged((nextRoots) => {
+          unsubscribe()
+          resolve(nextRoots.map((root) => root.uri ?? ''))
+        })
+      })
+
+      await control.connect()
+
+      const response = await sendControlJsonRequest(ws, 0xe2, 11, {})
+
+      expect(response.opcode).toBe(0xe2)
+      expect(response.requestId).toBe(11)
+      expect(response.payload).toMatchObject({
+        ok: true,
+        root: {
+          key: 'picked-root-1',
+          display_name: 'Picked Root 1',
+          removable: true,
+          last_stat_ok: true,
+        },
+      })
+
+      const pickedRootPaths = await rootsChangedPromise
+      expect(pickedRootPaths).toHaveLength(1)
+      expect(pickedRootPaths[0]).toContain('/jstorrent-node-io-daemon/picked-root-1')
+    } finally {
+      control.close()
+      ws.close()
+    }
+  })
+
   it('supports in-memory pairing bootstrap and dynamic /io auth', async () => {
     daemon = createNodeIoDaemon({
       host: '127.0.0.1',
@@ -789,13 +833,17 @@ async function sendControlJsonRequest(
     }, 2000)
 
     ws.onmessage = (event) => {
-      clearTimeout(timeout)
       const frame = new Uint8Array(event.data as ArrayBuffer)
       const responseOpcode = frame[1]
       const responseRequestId = new DataView(frame.buffer, frame.byteOffset, frame.byteLength).getUint32(
         4,
         true,
       )
+      if (responseRequestId !== requestId) {
+        return
+      }
+
+      clearTimeout(timeout)
       const responsePayload = JSON.parse(new TextDecoder().decode(frame.slice(8))) as unknown
       resolve({
         opcode: responseOpcode,

@@ -1,5 +1,10 @@
 export type NodeIoDaemonBootstrapMode = 'test' | 'realistic'
 
+export type NodeIoDaemonFolderPicker = () =>
+  | NodeIoDaemonRoot
+  | null
+  | Promise<NodeIoDaemonRoot | null>
+
 export interface NodeIoDaemonConfig {
   host: string
   port: number
@@ -7,6 +12,7 @@ export interface NodeIoDaemonConfig {
   authToken: string | null
   configPath: string | null
   roots: NodeIoDaemonRoot[]
+  folderPicker: NodeIoDaemonFolderPicker | null
 }
 
 export interface NodeIoDaemonCapabilities {

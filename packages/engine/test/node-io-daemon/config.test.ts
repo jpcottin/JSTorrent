@@ -10,6 +10,7 @@ describe('node-io-daemon config', () => {
   })
 
   it('preserves explicit overrides', () => {
+    const folderPicker = () => null
     expect(
       normalizeNodeIoDaemonConfig({
         host: '0.0.0.0',
@@ -17,6 +18,7 @@ describe('node-io-daemon config', () => {
         bootstrapMode: 'realistic',
         authToken: 'secret',
         configPath: '/tmp/node-io-daemon.json',
+        folderPicker,
       }),
     ).toEqual({
       host: '0.0.0.0',
@@ -25,6 +27,7 @@ describe('node-io-daemon config', () => {
       authToken: 'secret',
       configPath: '/tmp/node-io-daemon.json',
       roots: [],
+      folderPicker,
     })
   })
 })

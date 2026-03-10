@@ -7,6 +7,7 @@ export interface PartialNodeIoDaemonConfig {
   authToken?: string | null
   configPath?: string | null
   roots?: NodeIoDaemonConfig['roots']
+  folderPicker?: NodeIoDaemonConfig['folderPicker']
 }
 
 export const DEFAULT_NODE_IO_DAEMON_CONFIG: NodeIoDaemonConfig = {
@@ -16,6 +17,7 @@ export const DEFAULT_NODE_IO_DAEMON_CONFIG: NodeIoDaemonConfig = {
   authToken: null,
   configPath: null,
   roots: [],
+  folderPicker: null,
 }
 
 export function normalizeNodeIoDaemonConfig(
@@ -35,5 +37,9 @@ export function normalizeNodeIoDaemonConfig(
       config.roots === undefined
         ? DEFAULT_NODE_IO_DAEMON_CONFIG.roots.map((root) => ({ ...root }))
         : config.roots.map((root) => ({ ...root })),
+    folderPicker:
+      config.folderPicker === undefined
+        ? DEFAULT_NODE_IO_DAEMON_CONFIG.folderPicker
+        : config.folderPicker,
   }
 }

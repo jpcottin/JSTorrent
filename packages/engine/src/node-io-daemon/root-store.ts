@@ -14,6 +14,11 @@ export class NodeIoDaemonRootStore {
     return [...this.roots.values()].map((root) => ({ ...root }))
   }
 
+  add(root: NodeIoDaemonRoot): void {
+    this.roots.set(root.key, { ...root })
+    this.emitChange()
+  }
+
   delete(key: string): boolean {
     const deleted = this.roots.delete(key)
     if (deleted) {

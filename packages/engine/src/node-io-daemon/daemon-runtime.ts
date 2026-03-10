@@ -2,6 +2,7 @@ import * as http from 'node:http'
 import type { Duplex } from 'node:stream'
 import { createNodeIoDaemonCapabilities } from './capabilities'
 import type { NodeIoDaemonExternalCapabilities } from './control-protocol'
+import { createTestFolderPickerRoot } from './folder-picker'
 import { NodeIoDaemonIoSession } from './io-session'
 import type { NodeIoDaemonConfig, NodeIoDaemonHttpStatus, NodeIoDaemonStatus } from './types'
 import { NodeIoDaemonRootStore } from './root-store'
@@ -16,6 +17,7 @@ export class NodeIoDaemonRuntime {
   private pairedToken: string | null
   private pairedExtensionId: string | null = null
   private pairedInstallId: string | null = null
+  private nextPickedRootId = 1
 
   constructor(private readonly daemonConfig: NodeIoDaemonConfig) {
     this.boundPort = daemonConfig.port
@@ -201,6 +203,7 @@ export class NodeIoDaemonRuntime {
         getExpectedAuthToken: () => this.pairedToken,
         bootstrapMode: this.daemonConfig.bootstrapMode,
         getExternalCapabilities: () => this.getExternalCapabilities(),
+        handleFolderPickerRequest: () => this.handleFolderPickerRequest(),
         onClose: () => {
           if (session) {
             this.ioSessions.delete(session)
@@ -282,6 +285,27 @@ export class NodeIoDaemonRuntime {
       roots_manageable: true,
       lan_share_urls: false,
     }
+  }
+
+  private async handleFolderPickerRequest(): Promise<{
+    ok: boolean
+    error?: string
+    root?: ReturnType<NodeIoDaemonRootStore['list']>[number]
+  }> {
+    const picker = this.daemonConfig.folderPicker
+    const root =
+      picker !== null
+        ? await picker()
+        : this.daemonConfig.bootstrapMode === 'test'
+          ? await createTestFolderPickerRoot(this.nextPickedRootId++)
+          : null
+
+    if (!root) {
+      return { ok: false, error: 'Folder picker not implemented' }
+    }
+
+    this.rootStore.add(root)
+    return { ok: true, root }
   }
 
   private broadcastRootsChanged(roots: ReturnType<NodeIoDaemonRootStore['list']>): void {
