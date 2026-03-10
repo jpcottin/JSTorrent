@@ -24,6 +24,7 @@ async function makeRequest(
   options: {
     method?: string
     headers?: Record<string, string>
+    body?: string
   } = {},
 ): Promise<HttpResponseData> {
   return await new Promise((resolve, reject) => {
@@ -52,7 +53,7 @@ async function makeRequest(
       },
     )
     req.on('error', reject)
-    req.end()
+    req.end(options.body)
   })
 }
 
@@ -311,6 +312,79 @@ describe('node-io-daemon server', () => {
     } finally {
       ws.close()
     }
+  })
+
+  it('supports in-memory pairing bootstrap and dynamic /io auth', async () => {
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: null,
+    })
+    await daemon.start()
+
+    const prePairStatus = await fetchDaemonStatus(
+      '127.0.0.1',
+      daemon.getStatus().port,
+      'fresh-token',
+      'extension-a',
+      'install-a',
+    )
+    expect(prePairStatus.paired).toBe(false)
+    expect(prePairStatus.tokenValid).toBe(false)
+    expect(prePairStatus.extensionId).toBeNull()
+    expect(prePairStatus.installId).toBeNull()
+
+    const pairResponse = await makeRequest(daemon.getStatus().port, '/pair', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-JST-ExtensionId': 'extension-a',
+        'X-JST-InstallId': 'install-a',
+      },
+      body: JSON.stringify({ token: 'fresh-token' }),
+    })
+    expect(pairResponse.statusCode).toBe(200)
+    expect(JSON.parse(pairResponse.body.toString('utf8'))).toEqual({ status: 'approved' })
+
+    const pairedStatus = await fetchDaemonStatus(
+      '127.0.0.1',
+      daemon.getStatus().port,
+      'fresh-token',
+      'extension-a',
+      'install-a',
+    )
+    expect(pairedStatus.paired).toBe(true)
+    expect(pairedStatus.tokenValid).toBe(true)
+    expect(pairedStatus.extensionId).toBe('extension-a')
+    expect(pairedStatus.installId).toBe('install-a')
+
+    const connection = new DaemonConnection(
+      daemon.getStatus().port,
+      '127.0.0.1',
+      undefined,
+      'fresh-token',
+      pairedStatus.ioPort,
+    )
+
+    try {
+      await connection.connectWebSocket()
+      expect(connection.ready).toBe(true)
+    } finally {
+      connection.close()
+    }
+
+    const conflictResponse = await makeRequest(daemon.getStatus().port, '/pair', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-JST-ExtensionId': 'extension-b',
+        'X-JST-InstallId': 'install-b',
+      },
+      body: JSON.stringify({ token: 'other-token' }),
+    })
+    expect(conflictResponse.statusCode).toBe(409)
+    expect(JSON.parse(conflictResponse.body.toString('utf8'))).toEqual({ status: 'conflict' })
   })
 
   it('supports a real outbound TCP round-trip through the daemon socket adapter', async () => {

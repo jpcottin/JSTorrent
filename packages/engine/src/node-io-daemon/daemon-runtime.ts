@@ -13,10 +13,14 @@ export class NodeIoDaemonRuntime {
   private readonly ioSessions = new Set<NodeIoDaemonIoSession>()
   private readonly rawSockets = new Set<Duplex>()
   private readonly rootStore: NodeIoDaemonRootStore
+  private pairedToken: string | null
+  private pairedExtensionId: string | null = null
+  private pairedInstallId: string | null = null
 
   constructor(private readonly daemonConfig: NodeIoDaemonConfig) {
     this.boundPort = daemonConfig.port
     this.rootStore = new NodeIoDaemonRootStore(daemonConfig.roots)
+    this.pairedToken = daemonConfig.authToken
     this.rootStore.onChange((roots) => {
       this.broadcastRootsChanged(roots)
     })
@@ -125,7 +129,25 @@ export class NodeIoDaemonRuntime {
 
     if ((req.method === 'GET' || req.method === 'POST') && pathname === '/status') {
       const token = await this.readStatusToken(req)
-      this.sendJson(res, 200, this.getHttpStatus(token))
+      this.sendJson(res, 200, this.getHttpStatus(req, token))
+      return
+    }
+
+    if (pathname === '/pair' && req.method === 'POST') {
+      const body = await this.readJsonBody(req)
+      const token = body && typeof body === 'object' ? (body as Record<string, unknown>).token : null
+      if (typeof token !== 'string' || token.length === 0) {
+        this.sendText(res, 400, 'Missing token')
+        return
+      }
+
+      const pairResult = this.handlePairRequest(req, token)
+      if (pairResult === 'conflict') {
+        this.sendJson(res, 409, { status: 'conflict' })
+        return
+      }
+
+      this.sendJson(res, 200, { status: pairResult })
       return
     }
 
@@ -176,7 +198,7 @@ export class NodeIoDaemonRuntime {
       {
         path: pathname as '/io' | '/control',
         socket,
-        expectedAuthToken: this.daemonConfig.authToken,
+        getExpectedAuthToken: () => this.pairedToken,
         bootstrapMode: this.daemonConfig.bootstrapMode,
         getExternalCapabilities: () => this.getExternalCapabilities(),
         onClose: () => {
@@ -195,22 +217,27 @@ export class NodeIoDaemonRuntime {
     session.receiveHead(head)
   }
 
-  private getHttpStatus(token: string | null): NodeIoDaemonHttpStatus {
-    const paired = this.daemonConfig.authToken !== null
+  private getHttpStatus(req: http.IncomingMessage, token: string | null): NodeIoDaemonHttpStatus {
+    const paired = this.pairedToken !== null
     let tokenValid: boolean | null = null
     if (token !== null) {
       tokenValid =
-        this.daemonConfig.authToken !== null
-          ? token === this.daemonConfig.authToken
+        this.pairedToken !== null
+          ? token === this.pairedToken
           : this.daemonConfig.bootstrapMode === 'test'
     }
+
+    const extensionId = this.readFirstHeader(req, 'x-jst-extensionid')
+    const installId = this.readFirstHeader(req, 'x-jst-installid')
 
     return {
       port: this.boundPort,
       ioPort: this.boundPort > 0 ? this.boundPort : null,
       paired,
-      extensionId: null,
-      installId: null,
+      extensionId:
+        paired && this.isPairedForClient(extensionId, installId) ? this.pairedExtensionId : null,
+      installId:
+        paired && this.isPairedForClient(extensionId, installId) ? this.pairedInstallId : null,
       version: null,
       tokenValid,
       implementation: 'node-io-daemon',
@@ -239,14 +266,12 @@ export class NodeIoDaemonRuntime {
   }
 
   private readAuthToken(req: http.IncomingMessage): string | null {
-    const headerValue = req.headers['x-jst-auth']
-    const headerToken = Array.isArray(headerValue) ? headerValue[0] : headerValue
-    return headerToken ?? null
+    return this.readFirstHeader(req, 'x-jst-auth')
   }
 
   private isHttpAuthAccepted(token: string | null): boolean {
-    if (this.daemonConfig.authToken !== null) {
-      return token === this.daemonConfig.authToken
+    if (this.pairedToken !== null) {
+      return token === this.pairedToken
     }
 
     return this.daemonConfig.bootstrapMode === 'test'
@@ -263,6 +288,47 @@ export class NodeIoDaemonRuntime {
     for (const session of this.ioSessions) {
       session.sendControlRootsChanged(roots)
     }
+  }
+
+  private handlePairRequest(
+    req: http.IncomingMessage,
+    token: string,
+  ): 'approved' | 'pending' | 'conflict' {
+    const extensionId = this.readFirstHeader(req, 'x-jst-extensionid')
+    const installId = this.readFirstHeader(req, 'x-jst-installid')
+    if (!extensionId || !installId) {
+      return 'pending'
+    }
+
+    if (
+      this.pairedToken !== null &&
+      !this.isPairedForClient(extensionId, installId) &&
+      (this.pairedExtensionId !== null || this.pairedInstallId !== null)
+    ) {
+      return 'conflict'
+    }
+
+    this.pairedToken = token
+    this.pairedExtensionId = extensionId
+    this.pairedInstallId = installId
+    return 'approved'
+  }
+
+  private isPairedForClient(extensionId: string | null, installId: string | null): boolean {
+    return (
+      extensionId !== null &&
+      installId !== null &&
+      extensionId === this.pairedExtensionId &&
+      installId === this.pairedInstallId
+    )
+  }
+
+  private readFirstHeader(req: http.IncomingMessage, name: string): string | null {
+    const value = req.headers[name]
+    if (Array.isArray(value)) {
+      return value[0] ?? null
+    }
+    return value ?? null
   }
 
   private async readJsonBody(req: http.IncomingMessage): Promise<unknown> {

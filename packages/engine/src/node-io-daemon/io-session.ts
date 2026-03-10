@@ -55,7 +55,7 @@ import type { NodeIoDaemonBootstrapMode } from './types'
 export interface NodeIoDaemonIoSessionOptions {
   path: '/io' | '/control'
   socket: Duplex
-  expectedAuthToken: string | null
+  getExpectedAuthToken: () => string | null
   bootstrapMode: NodeIoDaemonBootstrapMode
   getExternalCapabilities: () => NodeIoDaemonExternalCapabilities
   onClose: () => void
@@ -923,8 +923,9 @@ export class NodeIoDaemonIoSession {
   }
 
   private isAuthAccepted(token: string): boolean {
-    if (this.options.expectedAuthToken !== null) {
-      return token === this.options.expectedAuthToken
+    const expectedAuthToken = this.options.getExpectedAuthToken()
+    if (expectedAuthToken !== null) {
+      return token === expectedAuthToken
     }
 
     return this.options.bootstrapMode === 'test'
