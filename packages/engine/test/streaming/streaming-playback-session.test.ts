@@ -95,9 +95,30 @@ describe('StreamingPlaybackSession', () => {
     const promise = session.waitForRange(0, 20000, controller.signal)
 
     expect(provider.waitForPieces).toHaveBeenCalledWith([0, 1], expect.any(AbortSignal))
+    expect(provider.updateStreamingDemand).toHaveBeenCalledWith(
+      expect.any(String),
+      new Set([0, 1]),
+      'now',
+    )
 
     controller.abort()
     await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
     expect(waitSignal?.aborted).toBe(true)
+  })
+
+  it('clears transient wait demand after the range becomes available', async () => {
+    const provider = createProvider()
+    const session = new StreamingPlaybackSession(provider)
+
+    await expect(session.waitForRange(16384, 4096)).resolves.toBeUndefined()
+
+    expect(provider.updateStreamingDemand).toHaveBeenCalledTimes(3)
+    const aheadDemandCall = provider.updateStreamingDemand.mock.calls[0]
+    const startDemandCall = provider.updateStreamingDemand.mock.calls[1]
+    const clearDemandCall = provider.updateStreamingDemand.mock.calls[2]
+
+    expect(aheadDemandCall).toEqual([expect.any(String), new Set([1, 2, 3]), 'next'])
+    expect(startDemandCall).toEqual([expect.any(String), new Set([1]), 'now'])
+    expect(clearDemandCall).toEqual([startDemandCall?.[0], null, 'now'])
   })
 })

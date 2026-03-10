@@ -404,6 +404,25 @@ export class StreamingPlaybackSession
     )
 
     this.ensureFileLock()
+    const signalDemandScope =
+      this.provider.updateStreamingDemand && effectiveSignal
+        ? this.getSignalDemandScope(effectiveSignal)
+        : null
+    const demandPieces = new Set(pieces)
+    const demandToken = signalDemandScope?.token ?? this.createToken()
+
+    this.updateAheadDemand(pieces[0] ?? null)
+
+    if (signalDemandScope) {
+      for (const piece of demandPieces) {
+        signalDemandScope.pieces.add(piece)
+      }
+      this.provider.updateStreamingDemand!(demandToken, new Set(signalDemandScope.pieces), 'now')
+    } else if (this.provider.updateStreamingDemand) {
+      this.provider.updateStreamingDemand(demandToken, demandPieces, 'now')
+    } else {
+      this.provider.setStreamingPieces(demandPieces)
+    }
 
     const waitController = createAbortController()
     const waitSignal = waitController?.signal
@@ -415,6 +434,11 @@ export class StreamingPlaybackSession
         length,
         summarizePieces(pieces),
       )
+      if (!signalDemandScope && this.provider.updateStreamingDemand) {
+        this.provider.updateStreamingDemand(demandToken, null, 'now')
+      } else if (!this.provider.updateStreamingDemand) {
+        this.provider.setStreamingPieces(null)
+      }
       waitController?.abort()
     }
 
@@ -443,6 +467,9 @@ export class StreamingPlaybackSession
       .finally(() => {
         effectiveSignal?.removeEventListener('abort', abortWait)
         this.disposeController?.signal.removeEventListener('abort', abortWait)
+        if (!waitSignal?.aborted && !signalDemandScope && this.provider.updateStreamingDemand) {
+          this.provider.updateStreamingDemand(demandToken, null, 'now')
+        }
       })
   }
 

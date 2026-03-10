@@ -2184,6 +2184,7 @@ export class Torrent extends EngineComponent {
     // Persist state change (userState + bitfield)
     const btEngine = this.engine as BtEngine
     btEngine.sessionPersistence?.saveTorrentState(this)
+    btEngine.emit('torrent-stopped', this)
 
     // Notify queue manager to promote next queued torrent
     btEngine.queueManager?.recalculate()

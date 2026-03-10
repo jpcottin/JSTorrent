@@ -23,12 +23,20 @@ export interface NodeIoDaemonHttpStreamCloseRequest
   reason: string
 }
 
+export interface NodeIoDaemonHttpStreamLifecycleEvent {
+  torrentId: string
+  reason: string
+}
+
 export interface NodeIoDaemonHttpStreamBridge {
   openStreamSession(
     session: NodeIoDaemonHttpStreamSessionDescriptor,
   ): Promise<void> | void
   waitForRange(request: NodeIoDaemonHttpStreamWaitRequest): Promise<void>
   closeStreamSession?(request: NodeIoDaemonHttpStreamCloseRequest): Promise<void> | void
+  subscribeLifecycle?(
+    listener: (event: NodeIoDaemonHttpStreamLifecycleEvent) => void,
+  ): (() => void) | void
 }
 
 export interface NodeIoDaemonConfig {

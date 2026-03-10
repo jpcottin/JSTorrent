@@ -131,6 +131,7 @@ export class NodeIoDaemonRuntime {
   private pairedInstallId: string | null = null
   private nextPickedRootId = 1
   private nextControlOwnerId = 1
+  private readonly disposeHttpStreamLifecycleSubscription: (() => void) | null
 
   constructor(private readonly daemonConfig: NodeIoDaemonConfig) {
     this.boundPort = daemonConfig.port
@@ -140,6 +141,10 @@ export class NodeIoDaemonRuntime {
     this.rootStore.onChange((roots) => {
       this.broadcastRootsChanged(roots)
     })
+    this.disposeHttpStreamLifecycleSubscription =
+      daemonConfig.httpStreamBridge?.subscribeLifecycle?.((event) => {
+        void this.revokeHttpStreamsForTorrent(event.torrentId, event.reason).catch(() => {})
+      }) ?? null
   }
 
   get config(): Readonly<NodeIoDaemonConfig> {
@@ -197,6 +202,7 @@ export class NodeIoDaemonRuntime {
   }
 
   async stop(): Promise<void> {
+    this.disposeHttpStreamLifecycleSubscription?.()
     for (const session of this.ioSessions) {
       session.destroy()
     }
@@ -691,6 +697,19 @@ export class NodeIoDaemonRuntime {
         if (name === 'AbortError' || message === 'Aborted') {
           return
         }
+        if (message === 'TorrentStopped') {
+          this.sendText(res, 409, 'Torrent is stopped')
+          return
+        }
+        if (
+          message === 'TorrentRemoved' ||
+          message === 'StreamSessionNotFound' ||
+          message === 'StreamSessionMismatch'
+        ) {
+          await this.revokeHttpStream(token, 'torrent-removed')
+          this.sendText(res, 404, 'Not Found')
+          return
+        }
         this.sendText(res, 404, 'Not Found')
         return
       } finally {
@@ -954,6 +973,10 @@ export class NodeIoDaemonRuntime {
 
   private async revokeHttpStreamsOwnedBy(ownerId: string, reason: string): Promise<void> {
     await this.closeHttpStreams(this.httpStreams.revokeOwnedBy(ownerId), reason)
+  }
+
+  private async revokeHttpStreamsForTorrent(torrentId: string, reason: string): Promise<void> {
+    await this.closeHttpStreams(this.httpStreams.revokeTorrent(torrentId), reason)
   }
 
   private async closeHttpStreams(
