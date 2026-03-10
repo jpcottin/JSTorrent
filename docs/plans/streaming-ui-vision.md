@@ -1,4 +1,4 @@
-# Streaming UI — Vision & Phase 1
+# Streaming UI — Vision, Current Status, and Remaining Work
 
 See also:
 - [on-demand-streaming.md](on-demand-streaming.md) — technical architecture (Source interface, abort/cancellation, keyframe index extraction, segment flow)
@@ -17,6 +17,28 @@ Click a video file in the Files tab → full-screen overlay covers the torrent U
 Open `jstorrent.com/watch#xt=urn:btih:HASH&dn=Movie.mkv` → video player, nothing else. No torrent UI, no file lists, no peers. The page connects to the local daemon, adds the torrent, streams, and cleans up on tab close. The user never sees the word "torrent." Share button generates the same hash-fragment URL — magnet params stay client-side, never hit the server.
 
 This is the primary marketing surface: "paste a magnet link and watch instantly."
+
+## Status Snapshot
+
+As of March 10, 2026, much of the original Phase 1 work is already in place, but the doc below was written before the implementation settled.
+
+### Implemented
+
+- **Embedded player in the main client UI**: clicking a video file can open the in-app React player overlay (`packages/client/src/AppContent.tsx`, `packages/client/src/components/VideoPlayer.tsx`).
+- **Extension popup player**: the Chrome extension can launch a dedicated popup player window, backed by a `BroadcastChannel` proxy to the shared playback session (`packages/client/src/utils/video-popup-session.ts`, `packages/client/src/components/VideoPopupPage.tsx`, `extension/src/sw.ts`).
+- **Android standalone/native playback**: Android has a native `PlayerActivity` using Media3/ExoPlayer and a torrent-backed byte source (`android/app/src/main/java/com/jstorrent/app/player/PlayerActivity.kt`, `android/app/src/main/java/com/jstorrent/app/player/TorrentPlaybackDataSource.kt`).
+- **Shared byte-session + playback-controller split**: the engine already exposes `ByteRangeStreamingSession`, `StreamingPlayerController`, playback capabilities/options, prepared metadata, and diagnostics (`packages/engine/src/streaming/streaming-file-provider.ts`, `packages/engine/src/streaming/streaming-playback-session.ts`).
+- **Playback mode selection**: current controlled players can choose between `direct-bytes` and `hls`, with the React player defaulting through `playsvideo` and optionally preferring a daemon-minted direct URL when available.
+
+### Not Implemented Yet
+
+- Public watch page (`jstorrent.com/watch`)
+- Daemon HTTP streaming endpoints described below
+- Share flow for watch URLs
+- `jstorrent://watch` custom protocol flow
+- Ephemeral watch-page torrent lifecycle / cleanup-on-tab-close
+- Separate `packages/player/` workspace package
+- Render-loop / polling pause for the main UI while video overlay is open
 
 ### Discovery & Launch
 
@@ -106,7 +128,7 @@ The engine has no video dependencies. Android never imports the player package (
 
 ## Streaming Surfaces
 
-This section predates the newer byte-range-session split and should now be read as two cooperating surfaces, not one overloaded streaming RPC.
+This section predates the newer implementation. In practice, the codebase now already has the core split this section was aiming for: a shared byte-range session plus a thin playback-controller layer.
 
 ### Byte session
 
@@ -128,14 +150,14 @@ Used only by players we control:
 - retrieve prepared playback metadata
 - coordinate startup UI/progress
 
-The first concrete split here should be:
+The first concrete split here is already effectively:
 
 - `direct-bytes` for complete files with a daemon-minted HTTP stream URL
 - `hls` for the existing `playsvideo` pipeline over the shared byte session
 
 ### `open(torrentHash, fileIndex, onProgress?) → StreamInfo`
 
-Adds the torrent if needed, creates the playback handle, optionally prepares playback metadata, and returns enough information for the controlled player to choose a playback strategy.
+This is still a useful conceptual API for future daemon/HTTP work, but the current in-process implementation is centered on `createStreamingPlaybackSession(...)` returning a session/handle directly instead of a networked `open` RPC.
 
 **Progress callback** (optional, for loading UI):
 ```typescript
@@ -163,13 +185,13 @@ UI maps this to:
 
 ### `segment(streamId, segmentIndex, abortSignal?) → Uint8Array`
 
-Called by hls.js `fLoader` when the player chooses the HLS path. The segment pipeline reads through the same byte session, performs any required media prep or remuxing, and returns an fMP4 segment.
+Still future daemon/API design. The current React player routes HLS/remux behavior through `playsvideo` on top of the shared byte session rather than through an explicit exported `segment(...)` RPC.
 
 Abort signal propagates through the active byte-range read or wait.
 
 ### `close(streamId) → void`
 
-Closes the byte session, tears down the playback pipeline, and cleans up any player-owned state. Torrent prioritization remains an engine-internal concern.
+Conceptually still correct. In the current implementation this is just `session.close()` / playback-handle disposal rather than a daemon RPC.
 
 ### HTTP Mapping (for daemon)
 
@@ -183,33 +205,33 @@ Progress delivered via SSE on the open request, final response is the StreamInfo
 
 ---
 
-## Phase 1: Embedded Overlay Player
+## Original Phase 1: Embedded Overlay Player
 
-Get streaming working inside the existing UI page. Full-screen overlay, no new windows or web pages.
+This section mostly landed, but not exactly as originally written.
 
 ### What We Build
 
-1. **`packages/player/` package** — new workspace package. Depends on `playsvideo` and `@jstorrent/engine`.
+1. **`packages/player/` package** — not done. The player code currently lives in `packages/client` plus the shared session/controller types in `packages/engine`.
 
-2. **TorrentSource** — mediabunny `Source` backed by the shared byte session. Already exists at `packages/engine/src/streaming/torrent-source.ts`.
+2. **TorrentSource** — done. `packages/engine/src/streaming/torrent-source.ts` adapts the shared byte session into the `playsvideo` `Source` contract.
 
-3. **StreamingSession** — orchestrates the flow for controlled players: create the byte session, optionally request media prep, create `PlaysVideoEngine` with `Source`, manage lifecycle. Implements `open`/`segment`/`close`.
+3. **StreamingSession** — mostly done, with a somewhat different shape. `createStreamingPlaybackSession(...)` / `StreamingPlaybackSession` owns the byte reads, demand windows, file locking, playback capabilities/options, prepared metadata, and diagnostics. The explicit daemon-style `open`/`segment`/`close` RPC surface is still future work.
 
-4. **StreamingRPC interface** — the three-method contract. Phase 1 implementation calls StreamingSession directly (same JS context). Future implementations wrap postMessage, WebSocket, or HTTP.
+4. **StreamingRPC interface** — partially done. The shared session types exist, and the popup player wraps them over `BroadcastChannel`, but there is no single formal transport-agnostic `StreamingRPC` abstraction exported as such.
 
-5. **Player overlay component** — mounts over the torrent UI. Contains `<video>` element wired to PlaysVideoEngine. Loading state driven by `onProgress` watching torrent stats. Close button tears down everything.
+5. **Player overlay component** — done. The main UI mounts `VideoPlayer` as an overlay over the torrent app and tears it down on close.
 
-6. **Render loop pause** — when overlay is active, pause the throttled RAF loop and stats intervals. Resume on close.
+6. **Render loop pause** — not done. The overlay exists, but the main UI still keeps its normal polling/refresh behavior.
 
-### What We Skip (for now)
+### What Was Skipped / Is Still Pending
 
 - Watch web page (`jstorrent.com/watch`)
 - Daemon HTTP streaming endpoints
-- Pop-out windows
+- Pop-out windows for the extension are no longer skipped; they exist today
 - Custom protocol handler (`jstorrent://`)
 - Safari/cross-browser discovery
 - Share button
-- Audio transcoding (ffmpeg.wasm) — play files with browser-native codecs first
+- Audio transcoding (ffmpeg.wasm) — still intentionally deferred; current paths favor browser-native codecs or Android's native media stack
 
 ### Verification
 
