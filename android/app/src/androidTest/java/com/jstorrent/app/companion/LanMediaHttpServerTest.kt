@@ -260,7 +260,62 @@ class LanMediaHttpServerTest {
         assertArrayEquals(content.copyOfRange(8, 24), response.body)
         assertEquals(1, deps.openCount.get())
         assertEquals(1, deps.readCount.get())
+        waitForCondition { deps.closedSessionReasons.size == 1 }
         assertEquals("request-complete", deps.closedSessionReasons.values.single())
+    }
+
+    @Test
+    fun concurrentRangeRequestsOnOneTokenCompleteIndependently() {
+        val torrentId = "torrent-concurrent"
+        val token = "stream-${UUID.randomUUID()}"
+        val content = ByteArray(128) { (it * 3).toByte() }
+        deps.registerTorrentFile(torrentId, 0, content)
+        val gate = deps.blockReadsForTorrent(torrentId)
+        registry.register(
+            ownerId = "owner-concurrent",
+            token = token,
+            torrentId = torrentId,
+            fileIndex = 0,
+            rootKey = "root-a",
+            path = "concurrent.bin",
+            fileSize = content.size.toLong(),
+            mimeType = "application/octet-stream",
+        )
+
+        val first = startRequest(
+            Request.Builder()
+                .url(streamUrl(token))
+                .header("Range", "bytes=0-15")
+                .build()
+        )
+        val second = startRequest(
+            Request.Builder()
+                .url(streamUrl(token))
+                .header("Range", "bytes=32-47")
+                .build()
+        )
+
+        waitForCondition { deps.openCount.get() == 2 && deps.readCount.get() == 2 }
+        assertFalse(first.isDone)
+        assertFalse(second.isDone)
+
+        gate.complete(Unit)
+
+        val firstResponse = first.get(5, TimeUnit.SECONDS)
+        val secondResponse = second.get(5, TimeUnit.SECONDS)
+
+        assertEquals(206, firstResponse.statusCode)
+        assertEquals(206, secondResponse.statusCode)
+        assertEquals("bytes 0-15/${content.size}", firstResponse.headers["Content-Range"])
+        assertEquals("bytes 32-47/${content.size}", secondResponse.headers["Content-Range"])
+        assertArrayEquals(content.copyOfRange(0, 16), firstResponse.body)
+        assertArrayEquals(content.copyOfRange(32, 48), secondResponse.body)
+        assertEquals(2, deps.openCount.get())
+        assertEquals(2, deps.readCount.get())
+        assertEquals(2, deps.openedSessionIds.distinct().size)
+        waitForCondition { deps.closedSessionReasons.size == 2 }
+        assertEquals(2, deps.closedSessionReasons.size)
+        assertTrue(deps.closedSessionReasons.values.all { it == "request-complete" })
     }
 
     @Test
@@ -326,6 +381,7 @@ class LanMediaHttpServerTest {
         assertEquals("Torrent is stopped", response.body.decodeToString())
         assertEquals(1, deps.openCount.get())
         assertEquals(1, deps.readCount.get())
+        waitForCondition { deps.closedSessionReasons.size == 1 }
         assertEquals("request-complete", deps.closedSessionReasons.values.single())
     }
 
