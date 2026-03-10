@@ -36,6 +36,11 @@ export interface DaemonEngineConfig {
    * Use for benchmarking to isolate disk I/O bottlenecks.
    */
   nullStorage?: boolean
+  /**
+   * Start the engine suspended so bootstrap/integration tests can validate
+   * daemon wiring without immediately enabling DHT/UPnP/network activity.
+   */
+  startSuspended?: boolean
 }
 
 export async function createDaemonEngine(config: DaemonEngineConfig): Promise<BtEngine> {
@@ -100,5 +105,6 @@ export async function createDaemonEngine(config: DaemonEngineConfig): Promise<Bt
     port: config.port,
     onLog: config.onLog,
     config: config.config,
+    startSuspended: config.startSuspended,
   })
 }
