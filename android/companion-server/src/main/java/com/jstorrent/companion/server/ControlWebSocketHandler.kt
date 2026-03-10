@@ -7,6 +7,8 @@ import com.jstorrent.companion.server.websocket.WebSocketSession
 import com.jstorrent.io.protocol.Protocol
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
@@ -50,6 +52,12 @@ class ControlWebSocketHandler(
     private val framesSent = AtomicLong(0)
     private val connectTime = System.currentTimeMillis()
     private val sessionOwnerId = "ctrl-${UUID.randomUUID()}"
+    private val nextDaemonRequestId = AtomicInteger(0x40000000)
+    private val pendingDaemonRequests = mutableMapOf<Int, CompletableDeferred<JsonObject>>()
+    private val pendingDaemonRequestsMutex = Mutex()
+
+    val ownerId: String
+        get() = sessionOwnerId
 
     // ==========================================================================
     // Main run loop
@@ -185,7 +193,11 @@ class ControlWebSocketHandler(
         }
     }
 
-    private fun handlePostAuth(envelope: Protocol.Envelope, payload: ByteArray) {
+    private suspend fun handlePostAuth(envelope: Protocol.Envelope, payload: ByteArray) {
+        if (resolvePendingDaemonRequest(envelope, payload)) {
+            return
+        }
+
         when (envelope.opcode) {
             Protocol.OP_CTRL_OPEN_FOLDER_PICKER -> {
                 deps.openFolderPicker()
@@ -201,6 +213,7 @@ class ControlWebSocketHandler(
             Protocol.OP_CTRL_POWER_HINT -> handlePowerHint(envelope, payload)
             Protocol.OP_CTRL_REGISTER_HTTP_STREAM -> handleRegisterHttpStream(envelope, payload)
             Protocol.OP_CTRL_GET_CAPABILITIES -> handleGetCapabilities(envelope)
+            Protocol.OP_CTRL_REVOKE_TORRENT_HTTP_STREAMS -> handleRevokeTorrentHttpStreams(envelope, payload)
             else -> {
                 sendError(envelope.requestId, "Unknown opcode: ${envelope.opcode}")
             }
@@ -315,6 +328,11 @@ class ControlWebSocketHandler(
 
             httpStreams.register(
                 ownerId = sessionOwnerId,
+                backendKind = if (isExtensionAuth) {
+                    HttpStreamBackendKind.ExtensionControl
+                } else {
+                    HttpStreamBackendKind.LocalApp
+                },
                 token = streamToken,
                 torrentId = torrentId,
                 fileIndex = fileIndex,
@@ -334,6 +352,31 @@ class ControlWebSocketHandler(
             )
         } catch (e: Exception) {
             Log.e(TAG, "REGISTER_HTTP_STREAM error: ${e.message}")
+            sendJsonResponse(envelope.requestId, opcode, false, e.message ?: "Unknown error")
+        }
+    }
+
+    private fun handleRevokeTorrentHttpStreams(envelope: Protocol.Envelope, payload: ByteArray) {
+        val opcode = Protocol.OP_CTRL_REVOKE_TORRENT_HTTP_STREAMS
+        try {
+            val request = json.parseToJsonElement(String(payload)).jsonObject
+            val torrentId = request["torrentId"]?.jsonPrimitive?.content
+                ?: return sendJsonResponse(envelope.requestId, opcode, false, "Missing torrentId")
+            if (torrentId.isBlank()) {
+                return sendJsonResponse(envelope.requestId, opcode, false, "Invalid torrentId")
+            }
+
+            val revoked = httpStreams.revokeTorrent(torrentId)
+            sendJsonResponse(
+                requestId = envelope.requestId,
+                opcode = opcode,
+                response = buildJsonObject {
+                    put("ok", true)
+                    put("revoked", revoked)
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "REVOKE_TORRENT_HTTP_STREAMS error: ${e.message}")
             sendJsonResponse(envelope.requestId, opcode, false, e.message ?: "Unknown error")
         }
     }
@@ -511,6 +554,180 @@ class ControlWebSocketHandler(
         sendKvResponse(requestId, opcode, response)
     }
 
+    suspend fun openOwnedTorrentStreamSession(
+        stream: RegisteredHttpStream,
+        sessionId: String,
+    ): TorrentHttpStreamSessionInfo {
+        val response = sendDaemonJsonRequest(
+            opcode = Protocol.OP_CTRL_OPEN_HTTP_STREAM_SESSION,
+            payload = buildJsonObject {
+                put("sessionId", sessionId)
+                put("streamToken", stream.token)
+                put("torrentId", stream.torrentId)
+                put("fileIndex", stream.fileIndex)
+            }
+        )
+
+        val ok = response["ok"]?.jsonPrimitive?.booleanOrNull == true
+        val fileSize = response["fileSize"]?.jsonPrimitive?.longOrNull
+        if (ok && fileSize != null && fileSize >= 0) {
+            return TorrentHttpStreamSessionInfo(fileSize = fileSize)
+        }
+
+        throw daemonStreamExceptionFromResponse(
+            response = response,
+            fallbackStatus = TorrentHttpStreamStatus.StreamSessionMismatch,
+        )
+    }
+
+    suspend fun waitForOwnedTorrentStreamRange(
+        stream: RegisteredHttpStream,
+        sessionId: String,
+        offset: Long,
+        length: Int,
+    ) {
+        val response = sendDaemonJsonRequest(
+            opcode = Protocol.OP_CTRL_WAIT_FOR_HTTP_STREAM_RANGE,
+            payload = buildJsonObject {
+                put("sessionId", sessionId)
+                put("streamToken", stream.token)
+                put("torrentId", stream.torrentId)
+                put("fileIndex", stream.fileIndex)
+                put("offset", offset)
+                put("length", length)
+            },
+            timeoutMs = null,
+        )
+
+        val ok = response["ok"]?.jsonPrimitive?.booleanOrNull == true
+        if (ok) {
+            return
+        }
+
+        throw daemonStreamExceptionFromResponse(
+            response = response,
+            fallbackStatus = TorrentHttpStreamStatus.TorrentInactive,
+        )
+    }
+
+    fun cancelOwnedTorrentStreamWait(sessionId: String, reason: String) {
+        sendDaemonJsonNotification(
+            opcode = Protocol.OP_CTRL_CANCEL_HTTP_STREAM_RANGE_WAIT,
+            payload = buildJsonObject {
+                put("sessionId", sessionId)
+                put("reason", reason)
+            }
+        )
+    }
+
+    fun closeOwnedTorrentStreamSession(sessionId: String, reason: String) {
+        sendDaemonJsonNotification(
+            opcode = Protocol.OP_CTRL_CLOSE_HTTP_STREAM_SESSION,
+            payload = buildJsonObject {
+                put("sessionId", sessionId)
+                put("reason", reason)
+            }
+        )
+    }
+
+    private suspend fun resolvePendingDaemonRequest(
+        envelope: Protocol.Envelope,
+        payload: ByteArray,
+    ): Boolean {
+        if (envelope.requestId == 0) {
+            return false
+        }
+
+        val pending = pendingDaemonRequestsMutex.withLock {
+            pendingDaemonRequests.remove(envelope.requestId)
+        } ?: return false
+
+        val response = try {
+            json.parseToJsonElement(String(payload)).jsonObject
+        } catch (e: Exception) {
+            buildJsonObject {
+                put("ok", false)
+                put("error", e.message ?: "Failed to parse daemon stream response")
+            }
+        }
+        pending.complete(response)
+        return true
+    }
+
+    private suspend fun sendDaemonJsonRequest(
+        opcode: Byte,
+        payload: JsonObject,
+        timeoutMs: Long? = 10_000L,
+    ): JsonObject {
+        if (!authenticated) {
+            throw TorrentHttpStreamException(
+                TorrentHttpStreamStatus.StreamSessionNotFound,
+                "Control session not authenticated",
+            )
+        }
+
+        val requestId = nextDaemonRequestId.getAndIncrement().coerceAtLeast(1)
+        val deferred = CompletableDeferred<JsonObject>()
+        pendingDaemonRequestsMutex.withLock {
+            pendingDaemonRequests[requestId] = deferred
+        }
+
+        send(Protocol.createMessage(opcode, requestId, payload.toString().toByteArray()))
+
+        return try {
+            if (timeoutMs == null) {
+                deferred.await()
+            } else {
+                withTimeout(timeoutMs) {
+                    deferred.await()
+                }
+            }
+        } catch (e: TimeoutCancellationException) {
+            pendingDaemonRequestsMutex.withLock {
+                pendingDaemonRequests.remove(requestId)
+            }
+            throw TorrentHttpStreamException(
+                TorrentHttpStreamStatus.StreamSessionNotFound,
+                "Daemon stream request timed out",
+                e,
+            )
+        }
+    }
+
+    private fun sendDaemonJsonNotification(
+        opcode: Byte,
+        payload: JsonObject,
+    ) {
+        if (!authenticated) {
+            return
+        }
+        send(Protocol.createMessage(opcode, 0, payload.toString().toByteArray()))
+    }
+
+    private fun daemonStreamExceptionFromResponse(
+        response: JsonObject,
+        fallbackStatus: TorrentHttpStreamStatus,
+    ): TorrentHttpStreamException {
+        val status = response["status"]?.jsonPrimitive?.contentOrNull
+            ?.let(::parseTorrentHttpStreamStatus)
+            ?: fallbackStatus
+        val error = response["error"]?.jsonPrimitive?.contentOrNull ?: status.name
+        return TorrentHttpStreamException(status, error)
+    }
+
+    private fun parseTorrentHttpStreamStatus(value: String): TorrentHttpStreamStatus? {
+        return when (value) {
+            TorrentHttpStreamStatus.FileSkipped.name -> TorrentHttpStreamStatus.FileSkipped
+            TorrentHttpStreamStatus.StreamSessionMismatch.name -> TorrentHttpStreamStatus.StreamSessionMismatch
+            TorrentHttpStreamStatus.StreamSessionNotFound.name -> TorrentHttpStreamStatus.StreamSessionNotFound
+            TorrentHttpStreamStatus.TorrentErrored.name -> TorrentHttpStreamStatus.TorrentErrored
+            TorrentHttpStreamStatus.TorrentInactive.name -> TorrentHttpStreamStatus.TorrentInactive
+            TorrentHttpStreamStatus.TorrentRemoved.name -> TorrentHttpStreamStatus.TorrentRemoved
+            TorrentHttpStreamStatus.TorrentStopped.name -> TorrentHttpStreamStatus.TorrentStopped
+            else -> null
+        }
+    }
+
     // ==========================================================================
     // Send helpers
     // ==========================================================================
@@ -559,6 +776,21 @@ class ControlWebSocketHandler(
         val duration = (System.currentTimeMillis() - connectTime) / 1000.0
         Log.i(TAG, "Session closed after ${String.format("%.1f", duration)}s: " +
             "recv=${framesReceived.get()} frames, sent=${framesSent.get()} frames, revokedStreams=$revokedStreams")
+
+        runBlocking {
+            pendingDaemonRequestsMutex.withLock {
+                pendingDaemonRequests.values.forEach { deferred ->
+                    deferred.complete(
+                        buildJsonObject {
+                            put("ok", false)
+                            put("status", TorrentHttpStreamStatus.StreamSessionNotFound.name)
+                            put("error", "Control session closed")
+                        }
+                    )
+                }
+                pendingDaemonRequests.clear()
+            }
+        }
 
         onSessionUnregistered(this)
         scope.cancel()

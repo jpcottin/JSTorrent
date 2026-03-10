@@ -2,6 +2,7 @@ package com.jstorrent.companion.server
 
 import android.util.Log
 import com.jstorrent.io.file.FileManager
+import com.jstorrent.io.file.FileManagerException
 import io.netty.bootstrap.ServerBootstrap
 import io.netty.buffer.Unpooled
 import io.netty.channel.Channel
@@ -42,6 +43,8 @@ class LanMediaHttpServer(
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
     private val httpStreams: HttpStreamSessionRegistry,
+    private val localAppBackend: TorrentHttpStreamBackend,
+    private val extensionControlBackend: TorrentHttpStreamBackend,
 ) {
     private var bossGroup: EventLoopGroup? = null
     private var workerGroup: EventLoopGroup? = null
@@ -61,7 +64,7 @@ class LanMediaHttpServer(
         bossGroup = NioEventLoopGroup(1)
         workerGroup = NioEventLoopGroup()
         if (lifecycleSubscription == null) {
-            lifecycleSubscription = deps.subscribeTorrentHttpStreamLifecycle { event ->
+            lifecycleSubscription = localAppBackend.subscribeLifecycle { event ->
                 if (event.reason == "torrent-removed") {
                     httpStreams.revokeTorrent(event.torrentId)
                 }
@@ -72,7 +75,15 @@ class LanMediaHttpServer(
             val bootstrap = ServerBootstrap()
                 .group(bossGroup, workerGroup)
                 .channel(NioServerSocketChannel::class.java)
-                .childHandler(LanMediaHttpChannelInitializer(deps, fileManager, httpStreams))
+                .childHandler(
+                    LanMediaHttpChannelInitializer(
+                        deps = deps,
+                        fileManager = fileManager,
+                        httpStreams = httpStreams,
+                        localAppBackend = localAppBackend,
+                        extensionControlBackend = extensionControlBackend,
+                    )
+                )
                 .option(ChannelOption.SO_BACKLOG, 128)
                 .option(ChannelOption.SO_REUSEADDR, true)
                 .childOption(ChannelOption.SO_KEEPALIVE, true)
@@ -113,12 +124,23 @@ private class LanMediaHttpChannelInitializer(
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
     private val httpStreams: HttpStreamSessionRegistry,
+    private val localAppBackend: TorrentHttpStreamBackend,
+    private val extensionControlBackend: TorrentHttpStreamBackend,
 ) : ChannelInitializer<SocketChannel>() {
     override fun initChannel(ch: SocketChannel) {
         ch.pipeline()
             .addLast("httpCodec", HttpServerCodec())
             .addLast("aggregator", HttpObjectAggregator(64 * 1024))
-            .addLast("handler", LanMediaHttpHandler(deps, fileManager, httpStreams))
+            .addLast(
+                "handler",
+                LanMediaHttpHandler(
+                    deps = deps,
+                    fileManager = fileManager,
+                    httpStreams = httpStreams,
+                    localAppBackend = localAppBackend,
+                    extensionControlBackend = extensionControlBackend,
+                )
+            )
     }
 }
 
@@ -126,6 +148,8 @@ private class LanMediaHttpHandler(
     private val deps: CompanionServerDeps,
     private val fileManager: FileManager,
     private val httpStreams: HttpStreamSessionRegistry,
+    private val localAppBackend: TorrentHttpStreamBackend,
+    private val extensionControlBackend: TorrentHttpStreamBackend,
 ) : SimpleChannelInboundHandler<FullHttpRequest>() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -156,7 +180,8 @@ private class LanMediaHttpHandler(
             return
         }
 
-        if (deps.rootStore.resolveKey(stream.rootKey) == null) {
+        val rootUri = deps.rootStore.resolveKey(stream.rootKey)
+        if (rootUri == null) {
             httpStreams.revoke(streamToken)
             sendNotFound(ctx)
             return
@@ -180,9 +205,10 @@ private class LanMediaHttpHandler(
 
         val sessionId = "lan-stream-$streamToken-${System.nanoTime()}"
         val closed = AtomicBoolean(false)
+        val backend = backendForStream(stream)
         val closeSession = { reason: String ->
             if (closed.compareAndSet(false, true)) {
-                deps.closeTorrentHttpStreamSession(sessionId, reason)
+                backend.closeStreamSession(stream, sessionId, reason)
             }
         }
         ctx.channel().closeFuture().addListener { closeSession("client-aborted") }
@@ -192,6 +218,7 @@ private class LanMediaHttpHandler(
                 ctx = ctx,
                 streamToken = streamToken,
                 stream = stream,
+                rootUri = rootUri,
                 range = range,
                 sessionId = sessionId,
                 closeSession = closeSession,
@@ -203,24 +230,23 @@ private class LanMediaHttpHandler(
         ctx: ChannelHandlerContext,
         streamToken: String,
         stream: RegisteredHttpStream,
+        rootUri: android.net.Uri,
         range: HttpByteRange,
         sessionId: String,
         closeSession: (String) -> Unit,
     ) {
         var headersSent = false
+        val backend = backendForStream(stream)
 
         try {
-            deps.openTorrentHttpStreamSession(
-                sessionId = sessionId,
-                torrentId = stream.torrentId,
-                fileIndex = stream.fileIndex,
-            )
+            backend.openStreamSession(stream, sessionId)
 
             val chunkSize = 256 * 1024
             var nextOffset = range.start
             while (ctx.channel().isActive && nextOffset <= range.endInclusive) {
                 val bytesToRead = minOf(chunkSize.toLong(), range.endInclusive - nextOffset + 1).toInt()
-                val chunk = deps.readTorrentHttpStreamBytes(sessionId, nextOffset, bytesToRead)
+                backend.waitForStreamRange(stream, sessionId, nextOffset, bytesToRead)
+                val chunk = fileManager.read(rootUri, stream.path, nextOffset, bytesToRead)
                 if (chunk.isEmpty()) {
                     throw IllegalStateException("Unexpected empty read while streaming torrent")
                 }
@@ -255,6 +281,13 @@ private class LanMediaHttpHandler(
                 Log.w(TAG, "stream failed after headers for ${stream.path}: ${e.status}")
                 ctx.close()
             }
+        } catch (e: FileManagerException) {
+            Log.e(TAG, "file read failed for ${stream.path}: ${e.message}")
+            if (!headersSent) {
+                sendText(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, e.message ?: "Read error")
+            } else {
+                ctx.close()
+            }
         } catch (e: Exception) {
             val aborted = e.message == "Aborted"
             if (!aborted) {
@@ -267,6 +300,13 @@ private class LanMediaHttpHandler(
             }
         } finally {
             closeSession("request-complete")
+        }
+    }
+
+    private fun backendForStream(stream: RegisteredHttpStream): TorrentHttpStreamBackend {
+        return when (stream.backendKind) {
+            HttpStreamBackendKind.LocalApp -> localAppBackend
+            HttpStreamBackendKind.ExtensionControl -> extensionControlBackend
         }
     }
 

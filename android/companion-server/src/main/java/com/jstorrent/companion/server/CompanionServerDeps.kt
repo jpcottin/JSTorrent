@@ -211,15 +211,16 @@ interface CompanionServerDeps {
     ): TorrentHttpStreamSessionInfo
 
     /**
-     * Read bytes for an active torrent-backed HTTP stream session.
-     * Implementations may block until the requested bytes are available or fail
-     * with [TorrentHttpStreamException] when the torrent is not streamable.
+     * Wait for a byte range to become available for an active torrent-backed
+     * HTTP stream session. Implementations may block until the requested bytes
+     * are available or fail with [TorrentHttpStreamException] when the torrent
+     * is not streamable.
      */
-    suspend fun readTorrentHttpStreamBytes(
+    suspend fun waitForTorrentHttpStreamRange(
         sessionId: String,
         offset: Long,
         length: Int
-    ): ByteArray
+    )
 
     /**
      * Close an active torrent-backed HTTP stream session.

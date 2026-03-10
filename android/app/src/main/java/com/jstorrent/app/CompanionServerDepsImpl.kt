@@ -270,14 +270,14 @@ class CompanionServerDepsImpl(
         return TorrentHttpStreamSessionInfo(fileSize = fileSize)
     }
 
-    override suspend fun readTorrentHttpStreamBytes(
+    override suspend fun waitForTorrentHttpStreamRange(
         sessionId: String,
         offset: Long,
         length: Int
-    ): ByteArray {
+    ) {
         val controller = app.ensureEngineStarted()
-        return try {
-            controller.readPlaybackBytesAsync(sessionId, offset, length)
+        try {
+            controller.waitForPlaybackRangeAsync(sessionId, offset, length)
         } catch (e: Exception) {
             val directStatus = mapTorrentHttpStreamStatus(e.message)
             if (directStatus != null) {

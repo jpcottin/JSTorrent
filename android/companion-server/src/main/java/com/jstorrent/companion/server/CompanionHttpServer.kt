@@ -35,6 +35,10 @@ class CompanionHttpServer(
     private val fileManager: FileManager
 ) {
     private val httpStreams = HttpStreamSessionRegistry()
+    private val localAppStreamBackend = LocalAppTorrentHttpStreamBackend(deps)
+    private val extensionControlStreamBackend = ExtensionControlTorrentHttpStreamBackend { ownerId ->
+        controlSessions.firstOrNull { it.ownerId == ownerId }
+    }
     private var lanMediaServer: LanMediaHttpServer? = null
 
     // Pure Netty HTTP server for all HTTP endpoints
@@ -162,6 +166,8 @@ class CompanionHttpServer(
             deps = deps,
             fileManager = fileManager,
             httpStreams = httpStreams,
+            localAppBackend = localAppStreamBackend,
+            extensionControlBackend = extensionControlStreamBackend,
         )
         lanMediaServer = server
         return server.startIfNeeded(0)

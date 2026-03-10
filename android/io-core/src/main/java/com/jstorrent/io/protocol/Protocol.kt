@@ -72,6 +72,11 @@ object Protocol {
     const val OP_CTRL_REGISTER_HTTP_STREAM: Byte = 0xEC.toByte()
     // Control-plane capability discovery (0xED)
     const val OP_CTRL_GET_CAPABILITIES: Byte = 0xED.toByte()
+    const val OP_CTRL_OPEN_HTTP_STREAM_SESSION: Byte = 0xEE.toByte()
+    const val OP_CTRL_WAIT_FOR_HTTP_STREAM_RANGE: Byte = 0xEF.toByte()
+    const val OP_CTRL_CANCEL_HTTP_STREAM_RANGE_WAIT: Byte = 0xF0.toByte()
+    const val OP_CTRL_CLOSE_HTTP_STREAM_SESSION: Byte = 0xF1.toByte()
+    const val OP_CTRL_REVOKE_TORRENT_HTTP_STREAMS: Byte = 0xF2.toByte()
 
     // Opcode sets for route validation
     val HANDSHAKE_OPCODES = setOf(
@@ -94,6 +99,11 @@ object Protocol {
         OP_CTRL_POWER_HINT,
         OP_CTRL_REGISTER_HTTP_STREAM,
         OP_CTRL_GET_CAPABILITIES,
+        OP_CTRL_OPEN_HTTP_STREAM_SESSION,
+        OP_CTRL_WAIT_FOR_HTTP_STREAM_RANGE,
+        OP_CTRL_CANCEL_HTTP_STREAM_RANGE_WAIT,
+        OP_CTRL_CLOSE_HTTP_STREAM_SESSION,
+        OP_CTRL_REVOKE_TORRENT_HTTP_STREAMS,
     )
 
     /**

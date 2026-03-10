@@ -6,7 +6,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.jstorrent.companion.server.CompanionServerDeps
 import com.jstorrent.companion.server.DownloadRoot
+import com.jstorrent.companion.server.HttpStreamBackendKind
 import com.jstorrent.companion.server.HttpStreamSessionRegistry
+import com.jstorrent.companion.server.LocalAppTorrentHttpStreamBackend
 import com.jstorrent.companion.server.KVStoreProvider
 import com.jstorrent.companion.server.LanMediaHttpServer
 import com.jstorrent.companion.server.RootStoreProvider
@@ -126,8 +128,11 @@ private class FakeLanMediaDeps(
 
     override fun openFolder(rootKey: String, path: String): Pair<Boolean, String?> = true to null
 
-    fun registerTorrentFile(torrentId: String, fileIndex: Int, content: ByteArray) {
+    fun registerTorrentFile(torrentId: String, fileIndex: Int, path: String, content: ByteArray) {
         files[FakeTorrentFileKey(torrentId, fileIndex)] = content
+        val file = java.io.File(appContext.cacheDir, path)
+        file.parentFile?.mkdirs()
+        file.writeBytes(content)
     }
 
     fun failReadsForTorrent(torrentId: String, status: TorrentHttpStreamStatus) {
@@ -173,11 +178,11 @@ private class FakeLanMediaDeps(
         return TorrentHttpStreamSessionInfo(fileSize = content.size.toLong())
     }
 
-    override suspend fun readTorrentHttpStreamBytes(
+    override suspend fun waitForTorrentHttpStreamRange(
         sessionId: String,
         offset: Long,
         length: Int
-    ): ByteArray {
+    ) {
         val session = activeSessions[sessionId]
             ?: throw TorrentHttpStreamException(TorrentHttpStreamStatus.StreamSessionNotFound)
         readCount.incrementAndGet()
@@ -194,10 +199,6 @@ private class FakeLanMediaDeps(
         failureByTorrentId[session.torrentId]?.let { status ->
             throw TorrentHttpStreamException(status)
         }
-
-        val start = offset.toInt()
-        val endExclusive = minOf(session.content.size, start + length)
-        return session.content.copyOfRange(start, endExclusive)
     }
 
     override fun closeTorrentHttpStreamSession(sessionId: String, reason: String) {
@@ -233,6 +234,8 @@ class LanMediaHttpServerTest {
             deps = deps,
             fileManager = FileManagerImpl(context),
             httpStreams = registry,
+            localAppBackend = LocalAppTorrentHttpStreamBackend(deps),
+            extensionControlBackend = LocalAppTorrentHttpStreamBackend(deps),
         )
         server.startIfNeeded(0)
         httpClient = OkHttpClient.Builder()
@@ -255,10 +258,11 @@ class LanMediaHttpServerTest {
         val torrentId = "torrent-a"
         val token = "stream-${UUID.randomUUID()}"
         val content = ByteArray(64) { it.toByte() }
-        deps.registerTorrentFile(torrentId, 0, content)
+        deps.registerTorrentFile(torrentId, 0, "fixture.bin", content)
         val gate = deps.blockReadsForTorrent(torrentId)
         registry.register(
             ownerId = "owner-a",
+            backendKind = HttpStreamBackendKind.LocalApp,
             token = token,
             torrentId = torrentId,
             fileIndex = 0,
@@ -296,10 +300,11 @@ class LanMediaHttpServerTest {
         val torrentId = "torrent-concurrent"
         val token = "stream-${UUID.randomUUID()}"
         val content = ByteArray(128) { (it * 3).toByte() }
-        deps.registerTorrentFile(torrentId, 0, content)
+        deps.registerTorrentFile(torrentId, 0, "concurrent.bin", content)
         val gate = deps.blockReadsForTorrent(torrentId)
         registry.register(
             ownerId = "owner-concurrent",
+            backendKind = HttpStreamBackendKind.LocalApp,
             token = token,
             torrentId = torrentId,
             fileIndex = 0,
@@ -350,10 +355,11 @@ class LanMediaHttpServerTest {
         val torrentId = "torrent-cancel-isolated"
         val token = "stream-${UUID.randomUUID()}"
         val content = ByteArray(128) { (it * 5).toByte() }
-        deps.registerTorrentFile(torrentId, 0, content)
+        deps.registerTorrentFile(torrentId, 0, "cancel.bin", content)
         deps.blockReadsPerSessionForTorrent(torrentId)
         registry.register(
             ownerId = "owner-cancel",
+            backendKind = HttpStreamBackendKind.LocalApp,
             token = token,
             torrentId = torrentId,
             fileIndex = 0,
@@ -404,9 +410,10 @@ class LanMediaHttpServerTest {
         val torrentId = "torrent-head"
         val token = "stream-${UUID.randomUUID()}"
         val content = ByteArray(32) { (it + 10).toByte() }
-        deps.registerTorrentFile(torrentId, 0, content)
+        deps.registerTorrentFile(torrentId, 0, "head.bin", content)
         registry.register(
             ownerId = "owner-head",
+            backendKind = HttpStreamBackendKind.LocalApp,
             token = token,
             torrentId = torrentId,
             fileIndex = 0,
@@ -438,10 +445,11 @@ class LanMediaHttpServerTest {
         val torrentId = "torrent-stopped"
         val token = "stream-${UUID.randomUUID()}"
         val content = ByteArray(48) { (it * 2).toByte() }
-        deps.registerTorrentFile(torrentId, 0, content)
+        deps.registerTorrentFile(torrentId, 0, "stopped.bin", content)
         deps.failReadsForTorrent(torrentId, TorrentHttpStreamStatus.TorrentStopped)
         registry.register(
             ownerId = "owner-stop",
+            backendKind = HttpStreamBackendKind.LocalApp,
             token = token,
             torrentId = torrentId,
             fileIndex = 0,
@@ -471,9 +479,10 @@ class LanMediaHttpServerTest {
         val torrentId = "torrent-removed"
         val token = "stream-${UUID.randomUUID()}"
         val content = ByteArray(24) { (it + 1).toByte() }
-        deps.registerTorrentFile(torrentId, 0, content)
+        deps.registerTorrentFile(torrentId, 0, "removed.bin", content)
         registry.register(
             ownerId = "owner-remove",
+            backendKind = HttpStreamBackendKind.LocalApp,
             token = token,
             torrentId = torrentId,
             fileIndex = 0,

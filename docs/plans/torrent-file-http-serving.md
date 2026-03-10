@@ -184,6 +184,9 @@ Mode 2 in this architecture:
   - to raise or cancel streaming demand
 - Media bytes would still come from disk/HTTP, not WebSocket.
 - The control plane would carry only small wait/ready/cancel messages.
+- Token registration must be owned by the same `/control` session that answers
+  those wait/close requests. Registering the token from some other client
+  session defeats the ownership model and makes lifecycle cleanup ambiguous.
 
 Mode 3 in this architecture:
 
@@ -200,6 +203,9 @@ Android standalone is intentionally different.
 - It uses Media3 `DataSource`, not HTTP `Range`.
 - It is explicitly not HLS in the MVP.
 - It opens playback sessions directly against the JS engine and blocks on reads there.
+- If Android standalone also exposes tokenized `/stream/{token}`, that should
+  reuse the same HTTP surface as companion mode but swap in a local app-owned
+  wait backend instead of the extension-owned `/control` backend.
 
 Relevant files:
 
@@ -337,51 +343,71 @@ It does require:
 
 These names are conceptual. Final numeric opcode assignment can follow the existing control-plane pattern.
 
-1. `OP_CTRL_REGISTER_STREAM_SESSION`
+1. `OP_CTRL_REGISTER_HTTP_STREAM`
 
 - Extension -> daemon
 - Registers a streamable file/session
 - Payload could include:
-  - `streamId`
-  - `infoHash`
+  - `streamToken`
+  - `torrentId`
   - `fileIndex`
   - `rootKey`
   - `path`
   - `fileSize`
   - `mimeType`
 
-2. `OP_CTRL_WAIT_FOR_RANGE`
+2. `OP_CTRL_OPEN_HTTP_STREAM_SESSION`
+
+- Daemon -> extension
+- Opens request-scoped playback state for one HTTP reader
+- Payload:
+  - `sessionId`
+  - `streamToken`
+  - `torrentId`
+  - `fileIndex`
+
+3. `OP_CTRL_WAIT_FOR_HTTP_STREAM_RANGE`
 
 - Daemon -> extension
 - Asks engine to wait for and prioritize a byte range
 - Payload:
-  - `streamId`
-  - `waitToken`
+  - `sessionId`
+  - `streamToken`
+  - `torrentId`
+  - `fileIndex`
   - `offset`
   - `length`
 
-3. `OP_CTRL_CANCEL_RANGE_WAIT`
+4. `OP_CTRL_CANCEL_HTTP_STREAM_RANGE_WAIT`
 
 - Daemon -> extension
 - Cancels a pending wait because the HTTP client disconnected, timed out, or sought away
 - Payload:
-  - `streamId`
-  - `waitToken`
+  - `sessionId`
+  - `reason`
 
-4. `OP_CTRL_CLOSE_STREAM_SESSION`
+5. `OP_CTRL_CLOSE_HTTP_STREAM_SESSION`
 
 - Either direction
 - Closes session state and clears file locks / streaming demand
 - Payload:
-  - `streamId`
+  - `sessionId`
+  - `reason`
 
-5. `OP_CTRL_RANGE_WAIT_RESULT`
+6. `OP_CTRL_REVOKE_TORRENT_HTTP_STREAMS`
+
+- Extension -> daemon
+- Proactively revokes all registered stream tokens for a removed torrent
+- Payload:
+  - `torrentId`
+  - `reason`
+
+7. `OP_CTRL_RANGE_WAIT_RESULT`
 
 - Extension -> daemon
 - Completes a prior `WAIT_FOR_RANGE` request
 - Payload:
-  - `streamId`
-  - `waitToken`
+  - `sessionId`
   - `ok`
   - `error?`
   - `status?`

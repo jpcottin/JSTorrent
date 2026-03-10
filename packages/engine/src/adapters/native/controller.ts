@@ -982,6 +982,60 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
   }
 
   /**
+   * Wait for a playback byte range to become readable without reading it.
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_playback_wait = async (
+    sessionId: string,
+    offsetStr: string,
+    lengthStr: string,
+  ): Promise<void> => {
+    if (!requireEngine('playback_wait')) {
+      throw new Error('Engine not ready')
+    }
+
+    const session = playbackSessions.get(sessionId)
+    if (!session) {
+      throw createPlaybackHttpStreamStatusError(PLAYBACK_HTTP_STREAM_STATUS.StreamSessionNotFound)
+    }
+
+    const offset = Number.parseInt(offsetStr, 10)
+    const requestedLength = Number.parseInt(lengthStr, 10)
+    if (
+      !Number.isFinite(offset) ||
+      !Number.isFinite(requestedLength) ||
+      offset < 0 ||
+      requestedLength < 0
+    ) {
+      throw new Error('Invalid offset/length')
+    }
+
+    const currentTorrent = getEngine()?.getTorrent(session.torrentId)
+    if (!currentTorrent || currentTorrent !== session.torrent) {
+      throw createPlaybackHttpStreamStatusError(PLAYBACK_HTTP_STREAM_STATUS.TorrentRemoved)
+    }
+
+    if (offset >= session.session.fileSize) {
+      return
+    }
+
+    const length = Math.min(requestedLength, session.session.fileSize - offset)
+    if (length === 0) {
+      return
+    }
+
+    if (isRangeAvailable(session.torrent, session.fileIndex, offset, length)) {
+      return
+    }
+
+    const unstreamableStateError = getUnstreamablePlaybackStateError(session.torrent, session.fileIndex)
+    if (unstreamableStateError) {
+      throw createPlaybackHttpStreamStatusError(unstreamableStateError)
+    }
+
+    await session.session.waitForRange(offset, length)
+  }
+
+  /**
    * Close an active playback session and clear any streaming demand it created.
    */
   ;(globalThis as Record<string, unknown>).__jstorrent_playback_close = (

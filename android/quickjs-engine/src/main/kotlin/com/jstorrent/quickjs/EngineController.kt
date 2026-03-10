@@ -868,6 +868,23 @@ class EngineController(
     }
 
     /**
+     * Wait for a byte range to become readable for an active native playback session.
+     */
+    suspend fun waitForPlaybackRangeAsync(
+        sessionId: String,
+        offset: Long,
+        length: Int
+    ) {
+        val eng = requireEngine()
+        eng.callGlobalFunctionAwaitPromise(
+            "__jstorrent_playback_wait",
+            sessionId,
+            offset.toString(),
+            length.toString()
+        )
+    }
+
+    /**
      * Close an active native playback session.
      */
     fun closePlaybackSession(sessionId: String) {

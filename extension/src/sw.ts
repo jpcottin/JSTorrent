@@ -1050,16 +1050,17 @@ function handleMessage(
 
   if (message.type === 'CREATE_LAN_SHARE_URL') {
     const torrentId = message.torrentId as string | undefined
+    const fileIndex = message.fileIndex as number | undefined
     const rootKey = message.rootKey as string | undefined
     const path = message.path as string | undefined
     const fileSize = message.fileSize as number | undefined
     const mimeType = message.mimeType as string | null | undefined
-    if (!torrentId || !rootKey || !path || typeof fileSize !== 'number') {
-      sendResponse({ ok: false, error: 'Missing torrentId, rootKey, path, or fileSize' })
+    if (!torrentId || typeof fileIndex !== 'number' || !rootKey || !path || typeof fileSize !== 'number') {
+      sendResponse({ ok: false, error: 'Missing torrentId, fileIndex, rootKey, path, or fileSize' })
       return true
     }
     bridge
-      .createHttpStreamUrl(torrentId, rootKey, path, fileSize, mimeType ?? null)
+      .createHttpStreamUrl(torrentId, fileIndex, rootKey, path, fileSize, mimeType ?? null)
       .then((url) => {
         if (!url) {
           sendResponse({ ok: false, error: 'LAN sharing is not available on this host' })

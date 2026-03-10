@@ -31,6 +31,7 @@ import { BackgroundAudioManager } from '../chrome/background-audio'
 import { BackgroundWebRTCManager } from '../chrome/background-webrtc'
 import type { DaemonInfo, DownloadRoot } from '../types'
 import type { IEngineManager, StorageRoot, FileOperationResult, LanShareResult } from './types'
+import { DaemonControlStreamService } from './daemon-control-stream-service'
 
 // Toggle: true = WebRTC (no audio icon), false = Audio (shows audio icon)
 // Recent chrome versions seem to throttle to ~1s with webrtc, but audio seems to
@@ -42,6 +43,7 @@ const NULL_STORAGE = false
 
 // Session store key for default root key
 const DEFAULT_ROOT_KEY_KEY = 'settings:defaultRootKey'
+const CHROMEOS_ANDROID_HOST = '100.115.92.2'
 const CHROMEOS_WRITE_QUEUE_HIGH_WATER = 32 * 1024 * 1024
 const CHROMEOS_WRITE_QUEUE_LOW_WATER = 16 * 1024 * 1024
 const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
@@ -132,6 +134,7 @@ export class DaemonEngineManager implements IEngineManager {
   private initPromise: Promise<BtEngine> | null = null
   private notificationProgressInterval: ReturnType<typeof setInterval> | null = null
   private pendingNativeEvents: Array<{ event: string; payload: unknown }> = []
+  private daemonControlStreamService: DaemonControlStreamService | null = null
   private backgroundKeepAlive = USE_WEBRTC_KEEP_ALIVE
     ? new BackgroundWebRTCManager()
     : new BackgroundAudioManager()
@@ -407,6 +410,8 @@ export class DaemonEngineManager implements IEngineManager {
 
     // Clear any pending events
     this.pendingNativeEvents = []
+    this.daemonControlStreamService?.close()
+    this.daemonControlStreamService = null
 
     // Note: Don't close daemonConnection here. The engine.destroy() is async but
     // beforeunload can't wait for it, so closing the connection immediately would
@@ -448,6 +453,8 @@ export class DaemonEngineManager implements IEngineManager {
 
     // Clear pending events and init state
     this.pendingNativeEvents = []
+    this.daemonControlStreamService?.close()
+    this.daemonControlStreamService = null
     this.initPromise = null
   }
 
@@ -616,14 +623,38 @@ export class DaemonEngineManager implements IEngineManager {
 
     const mimeType = guessMimeType(file.path)
     try {
-      const url = await this.channel.createLanShareUrl(
-        torrentHash,
-        fileIndex,
-        root.key,
-        file.path,
-        file.length,
-        mimeType,
-      )
+      let url: string | null
+      const controlStreamService = await this.getDaemonControlStreamService()
+      if (controlStreamService) {
+        const streamToken = crypto.randomUUID().split('-').join('')
+        const daemonInfo = this._daemonInfo
+        if (!daemonInfo) {
+          return { ok: false, error: 'Daemon not connected' }
+        }
+        const { mediaPort } = await controlStreamService.registerHttpStream({
+          streamToken,
+          torrentId: torrentHash,
+          fileIndex,
+          rootKey: root.key,
+          path: file.path,
+          fileSize: file.length,
+          mimeType,
+        })
+        const lanAddress = await this.resolveLanAddress(daemonInfo)
+        if (!lanAddress) {
+          return { ok: false, error: 'No LAN IPv4 address available for sharing' }
+        }
+        url = `http://${lanAddress}:${mediaPort}/stream/${streamToken}`
+      } else {
+        url = await this.channel.createLanShareUrl(
+          torrentHash,
+          fileIndex,
+          root.key,
+          file.path,
+          file.length,
+          mimeType,
+        )
+      }
       if (!url) {
         return { ok: false, error: 'LAN sharing is not available on this host' }
       }
@@ -631,6 +662,93 @@ export class DaemonEngineManager implements IEngineManager {
     } catch (e) {
       return { ok: false, error: String(e) }
     }
+  }
+
+  private async getDaemonControlStreamService(): Promise<DaemonControlStreamService | null> {
+    if (this.channel.getState().platform !== 'chromeos') {
+      return null
+    }
+    const daemonInfo = this._daemonInfo
+    if (!daemonInfo?.token) {
+      return null
+    }
+    const host = daemonInfo.host ?? CHROMEOS_ANDROID_HOST
+    if (host !== CHROMEOS_ANDROID_HOST) {
+      return null
+    }
+
+    if (!this.engine) {
+      return null
+    }
+
+    if (!this.daemonControlStreamService) {
+      const controlPort = daemonInfo.ioPort ?? daemonInfo.port
+      const installId =
+        (await this.channel.kvGet<string>('telemetryId', { keyPrefix: '' })) ?? 'stream-service'
+      const extensionId =
+        typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.id : 'standalone'
+      this.daemonControlStreamService = new DaemonControlStreamService(
+        this.engine,
+        host,
+        controlPort,
+        daemonInfo.token,
+        extensionId,
+        installId,
+      )
+    }
+    await this.daemonControlStreamService.connect()
+    return this.daemonControlStreamService
+  }
+
+  private async resolveLanAddress(daemonInfo: DaemonInfo): Promise<string | null> {
+    const daemonHost = daemonInfo.host ?? '127.0.0.1'
+    const tokenHeaders: HeadersInit | undefined =
+      this.channel.getState().platform === 'desktop' ? { 'X-JST-Auth': daemonInfo.token } : undefined
+    const [interfaces, gateway] = await Promise.all([
+      fetch(`http://${daemonHost}:${daemonInfo.port}/network/interfaces`, {
+        headers: tokenHeaders,
+      }).then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to query network interfaces: ${response.status}`)
+        }
+        return (await response.json()) as Array<{ name: string; address: string; prefixLength: number }>
+      }),
+      fetch(`http://${daemonHost}:${daemonInfo.port}/network/gateway`, {
+        headers: tokenHeaders,
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            return null
+          }
+          return (await response.json()) as { ip: string; interfaceName?: string } | null
+        })
+        .catch(() => null),
+    ])
+
+    const candidates = interfaces.filter((iface) => {
+      if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(iface.address)) return false
+      if (iface.address.startsWith('127.')) return false
+      if (iface.address.startsWith('169.254.')) return false
+      if (iface.address.startsWith('100.115.')) return false
+      return iface.address !== '0.0.0.0'
+    })
+    const isPrivateLan = (address: string): boolean => {
+      if (address.startsWith('10.')) return true
+      if (address.startsWith('192.168.')) return true
+      const match = /^172\.(\d{1,3})\./.exec(address)
+      if (!match) return false
+      const octet = Number(match[1])
+      return octet >= 16 && octet <= 31
+    }
+
+    if (gateway?.interfaceName) {
+      const gatewayCandidates = candidates.filter((iface) => iface.name === gateway.interfaceName)
+      const preferredGatewayCandidate = gatewayCandidates.find((iface) => isPrivateLan(iface.address))
+      if (preferredGatewayCandidate) return preferredGatewayCandidate.address
+      if (gatewayCandidates[0]) return gatewayCandidates[0].address
+    }
+
+    return candidates.find((iface) => isPrivateLan(iface.address))?.address ?? candidates[0]?.address ?? null
   }
 
   getFilePath(torrentHash: string, filePath: string): string | null {

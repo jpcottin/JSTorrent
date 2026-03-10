@@ -641,6 +641,7 @@ export class DaemonBridge {
    */
   async createHttpStreamUrl(
     torrentId: string,
+    fileIndex: number,
     rootKey: string,
     path: string,
     fileSize: number,
@@ -662,6 +663,7 @@ export class DaemonBridge {
       const result = await this.sendControlRequest(OP_CTRL_REGISTER_HTTP_STREAM, {
         streamToken,
         torrentId,
+        fileIndex,
         rootKey,
         path,
         fileSize,
@@ -681,6 +683,7 @@ export class DaemonBridge {
         body: JSON.stringify({
           streamToken,
           torrentId,
+          fileIndex,
           rootKey,
           path,
           fileSize,
