@@ -1,4 +1,5 @@
 import * as http from 'node:http'
+import * as dgram from 'node:dgram'
 import * as net from 'node:net'
 import * as tls from 'node:tls'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -57,6 +58,7 @@ describe('node-io-daemon server', () => {
   let daemon: ReturnType<typeof createNodeIoDaemon> | null = null
   let tcpServer: net.Server | null = null
   let tlsServer: tls.Server | null = null
+  let udpServer: dgram.Socket | null = null
 
   afterEach(async () => {
     if (daemon) {
@@ -88,6 +90,19 @@ describe('node-io-daemon server', () => {
         })
       })
       tlsServer = null
+    }
+
+    if (udpServer) {
+      await new Promise<void>((resolve, reject) => {
+        udpServer!.close((error) => {
+          if (error) {
+            reject(error)
+          } else {
+            resolve()
+          }
+        })
+      })
+      udpServer = null
     }
   })
 
@@ -409,6 +424,69 @@ describe('node-io-daemon server', () => {
 
       socket.send(new TextEncoder().encode('ping'))
       await expect(waitForWithDaemonFlush(factory, dataPromise)).resolves.toBe('tls:ping')
+    } finally {
+      connection.close()
+    }
+  })
+
+  it('supports UDP bind/send/receive through the daemon socket adapter', async () => {
+    udpServer = dgram.createSocket('udp4')
+    udpServer.on('message', (message, remoteInfo) => {
+      udpServer!.send(Buffer.concat([Buffer.from('udp:'), message]), remoteInfo.port, remoteInfo.address)
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      udpServer!.bind(0, '127.0.0.1', () => resolve())
+      udpServer!.once('error', reject)
+    })
+
+    const target = udpServer.address()
+    if (typeof target === 'string') {
+      throw new Error('UDP test server failed to bind')
+    }
+
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+    })
+    await daemon.start()
+
+    const status = await fetchDaemonStatus(
+      '127.0.0.1',
+      daemon.getStatus().port,
+      'secret',
+      'extension-id',
+      'install',
+    )
+    const connection = new DaemonConnection(
+      daemon.getStatus().port,
+      '127.0.0.1',
+      undefined,
+      'secret',
+      status.ioPort,
+    )
+    const factory = new DaemonSocketFactory(connection)
+
+    try {
+      await connection.connectWebSocket()
+      const socket = await waitForWithDaemonFlush(
+        factory,
+        factory.createUdpSocket({ bindAddr: '127.0.0.1', bindPort: 0 }),
+      )
+
+      const messagePromise = new Promise<string>((resolve) => {
+        socket.onMessage((_src, data) => {
+          resolve(Buffer.from(data).toString('utf8'))
+        })
+      })
+
+      socket.send('127.0.0.1', target.port, new TextEncoder().encode('ping'))
+
+      await expect(waitForWithDaemonFlush(factory, messagePromise)).resolves.toBe('udp:ping')
+
+      socket.close()
     } finally {
       connection.close()
     }

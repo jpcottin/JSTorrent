@@ -1,3 +1,4 @@
+import * as dgram from 'node:dgram'
 import * as net from 'node:net'
 import * as tls from 'node:tls'
 import type { Duplex } from 'node:stream'
@@ -16,6 +17,13 @@ import {
   IO_OP_TCP_SECURED,
   IO_OP_TCP_SEND,
   IO_OP_TCP_STOP_LISTEN,
+  IO_OP_UDP_BIND,
+  IO_OP_UDP_BOUND,
+  IO_OP_UDP_CLOSE,
+  IO_OP_UDP_JOIN_MULTICAST,
+  IO_OP_UDP_LEAVE_MULTICAST,
+  IO_OP_UDP_RECV,
+  IO_OP_UDP_SEND,
   IO_PROTOCOL_VERSION,
   buildIoProtocolAuthResultFrame,
   buildIoProtocolErrorFrame,
@@ -51,11 +59,16 @@ interface TcpServerRecord {
   server: net.Server
 }
 
+interface UdpSocketRecord {
+  socket: dgram.Socket
+}
+
 export class NodeIoDaemonIoSession {
   private state: SessionState = 'await_hello'
   private buffer = Buffer.alloc(0)
   private readonly tcpSockets = new Map<number, TcpSocketRecord>()
   private readonly tcpServers = new Map<number, TcpServerRecord>()
+  private readonly udpSockets = new Map<number, UdpSocketRecord>()
   private nextAcceptedSocketId = 0x10000
 
   constructor(private readonly options: NodeIoDaemonIoSessionOptions) {
@@ -108,6 +121,7 @@ export class NodeIoDaemonIoSession {
     this.state = 'closed'
     this.destroyTcpSockets()
     this.destroyTcpServers()
+    this.destroyUdpSockets()
     this.options.socket.destroy()
     this.options.onClose()
   }
@@ -119,6 +133,7 @@ export class NodeIoDaemonIoSession {
     this.state = 'closed'
     this.destroyTcpSockets()
     this.destroyTcpServers()
+    this.destroyUdpSockets()
     this.options.onClose()
   }
 
@@ -259,6 +274,31 @@ export class NodeIoDaemonIoSession {
 
     if (envelope.msgType === IO_OP_TCP_CLOSE) {
       this.handleTcpClose(envelope.payload)
+      return
+    }
+
+    if (envelope.msgType === IO_OP_UDP_BIND) {
+      this.handleUdpBind(envelope.requestId, envelope.payload)
+      return
+    }
+
+    if (envelope.msgType === IO_OP_UDP_SEND) {
+      this.handleUdpSend(envelope.payload)
+      return
+    }
+
+    if (envelope.msgType === IO_OP_UDP_CLOSE) {
+      this.handleUdpClose(envelope.payload)
+      return
+    }
+
+    if (envelope.msgType === IO_OP_UDP_JOIN_MULTICAST) {
+      this.handleUdpJoinMulticast(envelope.payload)
+      return
+    }
+
+    if (envelope.msgType === IO_OP_UDP_LEAVE_MULTICAST) {
+      this.handleUdpLeaveMulticast(envelope.payload)
       return
     }
 
@@ -512,6 +552,144 @@ export class NodeIoDaemonIoSession {
     record.server.close()
   }
 
+  private handleUdpBind(requestId: number, payload: Uint8Array): void {
+    if (payload.byteLength < 6) {
+      this.sendProtocolFrame(IO_OP_UDP_BOUND, requestId, this.buildUdpBoundFailurePayload(0))
+      return
+    }
+
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+    const socketId = view.getUint32(0, true)
+    const port = view.getUint16(4, true)
+    const bindAddr = new TextDecoder().decode(payload.slice(6))
+
+    if (this.udpSockets.has(socketId)) {
+      this.sendProtocolFrame(
+        IO_OP_UDP_BOUND,
+        requestId,
+        this.buildUdpBoundFailurePayload(socketId),
+      )
+      return
+    }
+
+    const socketType = bindAddr.includes(':') ? 'udp6' : 'udp4'
+    const socket = dgram.createSocket(socketType)
+
+    socket.on('message', (message, remoteInfo) => {
+      const remoteAddressBytes = new TextEncoder().encode(remoteInfo.address)
+      const response = new Uint8Array(8 + remoteAddressBytes.byteLength + message.byteLength)
+      const responseView = new DataView(response.buffer)
+      responseView.setUint32(0, socketId, true)
+      responseView.setUint16(4, remoteInfo.port, true)
+      responseView.setUint16(6, remoteAddressBytes.byteLength, true)
+      response.set(remoteAddressBytes, 8)
+      response.set(message, 8 + remoteAddressBytes.byteLength)
+      this.sendProtocolFrame(IO_OP_UDP_RECV, 0, response)
+    })
+
+    socket.once('error', () => {
+      this.udpSockets.delete(socketId)
+      socket.close()
+      this.sendProtocolFrame(IO_OP_UDP_BOUND, requestId, this.buildUdpBoundFailurePayload(socketId))
+    })
+
+    socket.bind(port, bindAddr || undefined, () => {
+      const address = socket.address()
+      const boundPort = typeof address === 'object' ? address.port : 0
+      this.udpSockets.set(socketId, { socket })
+      this.sendProtocolFrame(
+        IO_OP_UDP_BOUND,
+        requestId,
+        this.buildUdpBoundSuccessPayload(socketId, boundPort),
+      )
+    })
+  }
+
+  private handleUdpSend(payload: Uint8Array): void {
+    if (payload.byteLength < 8) {
+      return
+    }
+
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+    const socketId = view.getUint32(0, true)
+    const destPort = view.getUint16(4, true)
+    const addrLength = view.getUint16(6, true)
+    if (payload.byteLength < 8 + addrLength) {
+      return
+    }
+
+    const record = this.udpSockets.get(socketId)
+    if (!record) {
+      this.sendUdpClose(socketId, true)
+      return
+    }
+
+    const destAddr = new TextDecoder().decode(payload.slice(8, 8 + addrLength))
+    const body = Buffer.from(payload.slice(8 + addrLength))
+
+    record.socket.send(body, destPort, destAddr, (error) => {
+      if (error) {
+        this.handleUdpSocketClosed(socketId, true)
+      }
+    })
+  }
+
+  private handleUdpClose(payload: Uint8Array): void {
+    if (payload.byteLength < 4) {
+      return
+    }
+
+    const socketId = new DataView(payload.buffer, payload.byteOffset, payload.byteLength).getUint32(
+      0,
+      true,
+    )
+    const record = this.udpSockets.get(socketId)
+    if (!record) {
+      return
+    }
+
+    this.udpSockets.delete(socketId)
+    record.socket.close()
+  }
+
+  private handleUdpJoinMulticast(payload: Uint8Array): void {
+    if (payload.byteLength < 4) {
+      return
+    }
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+    const socketId = view.getUint32(0, true)
+    const groupAddress = new TextDecoder().decode(payload.slice(4))
+    const record = this.udpSockets.get(socketId)
+    if (!record || !groupAddress) {
+      return
+    }
+
+    try {
+      record.socket.addMembership(groupAddress)
+    } catch {
+      // Best-effort only for now.
+    }
+  }
+
+  private handleUdpLeaveMulticast(payload: Uint8Array): void {
+    if (payload.byteLength < 4) {
+      return
+    }
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+    const socketId = view.getUint32(0, true)
+    const groupAddress = new TextDecoder().decode(payload.slice(4))
+    const record = this.udpSockets.get(socketId)
+    if (!record || !groupAddress) {
+      return
+    }
+
+    try {
+      record.socket.dropMembership(groupAddress)
+    } catch {
+      // Best-effort only for now.
+    }
+  }
+
   private handleSocketClosed(socketId: number, hadError: boolean): void {
     const record = this.tcpSockets.get(socketId)
     if (!record) {
@@ -529,6 +707,26 @@ export class NodeIoDaemonIoSession {
     payload[4] = hadError ? 1 : 0
     view.setUint32(5, 0, true)
     this.sendProtocolFrame(IO_OP_TCP_CLOSE, 0, payload)
+  }
+
+  private handleUdpSocketClosed(socketId: number, hadError: boolean): void {
+    const record = this.udpSockets.get(socketId)
+    if (!record) {
+      return
+    }
+
+    this.udpSockets.delete(socketId)
+    record.socket.close()
+    this.sendUdpClose(socketId, hadError)
+  }
+
+  private sendUdpClose(socketId: number, hadError: boolean): void {
+    const payload = new Uint8Array(9)
+    const view = new DataView(payload.buffer)
+    view.setUint32(0, socketId, true)
+    payload[4] = hadError ? 1 : 0
+    view.setUint32(5, 0, true)
+    this.sendProtocolFrame(IO_OP_UDP_CLOSE, 0, payload)
   }
 
   private attachActiveTcpSocket(socketId: number, socket: net.Socket | tls.TLSSocket): void {
@@ -616,6 +814,26 @@ export class NodeIoDaemonIoSession {
     return payload
   }
 
+  private buildUdpBoundSuccessPayload(socketId: number, boundPort: number): Uint8Array {
+    const payload = new Uint8Array(11)
+    const view = new DataView(payload.buffer)
+    view.setUint32(0, socketId, true)
+    payload[4] = 0
+    view.setUint16(5, boundPort, true)
+    view.setUint32(7, 0, true)
+    return payload
+  }
+
+  private buildUdpBoundFailurePayload(socketId: number): Uint8Array {
+    const payload = new Uint8Array(11)
+    const view = new DataView(payload.buffer)
+    view.setUint32(0, socketId, true)
+    payload[4] = 1
+    view.setUint16(5, 0, true)
+    view.setUint32(7, 1, true)
+    return payload
+  }
+
   private destroyTcpSockets(): void {
     for (const [socketId, record] of this.tcpSockets) {
       this.tcpSockets.delete(socketId)
@@ -627,6 +845,13 @@ export class NodeIoDaemonIoSession {
     for (const [serverId, record] of this.tcpServers) {
       this.tcpServers.delete(serverId)
       record.server.close()
+    }
+  }
+
+  private destroyUdpSockets(): void {
+    for (const [socketId, record] of this.udpSockets) {
+      this.udpSockets.delete(socketId)
+      record.socket.close()
     }
   }
 
@@ -665,6 +890,7 @@ export class NodeIoDaemonIoSession {
     this.state = 'closed'
     this.destroyTcpSockets()
     this.destroyTcpServers()
+    this.destroyUdpSockets()
     this.options.socket.end(encodeCloseWebSocketFrame(code, reason))
     this.options.onClose()
   }

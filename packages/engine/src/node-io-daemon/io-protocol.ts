@@ -18,6 +18,13 @@ export const IO_OP_TCP_ACCEPT = 0x17
 export const IO_OP_TCP_STOP_LISTEN = 0x18
 export const IO_OP_TCP_SECURE = 0x19
 export const IO_OP_TCP_SECURED = 0x1a
+export const IO_OP_UDP_BIND = 0x20
+export const IO_OP_UDP_BOUND = 0x21
+export const IO_OP_UDP_SEND = 0x22
+export const IO_OP_UDP_RECV = 0x23
+export const IO_OP_UDP_CLOSE = 0x24
+export const IO_OP_UDP_JOIN_MULTICAST = 0x25
+export const IO_OP_UDP_LEAVE_MULTICAST = 0x26
 
 export interface IoProtocolEnvelope {
   version: number
