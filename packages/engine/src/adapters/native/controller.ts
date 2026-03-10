@@ -74,12 +74,72 @@ function getTorrentSize(t: Torrent): number {
 // Queue for commands that arrive before engine is ready
 // This prevents commands from being silently dropped during engine startup
 const commandQueue: Array<() => void> = []
+const PLAYBACK_HTTP_STREAM_STATUS = {
+  FileSkipped: 'FileSkipped',
+  StreamSessionMismatch: 'StreamSessionMismatch',
+  StreamSessionNotFound: 'StreamSessionNotFound',
+  TorrentErrored: 'TorrentErrored',
+  TorrentInactive: 'TorrentInactive',
+  TorrentRemoved: 'TorrentRemoved',
+  TorrentStopped: 'TorrentStopped',
+} as const
+
+type PlaybackHttpStreamStatus =
+  (typeof PLAYBACK_HTTP_STREAM_STATUS)[keyof typeof PLAYBACK_HTTP_STREAM_STATUS]
+
 const playbackSessions = new Map<
   string,
   {
     session: StreamingPlaybackSession
+    torrent: Torrent
+    torrentId: string
+    fileIndex: number
   }
 >()
+
+function createPlaybackHttpStreamStatusError(status: PlaybackHttpStreamStatus): Error {
+  const error = new Error(status)
+  error.name = status
+  return error
+}
+
+function isRangeAvailable(
+  torrent: Torrent,
+  fileIndex: number,
+  offset: number,
+  length: number,
+): boolean {
+  if (length === 0) {
+    return true
+  }
+  const pieces = torrent.fileBytesToPieces(fileIndex, offset, length)
+  return pieces.every((pieceIndex) => torrent.hasPiece(pieceIndex))
+}
+
+function getUnstreamablePlaybackStateError(
+  torrent: Torrent,
+  fileIndex: number,
+): PlaybackHttpStreamStatus | null {
+  if (torrent.isFileSkipped(fileIndex)) {
+    return PLAYBACK_HTTP_STREAM_STATUS.FileSkipped
+  }
+
+  if (torrent.errorMessage) {
+    return PLAYBACK_HTTP_STREAM_STATUS.TorrentErrored
+  }
+
+  if (torrent.userState !== 'active') {
+    return torrent.userState === 'stopped'
+      ? PLAYBACK_HTTP_STREAM_STATUS.TorrentStopped
+      : PLAYBACK_HTTP_STREAM_STATUS.TorrentInactive
+  }
+
+  if (torrent.activityState === 'stopped' || torrent.activityState === 'queued') {
+    return PLAYBACK_HTTP_STREAM_STATUS.TorrentInactive
+  }
+
+  return null
+}
 
 /**
  * Flush all queued commands. Called after engine is ready.
@@ -857,7 +917,12 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
       logPrefix: `[android-player ${sessionId}]`,
     })
     const opened = session.open()
-    playbackSessions.set(sessionId, { session })
+    playbackSessions.set(sessionId, {
+      session,
+      torrent,
+      torrentId: infoHash,
+      fileIndex,
+    })
 
     return {
       ok: true,
@@ -880,7 +945,7 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
 
     const session = playbackSessions.get(sessionId)
     if (!session) {
-      throw new Error('Playback session not found')
+      throw createPlaybackHttpStreamStatusError(PLAYBACK_HTTP_STREAM_STATUS.StreamSessionNotFound)
     }
 
     const offset = Number.parseInt(offsetStr, 10)
@@ -894,11 +959,25 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
       throw new Error('Invalid offset/length')
     }
 
+    const currentTorrent = getEngine()?.getTorrent(session.torrentId)
+    if (!currentTorrent || currentTorrent !== session.torrent) {
+      throw createPlaybackHttpStreamStatusError(PLAYBACK_HTTP_STREAM_STATUS.TorrentRemoved)
+    }
+
     if (offset >= session.session.fileSize) {
       return new Uint8Array(0)
     }
 
     const length = Math.min(requestedLength, session.session.fileSize - offset)
+    if (!isRangeAvailable(session.torrent, session.fileIndex, offset, length)) {
+      const unstreamableStateError = getUnstreamablePlaybackStateError(
+        session.torrent,
+        session.fileIndex,
+      )
+      if (unstreamableStateError) {
+        throw createPlaybackHttpStreamStatusError(unstreamableStateError)
+      }
+    }
     return session.session.read(offset, length)
   }
 

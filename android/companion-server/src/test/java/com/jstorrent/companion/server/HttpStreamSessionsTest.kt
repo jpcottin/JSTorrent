@@ -42,6 +42,7 @@ class HttpStreamSessionsTest {
             ownerId = "owner-a",
             token = "token-a",
             torrentId = "torrent-a",
+            fileIndex = 0,
             rootKey = "root",
             path = "video.mp4",
             fileSize = 1234,
@@ -51,6 +52,7 @@ class HttpStreamSessionsTest {
             ownerId = "owner-b",
             token = "token-b",
             torrentId = "torrent-b",
+            fileIndex = 1,
             rootKey = "root",
             path = "other.mp4",
             fileSize = 5678,
@@ -65,5 +67,48 @@ class HttpStreamSessionsTest {
         assertEquals(1, removed)
         assertNull(registry.getAndTouch("token-a"))
         assertNotNull(registry.getAndTouch("token-b"))
+    }
+
+    @Test
+    fun `registry revokes all streams for a removed torrent`() {
+        val registry = HttpStreamSessionRegistry()
+
+        registry.register(
+            ownerId = "owner-a",
+            token = "token-a",
+            torrentId = "torrent-a",
+            fileIndex = 0,
+            rootKey = "root",
+            path = "video.mp4",
+            fileSize = 1234,
+            mimeType = "video/mp4",
+        )
+        registry.register(
+            ownerId = "owner-b",
+            token = "token-b",
+            torrentId = "torrent-a",
+            fileIndex = 1,
+            rootKey = "root",
+            path = "other.mp4",
+            fileSize = 5678,
+            mimeType = "video/mp4",
+        )
+        registry.register(
+            ownerId = "owner-c",
+            token = "token-c",
+            torrentId = "torrent-c",
+            fileIndex = 2,
+            rootKey = "root",
+            path = "third.mp4",
+            fileSize = 999,
+            mimeType = "video/mp4",
+        )
+
+        val removed = registry.revokeTorrent("torrent-a")
+
+        assertEquals(2, removed)
+        assertNull(registry.getAndTouch("token-a"))
+        assertNull(registry.getAndTouch("token-b"))
+        assertNotNull(registry.getAndTouch("token-c"))
     }
 }

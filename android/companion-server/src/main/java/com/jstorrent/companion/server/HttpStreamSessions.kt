@@ -8,6 +8,7 @@ data class RegisteredHttpStream(
     val token: String,
     val ownerId: String,
     val torrentId: String,
+    val fileIndex: Int,
     val rootKey: String,
     val path: String,
     val fileSize: Long,
@@ -37,6 +38,7 @@ class HttpStreamSessionRegistry(
         ownerId: String,
         token: String,
         torrentId: String,
+        fileIndex: Int,
         rootKey: String,
         path: String,
         fileSize: Long,
@@ -47,6 +49,7 @@ class HttpStreamSessionRegistry(
             token = token,
             ownerId = ownerId,
             torrentId = torrentId,
+            fileIndex = fileIndex,
             rootKey = rootKey,
             path = path,
             fileSize = fileSize,
@@ -77,6 +80,17 @@ class HttpStreamSessionRegistry(
         var removed = 0
         for ((token, session) in sessions.entries) {
             if (session.ownerId != ownerId) continue
+            if (sessions.remove(token, session)) {
+                removed++
+            }
+        }
+        return removed
+    }
+
+    fun revokeTorrent(torrentId: String): Int {
+        var removed = 0
+        for ((token, session) in sessions.entries) {
+            if (session.torrentId != torrentId) continue
             if (sessions.remove(token, session)) {
                 removed++
             }

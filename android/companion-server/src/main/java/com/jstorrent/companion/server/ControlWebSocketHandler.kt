@@ -281,6 +281,8 @@ class ControlWebSocketHandler(
                 ?: return sendJsonResponse(envelope.requestId, opcode, false, "Missing streamToken")
             val torrentId = request["torrentId"]?.jsonPrimitive?.content
                 ?: return sendJsonResponse(envelope.requestId, opcode, false, "Missing torrentId")
+            val fileIndex = request["fileIndex"]?.jsonPrimitive?.intOrNull
+                ?: return sendJsonResponse(envelope.requestId, opcode, false, "Missing fileIndex")
             val rootKey = request["rootKey"]?.jsonPrimitive?.content
                 ?: return sendJsonResponse(envelope.requestId, opcode, false, "Missing rootKey")
             val path = request["path"]?.jsonPrimitive?.content
@@ -294,6 +296,9 @@ class ControlWebSocketHandler(
             }
             if (torrentId.isBlank() || torrentId.length > 256) {
                 return sendJsonResponse(envelope.requestId, opcode, false, "Invalid torrentId")
+            }
+            if (fileIndex < 0) {
+                return sendJsonResponse(envelope.requestId, opcode, false, "Invalid fileIndex")
             }
             if (rootKey.isBlank()) {
                 return sendJsonResponse(envelope.requestId, opcode, false, "Invalid rootKey")
@@ -312,6 +317,7 @@ class ControlWebSocketHandler(
                 ownerId = sessionOwnerId,
                 token = streamToken,
                 torrentId = torrentId,
+                fileIndex = fileIndex,
                 rootKey = rootKey,
                 path = path,
                 fileSize = fileSize,

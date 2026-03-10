@@ -1,17 +1,40 @@
 package com.jstorrent.companion.server
 
-import android.net.Uri
 import android.util.Log
 import com.jstorrent.io.file.FileManager
-import com.jstorrent.io.file.FileManagerException
 import io.netty.bootstrap.ServerBootstrap
 import io.netty.buffer.Unpooled
-import io.netty.channel.*
+import io.netty.channel.Channel
+import io.netty.channel.ChannelFuture
+import io.netty.channel.ChannelHandlerContext
+import io.netty.channel.ChannelInitializer
+import io.netty.channel.ChannelOption
+import io.netty.channel.EventLoopGroup
+import io.netty.channel.SimpleChannelInboundHandler
 import io.netty.channel.nio.NioEventLoopGroup
 import io.netty.channel.socket.SocketChannel
 import io.netty.channel.socket.nio.NioServerSocketChannel
-import io.netty.handler.codec.http.*
+import io.netty.handler.codec.http.DefaultFullHttpResponse
+import io.netty.handler.codec.http.DefaultHttpContent
+import io.netty.handler.codec.http.DefaultHttpResponse
+import io.netty.handler.codec.http.FullHttpRequest
+import io.netty.handler.codec.http.HttpHeaderNames
+import io.netty.handler.codec.http.HttpMethod
+import io.netty.handler.codec.http.HttpObjectAggregator
+import io.netty.handler.codec.http.HttpResponseStatus
+import io.netty.handler.codec.http.HttpServerCodec
+import io.netty.handler.codec.http.HttpVersion
+import io.netty.handler.codec.http.LastHttpContent
 import java.net.InetSocketAddress
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 private const val TAG = "LanMediaHttpServer"
 
@@ -24,6 +47,7 @@ class LanMediaHttpServer(
     private var workerGroup: EventLoopGroup? = null
     private var channel: Channel? = null
     private var actualPort: Int = 0
+    private var lifecycleSubscription: AutoCloseable? = null
 
     val boundPort: Int get() = actualPort
     val isRunning: Boolean get() = channel?.isActive == true
@@ -36,6 +60,13 @@ class LanMediaHttpServer(
 
         bossGroup = NioEventLoopGroup(1)
         workerGroup = NioEventLoopGroup()
+        if (lifecycleSubscription == null) {
+            lifecycleSubscription = deps.subscribeTorrentHttpStreamLifecycle { event ->
+                if (event.reason == "torrent-removed") {
+                    httpStreams.revokeTorrent(event.torrentId)
+                }
+            }
+        }
 
         try {
             val bootstrap = ServerBootstrap()
@@ -57,6 +88,8 @@ class LanMediaHttpServer(
             bossGroup?.shutdownGracefully()
             workerGroup = null
             bossGroup = null
+            lifecycleSubscription?.close()
+            lifecycleSubscription = null
             throw e
         }
     }
@@ -66,6 +99,8 @@ class LanMediaHttpServer(
         channel?.close()?.sync()
         workerGroup?.shutdownGracefully()
         bossGroup?.shutdownGracefully()
+        lifecycleSubscription?.close()
+        lifecycleSubscription = null
         channel = null
         workerGroup = null
         bossGroup = null
@@ -92,6 +127,7 @@ private class LanMediaHttpHandler(
     private val fileManager: FileManager,
     private val httpStreams: HttpStreamSessionRegistry,
 ) : SimpleChannelInboundHandler<FullHttpRequest>() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun channelRead0(ctx: ChannelHandlerContext, request: FullHttpRequest) {
         val path = request.uri().substringBefore('?')
@@ -120,46 +156,122 @@ private class LanMediaHttpHandler(
             return
         }
 
-        val rootUri = deps.rootStore.resolveKey(stream.rootKey)
-        if (rootUri == null) {
+        if (deps.rootStore.resolveKey(stream.rootKey) == null) {
             httpStreams.revoke(streamToken)
             sendNotFound(ctx)
             return
         }
 
-        val stat = try {
-            fileManager.stat(rootUri, stream.path)
-        } catch (e: Exception) {
-            Log.w(TAG, "stat failed for ${stream.path}: ${e.message}")
-            null
-        }
-        if (stat == null || !stat.isFile) {
-            httpStreams.revoke(streamToken)
-            sendNotFound(ctx)
-            return
-        }
-
-        val range = resolveHttpByteRange(request.headers().get(HttpHeaderNames.RANGE), stat.size)
+        val range = resolveHttpByteRange(request.headers().get(HttpHeaderNames.RANGE), stream.fileSize)
         if (range == null) {
-            sendRangeNotSatisfiable(ctx, stat.size)
+            sendRangeNotSatisfiable(ctx, stream.fileSize)
             return
         }
 
-        sendStreamResponse(
-            ctx = ctx,
-            method = request.method(),
-            rootUri = rootUri,
-            relativePath = stream.path,
-            range = range,
-            contentType = stream.mimeType ?: "application/octet-stream",
-        )
+        if (request.method() == HttpMethod.HEAD || range.contentLength == 0L) {
+            sendStreamHeaders(
+                ctx = ctx,
+                range = range,
+                contentType = stream.mimeType ?: "application/octet-stream",
+            )
+            ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
+            return
+        }
+
+        val sessionId = "lan-stream-$streamToken-${System.nanoTime()}"
+        val closed = AtomicBoolean(false)
+        val closeSession = { reason: String ->
+            if (closed.compareAndSet(false, true)) {
+                deps.closeTorrentHttpStreamSession(sessionId, reason)
+            }
+        }
+        ctx.channel().closeFuture().addListener { closeSession("client-aborted") }
+
+        scope.launch {
+            streamTorrentResponse(
+                ctx = ctx,
+                streamToken = streamToken,
+                stream = stream,
+                range = range,
+                sessionId = sessionId,
+                closeSession = closeSession,
+            )
+        }
     }
 
-    private fun sendStreamResponse(
+    private suspend fun streamTorrentResponse(
         ctx: ChannelHandlerContext,
-        method: HttpMethod,
-        rootUri: Uri,
-        relativePath: String,
+        streamToken: String,
+        stream: RegisteredHttpStream,
+        range: HttpByteRange,
+        sessionId: String,
+        closeSession: (String) -> Unit,
+    ) {
+        var headersSent = false
+
+        try {
+            deps.openTorrentHttpStreamSession(
+                sessionId = sessionId,
+                torrentId = stream.torrentId,
+                fileIndex = stream.fileIndex,
+            )
+
+            val chunkSize = 256 * 1024
+            var nextOffset = range.start
+            while (ctx.channel().isActive && nextOffset <= range.endInclusive) {
+                val bytesToRead = minOf(chunkSize.toLong(), range.endInclusive - nextOffset + 1).toInt()
+                val chunk = deps.readTorrentHttpStreamBytes(sessionId, nextOffset, bytesToRead)
+                if (chunk.isEmpty()) {
+                    throw IllegalStateException("Unexpected empty read while streaming torrent")
+                }
+
+                if (!headersSent) {
+                    sendStreamHeaders(
+                        ctx = ctx,
+                        range = range,
+                        contentType = stream.mimeType ?: "application/octet-stream",
+                    )
+                    headersSent = true
+                }
+
+                nextOffset += chunk.size
+                writeAndFlush(ctx, DefaultHttpContent(Unpooled.wrappedBuffer(chunk)))
+            }
+
+            if (ctx.channel().isActive) {
+                if (!headersSent) {
+                    sendStreamHeaders(
+                        ctx = ctx,
+                        range = range,
+                        contentType = stream.mimeType ?: "application/octet-stream",
+                    )
+                }
+                writeAndFlush(ctx, LastHttpContent.EMPTY_LAST_CONTENT)
+            }
+        } catch (e: TorrentHttpStreamException) {
+            if (!headersSent) {
+                handleStreamError(ctx, streamToken, e)
+            } else {
+                Log.w(TAG, "stream failed after headers for ${stream.path}: ${e.status}")
+                ctx.close()
+            }
+        } catch (e: Exception) {
+            val aborted = e.message == "Aborted"
+            if (!aborted) {
+                Log.w(TAG, "stream failed for ${stream.path}: ${e.message}")
+            }
+            if (!headersSent && !aborted) {
+                sendNotFound(ctx)
+            } else {
+                ctx.close()
+            }
+        } finally {
+            closeSession("request-complete")
+        }
+    }
+
+    private fun sendStreamHeaders(
+        ctx: ChannelHandlerContext,
         range: HttpByteRange,
         contentType: String,
     ) {
@@ -174,46 +286,56 @@ private class LanMediaHttpHandler(
             response.headers().set(HttpHeaderNames.CONTENT_RANGE, range.contentRangeHeader())
         }
         ctx.write(response)
+    }
 
-        if (method == HttpMethod.HEAD) {
-            ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
-            return
+    private fun handleStreamError(
+        ctx: ChannelHandlerContext,
+        streamToken: String,
+        error: TorrentHttpStreamException,
+    ) {
+        when (error.status) {
+            TorrentHttpStreamStatus.TorrentStopped ->
+                sendText(ctx, HttpResponseStatus.CONFLICT, "Torrent is stopped")
+
+            TorrentHttpStreamStatus.TorrentInactive ->
+                sendText(ctx, HttpResponseStatus.CONFLICT, "Torrent is not active")
+
+            TorrentHttpStreamStatus.TorrentErrored ->
+                sendText(ctx, HttpResponseStatus.CONFLICT, "Torrent is in an error state")
+
+            TorrentHttpStreamStatus.FileSkipped ->
+                sendText(ctx, HttpResponseStatus.CONFLICT, "File is skipped")
+
+            TorrentHttpStreamStatus.TorrentRemoved,
+            TorrentHttpStreamStatus.StreamSessionMismatch,
+            TorrentHttpStreamStatus.StreamSessionNotFound -> {
+                httpStreams.revoke(streamToken)
+                sendNotFound(ctx)
+            }
         }
+    }
 
-        val chunkSize = 256 * 1024
-        var nextOffset = range.start
-
-        fun sendNextChunk() {
-            if (!ctx.channel().isActive) return
-            if (nextOffset > range.endInclusive) {
-                ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
-                return
-            }
-
-            val bytesToRead = minOf(chunkSize.toLong(), range.endInclusive - nextOffset + 1).toInt()
-            val chunk = try {
-                fileManager.read(rootUri, relativePath, nextOffset, bytesToRead)
-            } catch (e: FileManagerException) {
-                Log.w(TAG, "read failed at $nextOffset for $relativePath: ${e.message}")
-                ctx.close()
-                return
-            } catch (e: Exception) {
-                Log.w(TAG, "read failed at $nextOffset for $relativePath: ${e.message}")
-                ctx.close()
-                return
-            }
-
-            nextOffset += chunk.size
-            ctx.writeAndFlush(DefaultHttpContent(Unpooled.wrappedBuffer(chunk))).addListener { future ->
-                if (future.isSuccess) {
-                    sendNextChunk()
+    private suspend fun writeAndFlush(
+        ctx: ChannelHandlerContext,
+        message: Any,
+    ) {
+        suspendCancellableCoroutine<Unit> { continuation ->
+            val future = ctx.writeAndFlush(message)
+            future.addListener { channelFuture ->
+                if (channelFuture.isSuccess) {
+                    continuation.resume(Unit)
                 } else {
-                    ctx.close()
+                    continuation.resumeWithException(
+                        channelFuture.cause() ?: IllegalStateException("Channel write failed")
+                    )
+                }
+            }
+            continuation.invokeOnCancellation {
+                if (!future.isDone) {
+                    future.cancel(true)
                 }
             }
         }
-
-        sendNextChunk()
     }
 
     private fun sendRangeNotSatisfiable(ctx: ChannelHandlerContext, totalSize: Long) {
@@ -236,9 +358,26 @@ private class LanMediaHttpHandler(
         ctx.writeAndFlush(response)
     }
 
+    private fun sendText(ctx: ChannelHandlerContext, status: HttpResponseStatus, text: String) {
+        val bytes = text.toByteArray()
+        val response = DefaultFullHttpResponse(
+            HttpVersion.HTTP_1_1,
+            status,
+            Unpooled.wrappedBuffer(bytes),
+        )
+        response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain; charset=utf-8")
+        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, bytes.size)
+        ctx.writeAndFlush(response)
+    }
+
     private fun sendEmpty(ctx: ChannelHandlerContext, status: HttpResponseStatus) {
         val response = DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status)
         response.headers().set(HttpHeaderNames.CONTENT_LENGTH, 0)
         ctx.writeAndFlush(response)
+    }
+
+    override fun handlerRemoved(ctx: ChannelHandlerContext) {
+        super.handlerRemoved(ctx)
+        scope.cancel()
     }
 }

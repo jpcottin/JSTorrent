@@ -924,7 +924,7 @@ export class NodeIoDaemonRuntime {
     if (
       fileIndex !== undefined &&
       fileIndex !== null &&
-      (!Number.isInteger(fileIndex) || fileIndex < 0)
+      (typeof fileIndex !== 'number' || !Number.isInteger(fileIndex) || fileIndex < 0)
     ) {
       return { ok: false, error: 'Invalid fileIndex' }
     }

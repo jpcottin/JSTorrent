@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.io.IOException
 
 /**
  * A user-selected download folder.
@@ -105,6 +106,31 @@ interface RootStoreProvider {
     fun resolveKey(key: String): Uri?
 }
 
+enum class TorrentHttpStreamStatus {
+    FileSkipped,
+    StreamSessionMismatch,
+    StreamSessionNotFound,
+    TorrentErrored,
+    TorrentInactive,
+    TorrentRemoved,
+    TorrentStopped,
+}
+
+class TorrentHttpStreamException(
+    val status: TorrentHttpStreamStatus,
+    message: String = status.name,
+    cause: Throwable? = null
+) : IOException(message, cause)
+
+data class TorrentHttpStreamSessionInfo(
+    val fileSize: Long
+)
+
+data class TorrentHttpStreamLifecycleEvent(
+    val torrentId: String,
+    val reason: String
+)
+
 /**
  * Dependencies that the companion server needs from the app module.
  * The app module implements this interface to provide concrete implementations.
@@ -172,4 +198,40 @@ interface CompanionServerDeps {
      * @return Pair of (success, errorMessage?)
      */
     fun openFolder(rootKey: String, path: String = ""): Pair<Boolean, String?>
+
+    /**
+     * Open a torrent-backed HTTP stream session for daemon media serving.
+     * The returned session is request-scoped and should be closed when the HTTP
+     * request completes or disconnects.
+     */
+    suspend fun openTorrentHttpStreamSession(
+        sessionId: String,
+        torrentId: String,
+        fileIndex: Int
+    ): TorrentHttpStreamSessionInfo
+
+    /**
+     * Read bytes for an active torrent-backed HTTP stream session.
+     * Implementations may block until the requested bytes are available or fail
+     * with [TorrentHttpStreamException] when the torrent is not streamable.
+     */
+    suspend fun readTorrentHttpStreamBytes(
+        sessionId: String,
+        offset: Long,
+        length: Int
+    ): ByteArray
+
+    /**
+     * Close an active torrent-backed HTTP stream session.
+     * Safe to call multiple times.
+     */
+    fun closeTorrentHttpStreamSession(sessionId: String, reason: String = "closed")
+
+    /**
+     * Subscribe to torrent lifecycle changes that affect HTTP stream tokens.
+     * Implementations should notify at least torrent removal.
+     */
+    fun subscribeTorrentHttpStreamLifecycle(
+        listener: (TorrentHttpStreamLifecycleEvent) -> Unit
+    ): AutoCloseable
 }

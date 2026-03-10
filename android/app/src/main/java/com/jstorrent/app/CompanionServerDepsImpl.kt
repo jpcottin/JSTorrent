@@ -15,11 +15,29 @@ import com.jstorrent.companion.server.CompanionServerDeps
 import com.jstorrent.companion.server.DownloadRoot
 import com.jstorrent.companion.server.KVStoreProvider
 import com.jstorrent.companion.server.RootStoreProvider
+import com.jstorrent.companion.server.TorrentHttpStreamException
+import com.jstorrent.companion.server.TorrentHttpStreamLifecycleEvent
+import com.jstorrent.companion.server.TorrentHttpStreamSessionInfo
+import com.jstorrent.companion.server.TorrentHttpStreamStatus
 import com.jstorrent.companion.server.TokenStoreProvider
 import com.jstorrent.app.util.FileOpener
+import com.jstorrent.quickjs.model.TorrentSummary
 import com.jstorrent.quickjs.storage.SqliteKVStore
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArraySet
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 private const val TAG = "CompanionServerDepsImpl"
+
+private data class ActiveTorrentHttpStreamSession(
+    val sessionId: String,
+    val torrentId: String,
+)
 
 /**
  * Implementation of CompanionServerDeps that bridges companion-server
@@ -31,8 +49,20 @@ class CompanionServerDepsImpl(
     private val rootStoreImpl: RootStore,
     private val sqliteKVStore: SqliteKVStore
 ) : CompanionServerDeps {
+    private val app: JSTorrentApplication
+        get() = appContext.applicationContext as JSTorrentApplication
+
+    private val streamScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val activeHttpStreamSessions = ConcurrentHashMap<String, ActiveTorrentHttpStreamSession>()
+    private val closedHttpStreamReasons = ConcurrentHashMap<String, String>()
+    private val streamLifecycleListeners =
+        CopyOnWriteArraySet<(TorrentHttpStreamLifecycleEvent) -> Unit>()
 
     override val versionName: String = BuildConfig.VERSION_NAME
+
+    init {
+        observeTorrentHttpStreamLifecycle()
+    }
 
     override val tokenStore: TokenStoreProvider = object : TokenStoreProvider {
         override val token: String? get() = tokenStoreImpl.token
@@ -215,5 +245,162 @@ class CompanionServerDepsImpl(
             FileOpener.revealInFolder(appContext, rootKey, path)
         }
         return Pair(result.ok, result.error)
+    }
+
+    override suspend fun openTorrentHttpStreamSession(
+        sessionId: String,
+        torrentId: String,
+        fileIndex: Int
+    ): TorrentHttpStreamSessionInfo {
+        closedHttpStreamReasons.remove(sessionId)
+        val controller = app.ensureEngineStarted()
+        val info = controller.openPlaybackSessionAsync(sessionId, torrentId, fileIndex)
+        val fileSize = info.fileSize
+        if (!info.ok || fileSize == null || fileSize < 0) {
+            throw TorrentHttpStreamException(
+                status = TorrentHttpStreamStatus.StreamSessionMismatch,
+                message = info.error ?: "Failed to open torrent HTTP stream session",
+            )
+        }
+
+        activeHttpStreamSessions[sessionId] = ActiveTorrentHttpStreamSession(
+            sessionId = sessionId,
+            torrentId = torrentId,
+        )
+        return TorrentHttpStreamSessionInfo(fileSize = fileSize)
+    }
+
+    override suspend fun readTorrentHttpStreamBytes(
+        sessionId: String,
+        offset: Long,
+        length: Int
+    ): ByteArray {
+        val controller = app.ensureEngineStarted()
+        return try {
+            controller.readPlaybackBytesAsync(sessionId, offset, length)
+        } catch (e: Exception) {
+            val directStatus = mapTorrentHttpStreamStatus(e.message)
+            if (directStatus != null) {
+                throw TorrentHttpStreamException(directStatus, e.message ?: directStatus.name, e)
+            }
+
+            val closeReason = closedHttpStreamReasons.remove(sessionId)
+            if (e.message == "Aborted" && closeReason != null) {
+                throw TorrentHttpStreamException(
+                    mapCloseReasonToStatus(closeReason),
+                    closeReason,
+                    e,
+                )
+            }
+
+            if (e.message == "Playback session not found") {
+                throw TorrentHttpStreamException(
+                    TorrentHttpStreamStatus.StreamSessionNotFound,
+                    e.message ?: TorrentHttpStreamStatus.StreamSessionNotFound.name,
+                    e,
+                )
+            }
+
+            throw IOException(e.message ?: "Torrent HTTP stream read failed", e)
+        } finally {
+            if (!activeHttpStreamSessions.containsKey(sessionId)) {
+                closedHttpStreamReasons.remove(sessionId)
+            }
+        }
+    }
+
+    override fun closeTorrentHttpStreamSession(sessionId: String, reason: String) {
+        closedHttpStreamReasons[sessionId] = reason
+        activeHttpStreamSessions.remove(sessionId)
+        app.engineController?.closePlaybackSession(sessionId)
+    }
+
+    override fun subscribeTorrentHttpStreamLifecycle(
+        listener: (TorrentHttpStreamLifecycleEvent) -> Unit
+    ): AutoCloseable {
+        streamLifecycleListeners += listener
+        return AutoCloseable {
+            streamLifecycleListeners -= listener
+        }
+    }
+
+    private fun observeTorrentHttpStreamLifecycle() {
+        streamScope.launch {
+            var previousTorrents = emptyMap<String, TorrentSummary>()
+            app.engineServiceRepository.state.collectLatest { state ->
+                val currentTorrents = state?.torrents?.associateBy { it.infoHash } ?: emptyMap()
+
+                for (removedTorrentId in previousTorrents.keys - currentTorrents.keys) {
+                    closeHttpStreamSessionsForTorrent(removedTorrentId, "torrent-removed")
+                    notifyTorrentHttpStreamLifecycle(
+                        TorrentHttpStreamLifecycleEvent(
+                            torrentId = removedTorrentId,
+                            reason = "torrent-removed",
+                        )
+                    )
+                }
+
+                for ((torrentId, torrent) in currentTorrents) {
+                    val previous = previousTorrents[torrentId]
+                    val currentReason = getTorrentSessionCloseReason(torrent)
+                    val previousReason = previous?.let(::getTorrentSessionCloseReason)
+                    if (currentReason != null && currentReason != previousReason) {
+                        closeHttpStreamSessionsForTorrent(torrentId, currentReason)
+                    }
+                }
+
+                previousTorrents = currentTorrents
+            }
+        }
+    }
+
+    private fun closeHttpStreamSessionsForTorrent(torrentId: String, reason: String) {
+        val sessionIds = activeHttpStreamSessions.values
+            .filter { it.torrentId == torrentId }
+            .map { it.sessionId }
+        for (sessionId in sessionIds) {
+            closeTorrentHttpStreamSession(sessionId, reason)
+        }
+    }
+
+    private fun notifyTorrentHttpStreamLifecycle(event: TorrentHttpStreamLifecycleEvent) {
+        for (listener in streamLifecycleListeners) {
+            listener(event)
+        }
+    }
+
+    private fun getTorrentSessionCloseReason(torrent: TorrentSummary): String? {
+        if (torrent.errorMessage != null || torrent.status == "error") {
+            return "torrent-errored"
+        }
+        if (torrent.userState == "stopped" || torrent.status == "stopped") {
+            return "torrent-stopped"
+        }
+        if (torrent.userState != "active" || torrent.status == "queued") {
+            return "torrent-inactive"
+        }
+        return null
+    }
+
+    private fun mapCloseReasonToStatus(reason: String): TorrentHttpStreamStatus {
+        return when (reason) {
+            "torrent-removed" -> TorrentHttpStreamStatus.TorrentRemoved
+            "torrent-stopped" -> TorrentHttpStreamStatus.TorrentStopped
+            "torrent-errored" -> TorrentHttpStreamStatus.TorrentErrored
+            else -> TorrentHttpStreamStatus.TorrentInactive
+        }
+    }
+
+    private fun mapTorrentHttpStreamStatus(message: String?): TorrentHttpStreamStatus? {
+        return when (message) {
+            TorrentHttpStreamStatus.FileSkipped.name -> TorrentHttpStreamStatus.FileSkipped
+            TorrentHttpStreamStatus.StreamSessionMismatch.name -> TorrentHttpStreamStatus.StreamSessionMismatch
+            TorrentHttpStreamStatus.StreamSessionNotFound.name -> TorrentHttpStreamStatus.StreamSessionNotFound
+            TorrentHttpStreamStatus.TorrentErrored.name -> TorrentHttpStreamStatus.TorrentErrored
+            TorrentHttpStreamStatus.TorrentInactive.name -> TorrentHttpStreamStatus.TorrentInactive
+            TorrentHttpStreamStatus.TorrentRemoved.name -> TorrentHttpStreamStatus.TorrentRemoved
+            TorrentHttpStreamStatus.TorrentStopped.name -> TorrentHttpStreamStatus.TorrentStopped
+            else -> null
+        }
     }
 }

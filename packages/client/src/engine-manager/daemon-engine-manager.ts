@@ -605,7 +605,9 @@ export class DaemonEngineManager implements IEngineManager {
     const torrent = this.engine.torrents.find((t) => toHex(t.infoHash) === torrentHash)
     if (!torrent) return { ok: false, error: 'Torrent not found' }
 
-    const file = torrent.files.find((candidate) => candidate.path === filePath)
+    const fileIndex = torrent.files.findIndex((candidate) => candidate.path === filePath)
+    if (fileIndex < 0) return { ok: false, error: 'File not found' }
+    const file = torrent.files[fileIndex]
     if (!file) return { ok: false, error: 'File not found' }
     if (!file.isComplete) return { ok: false, error: 'File is not complete yet' }
 
@@ -616,6 +618,7 @@ export class DaemonEngineManager implements IEngineManager {
     try {
       const url = await this.channel.createLanShareUrl(
         torrentHash,
+        fileIndex,
         root.key,
         file.path,
         file.length,
