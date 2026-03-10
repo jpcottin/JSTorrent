@@ -25,3 +25,12 @@ export const PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES: NodeIoDaemonCapabilities = {
 export function createPhaseOneNodeIoDaemonCapabilities(): NodeIoDaemonCapabilities {
   return { ...PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES }
 }
+
+export const PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES: NodeIoDaemonCapabilities = {
+  ...PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES,
+  ioWebSocket: true,
+}
+
+export function createPhaseTwoNodeIoDaemonCapabilities(): NodeIoDaemonCapabilities {
+  return { ...PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES }
+}

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   PHASE_ZERO_NODE_IO_DAEMON_CAPABILITIES,
   PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES,
+  PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES,
   createPhaseZeroNodeIoDaemonCapabilities,
   createPhaseOneNodeIoDaemonCapabilities,
+  createPhaseTwoNodeIoDaemonCapabilities,
 } from '../../src/node-io-daemon/capabilities'
 
 describe('node-io-daemon capabilities', () => {
@@ -29,5 +31,13 @@ describe('node-io-daemon capabilities', () => {
     expect(PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES.health).toBe(true)
     expect(PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES.status).toBe(true)
     expect(PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES.ioWebSocket).toBe(false)
+  })
+
+  it('enables websocket handshake support in phase two', () => {
+    expect(createPhaseTwoNodeIoDaemonCapabilities()).toEqual(
+      PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES,
+    )
+    expect(PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES.ioWebSocket).toBe(true)
+    expect(PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES.controlEvents).toBe(false)
   })
 })

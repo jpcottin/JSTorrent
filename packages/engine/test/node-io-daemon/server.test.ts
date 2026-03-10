@@ -1,5 +1,7 @@
 import * as http from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
+import { fetchDaemonStatus } from '../../src/adapters/daemon/daemon-client'
+import { DaemonConnection } from '../../src/adapters/daemon/daemon-connection'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
 
 interface HttpResponseData {
@@ -46,7 +48,7 @@ async function makeRequest(
   })
 }
 
-describe('node-io-daemon phase one server', () => {
+describe('node-io-daemon phase two server', () => {
   let daemon: ReturnType<typeof createNodeIoDaemon> | null = null
 
   afterEach(async () => {
@@ -64,7 +66,7 @@ describe('node-io-daemon phase one server', () => {
 
     expect(daemon.getStatus()).toEqual({
       implementation: 'node-io-daemon',
-      phase: 'phase1',
+      phase: 'phase2',
       started: false,
       host: '127.0.0.1',
       port: 0,
@@ -72,7 +74,7 @@ describe('node-io-daemon phase one server', () => {
       capabilities: {
         health: true,
         status: true,
-        ioWebSocket: false,
+        ioWebSocket: true,
         controlEvents: false,
         rootsRead: false,
         rootsWrite: false,
@@ -94,7 +96,7 @@ describe('node-io-daemon phase one server', () => {
     expect(response.body.toString('utf8')).toBe('ok')
   })
 
-  it('serves /status and resets cleanly after stop', async () => {
+  it('serves daemon-compatible /status over POST and resets cleanly after stop', async () => {
     daemon = createNodeIoDaemon({
       host: '127.0.0.1',
       port: 0,
@@ -105,12 +107,30 @@ describe('node-io-daemon phase one server', () => {
 
     await daemon.start()
     const startedStatus = daemon.getStatus()
-    const response = await makeRequest(startedStatus.port, '/status')
+    const response = await makeRequest(startedStatus.port, '/status', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-JST-Auth': 'secret',
+      },
+    })
     expect(response.statusCode).toBe(200)
     expect(response.headers['content-type']).toContain('application/json')
 
-    const payload = JSON.parse(response.body.toString('utf8')) as ReturnType<typeof daemon.getStatus>
-    expect(payload).toEqual(startedStatus)
+    const payload = JSON.parse(response.body.toString('utf8')) as {
+      port: number
+      ioPort: number | null
+      paired: boolean
+      tokenValid: boolean | null
+      phase: string
+      capabilities: { ioWebSocket: boolean }
+    }
+    expect(payload.port).toBe(startedStatus.port)
+    expect(payload.ioPort).toBe(startedStatus.port)
+    expect(payload.paired).toBe(true)
+    expect(payload.tokenValid).toBe(true)
+    expect(payload.phase).toBe('phase2')
+    expect(payload.capabilities.ioWebSocket).toBe(true)
 
     const notFound = await makeRequest(startedStatus.port, '/missing')
     expect(notFound.statusCode).toBe(404)
@@ -118,7 +138,7 @@ describe('node-io-daemon phase one server', () => {
     await daemon.stop()
     expect(daemon.getStatus()).toEqual({
       implementation: 'node-io-daemon',
-      phase: 'phase1',
+      phase: 'phase2',
       started: false,
       host: '127.0.0.1',
       port: 0,
@@ -126,7 +146,7 @@ describe('node-io-daemon phase one server', () => {
       capabilities: {
         health: true,
         status: true,
-        ioWebSocket: false,
+        ioWebSocket: true,
         controlEvents: false,
         rootsRead: false,
         rootsWrite: false,
@@ -135,5 +155,32 @@ describe('node-io-daemon phase one server', () => {
         mediaBlocking206: false,
       },
     })
+  })
+
+  it('supports daemon status discovery and /io auth handshake through the existing client', async () => {
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+    })
+
+    await daemon.start()
+    const port = daemon.getStatus().port
+
+    const status = await fetchDaemonStatus('127.0.0.1', port, 'secret', 'extension-id', 'install')
+    expect(status.port).toBe(port)
+    expect(status.ioPort).toBe(port)
+    expect(status.paired).toBe(true)
+    expect(status.tokenValid).toBe(true)
+
+    const connection = new DaemonConnection(port, '127.0.0.1', undefined, 'secret', status.ioPort)
+
+    try {
+      await connection.connectWebSocket()
+      expect(connection.ready).toBe(true)
+    } finally {
+      connection.close()
+    }
   })
 })

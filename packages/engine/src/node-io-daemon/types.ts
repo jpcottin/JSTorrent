@@ -1,4 +1,5 @@
 export type NodeIoDaemonBootstrapMode = 'test' | 'realistic'
+export type NodeIoDaemonPhase = 'phase0' | 'phase1' | 'phase2'
 
 export interface NodeIoDaemonConfig {
   host: string
@@ -22,10 +23,24 @@ export interface NodeIoDaemonCapabilities {
 
 export interface NodeIoDaemonStatus {
   implementation: 'node-io-daemon'
-  phase: 'phase0' | 'phase1'
+  phase: NodeIoDaemonPhase
   started: boolean
   host: string
   port: number
+  bootstrapMode: NodeIoDaemonBootstrapMode
+  capabilities: NodeIoDaemonCapabilities
+}
+
+export interface NodeIoDaemonHttpStatus {
+  port: number
+  ioPort: number | null
+  paired: boolean
+  extensionId: string | null
+  installId: string | null
+  version: string | null
+  tokenValid: boolean | null
+  implementation: 'node-io-daemon'
+  phase: NodeIoDaemonPhase
   bootstrapMode: NodeIoDaemonBootstrapMode
   capabilities: NodeIoDaemonCapabilities
 }
