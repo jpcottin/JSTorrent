@@ -81,6 +81,14 @@ export type { StorageRoot } from './storage/storage-root-manager'
 
 // Presets
 export { createDaemonEngine } from './presets/daemon'
+export { createNodeIoDaemon } from './node-io-daemon'
+export type {
+  NodeIoDaemon,
+  NodeIoDaemonBootstrapMode,
+  NodeIoDaemonCapabilities,
+  NodeIoDaemonConfig,
+  NodeIoDaemonStatus,
+} from './node-io-daemon'
 
 // Utils
 export { generateMagnet, parseMagnet, createTorrentBuffer } from './utils/magnet'
