@@ -2,6 +2,10 @@ import * as http from 'node:http'
 import * as os from 'node:os'
 import type { Duplex } from 'node:stream'
 import { createNodeIoDaemonCapabilities } from './capabilities'
+import {
+  NodeIoDaemonControlChannelHttpStreamBridge,
+  NodeIoDaemonControlStreamRegistry,
+} from './control-stream'
 import type { NodeIoDaemonExternalCapabilities } from './control-protocol'
 import { createTestFolderPickerRoot } from './folder-picker'
 import {
@@ -130,17 +134,24 @@ export class NodeIoDaemonRuntime {
   private readonly rawSockets = new Set<Duplex>()
   private readonly rootStore: NodeIoDaemonRootStore
   private readonly httpStreams = new NodeIoDaemonHttpStreamRegistry()
+  private readonly controlStreamSessions = new NodeIoDaemonControlStreamRegistry()
+  private readonly controlHttpStreamBridge: NodeIoDaemonControlChannelHttpStreamBridge
   private pairedToken: string | null
   private pairedExtensionId: string | null = null
   private pairedInstallId: string | null = null
   private nextPickedRootId = 1
   private nextControlOwnerId = 1
+  private nextRequestStreamSessionId = 1
   private readonly disposeHttpStreamLifecycleSubscription: (() => void) | null
 
   constructor(private readonly daemonConfig: NodeIoDaemonConfig) {
     this.boundPort = daemonConfig.port
     this.mediaPort = 0
     this.rootStore = new NodeIoDaemonRootStore(daemonConfig.roots)
+    this.controlHttpStreamBridge = new NodeIoDaemonControlChannelHttpStreamBridge(
+      this.httpStreams,
+      this.controlStreamSessions,
+    )
     this.pairedToken = daemonConfig.authToken
     this.rootStore.onChange((roots) => {
       this.broadcastRootsChanged(roots)
@@ -262,8 +273,12 @@ export class NodeIoDaemonRuntime {
       host: this.daemonConfig.host,
       port: this.boundPort,
       bootstrapMode: this.daemonConfig.bootstrapMode,
-      capabilities: createNodeIoDaemonCapabilities(this.daemonConfig.httpStreamBridge !== null),
+      capabilities: createNodeIoDaemonCapabilities(this.supportsBlockingHttpStreams()),
     }
+  }
+
+  private supportsBlockingHttpStreams(): boolean {
+    return true
   }
 
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -629,6 +644,12 @@ export class NodeIoDaemonRuntime {
       req.on('aborted', abortRequest)
       req.on('close', abortRequest)
       res.on('close', abortRequest)
+      const controlBridge =
+        stream.ownerId !== null && stream.fileIndex !== null ? this.controlHttpStreamBridge : null
+      const localBridge =
+        controlBridge === null && stream.fileIndex !== null ? this.daemonConfig.httpStreamBridge : null
+      const requestSessionId =
+        controlBridge !== null ? `node-stream-${this.nextRequestStreamSessionId++}` : null
 
       try {
         const stat = await fileSystem.stat(stream.path)
@@ -664,6 +685,15 @@ export class NodeIoDaemonRuntime {
           return
         }
 
+        if (controlBridge && stream.fileIndex !== null && requestSessionId) {
+          await controlBridge.openRequestSession({
+            sessionId: requestSessionId,
+            streamToken: stream.token,
+            torrentId: stream.torrentId,
+            fileIndex: stream.fileIndex,
+          })
+        }
+
         const chunkSize = 256 * 1024
         let nextOffset = range.start
         while (
@@ -673,8 +703,18 @@ export class NodeIoDaemonRuntime {
           !res.destroyed
         ) {
           const bytesToRead = Math.min(chunkSize, range.endInclusive - nextOffset + 1)
-          if (stream.fileIndex !== null && this.daemonConfig.httpStreamBridge) {
-            await this.daemonConfig.httpStreamBridge.waitForRange({
+          if (controlBridge && stream.fileIndex !== null && requestSessionId) {
+            await controlBridge.waitForRange({
+              sessionId: requestSessionId,
+              streamToken: stream.token,
+              torrentId: stream.torrentId,
+              fileIndex: stream.fileIndex,
+              offset: nextOffset,
+              length: bytesToRead,
+              signal: requestAbort.signal,
+            })
+          } else if (localBridge && stream.fileIndex !== null) {
+            await localBridge.waitForRange({
               streamToken: stream.token,
               torrentId: stream.torrentId,
               fileIndex: stream.fileIndex,
@@ -730,6 +770,10 @@ export class NodeIoDaemonRuntime {
         this.sendText(res, 404, 'Not Found')
         return
       } finally {
+        if (controlBridge && requestSessionId) {
+          const closeReason = requestAbort.signal.aborted ? 'client-aborted' : 'request-complete'
+          void this.controlHttpStreamBridge.closeRequestSession(requestSessionId, closeReason).catch(() => {})
+        }
         req.off('aborted', abortRequest)
         req.off('close', abortRequest)
         res.off('close', abortRequest)
@@ -760,11 +804,20 @@ export class NodeIoDaemonRuntime {
         getExternalCapabilities: () => this.getExternalCapabilities(),
         handleFolderPickerRequest: () => this.handleFolderPickerRequest(),
         handleRegisterHttpStreamRequest: (request) => this.registerHttpStream(request),
+        handleRevokeTorrentHttpStreamsRequest: (request) =>
+          this.handleRevokeTorrentHttpStreams(request),
+        onAuthenticated: () => {
+          if (session && ownerId) {
+            this.controlStreamSessions.insert(ownerId, session)
+          }
+        },
         onClose: () => {
           if (session) {
             this.ioSessions.delete(session)
           }
           if (ownerId) {
+            this.controlStreamSessions.remove(ownerId)
+            this.controlHttpStreamBridge.removeOwner(ownerId)
             void this.revokeHttpStreamsOwnedBy(ownerId, 'owner-closed').catch(() => {})
           }
         },
@@ -804,7 +857,7 @@ export class NodeIoDaemonRuntime {
       tokenValid,
       implementation: 'node-io-daemon',
       bootstrapMode: this.daemonConfig.bootstrapMode,
-      capabilities: createNodeIoDaemonCapabilities(this.daemonConfig.httpStreamBridge !== null),
+      capabilities: createNodeIoDaemonCapabilities(this.supportsBlockingHttpStreams()),
     }
   }
 
@@ -951,12 +1004,13 @@ export class NodeIoDaemonRuntime {
     if (this.mediaPort <= 0) {
       return { ok: false, error: 'Media server not running' }
     }
-    if (this.daemonConfig.httpStreamBridge && typeof fileIndex !== 'number') {
+    const requiresFileIndex = ownerId !== null || this.daemonConfig.httpStreamBridge !== null
+    if (requiresFileIndex && typeof fileIndex !== 'number') {
       return { ok: false, error: 'Invalid fileIndex' }
     }
 
     await this.revokeHttpStream(streamToken, 'replaced')
-    if (this.daemonConfig.httpStreamBridge && typeof fileIndex === 'number') {
+    if (ownerId === null && this.daemonConfig.httpStreamBridge && typeof fileIndex === 'number') {
       await this.daemonConfig.httpStreamBridge.openStreamSession({
         streamToken,
         torrentId,
@@ -994,6 +1048,24 @@ export class NodeIoDaemonRuntime {
 
   private async revokeHttpStreamsForTorrent(torrentId: string, reason: string): Promise<void> {
     await this.closeHttpStreams(this.httpStreams.revokeTorrent(torrentId), reason)
+  }
+
+  private async handleRevokeTorrentHttpStreams(request: unknown): Promise<{
+    ok: boolean
+    revoked?: number
+    error?: string
+  }> {
+    if (!request || typeof request !== 'object') {
+      return { ok: false, error: 'Invalid request body' }
+    }
+
+    const torrentId = (request as Record<string, unknown>).torrentId
+    if (typeof torrentId !== 'string' || torrentId.trim().length === 0) {
+      return { ok: false, error: 'Invalid torrentId' }
+    }
+
+    const revoked = this.httpStreams.revokeTorrent(torrentId).length
+    return { ok: true, revoked }
   }
 
   private async closeHttpStreams(

@@ -1,6 +1,7 @@
 export * from './types'
 export * from './config'
 export * from './capabilities'
+export * from './control-stream'
 export * from './daemon-runtime'
 export * from './control-protocol'
 export * from './engine-http-stream-bridge'

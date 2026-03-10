@@ -9,6 +9,7 @@ import {
   CONTROL_OP_OPEN_FOLDER_PICKER,
   CONTROL_OP_POWER_HINT,
   CONTROL_OP_REGISTER_HTTP_STREAM,
+  CONTROL_OP_REVOKE_TORRENT_HTTP_STREAMS,
   CONTROL_OP_REVEAL_IN_FOLDER,
   CONTROL_OP_ROOTS_CHANGED,
   type NodeIoDaemonExternalCapabilities,
@@ -61,6 +62,8 @@ export interface NodeIoDaemonIoSessionOptions {
   getExternalCapabilities: () => NodeIoDaemonExternalCapabilities
   handleFolderPickerRequest: () => Promise<unknown>
   handleRegisterHttpStreamRequest: (request: unknown) => Promise<unknown> | unknown
+  handleRevokeTorrentHttpStreamsRequest: (request: unknown) => Promise<unknown> | unknown
+  onAuthenticated?: () => void
   onClose: () => void
 }
 
@@ -79,12 +82,21 @@ interface UdpSocketRecord {
   socket: dgram.Socket
 }
 
+interface PendingControlRequest {
+  opcode: number
+  resolve: (payload: Record<string, unknown>) => void
+  reject: (error: Error) => void
+  timeout: ReturnType<typeof setTimeout> | null
+}
+
 export class NodeIoDaemonIoSession {
   private state: SessionState = 'await_hello'
   private buffer = Buffer.alloc(0)
   private readonly tcpSockets = new Map<number, TcpSocketRecord>()
   private readonly tcpServers = new Map<number, TcpServerRecord>()
   private readonly udpSockets = new Map<number, UdpSocketRecord>()
+  private readonly pendingControlRequests = new Map<number, PendingControlRequest>()
+  private nextControlRequestId = 1
   private nextAcceptedSocketId = 0x10000
 
   constructor(private readonly options: NodeIoDaemonIoSessionOptions) {
@@ -135,6 +147,7 @@ export class NodeIoDaemonIoSession {
       return
     }
     this.state = 'closed'
+    this.rejectPendingControlRequests(new Error('Control stream closed'))
     this.destroyTcpSockets()
     this.destroyTcpServers()
     this.destroyUdpSockets()
@@ -147,6 +160,7 @@ export class NodeIoDaemonIoSession {
       return
     }
     this.state = 'closed'
+    this.rejectPendingControlRequests(new Error('Control stream closed'))
     this.destroyTcpSockets()
     this.destroyTcpServers()
     this.destroyUdpSockets()
@@ -235,6 +249,7 @@ export class NodeIoDaemonIoSession {
 
       if (this.isAuthAccepted(auth.token)) {
         this.state = 'authenticated'
+        this.options.onAuthenticated?.()
         this.options.socket.write(
           encodeBinaryWebSocketFrame(buildIoProtocolAuthResultFrame(envelope.requestId, true)),
         )
@@ -251,6 +266,9 @@ export class NodeIoDaemonIoSession {
     }
 
     if (this.options.path !== '/io') {
+      if (this.handlePendingControlResponse(envelope)) {
+        return
+      }
       this.handleControlFrame(envelope)
       return
     }
@@ -274,6 +292,43 @@ export class NodeIoDaemonIoSession {
       return
     }
     this.sendProtocolFrame(CONTROL_OP_EVENT, 0, new TextEncoder().encode(JSON.stringify(event)))
+  }
+
+  sendControlRequest(
+    opcode: number,
+    payload: unknown,
+    timeoutMs: number | null = 10000,
+  ): Promise<Record<string, unknown>> {
+    if (this.options.path !== '/control' || this.state !== 'authenticated') {
+      return Promise.reject(new Error('Control stream is not authenticated'))
+    }
+
+    const requestId = this.nextControlRequestId++
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      const timeout =
+        timeoutMs === null
+          ? null
+          : setTimeout(() => {
+              this.pendingControlRequests.delete(requestId)
+              reject(new Error('Control stream request timed out'))
+            }, timeoutMs)
+
+      this.pendingControlRequests.set(requestId, {
+        opcode,
+        resolve,
+        reject,
+        timeout,
+      })
+
+      this.sendControlResponse(opcode, requestId, payload)
+    })
+  }
+
+  async sendControlNotification(opcode: number, payload: unknown): Promise<void> {
+    if (this.options.path !== '/control' || this.state !== 'authenticated') {
+      return
+    }
+    this.sendControlResponse(opcode, 0, payload)
   }
 
   private handleIoFrame(envelope: {
@@ -377,10 +432,56 @@ export class NodeIoDaemonIoSession {
       return
     }
 
+    if (envelope.msgType === CONTROL_OP_REVOKE_TORRENT_HTTP_STREAMS) {
+      void this.handleRevokeTorrentHttpStreamsRequest(envelope.requestId, envelope.payload)
+      return
+    }
+
     this.sendControlResponse(IO_OP_ERROR, envelope.requestId, {
       ok: false,
       error: `Unsupported /control opcode ${envelope.msgType}`,
     })
+  }
+
+  private handlePendingControlResponse(envelope: {
+    msgType: number
+    requestId: number
+    payload: Uint8Array
+  }): boolean {
+    if (envelope.requestId === 0) {
+      return false
+    }
+
+    const pending = this.pendingControlRequests.get(envelope.requestId)
+    if (!pending) {
+      return false
+    }
+
+    this.pendingControlRequests.delete(envelope.requestId)
+    if (pending.timeout) {
+      clearTimeout(pending.timeout)
+    }
+
+    if (envelope.msgType === IO_OP_ERROR) {
+      pending.reject(new Error(new TextDecoder().decode(envelope.payload) || 'Daemon error'))
+      return true
+    }
+
+    if (envelope.msgType !== pending.opcode) {
+      pending.reject(new Error('Control stream opcode mismatch'))
+      return true
+    }
+
+    try {
+      const text = new TextDecoder().decode(envelope.payload)
+      const parsed = text.length > 0 ? (JSON.parse(text) as Record<string, unknown>) : {}
+      pending.resolve(parsed)
+    } catch (error) {
+      pending.reject(
+        error instanceof Error ? error : new Error('Invalid control response payload'),
+      )
+    }
+    return true
   }
 
   private async handleFolderPickerRequest(requestId: number): Promise<void> {
@@ -413,6 +514,22 @@ export class NodeIoDaemonIoSession {
       this.sendControlResponse(CONTROL_OP_REGISTER_HTTP_STREAM, requestId, response)
     } catch (error) {
       this.sendControlResponse(CONTROL_OP_REGISTER_HTTP_STREAM, requestId, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  private async handleRevokeTorrentHttpStreamsRequest(
+    requestId: number,
+    payload: Uint8Array,
+  ): Promise<void> {
+    try {
+      const body = JSON.parse(new TextDecoder().decode(payload)) as unknown
+      const response = await this.options.handleRevokeTorrentHttpStreamsRequest(body)
+      this.sendControlResponse(CONTROL_OP_REVOKE_TORRENT_HTTP_STREAMS, requestId, response)
+    } catch (error) {
+      this.sendControlResponse(CONTROL_OP_REVOKE_TORRENT_HTTP_STREAMS, requestId, {
         ok: false,
         error: error instanceof Error ? error.message : String(error),
       })
@@ -1010,10 +1127,21 @@ export class NodeIoDaemonIoSession {
     }
 
     this.state = 'closed'
+    this.rejectPendingControlRequests(new Error(reason || 'Control stream closed'))
     this.destroyTcpSockets()
     this.destroyTcpServers()
     this.destroyUdpSockets()
     this.options.socket.end(encodeCloseWebSocketFrame(code, reason))
     this.options.onClose()
+  }
+
+  private rejectPendingControlRequests(error: Error): void {
+    for (const [requestId, pending] of this.pendingControlRequests.entries()) {
+      if (pending.timeout) {
+        clearTimeout(pending.timeout)
+      }
+      pending.reject(error)
+      this.pendingControlRequests.delete(requestId)
+    }
   }
 }
