@@ -51,6 +51,7 @@ export interface HostChannel {
   openFile(rootKey: string, path: string): Promise<void>
   revealInFolder(rootKey: string, path: string): Promise<void>
   createLanShareUrl(
+    torrentId: string,
     rootKey: string,
     path: string,
     fileSize: number,

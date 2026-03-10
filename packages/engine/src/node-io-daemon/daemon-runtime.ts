@@ -811,6 +811,7 @@ export class NodeIoDaemonRuntime {
 
     const body = request as Record<string, unknown>
     const streamToken = body.streamToken
+    const torrentId = body.torrentId
     const rootKey = body.rootKey
     const relativePath = body.path
     const fileSize = body.fileSize
@@ -818,6 +819,9 @@ export class NodeIoDaemonRuntime {
 
     if (typeof streamToken !== 'string' || streamToken.length === 0 || streamToken.length > 256) {
       return { ok: false, error: 'Invalid streamToken' }
+    }
+    if (typeof torrentId !== 'string' || torrentId.length === 0 || torrentId.length > 256) {
+      return { ok: false, error: 'Invalid torrentId' }
     }
     if (typeof rootKey !== 'string' || rootKey.length === 0) {
       return { ok: false, error: 'Invalid rootKey' }
@@ -845,6 +849,7 @@ export class NodeIoDaemonRuntime {
 
     this.httpStreams.register({
       token: streamToken,
+      torrentId,
       rootKey,
       path: relativePath,
       fileSize,

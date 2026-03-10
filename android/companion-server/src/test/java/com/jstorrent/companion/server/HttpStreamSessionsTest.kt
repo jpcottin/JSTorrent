@@ -41,6 +41,7 @@ class HttpStreamSessionsTest {
         registry.register(
             ownerId = "owner-a",
             token = "token-a",
+            torrentId = "torrent-a",
             rootKey = "root",
             path = "video.mp4",
             fileSize = 1234,
@@ -49,6 +50,7 @@ class HttpStreamSessionsTest {
         registry.register(
             ownerId = "owner-b",
             token = "token-b",
+            torrentId = "torrent-b",
             rootKey = "root",
             path = "other.mp4",
             fileSize = 5678,

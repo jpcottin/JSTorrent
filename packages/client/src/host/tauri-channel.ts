@@ -467,6 +467,7 @@ export class TauriChannel implements HostChannel {
   }
 
   async createLanShareUrl(
+    torrentId: string,
     rootKey: string,
     path: string,
     fileSize: number,
@@ -493,6 +494,7 @@ export class TauriChannel implements HostChannel {
         },
         body: JSON.stringify({
           streamToken,
+          torrentId,
           rootKey,
           path,
           fileSize,

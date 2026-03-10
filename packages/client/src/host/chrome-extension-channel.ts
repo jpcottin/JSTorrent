@@ -205,6 +205,7 @@ export class ChromeExtensionChannel implements HostChannel {
   }
 
   async createLanShareUrl(
+    torrentId: string,
     rootKey: string,
     path: string,
     fileSize: number,
@@ -212,6 +213,7 @@ export class ChromeExtensionChannel implements HostChannel {
   ): Promise<string | null> {
     const response = await this.sendMessage<{ ok: boolean; url?: string; error?: string }>({
       type: 'CREATE_LAN_SHARE_URL',
+      torrentId,
       rootKey,
       path,
       fileSize,

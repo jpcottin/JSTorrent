@@ -7,6 +7,7 @@ private const val DEFAULT_STREAM_IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000L
 data class RegisteredHttpStream(
     val token: String,
     val ownerId: String,
+    val torrentId: String,
     val rootKey: String,
     val path: String,
     val fileSize: Long,
@@ -35,6 +36,7 @@ class HttpStreamSessionRegistry(
     fun register(
         ownerId: String,
         token: String,
+        torrentId: String,
         rootKey: String,
         path: String,
         fileSize: Long,
@@ -44,6 +46,7 @@ class HttpStreamSessionRegistry(
         val session = RegisteredHttpStream(
             token = token,
             ownerId = ownerId,
+            torrentId = torrentId,
             rootKey = rootKey,
             path = path,
             fileSize = fileSize,

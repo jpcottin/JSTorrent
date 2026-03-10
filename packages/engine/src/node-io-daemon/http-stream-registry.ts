@@ -2,6 +2,7 @@ const DEFAULT_HTTP_STREAM_IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000
 
 export interface NodeIoDaemonRegisteredHttpStream {
   token: string
+  torrentId: string
   rootKey: string
   path: string
   fileSize: number
@@ -17,6 +18,7 @@ export class NodeIoDaemonHttpStreamRegistry {
 
   register(stream: {
     token: string
+    torrentId: string
     rootKey: string
     path: string
     fileSize: number

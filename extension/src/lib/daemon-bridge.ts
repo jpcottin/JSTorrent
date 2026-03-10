@@ -640,6 +640,7 @@ export class DaemonBridge {
    * The token behaves like a bearer capability, so callers should treat the URL as secret.
    */
   async createHttpStreamUrl(
+    torrentId: string,
     rootKey: string,
     path: string,
     fileSize: number,
@@ -660,6 +661,7 @@ export class DaemonBridge {
     if (this.state.platform === 'chromeos' && daemonHost === CHROMEOS_ANDROID_HOST) {
       const result = await this.sendControlRequest(OP_CTRL_REGISTER_HTTP_STREAM, {
         streamToken,
+        torrentId,
         rootKey,
         path,
         fileSize,
@@ -678,6 +680,7 @@ export class DaemonBridge {
         },
         body: JSON.stringify({
           streamToken,
+          torrentId,
           rootKey,
           path,
           fileSize,

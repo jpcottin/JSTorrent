@@ -352,6 +352,7 @@ describe('node-io-daemon server', () => {
     try {
       const response = await sendControlJsonRequest(ws, 0xec, 17, {
         streamToken: 'token-123',
+        torrentId: 'torrent-123',
         rootKey: 'root-a',
         path: 'movie.mp4',
         fileSize: content.length,
@@ -421,6 +422,7 @@ describe('node-io-daemon server', () => {
       },
       body: JSON.stringify({
         streamToken: 'http-token',
+        torrentId: 'torrent-123',
         rootKey: 'root-a',
         path: 'clip.mp4',
         fileSize: content.length,

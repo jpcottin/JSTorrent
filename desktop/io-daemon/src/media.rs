@@ -35,6 +35,7 @@ pub struct MediaServerState {
 #[derive(Clone)]
 pub struct RegisteredHttpStream {
     pub token: String,
+    pub torrent_id: String,
     pub root_key: String,
     pub path: String,
     #[allow(dead_code)]
@@ -54,6 +55,7 @@ impl HttpStreamSessionRegistry {
     pub fn register(
         &self,
         token: String,
+        torrent_id: String,
         root_key: String,
         path: String,
         file_size: u64,
@@ -62,6 +64,7 @@ impl HttpStreamSessionRegistry {
         let now = now_ms();
         let session = RegisteredHttpStream {
             token: token.clone(),
+            torrent_id,
             root_key,
             path,
             file_size,
@@ -101,6 +104,7 @@ impl HttpStreamSessionRegistry {
 #[serde(rename_all = "camelCase")]
 struct RegisterStreamRequest {
     stream_token: String,
+    torrent_id: String,
     root_key: String,
     path: String,
     file_size: u64,
@@ -147,6 +151,9 @@ async fn register_http_stream(
     if payload.stream_token.trim().is_empty() || payload.stream_token.len() > 256 {
         return Err((StatusCode::BAD_REQUEST, "Invalid streamToken".to_string()));
     }
+    if payload.torrent_id.trim().is_empty() || payload.torrent_id.len() > 256 {
+        return Err((StatusCode::BAD_REQUEST, "Invalid torrentId".to_string()));
+    }
     if payload.root_key.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "Invalid rootKey".to_string()));
     }
@@ -164,6 +171,7 @@ async fn register_http_stream(
 
     state.http_streams.register(
         payload.stream_token,
+        payload.torrent_id,
         payload.root_key,
         payload.path,
         payload.file_size,
