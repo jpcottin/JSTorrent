@@ -20,6 +20,7 @@ interface HttpResponseData {
 }
 
 interface StreamingHttpRequest {
+  req: http.ClientRequest
   response: Promise<HttpResponseData>
 }
 
@@ -106,7 +107,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     })
 
     req.end(options.body)
-    return { response }
+    return { req, response }
   }
 
   function delay(ms: number): Promise<void> {
@@ -213,6 +214,33 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     }
   }
 
+  async function registerStreamToken(
+    streamToken: string,
+    torrentId: string,
+    fileName: string,
+    fileSize: number,
+  ): Promise<number> {
+    const { mediaPort } = await daemonBackedEngine!.registerHttpStream(
+      {
+        host: '127.0.0.1',
+        port: daemon!.port,
+        token: daemon!.token,
+        extensionId: 'test-extension',
+        installId: daemon!.installId,
+      },
+      {
+        streamToken,
+        torrentId,
+        fileIndex: 0,
+        rootKey: 'root-a',
+        path: fileName,
+        fileSize,
+        mimeType: 'application/octet-stream',
+      },
+    )
+    return mediaPort
+  }
+
   afterEach(async () => {
     await cleanupDaemonBackedEngine()
     if (seeder) {
@@ -241,23 +269,11 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     async () => {
       const fixture = await createStreamingFixture()
 
-      const { mediaPort } = await daemonBackedEngine!.registerHttpStream(
-        {
-          host: '127.0.0.1',
-          port: daemon.port,
-          token: daemon.token,
-          extensionId: 'test-extension',
-          installId: daemon.installId,
-        },
-        {
-          streamToken: 'blocking-stream-token',
-          torrentId: fixture.torrent.infoHashStr,
-          fileIndex: 0,
-          rootKey: 'root-a',
-          path: fixture.fileName,
-          fileSize: fixture.fileContent.length,
-          mimeType: 'application/octet-stream',
-        },
+      const mediaPort = await registerStreamToken(
+        'blocking-stream-token',
+        fixture.torrent.infoHashStr,
+        fixture.fileName,
+        fixture.fileContent.length,
       )
 
       let settled = false
@@ -288,23 +304,11 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
 
     await fixture.torrent.userStop()
 
-    const { mediaPort } = await daemonBackedEngine!.registerHttpStream(
-      {
-        host: '127.0.0.1',
-        port: daemon.port,
-        token: daemon.token,
-        extensionId: 'test-extension',
-        installId: daemon.installId,
-      },
-      {
-        streamToken: 'stopped-stream-token',
-        torrentId: fixture.torrent.infoHashStr,
-        fileIndex: 0,
-        rootKey: 'root-a',
-        path: fixture.fileName,
-        fileSize: fixture.fileContent.length,
-        mimeType: 'application/octet-stream',
-      },
+    const mediaPort = await registerStreamToken(
+      'stopped-stream-token',
+      fixture.torrent.infoHashStr,
+      fixture.fileName,
+      fixture.fileContent.length,
     )
 
     const response = await makeRequest(mediaPort, '/stream/stopped-stream-token', {
@@ -320,23 +324,11 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
   it('returns 404 after torrent removal revokes the registered token', async () => {
     const fixture = await createStreamingFixture()
 
-    const { mediaPort } = await daemonBackedEngine!.registerHttpStream(
-      {
-        host: '127.0.0.1',
-        port: daemon.port,
-        token: daemon.token,
-        extensionId: 'test-extension',
-        installId: daemon.installId,
-      },
-      {
-        streamToken: 'removed-stream-token',
-        torrentId: fixture.torrent.infoHashStr,
-        fileIndex: 0,
-        rootKey: 'root-a',
-        path: fixture.fileName,
-        fileSize: fixture.fileContent.length,
-        mimeType: 'application/octet-stream',
-      },
+    const mediaPort = await registerStreamToken(
+      'removed-stream-token',
+      fixture.torrent.infoHashStr,
+      fixture.fileName,
+      fixture.fileContent.length,
     )
 
     await daemonBackedEngine!.engine.removeTorrent(fixture.torrent)
@@ -350,4 +342,85 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
 
     expect(response.statusCode).toBe(404)
   })
+
+  it(
+    'serves two concurrent blocking requests on the same token independently',
+    async () => {
+      const fixture = await createStreamingFixture()
+      const mediaPort = await registerStreamToken(
+        'concurrent-stream-token',
+        fixture.torrent.infoHashStr,
+        fixture.fileName,
+        fixture.fileContent.length,
+      )
+
+      let firstSettled = false
+      let secondSettled = false
+      const firstResponsePromise = startRequest(mediaPort, '/stream/concurrent-stream-token', {
+        headers: {
+          Range: 'bytes=393216-393231',
+        },
+      }).response.then((response) => {
+        firstSettled = true
+        return response
+      })
+      const secondResponsePromise = startRequest(mediaPort, '/stream/concurrent-stream-token', {
+        headers: {
+          Range: 'bytes=393248-393263',
+        },
+      }).response.then((response) => {
+        secondSettled = true
+        return response
+      })
+
+      await delay(100)
+      expect(firstSettled).toBe(false)
+      expect(secondSettled).toBe(false)
+
+      const [firstResponse, secondResponse] = await Promise.all([
+        firstResponsePromise,
+        secondResponsePromise,
+      ])
+
+      expect(firstResponse.statusCode).toBe(206)
+      expect(firstResponse.body.equals(fixture.fileContent.subarray(393216, 393232))).toBe(true)
+      expect(secondResponse.statusCode).toBe(206)
+      expect(secondResponse.body.equals(fixture.fileContent.subarray(393248, 393264))).toBe(true)
+    },
+    40_000,
+  )
+
+  it(
+    'canceling one concurrent request does not cancel another on the same token',
+    async () => {
+      const fixture = await createStreamingFixture()
+      const mediaPort = await registerStreamToken(
+        'cancel-isolation-stream-token',
+        fixture.torrent.infoHashStr,
+        fixture.fileName,
+        fixture.fileContent.length,
+      )
+
+      const firstRequest = startRequest(mediaPort, '/stream/cancel-isolation-stream-token', {
+        headers: {
+          Range: 'bytes=393216-393231',
+        },
+      })
+      const secondRequest = startRequest(mediaPort, '/stream/cancel-isolation-stream-token', {
+        headers: {
+          Range: 'bytes=393248-393263',
+        },
+      })
+
+      await delay(100)
+      firstRequest.req.destroy()
+
+      await expect(firstRequest.response).rejects.toThrow()
+
+      const secondResponse = await secondRequest.response
+      expect(secondResponse.statusCode).toBe(206)
+      expect(secondResponse.body.equals(fixture.fileContent.subarray(393248, 393264))).toBe(true)
+    },
+    40_000,
+  )
 })
