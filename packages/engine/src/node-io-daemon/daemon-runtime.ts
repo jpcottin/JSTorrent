@@ -1,6 +1,6 @@
 import * as http from 'node:http'
 import type { Duplex } from 'node:stream'
-import { createPhaseFourNodeIoDaemonCapabilities } from './capabilities'
+import { createNodeIoDaemonCapabilities } from './capabilities'
 import { NodeIoDaemonIoSession } from './io-session'
 import type { NodeIoDaemonConfig, NodeIoDaemonHttpStatus, NodeIoDaemonStatus } from './types'
 
@@ -88,12 +88,11 @@ export class NodeIoDaemonRuntime {
   getStatus(): NodeIoDaemonStatus {
     return {
       implementation: 'node-io-daemon',
-      phase: 'phase4',
       started: this.started,
       host: this.daemonConfig.host,
       port: this.boundPort,
       bootstrapMode: this.daemonConfig.bootstrapMode,
-      capabilities: createPhaseFourNodeIoDaemonCapabilities(),
+      capabilities: createNodeIoDaemonCapabilities(),
     }
   }
 
@@ -176,9 +175,8 @@ export class NodeIoDaemonRuntime {
       version: null,
       tokenValid,
       implementation: 'node-io-daemon',
-      phase: 'phase4',
       bootstrapMode: this.daemonConfig.bootstrapMode,
-      capabilities: createPhaseFourNodeIoDaemonCapabilities(),
+      capabilities: createNodeIoDaemonCapabilities(),
     }
   }
 

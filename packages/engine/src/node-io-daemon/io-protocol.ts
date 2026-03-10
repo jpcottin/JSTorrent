@@ -16,6 +16,8 @@ export const IO_OP_TCP_LISTEN = 0x15
 export const IO_OP_TCP_LISTEN_RESULT = 0x16
 export const IO_OP_TCP_ACCEPT = 0x17
 export const IO_OP_TCP_STOP_LISTEN = 0x18
+export const IO_OP_TCP_SECURE = 0x19
+export const IO_OP_TCP_SECURED = 0x1a
 
 export interface IoProtocolEnvelope {
   version: number

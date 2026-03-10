@@ -1,10 +1,13 @@
 import * as http from 'node:http'
 import * as net from 'node:net'
+import * as tls from 'node:tls'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fetchDaemonStatus } from '../../src/adapters/daemon/daemon-client'
 import { DaemonConnection } from '../../src/adapters/daemon/daemon-connection'
 import { DaemonSocketFactory } from '../../src/adapters/daemon/daemon-socket-factory'
+import { NODE_IO_DAEMON_CAPABILITIES } from '../../src/node-io-daemon/capabilities'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
+import { TEST_TLS_CERTIFICATE_PEM, TEST_TLS_PRIVATE_KEY_PEM } from './tls-fixture'
 
 interface HttpResponseData {
   statusCode: number
@@ -50,9 +53,10 @@ async function makeRequest(
   })
 }
 
-describe('node-io-daemon phase four server', () => {
+describe('node-io-daemon server', () => {
   let daemon: ReturnType<typeof createNodeIoDaemon> | null = null
   let tcpServer: net.Server | null = null
+  let tlsServer: tls.Server | null = null
 
   afterEach(async () => {
     if (daemon) {
@@ -72,6 +76,19 @@ describe('node-io-daemon phase four server', () => {
       })
       tcpServer = null
     }
+
+    if (tlsServer) {
+      await new Promise<void>((resolve, reject) => {
+        tlsServer!.close((error) => {
+          if (error) {
+            reject(error)
+          } else {
+            resolve()
+          }
+        })
+      })
+      tlsServer = null
+    }
   })
 
   it('starts a listener and serves /health', async () => {
@@ -82,22 +99,11 @@ describe('node-io-daemon phase four server', () => {
 
     expect(daemon.getStatus()).toEqual({
       implementation: 'node-io-daemon',
-      phase: 'phase4',
       started: false,
       host: '127.0.0.1',
       port: 0,
       bootstrapMode: 'test',
-      capabilities: {
-        health: true,
-        status: true,
-        ioWebSocket: true,
-        controlEvents: false,
-        rootsRead: false,
-        rootsWrite: false,
-        fileOps: false,
-        mediaCompleteFile206: false,
-        mediaBlocking206: false,
-      },
+      capabilities: NODE_IO_DAEMON_CAPABILITIES,
     })
 
     await daemon.start()
@@ -138,14 +144,12 @@ describe('node-io-daemon phase four server', () => {
       ioPort: number | null
       paired: boolean
       tokenValid: boolean | null
-      phase: string
       capabilities: { ioWebSocket: boolean }
     }
     expect(payload.port).toBe(startedStatus.port)
     expect(payload.ioPort).toBe(startedStatus.port)
     expect(payload.paired).toBe(true)
     expect(payload.tokenValid).toBe(true)
-    expect(payload.phase).toBe('phase4')
     expect(payload.capabilities.ioWebSocket).toBe(true)
 
     const notFound = await makeRequest(startedStatus.port, '/missing')
@@ -154,22 +158,11 @@ describe('node-io-daemon phase four server', () => {
     await daemon.stop()
     expect(daemon.getStatus()).toEqual({
       implementation: 'node-io-daemon',
-      phase: 'phase4',
       started: false,
       host: '127.0.0.1',
       port: 0,
       bootstrapMode: 'realistic',
-      capabilities: {
-        health: true,
-        status: true,
-        ioWebSocket: true,
-        controlEvents: false,
-        rootsRead: false,
-        rootsWrite: false,
-        fileOps: false,
-        mediaCompleteFile206: false,
-        mediaBlocking206: false,
-      },
+      capabilities: NODE_IO_DAEMON_CAPABILITIES,
     })
   })
 
@@ -345,6 +338,77 @@ describe('node-io-daemon phase four server', () => {
 
       client.destroy()
       server.close()
+    } finally {
+      connection.close()
+    }
+  })
+
+  it('supports TLS upgrade for a pending outbound daemon socket', async () => {
+    tlsServer = tls.createServer(
+      {
+        key: TEST_TLS_PRIVATE_KEY_PEM,
+        cert: TEST_TLS_CERTIFICATE_PEM,
+      },
+      (socket) => {
+        socket.once('data', (chunk) => {
+          socket.write(Buffer.concat([Buffer.from('tls:'), chunk]))
+          socket.end()
+        })
+      },
+    )
+
+    await new Promise<void>((resolve, reject) => {
+      tlsServer!.listen(0, '127.0.0.1', () => resolve())
+      tlsServer!.once('error', reject)
+    })
+
+    const target = tlsServer.address()
+    if (!target || typeof target === 'string') {
+      throw new Error('TLS test server failed to bind')
+    }
+
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+    })
+    await daemon.start()
+
+    const status = await fetchDaemonStatus(
+      '127.0.0.1',
+      daemon.getStatus().port,
+      'secret',
+      'extension-id',
+      'install',
+    )
+    const connection = new DaemonConnection(
+      daemon.getStatus().port,
+      '127.0.0.1',
+      undefined,
+      'secret',
+      status.ioPort,
+    )
+    const factory = new DaemonSocketFactory(connection)
+
+    try {
+      await connection.connectWebSocket()
+      const socket = await waitForWithDaemonFlush(
+        factory,
+        factory.createTcpSocket({ host: '127.0.0.1', port: target.port }),
+      )
+
+      await waitForWithDaemonFlush(factory, socket.secure!('localhost', { skipValidation: true }))
+      expect(socket.isSecure).toBe(true)
+
+      const dataPromise = new Promise<string>((resolve) => {
+        socket.onData((data) => {
+          resolve(Buffer.from(data).toString('utf8'))
+        })
+      })
+
+      socket.send(new TextEncoder().encode('ping'))
+      await expect(waitForWithDaemonFlush(factory, dataPromise)).resolves.toBe('tls:ping')
     } finally {
       connection.close()
     }

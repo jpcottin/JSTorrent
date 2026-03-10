@@ -1,4 +1,5 @@
 import * as net from 'node:net'
+import * as tls from 'node:tls'
 import type { Duplex } from 'node:stream'
 import {
   IO_OP_AUTH,
@@ -11,6 +12,8 @@ import {
   IO_OP_TCP_LISTEN,
   IO_OP_TCP_LISTEN_RESULT,
   IO_OP_TCP_RECV,
+  IO_OP_TCP_SECURE,
+  IO_OP_TCP_SECURED,
   IO_OP_TCP_SEND,
   IO_OP_TCP_STOP_LISTEN,
   IO_PROTOCOL_VERSION,
@@ -40,7 +43,7 @@ export interface NodeIoDaemonIoSessionOptions {
 type SessionState = 'await_hello' | 'await_auth' | 'authenticated' | 'closed'
 
 interface TcpSocketRecord {
-  socket: net.Socket
+  socket: net.Socket | tls.TLSSocket
   active: boolean
 }
 
@@ -244,6 +247,11 @@ export class NodeIoDaemonIoSession {
       return
     }
 
+    if (envelope.msgType === IO_OP_TCP_SECURE) {
+      this.handleTcpSecure(envelope.requestId, envelope.payload)
+      return
+    }
+
     if (envelope.msgType === IO_OP_TCP_STOP_LISTEN) {
       this.handleTcpStopListen(envelope.payload)
       return
@@ -294,9 +302,6 @@ export class NodeIoDaemonIoSession {
       cleanupPendingListeners()
 
       this.tcpSockets.set(socketId, { socket, active: false })
-      socket.on('close', (hadError) => {
-        this.handleSocketClosed(socketId, hadError)
-      })
 
       this.sendProtocolFrame(
         IO_OP_TCP_CONNECTED,
@@ -317,6 +322,59 @@ export class NodeIoDaemonIoSession {
 
     socket.once('connect', handleConnect)
     socket.once('error', handleError)
+  }
+
+  private handleTcpSecure(requestId: number, payload: Uint8Array): void {
+    if (payload.byteLength < 5) {
+      this.sendProtocolFrame(IO_OP_TCP_SECURED, requestId, this.buildTcpSecureFailurePayload(0))
+      return
+    }
+
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+    const socketId = view.getUint32(0, true)
+    const flags = payload[4]
+    const skipValidation = (flags & 1) !== 0
+    const hostname = new TextDecoder().decode(payload.slice(5))
+    const record = this.tcpSockets.get(socketId)
+
+    if (!record || record.active || record.socket instanceof tls.TLSSocket) {
+      this.sendProtocolFrame(
+        IO_OP_TCP_SECURED,
+        requestId,
+        this.buildTcpSecureFailurePayload(socketId),
+      )
+      return
+    }
+
+    const plainSocket = record.socket
+    const handleTlsError = () => {
+      this.tcpSockets.delete(socketId)
+      tlsSocket.destroy()
+      this.sendProtocolFrame(
+        IO_OP_TCP_SECURED,
+        requestId,
+        this.buildTcpSecureFailurePayload(socketId),
+      )
+    }
+
+    const tlsSocket = tls.connect(
+      {
+        socket: plainSocket,
+        servername: hostname,
+        rejectUnauthorized: !skipValidation,
+      },
+      () => {
+        tlsSocket.removeListener('error', handleTlsError)
+        this.tcpSockets.set(socketId, { socket: tlsSocket, active: false })
+        this.sendProtocolFrame(
+          IO_OP_TCP_SECURED,
+          requestId,
+          this.buildTcpSecureSuccessPayload(socketId),
+        )
+      },
+    )
+
+    tlsSocket.once('error', handleTlsError)
   }
 
   private handleTcpListen(requestId: number, payload: Uint8Array): void {
@@ -473,7 +531,7 @@ export class NodeIoDaemonIoSession {
     this.sendProtocolFrame(IO_OP_TCP_CLOSE, 0, payload)
   }
 
-  private attachActiveTcpSocket(socketId: number, socket: net.Socket): void {
+  private attachActiveTcpSocket(socketId: number, socket: net.Socket | tls.TLSSocket): void {
     socket.on('data', (chunk: Buffer) => {
       const data = new Uint8Array(4 + chunk.byteLength)
       new DataView(data.buffer).setUint32(0, socketId, true)
@@ -539,6 +597,22 @@ export class NodeIoDaemonIoSession {
     view.setUint32(4, socketId, true)
     view.setUint16(8, remotePort, true)
     payload.set(remoteAddressBytes, 10)
+    return payload
+  }
+
+  private buildTcpSecureSuccessPayload(socketId: number): Uint8Array {
+    const payload = new Uint8Array(5)
+    const view = new DataView(payload.buffer)
+    view.setUint32(0, socketId, true)
+    payload[4] = 0
+    return payload
+  }
+
+  private buildTcpSecureFailurePayload(socketId: number): Uint8Array {
+    const payload = new Uint8Array(5)
+    const view = new DataView(payload.buffer)
+    view.setUint32(0, socketId, true)
+    payload[4] = 1
     return payload
   }
 

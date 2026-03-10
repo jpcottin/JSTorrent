@@ -1,63 +1,34 @@
 import { describe, expect, it } from 'vitest'
 import {
-  PHASE_ZERO_NODE_IO_DAEMON_CAPABILITIES,
-  PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES,
-  PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES,
-  PHASE_THREE_NODE_IO_DAEMON_CAPABILITIES,
-  PHASE_FOUR_NODE_IO_DAEMON_CAPABILITIES,
-  createPhaseZeroNodeIoDaemonCapabilities,
-  createPhaseOneNodeIoDaemonCapabilities,
-  createPhaseTwoNodeIoDaemonCapabilities,
-  createPhaseThreeNodeIoDaemonCapabilities,
-  createPhaseFourNodeIoDaemonCapabilities,
+  NODE_IO_DAEMON_CAPABILITIES,
+  createNodeIoDaemonCapabilities,
 } from '../../src/node-io-daemon/capabilities'
 
 describe('node-io-daemon capabilities', () => {
-  it('starts with all protocol surfaces disabled in phase zero', () => {
-    expect(createPhaseZeroNodeIoDaemonCapabilities()).toEqual(
-      PHASE_ZERO_NODE_IO_DAEMON_CAPABILITIES,
-    )
+  it('returns the current daemon capability surface', () => {
+    expect(createNodeIoDaemonCapabilities()).toEqual(NODE_IO_DAEMON_CAPABILITIES)
   })
 
   it('returns a fresh capabilities object each time', () => {
-    const first = createPhaseZeroNodeIoDaemonCapabilities()
-    const second = createPhaseZeroNodeIoDaemonCapabilities()
+    const first = createNodeIoDaemonCapabilities()
+    const second = createNodeIoDaemonCapabilities()
 
     expect(first).not.toBe(second)
-    first.health = true
-    expect(second.health).toBe(false)
+    first.health = false
+    expect(second.health).toBe(true)
   })
 
-  it('enables only health and status in phase one', () => {
-    expect(createPhaseOneNodeIoDaemonCapabilities()).toEqual(
-      PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES,
-    )
-    expect(PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES.health).toBe(true)
-    expect(PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES.status).toBe(true)
-    expect(PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES.ioWebSocket).toBe(false)
-  })
-
-  it('enables websocket handshake support in phase two', () => {
-    expect(createPhaseTwoNodeIoDaemonCapabilities()).toEqual(
-      PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES,
-    )
-    expect(PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES.ioWebSocket).toBe(true)
-    expect(PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES.controlEvents).toBe(false)
-  })
-
-  it('keeps the phase three capability surface stable while TCP support lands', () => {
-    expect(createPhaseThreeNodeIoDaemonCapabilities()).toEqual(
-      PHASE_THREE_NODE_IO_DAEMON_CAPABILITIES,
-    )
-    expect(PHASE_THREE_NODE_IO_DAEMON_CAPABILITIES.ioWebSocket).toBe(true)
-    expect(PHASE_THREE_NODE_IO_DAEMON_CAPABILITIES.fileOps).toBe(false)
-  })
-
-  it('keeps the phase four capability surface stable while listen/accept lands', () => {
-    expect(createPhaseFourNodeIoDaemonCapabilities()).toEqual(
-      PHASE_FOUR_NODE_IO_DAEMON_CAPABILITIES,
-    )
-    expect(PHASE_FOUR_NODE_IO_DAEMON_CAPABILITIES.ioWebSocket).toBe(true)
-    expect(PHASE_FOUR_NODE_IO_DAEMON_CAPABILITIES.controlEvents).toBe(false)
+  it('advertises the currently implemented transport and bootstrap surfaces', () => {
+    expect(NODE_IO_DAEMON_CAPABILITIES).toEqual({
+      health: true,
+      status: true,
+      ioWebSocket: true,
+      controlEvents: false,
+      rootsRead: false,
+      rootsWrite: false,
+      fileOps: false,
+      mediaCompleteFile206: false,
+      mediaBlocking206: false,
+    })
   })
 })
