@@ -14,12 +14,24 @@ import { DaemonSocketFactory } from '../../src/adapters/daemon/daemon-socket-fac
 import { NODE_IO_DAEMON_CAPABILITIES } from '../../src/node-io-daemon/capabilities'
 import { buildIoProtocolFrame } from '../../src/node-io-daemon/io-protocol'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
+import type { NodeIoDaemonHttpStreamBridge } from '../../src/node-io-daemon/types'
 import { TEST_TLS_CERTIFICATE_PEM, TEST_TLS_PRIVATE_KEY_PEM } from './tls-fixture'
 
 interface HttpResponseData {
   statusCode: number
   headers: http.IncomingHttpHeaders
   body: Buffer
+}
+
+interface PendingStreamWait {
+  streamToken: string
+  torrentId: string
+  fileIndex: number
+  offset: number
+  length: number
+  signal?: AbortSignal
+  resolve: () => void
+  reject: (error: Error) => void
 }
 
 async function makeRequest(
@@ -59,6 +71,92 @@ async function makeRequest(
     req.on('error', reject)
     req.end(options.body)
   })
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function createAbortError(): Error {
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException('Aborted', 'AbortError')
+  }
+  const error = new Error('Aborted')
+  error.name = 'AbortError'
+  return error
+}
+
+class ControlledHttpStreamBridge implements NodeIoDaemonHttpStreamBridge {
+  readonly openedSessions: Array<{
+    streamToken: string
+    torrentId: string
+    fileIndex: number
+  }> = []
+  readonly closedSessions: Array<{
+    streamToken: string
+    torrentId: string
+    fileIndex: number
+    reason: string
+  }> = []
+  readonly pendingWaits: PendingStreamWait[] = []
+  abortCount = 0
+
+  openStreamSession(session: {
+    streamToken: string
+    torrentId: string
+    fileIndex: number
+  }): void {
+    this.openedSessions.push({ ...session })
+  }
+
+  waitForRange(request: {
+    streamToken: string
+    torrentId: string
+    fileIndex: number
+    offset: number
+    length: number
+    signal?: AbortSignal
+  }): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        request.signal?.removeEventListener('abort', abortWait)
+      }
+      const abortWait = () => {
+        cleanup()
+        this.abortCount += 1
+        reject(createAbortError())
+      }
+
+      const pending: PendingStreamWait = {
+        ...request,
+        resolve: () => {
+          cleanup()
+          resolve()
+        },
+        reject: (error: Error) => {
+          cleanup()
+          reject(error)
+        },
+      }
+
+      request.signal?.addEventListener('abort', abortWait, { once: true })
+      if (request.signal?.aborted) {
+        abortWait()
+        return
+      }
+
+      this.pendingWaits.push(pending)
+    })
+  }
+
+  closeStreamSession(session: {
+    streamToken: string
+    torrentId: string
+    fileIndex: number
+    reason: string
+  }): void {
+    this.closedSessions.push({ ...session })
+  }
 }
 
 describe('node-io-daemon server', () => {
@@ -373,6 +471,209 @@ describe('node-io-daemon server', () => {
     }
   })
 
+  it('blocks tokenized media ranges until the torrent bridge resolves the wait', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-bridge-'))
+    tempDirs.push(tempDir)
+    const content = Buffer.from('hello world')
+    fs.writeFileSync(path.join(tempDir, 'movie.mp4'), content)
+    const bridge = new ControlledHttpStreamBridge()
+
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+      httpStreamBridge: bridge,
+      roots: [
+        {
+          key: 'root-a',
+          uri: pathToFileURL(tempDir).toString(),
+          display_name: 'Temp Root',
+          removable: true,
+          last_stat_ok: true,
+          last_checked: Date.now(),
+        },
+      ],
+    })
+    await daemon.start()
+
+    const registerResponse = await makeRequest(daemon.getStatus().port, '/stream/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-JST-Auth': 'secret',
+      },
+      body: JSON.stringify({
+        streamToken: 'bridge-token',
+        torrentId: 'torrent-123',
+        fileIndex: 0,
+        rootKey: 'root-a',
+        path: 'movie.mp4',
+        fileSize: content.length,
+        mimeType: 'video/mp4',
+      }),
+    })
+    expect(registerResponse.statusCode).toBe(200)
+
+    const mediaPort = (JSON.parse(registerResponse.body.toString('utf8')) as { mediaPort: number })
+      .mediaPort
+    let settled = false
+    const responsePromise = makeRequest(mediaPort, '/stream/bridge-token', {
+      headers: { Range: 'bytes=0-4' },
+    }).then((response) => {
+      settled = true
+      return response
+    })
+
+    await delay(50)
+    expect(bridge.openedSessions).toEqual([
+      {
+        streamToken: 'bridge-token',
+        torrentId: 'torrent-123',
+        fileIndex: 0,
+      },
+    ])
+    expect(bridge.pendingWaits).toHaveLength(1)
+    expect(bridge.pendingWaits[0]?.offset).toBe(0)
+    expect(bridge.pendingWaits[0]?.length).toBe(5)
+    expect(settled).toBe(false)
+
+    bridge.pendingWaits[0]?.resolve()
+
+    const response = await responsePromise
+    expect(response.statusCode).toBe(206)
+    expect(response.headers['content-range']).toBe(`bytes 0-4/${content.length}`)
+    expect(response.body.toString('utf8')).toBe('hello')
+    expect(bridge.closedSessions).toHaveLength(0)
+  })
+
+  it('aborts a pending tokenized media wait when the HTTP client disconnects', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-abort-'))
+    tempDirs.push(tempDir)
+    const content = Buffer.from('hello world')
+    fs.writeFileSync(path.join(tempDir, 'movie.mp4'), content)
+    const bridge = new ControlledHttpStreamBridge()
+
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+      httpStreamBridge: bridge,
+      roots: [
+        {
+          key: 'root-a',
+          uri: pathToFileURL(tempDir).toString(),
+          display_name: 'Temp Root',
+          removable: true,
+          last_stat_ok: true,
+          last_checked: Date.now(),
+        },
+      ],
+    })
+    await daemon.start()
+
+    const registerResponse = await makeRequest(daemon.getStatus().port, '/stream/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-JST-Auth': 'secret',
+      },
+      body: JSON.stringify({
+        streamToken: 'abort-token',
+        torrentId: 'torrent-123',
+        fileIndex: 0,
+        rootKey: 'root-a',
+        path: 'movie.mp4',
+        fileSize: content.length,
+        mimeType: 'video/mp4',
+      }),
+    })
+    const mediaPort = (JSON.parse(registerResponse.body.toString('utf8')) as { mediaPort: number })
+      .mediaPort
+
+    const req = http.request({
+      host: '127.0.0.1',
+      port: mediaPort,
+      path: '/stream/abort-token',
+      method: 'GET',
+      agent: false,
+      headers: {
+        Connection: 'close',
+        Range: 'bytes=0-4',
+      },
+    })
+    req.end()
+
+    await delay(50)
+    expect(bridge.pendingWaits).toHaveLength(1)
+
+    req.destroy()
+    await new Promise<void>((resolve) => {
+      req.once('error', () => resolve())
+      setTimeout(resolve, 100)
+    })
+
+    await delay(25)
+    expect(bridge.pendingWaits[0]?.signal?.aborted).toBe(true)
+    expect(bridge.abortCount).toBeGreaterThanOrEqual(1)
+  })
+
+  it('supports HEAD for a bridge-backed stream without opening a range wait', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-head-'))
+    tempDirs.push(tempDir)
+    const content = Buffer.from('hello world')
+    fs.writeFileSync(path.join(tempDir, 'movie.mp4'), content)
+    const bridge = new ControlledHttpStreamBridge()
+
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+      httpStreamBridge: bridge,
+      roots: [
+        {
+          key: 'root-a',
+          uri: pathToFileURL(tempDir).toString(),
+          display_name: 'Temp Root',
+          removable: true,
+          last_stat_ok: true,
+          last_checked: Date.now(),
+        },
+      ],
+    })
+    await daemon.start()
+
+    const registerResponse = await makeRequest(daemon.getStatus().port, '/stream/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-JST-Auth': 'secret',
+      },
+      body: JSON.stringify({
+        streamToken: 'head-token',
+        torrentId: 'torrent-123',
+        fileIndex: 0,
+        rootKey: 'root-a',
+        path: 'movie.mp4',
+        fileSize: content.length,
+        mimeType: 'video/mp4',
+      }),
+    })
+    const mediaPort = (JSON.parse(registerResponse.body.toString('utf8')) as { mediaPort: number })
+      .mediaPort
+
+    const response = await makeRequest(mediaPort, '/stream/head-token', {
+      method: 'HEAD',
+      headers: { Range: 'bytes=0-4' },
+    })
+    expect(response.statusCode).toBe(206)
+    expect(response.headers['content-range']).toBe(`bytes 0-4/${content.length}`)
+    expect(response.body.byteLength).toBe(0)
+    expect(bridge.pendingWaits).toHaveLength(0)
+  })
+
   it('registers an HTTP stream over /stream/register and exposes network discovery routes', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-register-'))
     tempDirs.push(tempDir)
@@ -439,6 +740,68 @@ describe('node-io-daemon server', () => {
     expect(headResponse.statusCode).toBe(206)
     expect(headResponse.headers['content-range']).toBe(`bytes 0-3/${content.length}`)
     expect(headResponse.body.byteLength).toBe(0)
+  })
+
+  it('revokes control-owned stream tokens when the control session closes', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-owner-'))
+    tempDirs.push(tempDir)
+    const content = Buffer.from('hello world')
+    fs.writeFileSync(path.join(tempDir, 'movie.mp4'), content)
+    const bridge = new ControlledHttpStreamBridge()
+
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+      httpStreamBridge: bridge,
+      roots: [
+        {
+          key: 'root-a',
+          uri: pathToFileURL(tempDir).toString(),
+          display_name: 'Temp Root',
+          removable: true,
+          last_stat_ok: true,
+          last_checked: Date.now(),
+        },
+      ],
+    })
+    await daemon.start()
+
+    const ws = await connectAuthenticatedControlWebSocket(daemon.getStatus().port, 'secret')
+
+    const response = await sendControlJsonRequest<{ ok: boolean; mediaPort: number }>(ws, 0xec, 23, {
+      streamToken: 'owned-token',
+      torrentId: 'torrent-123',
+      fileIndex: 0,
+      rootKey: 'root-a',
+      path: 'movie.mp4',
+      fileSize: content.length,
+      mimeType: 'video/mp4',
+    })
+    expect(response.payload).toEqual({
+      ok: true,
+      mediaPort: expect.any(Number),
+    })
+
+    const closed = new Promise<void>((resolve) => {
+      ws.onclose = () => resolve()
+    })
+    ws.close()
+    await closed
+    await delay(25)
+
+    expect(bridge.closedSessions).toContainEqual({
+      streamToken: 'owned-token',
+      torrentId: 'torrent-123',
+      fileIndex: 0,
+      reason: 'owner-closed',
+    })
+
+    const mediaResponse = await makeRequest(response.payload.mediaPort, '/stream/owned-token', {
+      headers: { Range: 'bytes=0-4' },
+    })
+    expect(mediaResponse.statusCode).toBe(404)
   })
 
   it('auto-picks a temp-backed root in test mode when folder picker is requested', async () => {

@@ -5,6 +5,32 @@ export type NodeIoDaemonFolderPicker = () =>
   | null
   | Promise<NodeIoDaemonRoot | null>
 
+export interface NodeIoDaemonHttpStreamSessionDescriptor {
+  streamToken: string
+  torrentId: string
+  fileIndex: number
+}
+
+export interface NodeIoDaemonHttpStreamWaitRequest
+  extends NodeIoDaemonHttpStreamSessionDescriptor {
+  offset: number
+  length: number
+  signal?: AbortSignal
+}
+
+export interface NodeIoDaemonHttpStreamCloseRequest
+  extends NodeIoDaemonHttpStreamSessionDescriptor {
+  reason: string
+}
+
+export interface NodeIoDaemonHttpStreamBridge {
+  openStreamSession(
+    session: NodeIoDaemonHttpStreamSessionDescriptor,
+  ): Promise<void> | void
+  waitForRange(request: NodeIoDaemonHttpStreamWaitRequest): Promise<void>
+  closeStreamSession?(request: NodeIoDaemonHttpStreamCloseRequest): Promise<void> | void
+}
+
 export interface NodeIoDaemonConfig {
   host: string
   port: number
@@ -13,6 +39,7 @@ export interface NodeIoDaemonConfig {
   configPath: string | null
   roots: NodeIoDaemonRoot[]
   folderPicker: NodeIoDaemonFolderPicker | null
+  httpStreamBridge: NodeIoDaemonHttpStreamBridge | null
 }
 
 export interface NodeIoDaemonCapabilities {

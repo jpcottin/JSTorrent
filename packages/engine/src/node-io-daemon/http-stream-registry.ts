@@ -2,13 +2,20 @@ const DEFAULT_HTTP_STREAM_IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000
 
 export interface NodeIoDaemonRegisteredHttpStream {
   token: string
+  ownerId: string | null
   torrentId: string
+  fileIndex: number | null
   rootKey: string
   path: string
   fileSize: number
   mimeType: string | null
   createdAt: number
   lastAccessedAt: number
+}
+
+export interface NodeIoDaemonTouchedHttpStreamResult {
+  stream: NodeIoDaemonRegisteredHttpStream | null
+  expired: NodeIoDaemonRegisteredHttpStream | null
 }
 
 export class NodeIoDaemonHttpStreamRegistry {
@@ -18,7 +25,9 @@ export class NodeIoDaemonHttpStreamRegistry {
 
   register(stream: {
     token: string
+    ownerId: string | null
     torrentId: string
+    fileIndex: number | null
     rootKey: string
     path: string
     fileSize: number
@@ -35,27 +44,73 @@ export class NodeIoDaemonHttpStreamRegistry {
   }
 
   getAndTouch(token: string): NodeIoDaemonRegisteredHttpStream | null {
+    return this.getAndTouchDetailed(token).stream
+  }
+
+  getAndTouchDetailed(token: string): NodeIoDaemonTouchedHttpStreamResult {
     const current = this.streams.get(token)
     if (!current) {
-      return null
+      return { stream: null, expired: null }
     }
 
     const now = Date.now()
     if (now - current.lastAccessedAt > this.idleTimeoutMs) {
       this.streams.delete(token)
-      return null
+      return {
+        stream: null,
+        expired: { ...current },
+      }
     }
 
     const updated = { ...current, lastAccessedAt: now }
     this.streams.set(token, updated)
-    return { ...updated }
+    return {
+      stream: { ...updated },
+      expired: null,
+    }
   }
 
-  revoke(token: string): boolean {
-    return this.streams.delete(token)
+  peek(token: string): NodeIoDaemonRegisteredHttpStream | null {
+    const current = this.streams.get(token)
+    return current ? { ...current } : null
   }
 
-  clear(): void {
+  revoke(token: string): NodeIoDaemonRegisteredHttpStream | null {
+    const current = this.streams.get(token)
+    if (!current) {
+      return null
+    }
+    this.streams.delete(token)
+    return { ...current }
+  }
+
+  revokeOwnedBy(ownerId: string): NodeIoDaemonRegisteredHttpStream[] {
+    const revoked: NodeIoDaemonRegisteredHttpStream[] = []
+    for (const [token, stream] of this.streams.entries()) {
+      if (stream.ownerId !== ownerId) {
+        continue
+      }
+      this.streams.delete(token)
+      revoked.push({ ...stream })
+    }
+    return revoked
+  }
+
+  revokeTorrent(torrentId: string): NodeIoDaemonRegisteredHttpStream[] {
+    const revoked: NodeIoDaemonRegisteredHttpStream[] = []
+    for (const [token, stream] of this.streams.entries()) {
+      if (stream.torrentId !== torrentId) {
+        continue
+      }
+      this.streams.delete(token)
+      revoked.push({ ...stream })
+    }
+    return revoked
+  }
+
+  clear(): NodeIoDaemonRegisteredHttpStream[] {
+    const revoked = [...this.streams.values()].map((stream) => ({ ...stream }))
     this.streams.clear()
+    return revoked
   }
 }

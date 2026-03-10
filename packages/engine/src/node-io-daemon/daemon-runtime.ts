@@ -4,13 +4,20 @@ import type { Duplex } from 'node:stream'
 import { createNodeIoDaemonCapabilities } from './capabilities'
 import type { NodeIoDaemonExternalCapabilities } from './control-protocol'
 import { createTestFolderPickerRoot } from './folder-picker'
-import { NodeIoDaemonHttpStreamRegistry } from './http-stream-registry'
+import {
+  NodeIoDaemonHttpStreamRegistry,
+  type NodeIoDaemonRegisteredHttpStream,
+} from './http-stream-registry'
 import { NodeIoDaemonIoSession } from './io-session'
 import {
   NodeIoDaemonHashMismatchError,
   NodeIoDaemonRootFileSystem,
 } from './root-filesystem'
-import type { NodeIoDaemonConfig, NodeIoDaemonHttpStatus, NodeIoDaemonStatus } from './types'
+import type {
+  NodeIoDaemonConfig,
+  NodeIoDaemonHttpStatus,
+  NodeIoDaemonStatus,
+} from './types'
 import { NodeIoDaemonRootStore } from './root-store'
 
 interface HttpByteRange {
@@ -26,6 +33,15 @@ function getContentLength(range: HttpByteRange): number {
 
 function getContentRangeHeader(range: HttpByteRange): string {
   return `bytes ${range.start}-${range.endInclusive}/${range.totalSize}`
+}
+
+function createAbortError(): Error {
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException('Aborted', 'AbortError')
+  }
+  const error = new Error('Aborted')
+  error.name = 'AbortError'
+  return error
 }
 
 function resolveHttpByteRange(
@@ -114,6 +130,7 @@ export class NodeIoDaemonRuntime {
   private pairedExtensionId: string | null = null
   private pairedInstallId: string | null = null
   private nextPickedRootId = 1
+  private nextControlOwnerId = 1
 
   constructor(private readonly daemonConfig: NodeIoDaemonConfig) {
     this.boundPort = daemonConfig.port
@@ -184,7 +201,7 @@ export class NodeIoDaemonRuntime {
       session.destroy()
     }
     this.ioSessions.clear()
-    this.httpStreams.clear()
+    await this.closeHttpStreams(this.httpStreams.clear(), 'shutdown')
 
     for (const socket of this.rawSockets) {
       socket.destroy()
@@ -235,7 +252,7 @@ export class NodeIoDaemonRuntime {
       host: this.daemonConfig.host,
       port: this.boundPort,
       bootstrapMode: this.daemonConfig.bootstrapMode,
-      capabilities: createNodeIoDaemonCapabilities(),
+      capabilities: createNodeIoDaemonCapabilities(this.daemonConfig.httpStreamBridge !== null),
     }
   }
 
@@ -309,7 +326,7 @@ export class NodeIoDaemonRuntime {
         return
       }
 
-      const response = this.registerHttpStream(await this.readJsonBody(req))
+      const response = await this.registerHttpStream(await this.readJsonBody(req))
       this.sendJson(res, response.ok ? 200 : 400, response)
       return
     }
@@ -577,7 +594,10 @@ export class NodeIoDaemonRuntime {
 
     if (pathname.startsWith('/stream/') && (req.method === 'GET' || req.method === 'HEAD')) {
       const token = decodeURIComponent(pathname.slice('/stream/'.length))
-      const stream = this.httpStreams.getAndTouch(token)
+      const { stream, expired } = this.httpStreams.getAndTouchDetailed(token)
+      if (expired) {
+        void this.closeHttpStream(expired, 'expired').catch(() => {})
+      }
       if (!stream) {
         this.sendText(res, 404, 'Not Found')
         return
@@ -585,15 +605,25 @@ export class NodeIoDaemonRuntime {
 
       const fileSystem = this.getRootFileSystem(stream.rootKey)
       if (!fileSystem) {
-        this.httpStreams.revoke(token)
+        await this.revokeHttpStream(token, 'revoked')
         this.sendText(res, 404, 'Not Found')
         return
       }
 
+      const requestAbort = new AbortController()
+      const abortRequest = () => {
+        if (!requestAbort.signal.aborted) {
+          requestAbort.abort(createAbortError())
+        }
+      }
+      req.on('aborted', abortRequest)
+      req.on('close', abortRequest)
+      res.on('close', abortRequest)
+
       try {
         const stat = await fileSystem.stat(stream.path)
         if (!stat.is_file) {
-          this.httpStreams.revoke(token)
+          await this.revokeHttpStream(token, 'revoked')
           this.sendText(res, 404, 'Not Found')
           return
         }
@@ -626,8 +656,23 @@ export class NodeIoDaemonRuntime {
 
         const chunkSize = 256 * 1024
         let nextOffset = range.start
-        while (nextOffset <= range.endInclusive && !req.destroyed && !res.destroyed) {
+        while (
+          nextOffset <= range.endInclusive &&
+          !requestAbort.signal.aborted &&
+          !req.destroyed &&
+          !res.destroyed
+        ) {
           const bytesToRead = Math.min(chunkSize, range.endInclusive - nextOffset + 1)
+          if (stream.fileIndex !== null && this.daemonConfig.httpStreamBridge) {
+            await this.daemonConfig.httpStreamBridge.waitForRange({
+              streamToken: stream.token,
+              torrentId: stream.torrentId,
+              fileIndex: stream.fileIndex,
+              offset: nextOffset,
+              length: bytesToRead,
+              signal: requestAbort.signal,
+            })
+          }
           const chunk = await fileSystem.read(stream.path, nextOffset, bytesToRead)
           if (chunk.byteLength === 0) {
             throw new Error('Unexpected empty read while streaming file')
@@ -636,13 +681,22 @@ export class NodeIoDaemonRuntime {
           res.write(Buffer.from(chunk))
         }
 
-        if (!res.writableEnded) {
+        if (!res.writableEnded && !res.destroyed) {
           res.end()
         }
         return
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const name = error instanceof Error ? error.name : ''
+        if (name === 'AbortError' || message === 'Aborted') {
+          return
+        }
         this.sendText(res, 404, 'Not Found')
         return
+      } finally {
+        req.off('aborted', abortRequest)
+        req.off('close', abortRequest)
+        res.off('close', abortRequest)
       }
     }
 
@@ -657,11 +711,14 @@ export class NodeIoDaemonRuntime {
     }
 
     let session: NodeIoDaemonIoSession | null = null
+    const ownerId =
+      pathname === '/control' ? `ctrl-${this.nextControlOwnerId++}` : null
     session = NodeIoDaemonIoSession.upgrade(
       { headers: req.headers },
       {
         path: pathname as '/io' | '/control',
         socket,
+        ownerId,
         getExpectedAuthToken: () => this.pairedToken,
         bootstrapMode: this.daemonConfig.bootstrapMode,
         getExternalCapabilities: () => this.getExternalCapabilities(),
@@ -670,6 +727,9 @@ export class NodeIoDaemonRuntime {
         onClose: () => {
           if (session) {
             this.ioSessions.delete(session)
+          }
+          if (ownerId) {
+            void this.revokeHttpStreamsOwnedBy(ownerId, 'owner-closed').catch(() => {})
           }
         },
       },
@@ -708,7 +768,7 @@ export class NodeIoDaemonRuntime {
       tokenValid,
       implementation: 'node-io-daemon',
       bootstrapMode: this.daemonConfig.bootstrapMode,
-      capabilities: createNodeIoDaemonCapabilities(),
+      capabilities: createNodeIoDaemonCapabilities(this.daemonConfig.httpStreamBridge !== null),
     }
   }
 
@@ -800,18 +860,20 @@ export class NodeIoDaemonRuntime {
     return octets.reduce((count, octet) => count + octet.toString(2).replace(/0/g, '').length, 0)
   }
 
-  private registerHttpStream(request: unknown): {
+  private async registerHttpStream(request: unknown): Promise<{
     ok: boolean
     mediaPort?: number
     error?: string
-  } {
+  }> {
     if (!request || typeof request !== 'object') {
       return { ok: false, error: 'Invalid request body' }
     }
 
     const body = request as Record<string, unknown>
+    const ownerId = typeof body.ownerId === 'string' ? body.ownerId : null
     const streamToken = body.streamToken
     const torrentId = body.torrentId
+    const fileIndex = body.fileIndex
     const rootKey = body.rootKey
     const relativePath = body.path
     const fileSize = body.fileSize
@@ -822,6 +884,13 @@ export class NodeIoDaemonRuntime {
     }
     if (typeof torrentId !== 'string' || torrentId.length === 0 || torrentId.length > 256) {
       return { ok: false, error: 'Invalid torrentId' }
+    }
+    if (
+      fileIndex !== undefined &&
+      fileIndex !== null &&
+      (!Number.isInteger(fileIndex) || fileIndex < 0)
+    ) {
+      return { ok: false, error: 'Invalid fileIndex' }
     }
     if (typeof rootKey !== 'string' || rootKey.length === 0) {
       return { ok: false, error: 'Invalid rootKey' }
@@ -846,10 +915,23 @@ export class NodeIoDaemonRuntime {
     if (this.mediaPort <= 0) {
       return { ok: false, error: 'Media server not running' }
     }
+    if (this.daemonConfig.httpStreamBridge && typeof fileIndex !== 'number') {
+      return { ok: false, error: 'Invalid fileIndex' }
+    }
 
+    await this.revokeHttpStream(streamToken, 'replaced')
+    if (this.daemonConfig.httpStreamBridge && typeof fileIndex === 'number') {
+      await this.daemonConfig.httpStreamBridge.openStreamSession({
+        streamToken,
+        torrentId,
+        fileIndex,
+      })
+    }
     this.httpStreams.register({
       token: streamToken,
+      ownerId,
       torrentId,
+      fileIndex: typeof fileIndex === 'number' ? fileIndex : null,
       rootKey,
       path: relativePath,
       fileSize,
@@ -860,6 +942,40 @@ export class NodeIoDaemonRuntime {
       ok: true,
       mediaPort: this.mediaPort,
     }
+  }
+
+  private async revokeHttpStream(token: string, reason: string): Promise<void> {
+    const stream = this.httpStreams.revoke(token)
+    if (!stream) {
+      return
+    }
+    await this.closeHttpStream(stream, reason)
+  }
+
+  private async revokeHttpStreamsOwnedBy(ownerId: string, reason: string): Promise<void> {
+    await this.closeHttpStreams(this.httpStreams.revokeOwnedBy(ownerId), reason)
+  }
+
+  private async closeHttpStreams(
+    streams: NodeIoDaemonRegisteredHttpStream[],
+    reason: string,
+  ): Promise<void> {
+    await Promise.all(streams.map((stream) => this.closeHttpStream(stream, reason)))
+  }
+
+  private async closeHttpStream(
+    stream: NodeIoDaemonRegisteredHttpStream,
+    reason: string,
+  ): Promise<void> {
+    if (!this.daemonConfig.httpStreamBridge || stream.fileIndex === null) {
+      return
+    }
+    await this.daemonConfig.httpStreamBridge.closeStreamSession?.({
+      streamToken: stream.token,
+      torrentId: stream.torrentId,
+      fileIndex: stream.fileIndex,
+      reason,
+    })
   }
 
   private async handleFolderPickerRequest(): Promise<{

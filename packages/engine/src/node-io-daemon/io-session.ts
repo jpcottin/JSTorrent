@@ -55,6 +55,7 @@ import type { NodeIoDaemonBootstrapMode } from './types'
 export interface NodeIoDaemonIoSessionOptions {
   path: '/io' | '/control'
   socket: Duplex
+  ownerId: string | null
   getExpectedAuthToken: () => string | null
   bootstrapMode: NodeIoDaemonBootstrapMode
   getExternalCapabilities: () => NodeIoDaemonExternalCapabilities
@@ -400,6 +401,14 @@ export class NodeIoDaemonIoSession {
   ): Promise<void> {
     try {
       const body = JSON.parse(new TextDecoder().decode(payload)) as unknown
+      if (
+        body &&
+        typeof body === 'object' &&
+        this.options.ownerId &&
+        !('ownerId' in (body as Record<string, unknown>))
+      ) {
+        ;(body as Record<string, unknown>).ownerId = this.options.ownerId
+      }
       const response = await this.options.handleRegisterHttpStreamRequest(body)
       this.sendControlResponse(CONTROL_OP_REGISTER_HTTP_STREAM, requestId, response)
     } catch (error) {

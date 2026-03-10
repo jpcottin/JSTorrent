@@ -8,6 +8,7 @@ export interface PartialNodeIoDaemonConfig {
   configPath?: string | null
   roots?: NodeIoDaemonConfig['roots']
   folderPicker?: NodeIoDaemonConfig['folderPicker']
+  httpStreamBridge?: NodeIoDaemonConfig['httpStreamBridge']
 }
 
 export const DEFAULT_NODE_IO_DAEMON_CONFIG: NodeIoDaemonConfig = {
@@ -18,6 +19,7 @@ export const DEFAULT_NODE_IO_DAEMON_CONFIG: NodeIoDaemonConfig = {
   configPath: null,
   roots: [],
   folderPicker: null,
+  httpStreamBridge: null,
 }
 
 export function normalizeNodeIoDaemonConfig(
@@ -41,5 +43,9 @@ export function normalizeNodeIoDaemonConfig(
       config.folderPicker === undefined
         ? DEFAULT_NODE_IO_DAEMON_CONFIG.folderPicker
         : config.folderPicker,
+    httpStreamBridge:
+      config.httpStreamBridge === undefined
+        ? DEFAULT_NODE_IO_DAEMON_CONFIG.httpStreamBridge
+        : config.httpStreamBridge,
   }
 }
