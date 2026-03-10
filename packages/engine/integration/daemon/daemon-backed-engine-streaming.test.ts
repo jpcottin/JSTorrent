@@ -123,7 +123,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     daemonBackedEngine = null
   }
 
-  async function createStreamingFixture() {
+  async function createStreamingFixture(options: { fileSize?: number } = {}) {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rust-daemon-streaming-'))
     const seedDir = path.join(tempDir, 'seed')
     const downloadDir = path.join(tempDir, 'download')
@@ -135,7 +135,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     const trackerUrl = `udp://127.0.0.1:${ports.udpPort}`
 
     const fileName = 'fixture.bin'
-    const fileContent = crypto.randomBytes(512 * 1024)
+    const fileContent = crypto.randomBytes(options.fileSize ?? 512 * 1024)
     const downloadPath = path.join(downloadDir, fileName)
     fs.writeFileSync(path.join(seedDir, fileName), fileContent)
     const sparseHandle = fs.openSync(downloadPath, 'w')
@@ -295,6 +295,58 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
         `bytes 393216-393231/${fixture.fileContent.length}`,
       )
       expect(response.body.equals(fixture.fileContent.subarray(393216, 393232))).toBe(true)
+    },
+    40_000,
+  )
+
+  it(
+    'streams across multiple Rust daemon chunks and torrent-piece waits',
+    async () => {
+      const waitCalls: Array<{ offset: number; length: number }> = []
+      const fixture = await createStreamingFixture({
+        fileSize: 2 * 256 * 1024 + 8192,
+      })
+      const controlStream = daemonBackedEngine!.getControlStreamService()
+      expect(controlStream).not.toBeNull()
+
+      const originalWaitForRange = (controlStream as any).waitForRange.bind(controlStream)
+      ;(controlStream as any).waitForRange = async (
+        sessionId: string,
+        offset: number,
+        requestedLength: number,
+      ) => {
+        waitCalls.push({ offset, length: requestedLength })
+        return await originalWaitForRange(sessionId, offset, requestedLength)
+      }
+
+      const mediaPort = await registerStreamToken(
+        'multi-chunk-stream-token',
+        fixture.torrent.infoHashStr,
+        fixture.fileName,
+        fixture.fileContent.length,
+      )
+
+      let settled = false
+      const responsePromise = makeRequest(mediaPort, '/stream/multi-chunk-stream-token', {
+        headers: {
+          Range: `bytes=0-${fixture.fileContent.length - 1}`,
+        },
+      }).then((response) => {
+        settled = true
+        return response
+      })
+
+      await delay(100)
+      expect(settled).toBe(false)
+
+      const response = await responsePromise
+      expect(response.statusCode).toBe(206)
+      expect(response.body.equals(fixture.fileContent)).toBe(true)
+      expect(waitCalls).toEqual([
+        { offset: 0, length: 256 * 1024 },
+        { offset: 256 * 1024, length: 256 * 1024 },
+        { offset: 2 * 256 * 1024, length: 8192 },
+      ])
     },
     40_000,
   )
