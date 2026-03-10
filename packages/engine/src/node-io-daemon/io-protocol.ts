@@ -7,6 +7,11 @@ export const IO_OP_SERVER_HELLO = 0x02
 export const IO_OP_AUTH = 0x03
 export const IO_OP_AUTH_RESULT = 0x04
 export const IO_OP_ERROR = 0x7f
+export const IO_OP_TCP_CONNECT = 0x10
+export const IO_OP_TCP_CONNECTED = 0x11
+export const IO_OP_TCP_SEND = 0x12
+export const IO_OP_TCP_RECV = 0x13
+export const IO_OP_TCP_CLOSE = 0x14
 
 export interface IoProtocolEnvelope {
   version: number

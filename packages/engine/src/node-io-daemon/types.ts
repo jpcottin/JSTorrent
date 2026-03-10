@@ -1,5 +1,5 @@
 export type NodeIoDaemonBootstrapMode = 'test' | 'realistic'
-export type NodeIoDaemonPhase = 'phase0' | 'phase1' | 'phase2'
+export type NodeIoDaemonPhase = 'phase0' | 'phase1' | 'phase2' | 'phase3'
 
 export interface NodeIoDaemonConfig {
   host: string

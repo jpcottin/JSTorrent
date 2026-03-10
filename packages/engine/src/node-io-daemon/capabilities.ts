@@ -34,3 +34,11 @@ export const PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES: NodeIoDaemonCapabilities = {
 export function createPhaseTwoNodeIoDaemonCapabilities(): NodeIoDaemonCapabilities {
   return { ...PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES }
 }
+
+export const PHASE_THREE_NODE_IO_DAEMON_CAPABILITIES: NodeIoDaemonCapabilities = {
+  ...PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES,
+}
+
+export function createPhaseThreeNodeIoDaemonCapabilities(): NodeIoDaemonCapabilities {
+  return { ...PHASE_THREE_NODE_IO_DAEMON_CAPABILITIES }
+}

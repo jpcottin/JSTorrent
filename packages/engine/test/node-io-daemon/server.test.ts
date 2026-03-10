@@ -1,7 +1,9 @@
 import * as http from 'node:http'
+import * as net from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fetchDaemonStatus } from '../../src/adapters/daemon/daemon-client'
 import { DaemonConnection } from '../../src/adapters/daemon/daemon-connection'
+import { DaemonSocketFactory } from '../../src/adapters/daemon/daemon-socket-factory'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
 
 interface HttpResponseData {
@@ -48,13 +50,27 @@ async function makeRequest(
   })
 }
 
-describe('node-io-daemon phase two server', () => {
+describe('node-io-daemon phase three server', () => {
   let daemon: ReturnType<typeof createNodeIoDaemon> | null = null
+  let tcpServer: net.Server | null = null
 
   afterEach(async () => {
     if (daemon) {
       await daemon.stop()
       daemon = null
+    }
+
+    if (tcpServer) {
+      await new Promise<void>((resolve, reject) => {
+        tcpServer!.close((error) => {
+          if (error) {
+            reject(error)
+          } else {
+            resolve()
+          }
+        })
+      })
+      tcpServer = null
     }
   })
 
@@ -66,7 +82,7 @@ describe('node-io-daemon phase two server', () => {
 
     expect(daemon.getStatus()).toEqual({
       implementation: 'node-io-daemon',
-      phase: 'phase2',
+      phase: 'phase3',
       started: false,
       host: '127.0.0.1',
       port: 0,
@@ -129,7 +145,7 @@ describe('node-io-daemon phase two server', () => {
     expect(payload.ioPort).toBe(startedStatus.port)
     expect(payload.paired).toBe(true)
     expect(payload.tokenValid).toBe(true)
-    expect(payload.phase).toBe('phase2')
+    expect(payload.phase).toBe('phase3')
     expect(payload.capabilities.ioWebSocket).toBe(true)
 
     const notFound = await makeRequest(startedStatus.port, '/missing')
@@ -138,7 +154,7 @@ describe('node-io-daemon phase two server', () => {
     await daemon.stop()
     expect(daemon.getStatus()).toEqual({
       implementation: 'node-io-daemon',
-      phase: 'phase2',
+      phase: 'phase3',
       started: false,
       host: '127.0.0.1',
       port: 0,
@@ -183,4 +199,107 @@ describe('node-io-daemon phase two server', () => {
       connection.close()
     }
   })
+
+  it('supports a real outbound TCP round-trip through the daemon socket adapter', async () => {
+    tcpServer = net.createServer((socket) => {
+      socket.once('data', (chunk) => {
+        socket.write(Buffer.concat([Buffer.from('echo:'), chunk]))
+        socket.end()
+      })
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      tcpServer!.listen(0, '127.0.0.1', () => resolve())
+      tcpServer!.once('error', reject)
+    })
+
+    const target = tcpServer.address()
+    if (!target || typeof target === 'string') {
+      throw new Error('TCP test server failed to bind')
+    }
+
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+    })
+    await daemon.start()
+
+    const status = await fetchDaemonStatus(
+      '127.0.0.1',
+      daemon.getStatus().port,
+      'secret',
+      'extension-id',
+      'install',
+    )
+    const connection = new DaemonConnection(
+      daemon.getStatus().port,
+      '127.0.0.1',
+      undefined,
+      'secret',
+      status.ioPort,
+    )
+    const factory = new DaemonSocketFactory(connection)
+
+    try {
+      await connection.connectWebSocket()
+      const socket = await waitForWithDaemonFlush(
+        factory,
+        factory.createTcpSocket({ host: '127.0.0.1', port: target.port }),
+      )
+
+      const dataPromise = new Promise<string>((resolve) => {
+        socket.onData((data) => {
+          resolve(Buffer.from(data).toString('utf8'))
+        })
+      })
+      const closePromise = new Promise<boolean>((resolve) => {
+        socket.onClose((hadError) => resolve(hadError))
+      })
+
+      socket.send(new TextEncoder().encode('ping'))
+
+      await expect(waitForWithDaemonFlush(factory, dataPromise)).resolves.toBe('echo:ping')
+      await expect(waitForWithDaemonFlush(factory, closePromise)).resolves.toBe(false)
+    } finally {
+      connection.close()
+    }
+  })
 })
+
+async function waitForWithDaemonFlush<T>(
+  factory: DaemonSocketFactory,
+  promise: Promise<T>,
+  timeoutMs = 2000,
+): Promise<T> {
+  const start = Date.now()
+  let settled = false
+  let value: T | undefined
+  let rejection: unknown
+
+  promise.then(
+    (result) => {
+      settled = true
+      value = result
+    },
+    (error) => {
+      settled = true
+      rejection = error
+    },
+  )
+
+  while (!settled) {
+    factory.flushCallbacks()
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('Timed out waiting for daemon callback flush')
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+
+  if (rejection) {
+    throw rejection
+  }
+
+  return value as T
+}
