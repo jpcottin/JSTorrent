@@ -1,8 +1,10 @@
 import * as http from 'node:http'
 import type { Duplex } from 'node:stream'
 import { createNodeIoDaemonCapabilities } from './capabilities'
+import type { NodeIoDaemonExternalCapabilities } from './control-protocol'
 import { NodeIoDaemonIoSession } from './io-session'
 import type { NodeIoDaemonConfig, NodeIoDaemonHttpStatus, NodeIoDaemonStatus } from './types'
+import { NodeIoDaemonRootStore } from './root-store'
 
 export class NodeIoDaemonRuntime {
   private started = false
@@ -10,9 +12,14 @@ export class NodeIoDaemonRuntime {
   private boundPort: number
   private readonly ioSessions = new Set<NodeIoDaemonIoSession>()
   private readonly rawSockets = new Set<Duplex>()
+  private readonly rootStore: NodeIoDaemonRootStore
 
   constructor(private readonly daemonConfig: NodeIoDaemonConfig) {
     this.boundPort = daemonConfig.port
+    this.rootStore = new NodeIoDaemonRootStore(daemonConfig.roots)
+    this.rootStore.onChange((roots) => {
+      this.broadcastRootsChanged(roots)
+    })
   }
 
   get config(): Readonly<NodeIoDaemonConfig> {
@@ -98,7 +105,7 @@ export class NodeIoDaemonRuntime {
 
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
     res.setHeader(
       'Access-Control-Allow-Headers',
       'Content-Type, X-JST-Auth, X-JST-ExtensionId, X-JST-InstallId, Origin',
@@ -122,6 +129,37 @@ export class NodeIoDaemonRuntime {
       return
     }
 
+    if (pathname === '/roots' && req.method === 'GET') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      this.sendJson(res, 200, { roots: this.rootStore.list() })
+      return
+    }
+
+    if (pathname.startsWith('/roots/') && req.method === 'DELETE') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const key = decodeURIComponent(pathname.slice('/roots/'.length))
+      if (!key) {
+        this.sendText(res, 400, 'Missing root key')
+        return
+      }
+
+      if (!this.rootStore.delete(key)) {
+        this.sendText(res, 404, 'Not Found')
+        return
+      }
+
+      this.sendJson(res, 200, { ok: true })
+      return
+    }
+
     this.sendText(res, 404, 'Not Found')
   }
 
@@ -140,6 +178,7 @@ export class NodeIoDaemonRuntime {
         socket,
         expectedAuthToken: this.daemonConfig.authToken,
         bootstrapMode: this.daemonConfig.bootstrapMode,
+        getExternalCapabilities: () => this.getExternalCapabilities(),
         onClose: () => {
           if (session) {
             this.ioSessions.delete(session)
@@ -181,8 +220,7 @@ export class NodeIoDaemonRuntime {
   }
 
   private async readStatusToken(req: http.IncomingMessage): Promise<string | null> {
-    const headerValue = req.headers['x-jst-auth']
-    const headerToken = Array.isArray(headerValue) ? headerValue[0] : headerValue
+    const headerToken = this.readAuthToken(req)
     if (headerToken) {
       return headerToken
     }
@@ -198,6 +236,33 @@ export class NodeIoDaemonRuntime {
 
     const token = (body as Record<string, unknown>).token
     return typeof token === 'string' ? token : null
+  }
+
+  private readAuthToken(req: http.IncomingMessage): string | null {
+    const headerValue = req.headers['x-jst-auth']
+    const headerToken = Array.isArray(headerValue) ? headerValue[0] : headerValue
+    return headerToken ?? null
+  }
+
+  private isHttpAuthAccepted(token: string | null): boolean {
+    if (this.daemonConfig.authToken !== null) {
+      return token === this.daemonConfig.authToken
+    }
+
+    return this.daemonConfig.bootstrapMode === 'test'
+  }
+
+  private getExternalCapabilities(): NodeIoDaemonExternalCapabilities {
+    return {
+      roots_manageable: true,
+      lan_share_urls: false,
+    }
+  }
+
+  private broadcastRootsChanged(roots: ReturnType<NodeIoDaemonRootStore['list']>): void {
+    for (const session of this.ioSessions) {
+      session.sendControlRootsChanged(roots)
+    }
   }
 
   private async readJsonBody(req: http.IncomingMessage): Promise<unknown> {

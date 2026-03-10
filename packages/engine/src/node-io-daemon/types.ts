@@ -6,6 +6,7 @@ export interface NodeIoDaemonConfig {
   bootstrapMode: NodeIoDaemonBootstrapMode
   authToken: string | null
   configPath: string | null
+  roots: NodeIoDaemonRoot[]
 }
 
 export interface NodeIoDaemonCapabilities {
@@ -18,6 +19,15 @@ export interface NodeIoDaemonCapabilities {
   fileOps: boolean
   mediaCompleteFile206: boolean
   mediaBlocking206: boolean
+}
+
+export interface NodeIoDaemonRoot {
+  key: string
+  uri: string
+  display_name: string
+  removable: boolean
+  last_stat_ok: boolean
+  last_checked: number
 }
 
 export interface NodeIoDaemonStatus {

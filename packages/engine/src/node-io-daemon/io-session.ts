@@ -3,8 +3,20 @@ import * as net from 'node:net'
 import * as tls from 'node:tls'
 import type { Duplex } from 'node:stream'
 import {
+  CONTROL_OP_EVENT,
+  CONTROL_OP_GET_CAPABILITIES,
+  CONTROL_OP_OPEN_FILE,
+  CONTROL_OP_OPEN_FOLDER_PICKER,
+  CONTROL_OP_POWER_HINT,
+  CONTROL_OP_REGISTER_HTTP_STREAM,
+  CONTROL_OP_REVEAL_IN_FOLDER,
+  CONTROL_OP_ROOTS_CHANGED,
+  type NodeIoDaemonExternalCapabilities,
+} from './control-protocol'
+import {
   IO_OP_AUTH,
   IO_OP_CLIENT_HELLO,
+  IO_OP_ERROR,
   IO_OP_SERVER_HELLO,
   IO_OP_TCP_ACCEPT,
   IO_OP_TCP_CLOSE,
@@ -45,6 +57,7 @@ export interface NodeIoDaemonIoSessionOptions {
   socket: Duplex
   expectedAuthToken: string | null
   bootstrapMode: NodeIoDaemonBootstrapMode
+  getExternalCapabilities: () => NodeIoDaemonExternalCapabilities
   onClose: () => void
 }
 
@@ -235,11 +248,29 @@ export class NodeIoDaemonIoSession {
     }
 
     if (this.options.path !== '/io') {
-      this.sendProtocolError(envelope.requestId, `${this.options.path} socket ops not implemented`)
+      this.handleControlFrame(envelope)
       return
     }
 
     this.handleIoFrame(envelope)
+  }
+
+  sendControlRootsChanged(roots: unknown): void {
+    if (this.options.path !== '/control' || this.state !== 'authenticated') {
+      return
+    }
+    this.sendProtocolFrame(
+      CONTROL_OP_ROOTS_CHANGED,
+      0,
+      new TextEncoder().encode(JSON.stringify(roots)),
+    )
+  }
+
+  sendControlEvent(event: unknown): void {
+    if (this.options.path !== '/control' || this.state !== 'authenticated') {
+      return
+    }
+    this.sendProtocolFrame(CONTROL_OP_EVENT, 0, new TextEncoder().encode(JSON.stringify(event)))
   }
 
   private handleIoFrame(envelope: {
@@ -303,6 +334,42 @@ export class NodeIoDaemonIoSession {
     }
 
     this.sendProtocolError(envelope.requestId, `Unsupported /io opcode ${envelope.msgType}`)
+  }
+
+  private handleControlFrame(envelope: {
+    msgType: number
+    requestId: number
+    payload: Uint8Array
+  }): void {
+    if (envelope.msgType === CONTROL_OP_GET_CAPABILITIES) {
+      this.sendControlResponse(envelope.msgType, envelope.requestId, {
+        ok: true,
+        capabilities: this.options.getExternalCapabilities(),
+      })
+      return
+    }
+
+    if (envelope.msgType === CONTROL_OP_POWER_HINT) {
+      return
+    }
+
+    if (
+      envelope.msgType === CONTROL_OP_OPEN_FOLDER_PICKER ||
+      envelope.msgType === CONTROL_OP_OPEN_FILE ||
+      envelope.msgType === CONTROL_OP_REVEAL_IN_FOLDER ||
+      envelope.msgType === CONTROL_OP_REGISTER_HTTP_STREAM
+    ) {
+      this.sendControlResponse(envelope.msgType, envelope.requestId, {
+        ok: false,
+        error: 'Control operation not implemented',
+      })
+      return
+    }
+
+    this.sendControlResponse(IO_OP_ERROR, envelope.requestId, {
+      ok: false,
+      error: `Unsupported /control opcode ${envelope.msgType}`,
+    })
   }
 
   private handleTcpConnect(requestId: number, payload: Uint8Array): void {
@@ -880,6 +947,13 @@ export class NodeIoDaemonIoSession {
       encodeBinaryWebSocketFrame(buildIoProtocolErrorFrame(requestId, message)),
     )
     this.sendClose(1008, message)
+  }
+
+  private sendControlResponse(opcode: number, requestId: number, payload: unknown): void {
+    if (this.state === 'closed') {
+      return
+    }
+    this.sendProtocolFrame(opcode, requestId, new TextEncoder().encode(JSON.stringify(payload)))
   }
 
   private sendClose(code = 1000, reason = ''): void {

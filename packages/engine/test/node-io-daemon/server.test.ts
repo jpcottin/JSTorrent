@@ -3,10 +3,12 @@ import * as dgram from 'node:dgram'
 import * as net from 'node:net'
 import * as tls from 'node:tls'
 import { afterEach, describe, expect, it } from 'vitest'
-import { fetchDaemonStatus } from '../../src/adapters/daemon/daemon-client'
+import { ControlConnection } from '../../src/adapters/daemon/control-connection'
+import { fetchDaemonRoots, fetchDaemonStatus } from '../../src/adapters/daemon/daemon-client'
 import { DaemonConnection } from '../../src/adapters/daemon/daemon-connection'
 import { DaemonSocketFactory } from '../../src/adapters/daemon/daemon-socket-factory'
 import { NODE_IO_DAEMON_CAPABILITIES } from '../../src/node-io-daemon/capabilities'
+import { buildIoProtocolFrame } from '../../src/node-io-daemon/io-protocol'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
 import { TEST_TLS_CERTIFICATE_PEM, TEST_TLS_PRIVATE_KEY_PEM } from './tls-fixture'
 
@@ -205,6 +207,109 @@ describe('node-io-daemon server', () => {
       expect(connection.ready).toBe(true)
     } finally {
       connection.close()
+    }
+  })
+
+  it('serves authenticated roots and broadcasts deletions over /control', async () => {
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+      roots: [
+        {
+          key: 'root-a',
+          uri: 'file:///downloads/a',
+          display_name: 'Downloads A',
+          removable: true,
+          last_stat_ok: true,
+          last_checked: 100,
+        },
+        {
+          key: 'root-b',
+          uri: 'file:///downloads/b',
+          display_name: 'Downloads B',
+          removable: false,
+          last_stat_ok: true,
+          last_checked: 200,
+        },
+      ],
+    })
+    await daemon.start()
+
+    const status = await fetchDaemonStatus(
+      '127.0.0.1',
+      daemon.getStatus().port,
+      'secret',
+      'extension-id',
+      'install',
+    )
+    const httpConnection = new DaemonConnection(
+      daemon.getStatus().port,
+      '127.0.0.1',
+      undefined,
+      'secret',
+      status.ioPort,
+    )
+    const control = new ControlConnection('127.0.0.1', daemon.getStatus().port, 'secret')
+
+    try {
+      const roots = await fetchDaemonRoots(httpConnection)
+      expect(roots).toEqual([
+        { key: 'root-a', label: 'Downloads A', path: 'file:///downloads/a' },
+        { key: 'root-b', label: 'Downloads B', path: 'file:///downloads/b' },
+      ])
+
+      const rootsChangedPromise = new Promise<string[]>((resolve) => {
+        const unsubscribe = control.onRootsChanged((nextRoots) => {
+          unsubscribe()
+          resolve(nextRoots.map((root) => root.key))
+        })
+      })
+
+      await control.connect()
+
+      const deleteResponse = await makeRequest(daemon.getStatus().port, '/roots/root-a', {
+        method: 'DELETE',
+        headers: {
+          'X-JST-Auth': 'secret',
+        },
+      })
+      expect(deleteResponse.statusCode).toBe(200)
+
+      await expect(rootsChangedPromise).resolves.toEqual(['root-b'])
+
+      const remainingRoots = await fetchDaemonRoots(httpConnection)
+      expect(remainingRoots).toEqual([{ key: 'root-b', label: 'Downloads B', path: 'file:///downloads/b' }])
+    } finally {
+      control.close()
+    }
+  })
+
+  it('answers control capability requests over /control', async () => {
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+    })
+    await daemon.start()
+
+    const ws = await connectAuthenticatedControlWebSocket(daemon.getStatus().port, 'secret')
+
+    try {
+      const response = await sendControlJsonRequest(ws, 0xed, 9, {})
+      expect(response.opcode).toBe(0xed)
+      expect(response.requestId).toBe(9)
+      expect(response.payload).toEqual({
+        ok: true,
+        capabilities: {
+          roots_manageable: true,
+          lan_share_urls: false,
+        },
+      })
+    } finally {
+      ws.close()
     }
   })
 
@@ -542,4 +647,89 @@ async function waitForConditionWithDaemonFlush(
     }
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
+}
+
+async function connectAuthenticatedControlWebSocket(port: number, token: string): Promise<WebSocket> {
+  return await new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/control`)
+    ws.binaryType = 'arraybuffer'
+    const timeout = setTimeout(() => {
+      ws.close()
+      reject(new Error('Timed out connecting control websocket'))
+    }, 2000)
+
+    ws.onopen = () => {
+      ws.send(buildIoProtocolFrame(0x01, 1))
+    }
+
+    ws.onmessage = (event) => {
+      const frame = new Uint8Array(event.data as ArrayBuffer)
+      const opcode = frame[1]
+
+      if (opcode === 0x02) {
+        const tokenBytes = new TextEncoder().encode(token)
+        const extensionIdBytes = new TextEncoder().encode('extension-id')
+        const installIdBytes = new TextEncoder().encode('install-id')
+        const payload = new Uint8Array(
+          1 + tokenBytes.length + 1 + extensionIdBytes.length + 1 + installIdBytes.length,
+        )
+        let offset = 0
+        payload[offset++] = 0
+        payload.set(tokenBytes, offset)
+        offset += tokenBytes.length
+        payload[offset++] = 0
+        payload.set(extensionIdBytes, offset)
+        offset += extensionIdBytes.length
+        payload[offset++] = 0
+        payload.set(installIdBytes, offset)
+        ws.send(buildIoProtocolFrame(0x03, 2, payload))
+        return
+      }
+
+      if (opcode === 0x04) {
+        clearTimeout(timeout)
+        if (frame[8] === 0) {
+          resolve(ws)
+        } else {
+          reject(new Error('Control auth failed'))
+        }
+      }
+    }
+
+    ws.onerror = () => {
+      clearTimeout(timeout)
+      reject(new Error('Control websocket error'))
+    }
+  })
+}
+
+async function sendControlJsonRequest(
+  ws: WebSocket,
+  opcode: number,
+  requestId: number,
+  payload: Record<string, unknown>,
+): Promise<{ opcode: number; requestId: number; payload: unknown }> {
+  return await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Timed out waiting for control response'))
+    }, 2000)
+
+    ws.onmessage = (event) => {
+      clearTimeout(timeout)
+      const frame = new Uint8Array(event.data as ArrayBuffer)
+      const responseOpcode = frame[1]
+      const responseRequestId = new DataView(frame.buffer, frame.byteOffset, frame.byteLength).getUint32(
+        4,
+        true,
+      )
+      const responsePayload = JSON.parse(new TextDecoder().decode(frame.slice(8))) as unknown
+      resolve({
+        opcode: responseOpcode,
+        requestId: responseRequestId,
+        payload: responsePayload,
+      })
+    }
+
+    ws.send(buildIoProtocolFrame(opcode, requestId, new TextEncoder().encode(JSON.stringify(payload))))
+  })
 }

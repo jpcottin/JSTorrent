@@ -24,6 +24,7 @@ describe('node-io-daemon config', () => {
       bootstrapMode: 'realistic',
       authToken: 'secret',
       configPath: '/tmp/node-io-daemon.json',
+      roots: [],
     })
   })
 })

@@ -6,6 +6,7 @@ export interface PartialNodeIoDaemonConfig {
   bootstrapMode?: NodeIoDaemonConfig['bootstrapMode']
   authToken?: string | null
   configPath?: string | null
+  roots?: NodeIoDaemonConfig['roots']
 }
 
 export const DEFAULT_NODE_IO_DAEMON_CONFIG: NodeIoDaemonConfig = {
@@ -14,6 +15,7 @@ export const DEFAULT_NODE_IO_DAEMON_CONFIG: NodeIoDaemonConfig = {
   bootstrapMode: 'test',
   authToken: null,
   configPath: null,
+  roots: [],
 }
 
 export function normalizeNodeIoDaemonConfig(
@@ -29,5 +31,9 @@ export function normalizeNodeIoDaemonConfig(
       config.configPath === undefined
         ? DEFAULT_NODE_IO_DAEMON_CONFIG.configPath
         : config.configPath,
+    roots:
+      config.roots === undefined
+        ? DEFAULT_NODE_IO_DAEMON_CONFIG.roots.map((root) => ({ ...root }))
+        : config.roots.map((root) => ({ ...root })),
   }
 }
