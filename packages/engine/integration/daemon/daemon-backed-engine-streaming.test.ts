@@ -114,6 +114,20 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
+  async function waitForCondition(
+    condition: () => boolean,
+    timeoutMs = 5000,
+    stepMs = 10,
+  ): Promise<void> {
+    const startedAt = Date.now()
+    while (!condition()) {
+      if (Date.now() - startedAt > timeoutMs) {
+        throw new Error('Timed out waiting for condition')
+      }
+      await delay(stepMs)
+    }
+  }
+
   async function cleanupDaemonBackedEngine(): Promise<void> {
     if (!daemonBackedEngine) return
     for (const torrent of [...daemonBackedEngine.engine.torrents]) {
@@ -123,7 +137,7 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     daemonBackedEngine = null
   }
 
-  async function createStreamingFixture(options: { fileSize?: number } = {}) {
+  async function createStreamingFixture(options: { fileSize?: number; preloadBytes?: number } = {}) {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rust-daemon-streaming-'))
     const seedDir = path.join(tempDir, 'seed')
     const downloadDir = path.join(tempDir, 'download')
@@ -141,6 +155,12 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     const sparseHandle = fs.openSync(downloadPath, 'w')
     fs.ftruncateSync(sparseHandle, fileContent.length)
     fs.closeSync(sparseHandle)
+    if (options.preloadBytes && options.preloadBytes > 0) {
+      const preloadLength = Math.min(options.preloadBytes, fileContent.length)
+      const preloadHandle = fs.openSync(downloadPath, 'r+')
+      fs.writeSync(preloadHandle, fileContent.subarray(0, preloadLength), 0, preloadLength, 0)
+      fs.closeSync(preloadHandle)
+    }
 
     const torrentBuffer = await TorrentCreator.create(
       new NodeStorageHandle('fixture', 'fixture', seedDir),
@@ -347,6 +367,82 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
         { offset: 256 * 1024, length: 256 * 1024 },
         { offset: 2 * 256 * 1024, length: 8192 },
       ])
+    },
+    40_000,
+  )
+
+  it(
+    'serves complete ranges while rejecting incomplete ranges concurrently after the torrent is stopped',
+    async () => {
+      const fixture = await createStreamingFixture({
+        preloadBytes: 16 * 1024,
+      })
+      await fixture.torrent.recheckData()
+      await waitForCondition(() => fixture.torrent.hasPiece(0))
+      await fixture.torrent.userStop()
+
+      const mediaPort = await registerStreamToken(
+        'mixed-stopped-stream-token',
+        fixture.torrent.infoHashStr,
+        fixture.fileName,
+        fixture.fileContent.length,
+      )
+
+      const [completeResponse, incompleteResponse] = await Promise.all([
+        makeRequest(mediaPort, '/stream/mixed-stopped-stream-token', {
+          headers: {
+            Range: 'bytes=0-4',
+          },
+        }),
+        makeRequest(mediaPort, '/stream/mixed-stopped-stream-token', {
+          headers: {
+            Range: 'bytes=393216-393231',
+          },
+        }),
+      ])
+
+      expect(completeResponse.statusCode).toBe(206)
+      expect(completeResponse.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
+      expect(incompleteResponse.statusCode).toBe(409)
+      expect(incompleteResponse.body.toString('utf8')).toContain('stopped')
+    },
+    40_000,
+  )
+
+  it(
+    'serves complete ranges while rejecting incomplete ranges concurrently after the file is skipped',
+    async () => {
+      const fixture = await createStreamingFixture({
+        preloadBytes: 16 * 1024,
+      })
+      await fixture.torrent.recheckData()
+      await waitForCondition(() => fixture.torrent.hasPiece(0))
+      await fixture.torrent.setFilePriorityAsync(0, 1)
+
+      const mediaPort = await registerStreamToken(
+        'mixed-skipped-stream-token',
+        fixture.torrent.infoHashStr,
+        fixture.fileName,
+        fixture.fileContent.length,
+      )
+
+      const [completeResponse, incompleteResponse] = await Promise.all([
+        makeRequest(mediaPort, '/stream/mixed-skipped-stream-token', {
+          headers: {
+            Range: 'bytes=0-4',
+          },
+        }),
+        makeRequest(mediaPort, '/stream/mixed-skipped-stream-token', {
+          headers: {
+            Range: 'bytes=393216-393231',
+          },
+        }),
+      ])
+
+      expect(completeResponse.statusCode).toBe(206)
+      expect(completeResponse.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
+      expect(incompleteResponse.statusCode).toBe(409)
+      expect(incompleteResponse.body.toString('utf8')).toContain('skipped')
     },
     40_000,
   )
