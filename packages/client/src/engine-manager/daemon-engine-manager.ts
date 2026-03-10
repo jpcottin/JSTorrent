@@ -8,6 +8,8 @@ import {
   TransferringWorkerHasher,
   StorageRootManager,
   Socks5SocketFactory,
+  DaemonBackedEngine,
+  DaemonControlStreamService,
   globalLogStore,
   LogStore,
   ISessionStore,
@@ -19,6 +21,7 @@ import {
   type CredentialsGetter,
   type EngineLoggingConfig,
   type ConfigHub,
+  type DaemonControlStreamConfig,
   type StorageRoot as EngineStorageRoot,
 } from '@jstorrent/engine'
 import type { HostChannel } from '../host/host-channel'
@@ -31,7 +34,6 @@ import { BackgroundAudioManager } from '../chrome/background-audio'
 import { BackgroundWebRTCManager } from '../chrome/background-webrtc'
 import type { DaemonInfo, DownloadRoot } from '../types'
 import type { IEngineManager, StorageRoot, FileOperationResult, LanShareResult } from './types'
-import { DaemonControlStreamService } from './daemon-control-stream-service'
 
 // Toggle: true = WebRTC (no audio icon), false = Audio (shows audio icon)
 // Recent chrome versions seem to throttle to ~1s with webrtc, but audio seems to
@@ -134,7 +136,7 @@ export class DaemonEngineManager implements IEngineManager {
   private initPromise: Promise<BtEngine> | null = null
   private notificationProgressInterval: ReturnType<typeof setInterval> | null = null
   private pendingNativeEvents: Array<{ event: string; payload: unknown }> = []
-  private daemonControlStreamService: DaemonControlStreamService | null = null
+  private daemonBackedEngine: DaemonBackedEngine | null = null
   private backgroundKeepAlive = USE_WEBRTC_KEEP_ALIVE
     ? new BackgroundWebRTCManager()
     : new BackgroundAudioManager()
@@ -410,8 +412,8 @@ export class DaemonEngineManager implements IEngineManager {
 
     // Clear any pending events
     this.pendingNativeEvents = []
-    this.daemonControlStreamService?.close()
-    this.daemonControlStreamService = null
+    this.daemonBackedEngine?.closeControlStream()
+    this.daemonBackedEngine = null
 
     // Note: Don't close daemonConnection here. The engine.destroy() is async but
     // beforeunload can't wait for it, so closing the connection immediately would
@@ -453,8 +455,8 @@ export class DaemonEngineManager implements IEngineManager {
 
     // Clear pending events and init state
     this.pendingNativeEvents = []
-    this.daemonControlStreamService?.close()
-    this.daemonControlStreamService = null
+    this.daemonBackedEngine?.closeControlStream()
+    this.daemonBackedEngine = null
     this.initPromise = null
   }
 
@@ -679,23 +681,23 @@ export class DaemonEngineManager implements IEngineManager {
       return null
     }
 
-    if (!this.daemonControlStreamService) {
-      const controlPort = daemonInfo.ioPort ?? daemonInfo.port
-      const installId =
-        (await this.channel.kvGet<string>('telemetryId', { keyPrefix: '' })) ?? 'stream-service'
-      const extensionId =
-        typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.id : 'standalone'
-      this.daemonControlStreamService = new DaemonControlStreamService(
-        this.engine,
-        host,
-        controlPort,
-        daemonInfo.token,
-        extensionId,
-        installId,
-      )
+    if (!this.daemonConnection) {
+      return null
     }
-    await this.daemonControlStreamService.connect()
-    return this.daemonControlStreamService
+    if (!this.daemonBackedEngine || this.daemonBackedEngine.engine !== this.engine) {
+      this.daemonBackedEngine?.closeControlStream()
+      this.daemonBackedEngine = new DaemonBackedEngine(this.engine, this.daemonConnection)
+    }
+    const controlStreamConfig: DaemonControlStreamConfig = {
+      host,
+      port: daemonInfo.ioPort ?? daemonInfo.port,
+      token: daemonInfo.token,
+      extensionId:
+        typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.id : 'standalone',
+      installId:
+        (await this.channel.kvGet<string>('telemetryId', { keyPrefix: '' })) ?? 'stream-service',
+    }
+    return this.daemonBackedEngine.ensureControlStream(controlStreamConfig)
   }
 
   private async resolveLanAddress(daemonInfo: DaemonInfo): Promise<string | null> {

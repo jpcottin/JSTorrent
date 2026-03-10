@@ -43,11 +43,13 @@ export interface DaemonEngineConfig {
   startSuspended?: boolean
 }
 
-export async function createDaemonEngine(config: DaemonEngineConfig): Promise<BtEngine> {
+export async function resolveDaemonConnection(config: {
+  daemon?: DaemonEngineConfig['daemon']
+  connection?: DaemonConnection
+}): Promise<DaemonConnection> {
   let connection: DaemonConnection
 
   if (config.connection) {
-    // Use pre-connected connection
     connection = config.connection
     if (!connection.ready) {
       await connection.connectWebSocket()
@@ -60,6 +62,12 @@ export async function createDaemonEngine(config: DaemonEngineConfig): Promise<Bt
   } else {
     throw new Error('Either daemon or connection must be provided')
   }
+
+  return connection
+}
+
+export async function createDaemonEngine(config: DaemonEngineConfig): Promise<BtEngine> {
+  const connection = await resolveDaemonConnection(config)
 
   const storageRootManager = new StorageRootManager((root) => {
     return new DaemonFileSystem(connection, root.key, config.nullStorage ?? false)

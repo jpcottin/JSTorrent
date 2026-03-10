@@ -61,6 +61,17 @@ export type {
   DaemonCredentials,
   CredentialsGetter,
 } from './adapters/daemon/daemon-connection'
+export {
+  DaemonControlStreamService,
+  DAEMON_HTTP_STREAM_STATUS,
+} from './adapters/daemon/daemon-control-stream-service'
+export type {
+  DaemonControlStreamConfig,
+  DaemonHttpStreamStatus,
+  RegisterHttpStreamRequest,
+} from './adapters/daemon/daemon-control-stream-service'
+export { DaemonBackedEngine } from './adapters/daemon/daemon-backed-engine'
+export type { DaemonBackedEngineConfig } from './adapters/daemon/daemon-backed-engine'
 export { DaemonSocketFactory } from './adapters/daemon/daemon-socket-factory'
 export { DaemonFileSystem } from './adapters/daemon/daemon-filesystem'
 export { DaemonHasher } from './adapters/daemon/daemon-hasher'
@@ -80,7 +91,7 @@ export { StorageRootManager, MissingStorageRootError } from './storage/storage-r
 export type { StorageRoot } from './storage/storage-root-manager'
 
 // Presets
-export { createDaemonEngine } from './presets/daemon'
+export { createDaemonEngine, resolveDaemonConnection } from './presets/daemon'
 export { createNodeIoDaemon } from './node-io-daemon'
 export type {
   NodeIoDaemon,

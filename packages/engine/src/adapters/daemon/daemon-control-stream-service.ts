@@ -1,9 +1,6 @@
-import {
-  BtEngine,
-  createStreamingFileProvider,
-  createStreamingPlaybackSession,
-  type Torrent,
-} from '@jstorrent/engine'
+import { BtEngine } from '../../core/bt-engine'
+import { createStreamingFileProvider, createStreamingPlaybackSession } from '../../streaming/streaming-playback-session'
+import type { Torrent } from '../../core/torrent'
 
 const PROTOCOL_VERSION = 1
 const OP_CLIENT_HELLO = 0x01
@@ -18,7 +15,7 @@ const OP_CTRL_CANCEL_HTTP_STREAM_RANGE_WAIT = 0xf0
 const OP_CTRL_CLOSE_HTTP_STREAM_SESSION = 0xf1
 const OP_CTRL_REVOKE_TORRENT_HTTP_STREAMS = 0xf2
 
-const HTTP_STREAM_STATUS = {
+export const DAEMON_HTTP_STREAM_STATUS = {
   FileSkipped: 'FileSkipped',
   StreamSessionMismatch: 'StreamSessionMismatch',
   StreamSessionNotFound: 'StreamSessionNotFound',
@@ -28,7 +25,8 @@ const HTTP_STREAM_STATUS = {
   TorrentStopped: 'TorrentStopped',
 } as const
 
-type HttpStreamStatus = (typeof HTTP_STREAM_STATUS)[keyof typeof HTTP_STREAM_STATUS]
+export type DaemonHttpStreamStatus =
+  (typeof DAEMON_HTTP_STREAM_STATUS)[keyof typeof DAEMON_HTTP_STREAM_STATUS]
 
 interface PendingRequest {
   resolve: (response: Record<string, unknown>) => void
@@ -46,7 +44,7 @@ interface ActiveStreamSession {
   session: ReturnType<typeof createStreamingPlaybackSession>
 }
 
-interface RegisterHttpStreamRequest {
+export interface RegisterHttpStreamRequest {
   streamToken: string
   torrentId: string
   fileIndex: number
@@ -54,6 +52,14 @@ interface RegisterHttpStreamRequest {
   path: string
   fileSize: number
   mimeType?: string | null
+}
+
+export interface DaemonControlStreamConfig {
+  host: string
+  port: number
+  token: string
+  extensionId: string
+  installId: string
 }
 
 function buildFrame(opcode: number, requestId: number, payload: Uint8Array): ArrayBuffer {
@@ -86,18 +92,21 @@ function parseJsonPayload(frame: Uint8Array): Record<string, unknown> {
   return JSON.parse(new TextDecoder().decode(payload)) as Record<string, unknown>
 }
 
-function createStatusError(status: HttpStreamStatus, message?: string): Error {
+function createStatusError(status: DaemonHttpStreamStatus, message?: string): Error {
   const error = new Error(message ?? status)
   error.name = status
   return error
 }
 
-function getStatusFromError(error: unknown): HttpStreamStatus | null {
+function getStatusFromError(error: unknown): DaemonHttpStreamStatus | null {
   if (!(error instanceof Error)) return null
   const candidates = [error.name, error.message]
   for (const candidate of candidates) {
-    if (candidate && Object.values(HTTP_STREAM_STATUS).includes(candidate as HttpStreamStatus)) {
-      return candidate as HttpStreamStatus
+    if (
+      candidate &&
+      Object.values(DAEMON_HTTP_STREAM_STATUS).includes(candidate as DaemonHttpStreamStatus)
+    ) {
+      return candidate as DaemonHttpStreamStatus
     }
   }
   return null
@@ -126,11 +135,7 @@ export class DaemonControlStreamService {
 
   constructor(
     private readonly engine: BtEngine,
-    private readonly host: string,
-    private readonly port: number,
-    private readonly token: string,
-    private readonly extensionId: string,
-    private readonly installId: string,
+    private readonly config: DaemonControlStreamConfig,
   ) {
     engine.on('torrent-removed', this.handleTorrentRemoved)
     engine.on('torrent-stopped', this.handleTorrentStopped)
@@ -145,7 +150,7 @@ export class DaemonControlStreamService {
     }
 
     this.connectPromise = new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(`ws://${this.host}:${this.port}/control`)
+      const ws = new WebSocket(`ws://${this.config.host}:${this.config.port}/control`)
       ws.binaryType = 'arraybuffer'
       const timeout = setTimeout(() => {
         ws.close()
@@ -165,9 +170,9 @@ export class DaemonControlStreamService {
 
         if (header.opcode === OP_SERVER_HELLO) {
           const encoder = new TextEncoder()
-          const tokenBytes = encoder.encode(this.token)
-          const extIdBytes = encoder.encode(this.extensionId)
-          const installIdBytes = encoder.encode(this.installId)
+          const tokenBytes = encoder.encode(this.config.token)
+          const extIdBytes = encoder.encode(this.config.extensionId)
+          const installIdBytes = encoder.encode(this.config.installId)
           const payload = new Uint8Array(
             1 + tokenBytes.length + 1 + extIdBytes.length + 1 + installIdBytes.length,
           )
@@ -341,12 +346,12 @@ export class DaemonControlStreamService {
   ): ActiveStreamSession {
     const torrent = this.engine.getTorrent(torrentId)
     if (!torrent) {
-      throw createStatusError(HTTP_STREAM_STATUS.TorrentRemoved)
+      throw createStatusError(DAEMON_HTTP_STREAM_STATUS.TorrentRemoved)
     }
 
     const file = torrent.files[fileIndex]
     if (!file) {
-      throw createStatusError(HTTP_STREAM_STATUS.StreamSessionMismatch)
+      throw createStatusError(DAEMON_HTTP_STREAM_STATUS.StreamSessionMismatch)
     }
 
     this.closeSession(sessionId, 'replaced')
@@ -370,16 +375,20 @@ export class DaemonControlStreamService {
     return activeSession
   }
 
-  private async waitForRange(sessionId: string, offset: number, requestedLength: number): Promise<void> {
+  private async waitForRange(
+    sessionId: string,
+    offset: number,
+    requestedLength: number,
+  ): Promise<void> {
     const activeSession = this.sessions.get(sessionId)
     if (!activeSession) {
-      throw createStatusError(HTTP_STREAM_STATUS.StreamSessionNotFound)
+      throw createStatusError(DAEMON_HTTP_STREAM_STATUS.StreamSessionNotFound)
     }
 
     const { torrent, fileIndex, session } = activeSession
     const currentTorrent = this.engine.getTorrent(activeSession.torrentId)
     if (!currentTorrent || currentTorrent !== torrent) {
-      throw createStatusError(HTTP_STREAM_STATUS.TorrentRemoved)
+      throw createStatusError(DAEMON_HTTP_STREAM_STATUS.TorrentRemoved)
     }
 
     const length = Math.max(0, Math.min(requestedLength, session.fileSize - offset))
@@ -404,13 +413,13 @@ export class DaemonControlStreamService {
       if (isAbortError(error) && activeSession.closeReason) {
         const closeReason = activeSession.closeReason
         if (closeReason === 'torrent-removed') {
-          throw createStatusError(HTTP_STREAM_STATUS.TorrentRemoved)
+          throw createStatusError(DAEMON_HTTP_STREAM_STATUS.TorrentRemoved)
         }
         if (closeReason === 'torrent-stopped') {
-          throw createStatusError(HTTP_STREAM_STATUS.TorrentStopped)
+          throw createStatusError(DAEMON_HTTP_STREAM_STATUS.TorrentStopped)
         }
         if (closeReason === 'torrent-errored') {
-          throw createStatusError(HTTP_STREAM_STATUS.TorrentErrored)
+          throw createStatusError(DAEMON_HTTP_STREAM_STATUS.TorrentErrored)
         }
         if (closeReason === 'client-aborted' || closeReason === 'closed') {
           throw new Error('Aborted')
@@ -501,7 +510,12 @@ export class DaemonControlStreamService {
     }
   }
 
-  private isRangeAvailable(torrent: Torrent, fileIndex: number, offset: number, length: number): boolean {
+  private isRangeAvailable(
+    torrent: Torrent,
+    fileIndex: number,
+    offset: number,
+    length: number,
+  ): boolean {
     const pieces = torrent.fileBytesToPieces(fileIndex, offset, length)
     return pieces.every((pieceIndex) => torrent.hasPiece(pieceIndex))
   }
@@ -509,20 +523,20 @@ export class DaemonControlStreamService {
   private getUnstreamableStateError(
     torrent: Torrent,
     fileIndex: number,
-  ): HttpStreamStatus | null {
+  ): DaemonHttpStreamStatus | null {
     if (torrent.isFileSkipped(fileIndex)) {
-      return HTTP_STREAM_STATUS.FileSkipped
+      return DAEMON_HTTP_STREAM_STATUS.FileSkipped
     }
     if (torrent.errorMessage) {
-      return HTTP_STREAM_STATUS.TorrentErrored
+      return DAEMON_HTTP_STREAM_STATUS.TorrentErrored
     }
     if (torrent.userState !== 'active') {
       return torrent.userState === 'stopped'
-        ? HTTP_STREAM_STATUS.TorrentStopped
-        : HTTP_STREAM_STATUS.TorrentInactive
+        ? DAEMON_HTTP_STREAM_STATUS.TorrentStopped
+        : DAEMON_HTTP_STREAM_STATUS.TorrentInactive
     }
     if (torrent.activityState === 'stopped' || torrent.activityState === 'queued') {
-      return HTTP_STREAM_STATUS.TorrentInactive
+      return DAEMON_HTTP_STREAM_STATUS.TorrentInactive
     }
     return null
   }
