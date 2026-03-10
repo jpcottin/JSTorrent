@@ -116,6 +116,7 @@ pub struct AppState {
     pub stats: Arc<DaemonStats>,
     pub http_streams: Arc<media::HttpStreamSessionRegistry>,
     pub media_server: Arc<tokio::sync::Mutex<media::MediaServerState>>,
+    pub http_stream_bridge: Option<Arc<dyn media::TorrentHttpStreamBridge>>,
 }
 
 #[tokio::main]
@@ -217,6 +218,7 @@ async fn run_managed(args: Args) -> anyhow::Result<()> {
         stats: Arc::new(DaemonStats::new()),
         http_streams: Arc::new(media::HttpStreamSessionRegistry::default()),
         media_server: Arc::new(tokio::sync::Mutex::new(media::MediaServerState::default())),
+        http_stream_bridge: None,
     });
 
     // Monitor parent process if specified
@@ -336,6 +338,7 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
         stats: Arc::new(DaemonStats::new()),
         http_streams: Arc::new(media::HttpStreamSessionRegistry::default()),
         media_server: Arc::new(tokio::sync::Mutex::new(media::MediaServerState::default())),
+        http_stream_bridge: None,
     });
 
     // Create standalone state for pairing endpoints
