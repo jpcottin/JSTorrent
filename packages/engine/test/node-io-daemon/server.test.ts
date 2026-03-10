@@ -101,13 +101,9 @@ describe('node-io-daemon server', () => {
     }
 
     if (udpServer) {
-      await new Promise<void>((resolve, reject) => {
-        udpServer!.close((error) => {
-          if (error) {
-            reject(error)
-          } else {
-            resolve()
-          }
+      await new Promise<void>((resolve) => {
+        udpServer!.close(() => {
+          resolve()
         })
       })
       udpServer = null
@@ -350,7 +346,7 @@ describe('node-io-daemon server', () => {
     const ws = await connectAuthenticatedControlWebSocket(daemon.getStatus().port, 'secret')
 
     try {
-      const response = await sendControlJsonRequest(ws, 0xec, 17, {
+      const response = await sendControlJsonRequest<{ ok: boolean; mediaPort: number }>(ws, 0xec, 17, {
         streamToken: 'token-123',
         torrentId: 'torrent-123',
         rootKey: 'root-a',
@@ -365,8 +361,7 @@ describe('node-io-daemon server', () => {
         ok: true,
         mediaPort: expect.any(Number),
       })
-
-      const mediaPort = response.payload.mediaPort as number
+      const mediaPort = response.payload.mediaPort
       const mediaResponse = await makeRequest(mediaPort, '/stream/token-123', {
         headers: { Range: 'bytes=0-4' },
       })
@@ -953,12 +948,12 @@ async function connectAuthenticatedControlWebSocket(port: number, token: string)
   })
 }
 
-async function sendControlJsonRequest(
+async function sendControlJsonRequest<TPayload extends unknown>(
   ws: WebSocket,
   opcode: number,
   requestId: number,
   payload: Record<string, unknown>,
-): Promise<{ opcode: number; requestId: number; payload: unknown }> {
+): Promise<{ opcode: number; requestId: number; payload: TPayload }> {
   return await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error('Timed out waiting for control response'))
@@ -976,7 +971,7 @@ async function sendControlJsonRequest(
       }
 
       clearTimeout(timeout)
-      const responsePayload = JSON.parse(new TextDecoder().decode(frame.slice(8))) as unknown
+      const responsePayload = JSON.parse(new TextDecoder().decode(frame.slice(8))) as TPayload
       resolve({
         opcode: responseOpcode,
         requestId: responseRequestId,
