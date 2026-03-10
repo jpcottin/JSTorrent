@@ -390,6 +390,45 @@ describe('node-io-daemon server', () => {
     }
   })
 
+  it('returns 404 for a missing /ops/delete target', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-delete-missing-'))
+    tempDirs.push(tempDir)
+
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+      roots: [
+        {
+          key: 'root-a',
+          uri: pathToFileURL(tempDir).toString(),
+          display_name: 'Downloads A',
+          removable: true,
+          last_stat_ok: true,
+          last_checked: Date.now(),
+        },
+      ],
+    })
+
+    await daemon.start()
+
+    const response = await makeRequest(daemon.getStatus().port, '/ops/delete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-JST-Auth': 'secret',
+      },
+      body: JSON.stringify({
+        root_key: 'root-a',
+        path: 'missing-file.bin',
+      }),
+    })
+
+    expect(response.statusCode).toBe(404)
+    expect(response.body.toString('utf8')).toContain('File not found')
+  })
+
   it('answers control capability requests over /control', async () => {
     daemon = createNodeIoDaemon({
       host: '127.0.0.1',

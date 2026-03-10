@@ -42,7 +42,14 @@ export class NodeIoDaemonRootFileSystem {
   }
 
   async delete(relativePath: string): Promise<void> {
-    await fs.rm(this.resolve(relativePath), { recursive: true, force: true })
+    try {
+      await fs.rm(this.resolve(relativePath), { recursive: true, force: false })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new NodeIoDaemonFileNotFoundError(relativePath)
+      }
+      throw error
+    }
   }
 
   async truncate(relativePath: string, length: number): Promise<void> {
@@ -166,5 +173,12 @@ export class NodeIoDaemonHashMismatchError extends Error {
   constructor(path: string) {
     super(`SHA1 mismatch for ${path}`)
     this.name = 'NodeIoDaemonHashMismatchError'
+  }
+}
+
+export class NodeIoDaemonFileNotFoundError extends Error {
+  constructor(path: string) {
+    super(`File not found: ${path}`)
+    this.name = 'NodeIoDaemonFileNotFoundError'
   }
 }

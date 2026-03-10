@@ -491,11 +491,23 @@ async fn delete_file(
     if full_path.is_dir() {
         fs::remove_dir_all(full_path)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| {
+                if e.kind() == ErrorKind::NotFound {
+                    (StatusCode::NOT_FOUND, e.to_string())
+                } else {
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                }
+            })?;
     } else {
         fs::remove_file(full_path)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(|e| {
+                if e.kind() == ErrorKind::NotFound {
+                    (StatusCode::NOT_FOUND, e.to_string())
+                } else {
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                }
+            })?;
     }
 
     Ok(())
@@ -811,8 +823,37 @@ async fn verify_chunks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        control_stream::ControlStreamSessionRegistry, media::HttpStreamSessionRegistry,
+        DaemonStats,
+    };
+    use jstorrent_common::DownloadRoot;
     use sha1::{Digest, Sha1};
     use std::path::PathBuf;
+    use std::sync::{Arc, RwLock};
+    use tokio::sync::Mutex;
+
+    fn make_test_state(root_path: &std::path::Path) -> Arc<AppState> {
+        Arc::new(AppState {
+            token: Arc::new(RwLock::new("secret".to_string())),
+            profile_id: "test".to_string(),
+            extension_id: Arc::new(RwLock::new(None)),
+            download_roots: Arc::new(RwLock::new(vec![DownloadRoot {
+                key: "root-a".to_string(),
+                path: root_path.to_string_lossy().to_string(),
+                display_name: "Root A".to_string(),
+                removable: false,
+                last_stat_ok: true,
+                last_checked: 0,
+                disk_id: String::new(),
+            }])),
+            stats: Arc::new(DaemonStats::new()),
+            http_streams: Arc::new(HttpStreamSessionRegistry::default()),
+            media_server: Arc::new(Mutex::new(crate::media::MediaServerState::default())),
+            control_stream_sessions: Arc::new(ControlStreamSessionRegistry::default()),
+            http_stream_bridge: None,
+        })
+    }
 
     /// Test helper: compute SHA1 hash the same way as write_file_v2
     fn compute_sha1_hex(data: &[u8]) -> String {
@@ -1006,5 +1047,22 @@ mod tests {
 
         let results = verify_chunks_core(&files, 4, &hashes, 0, 3).await;
         assert_eq!(results, vec![VERIFY_MATCH, VERIFY_IO_ERROR, VERIFY_MATCH]);
+    }
+
+    #[tokio::test]
+    async fn test_delete_file_missing_returns_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = make_test_state(dir.path());
+
+        let result = delete_file(
+            State(state),
+            Json(DeleteParams {
+                root_key: "root-a".to_string(),
+                path: "missing-file.bin".to_string(),
+            }),
+        )
+        .await;
+
+        assert!(matches!(result, Err((StatusCode::NOT_FOUND, _))));
     }
 }

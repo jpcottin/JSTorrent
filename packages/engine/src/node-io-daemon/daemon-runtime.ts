@@ -14,6 +14,7 @@ import {
 } from './http-stream-registry'
 import { NodeIoDaemonIoSession } from './io-session'
 import {
+  NodeIoDaemonFileNotFoundError,
   NodeIoDaemonHashMismatchError,
   NodeIoDaemonRootFileSystem,
 } from './root-filesystem'
@@ -599,8 +600,16 @@ export class NodeIoDaemonRuntime {
         return
       }
 
-      await fileSystem.delete(relativePath)
-      this.sendJson(res, 200, { ok: true })
+      try {
+        await fileSystem.delete(relativePath)
+        this.sendJson(res, 200, { ok: true })
+      } catch (error) {
+        if (error instanceof NodeIoDaemonFileNotFoundError) {
+          this.sendText(res, 404, error.message)
+          return
+        }
+        this.sendText(res, 500, error instanceof Error ? error.message : String(error))
+      }
       return
     }
 
