@@ -423,4 +423,116 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     },
     40_000,
   )
+
+  it(
+    'fans out torrent stop to multiple concurrent blocking requests on the same token',
+    async () => {
+      const fixture = await createStreamingFixture()
+      const mediaPort = await registerStreamToken(
+        'concurrent-stop-stream-token',
+        fixture.torrent.infoHashStr,
+        fixture.fileName,
+        fixture.fileContent.length,
+      )
+
+      let firstSettled = false
+      let secondSettled = false
+      const firstResponsePromise = startRequest(mediaPort, '/stream/concurrent-stop-stream-token', {
+        headers: {
+          Range: 'bytes=393216-393231',
+        },
+      }).response.then((response) => {
+        firstSettled = true
+        return response
+      })
+      const secondResponsePromise = startRequest(mediaPort, '/stream/concurrent-stop-stream-token', {
+        headers: {
+          Range: 'bytes=393248-393263',
+        },
+      }).response.then((response) => {
+        secondSettled = true
+        return response
+      })
+
+      await delay(100)
+      expect(firstSettled).toBe(false)
+      expect(secondSettled).toBe(false)
+
+      await fixture.torrent.userStop()
+
+      const [firstResponse, secondResponse] = await Promise.all([
+        firstResponsePromise,
+        secondResponsePromise,
+      ])
+
+      expect(firstResponse.statusCode).toBe(409)
+      expect(firstResponse.body.toString('utf8')).toContain('stopped')
+      expect(secondResponse.statusCode).toBe(409)
+      expect(secondResponse.body.toString('utf8')).toContain('stopped')
+    },
+    40_000,
+  )
+
+  it(
+    'fans out torrent removal to multiple concurrent blocking requests on the same token',
+    async () => {
+      const fixture = await createStreamingFixture()
+      const mediaPort = await registerStreamToken(
+        'concurrent-remove-stream-token',
+        fixture.torrent.infoHashStr,
+        fixture.fileName,
+        fixture.fileContent.length,
+      )
+
+      let firstSettled = false
+      let secondSettled = false
+      const firstResponsePromise = startRequest(
+        mediaPort,
+        '/stream/concurrent-remove-stream-token',
+        {
+          headers: {
+            Range: 'bytes=393216-393231',
+          },
+        },
+      ).response.then((response) => {
+        firstSettled = true
+        return response
+      })
+      const secondResponsePromise = startRequest(
+        mediaPort,
+        '/stream/concurrent-remove-stream-token',
+        {
+          headers: {
+            Range: 'bytes=393248-393263',
+          },
+        },
+      ).response.then((response) => {
+        secondSettled = true
+        return response
+      })
+
+      await delay(100)
+      expect(firstSettled).toBe(false)
+      expect(secondSettled).toBe(false)
+
+      await daemonBackedEngine!.engine.removeTorrent(fixture.torrent)
+      await delay(50)
+
+      const [firstResponse, secondResponse] = await Promise.all([
+        firstResponsePromise,
+        secondResponsePromise,
+      ])
+
+      expect(firstResponse.statusCode).toBe(404)
+      expect(secondResponse.statusCode).toBe(404)
+
+      const retryResponse = await makeRequest(mediaPort, '/stream/concurrent-remove-stream-token', {
+        headers: {
+          Range: 'bytes=0-15',
+        },
+      })
+      expect(retryResponse.statusCode).toBe(404)
+    },
+    40_000,
+  )
 })
