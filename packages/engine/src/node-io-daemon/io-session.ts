@@ -59,6 +59,7 @@ export interface NodeIoDaemonIoSessionOptions {
   bootstrapMode: NodeIoDaemonBootstrapMode
   getExternalCapabilities: () => NodeIoDaemonExternalCapabilities
   handleFolderPickerRequest: () => Promise<unknown>
+  handleRegisterHttpStreamRequest: (request: unknown) => Promise<unknown> | unknown
   onClose: () => void
 }
 
@@ -361,13 +362,17 @@ export class NodeIoDaemonIoSession {
 
     if (
       envelope.msgType === CONTROL_OP_OPEN_FILE ||
-      envelope.msgType === CONTROL_OP_REVEAL_IN_FOLDER ||
-      envelope.msgType === CONTROL_OP_REGISTER_HTTP_STREAM
+      envelope.msgType === CONTROL_OP_REVEAL_IN_FOLDER
     ) {
       this.sendControlResponse(envelope.msgType, envelope.requestId, {
         ok: false,
         error: 'Control operation not implemented',
       })
+      return
+    }
+
+    if (envelope.msgType === CONTROL_OP_REGISTER_HTTP_STREAM) {
+      void this.handleRegisterHttpStreamRequest(envelope.requestId, envelope.payload)
       return
     }
 
@@ -383,6 +388,22 @@ export class NodeIoDaemonIoSession {
       this.sendControlResponse(CONTROL_OP_OPEN_FOLDER_PICKER, requestId, response)
     } catch (error) {
       this.sendControlResponse(CONTROL_OP_OPEN_FOLDER_PICKER, requestId, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  private async handleRegisterHttpStreamRequest(
+    requestId: number,
+    payload: Uint8Array,
+  ): Promise<void> {
+    try {
+      const body = JSON.parse(new TextDecoder().decode(payload)) as unknown
+      const response = await this.options.handleRegisterHttpStreamRequest(body)
+      this.sendControlResponse(CONTROL_OP_REGISTER_HTTP_STREAM, requestId, response)
+    } catch (error) {
+      this.sendControlResponse(CONTROL_OP_REGISTER_HTTP_STREAM, requestId, {
         ok: false,
         error: error instanceof Error ? error.message : String(error),
       })

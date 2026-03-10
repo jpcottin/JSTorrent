@@ -26,8 +26,8 @@ describe('node-io-daemon capabilities', () => {
       controlEvents: true,
       rootsRead: true,
       rootsWrite: true,
-      fileOps: false,
-      mediaCompleteFile206: false,
+      fileOps: true,
+      mediaCompleteFile206: true,
       mediaBlocking206: false,
     })
   })

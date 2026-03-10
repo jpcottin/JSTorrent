@@ -2,6 +2,10 @@ import * as http from 'node:http'
 import * as dgram from 'node:dgram'
 import * as net from 'node:net'
 import * as tls from 'node:tls'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ControlConnection } from '../../src/adapters/daemon/control-connection'
 import { fetchDaemonRoots, fetchDaemonStatus } from '../../src/adapters/daemon/daemon-client'
@@ -62,6 +66,7 @@ describe('node-io-daemon server', () => {
   let tcpServer: net.Server | null = null
   let tlsServer: tls.Server | null = null
   let udpServer: dgram.Socket | null = null
+  const tempDirs: string[] = []
 
   afterEach(async () => {
     if (daemon) {
@@ -106,6 +111,10 @@ describe('node-io-daemon server', () => {
         })
       })
       udpServer = null
+    }
+
+    for (const tempDir of tempDirs.splice(0, tempDirs.length)) {
+      fs.rmSync(tempDir, { recursive: true, force: true })
     }
   })
 
@@ -306,12 +315,133 @@ describe('node-io-daemon server', () => {
         ok: true,
         capabilities: {
           roots_manageable: true,
-          lan_share_urls: false,
+          lan_share_urls: true,
         },
       })
     } finally {
       ws.close()
     }
+  })
+
+  it('registers an HTTP stream over /control and serves it from the media port', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-'))
+    tempDirs.push(tempDir)
+    const content = Buffer.from('hello world')
+    fs.writeFileSync(path.join(tempDir, 'movie.mp4'), content)
+
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+      roots: [
+        {
+          key: 'root-a',
+          uri: pathToFileURL(tempDir).toString(),
+          display_name: 'Temp Root',
+          removable: true,
+          last_stat_ok: true,
+          last_checked: Date.now(),
+        },
+      ],
+    })
+    await daemon.start()
+
+    const ws = await connectAuthenticatedControlWebSocket(daemon.getStatus().port, 'secret')
+
+    try {
+      const response = await sendControlJsonRequest(ws, 0xec, 17, {
+        streamToken: 'token-123',
+        rootKey: 'root-a',
+        path: 'movie.mp4',
+        fileSize: content.length,
+        mimeType: 'video/mp4',
+      })
+
+      expect(response.opcode).toBe(0xec)
+      expect(response.requestId).toBe(17)
+      expect(response.payload).toEqual({
+        ok: true,
+        mediaPort: expect.any(Number),
+      })
+
+      const mediaPort = response.payload.mediaPort as number
+      const mediaResponse = await makeRequest(mediaPort, '/stream/token-123', {
+        headers: { Range: 'bytes=0-4' },
+      })
+      expect(mediaResponse.statusCode).toBe(206)
+      expect(mediaResponse.headers['content-range']).toBe(`bytes 0-4/${content.length}`)
+      expect(mediaResponse.body.toString('utf8')).toBe('hello')
+    } finally {
+      ws.close()
+    }
+  })
+
+  it('registers an HTTP stream over /stream/register and exposes network discovery routes', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-register-'))
+    tempDirs.push(tempDir)
+    const content = Buffer.from('stream me')
+    fs.writeFileSync(path.join(tempDir, 'clip.mp4'), content)
+
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+      roots: [
+        {
+          key: 'root-a',
+          uri: pathToFileURL(tempDir).toString(),
+          display_name: 'Temp Root',
+          removable: true,
+          last_stat_ok: true,
+          last_checked: Date.now(),
+        },
+      ],
+    })
+    await daemon.start()
+
+    const interfacesResponse = await makeRequest(daemon.getStatus().port, '/network/interfaces', {
+      headers: { 'X-JST-Auth': 'secret' },
+    })
+    expect(interfacesResponse.statusCode).toBe(200)
+    expect(Array.isArray(JSON.parse(interfacesResponse.body.toString('utf8')))).toBe(true)
+
+    const gatewayResponse = await makeRequest(daemon.getStatus().port, '/network/gateway', {
+      headers: { 'X-JST-Auth': 'secret' },
+    })
+    expect(gatewayResponse.statusCode).toBe(200)
+    expect(gatewayResponse.body.toString('utf8')).toBe('null')
+
+    const registerResponse = await makeRequest(daemon.getStatus().port, '/stream/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-JST-Auth': 'secret',
+      },
+      body: JSON.stringify({
+        streamToken: 'http-token',
+        rootKey: 'root-a',
+        path: 'clip.mp4',
+        fileSize: content.length,
+        mimeType: 'video/mp4',
+      }),
+    })
+    expect(registerResponse.statusCode).toBe(200)
+    expect(JSON.parse(registerResponse.body.toString('utf8'))).toEqual({
+      ok: true,
+      mediaPort: expect.any(Number),
+    })
+
+    const mediaPort = (JSON.parse(registerResponse.body.toString('utf8')) as { mediaPort: number })
+      .mediaPort
+    const headResponse = await makeRequest(mediaPort, '/stream/http-token', {
+      method: 'HEAD',
+      headers: { Range: 'bytes=0-3' },
+    })
+    expect(headResponse.statusCode).toBe(206)
+    expect(headResponse.headers['content-range']).toBe(`bytes 0-3/${content.length}`)
+    expect(headResponse.body.byteLength).toBe(0)
   })
 
   it('auto-picks a temp-backed root in test mode when folder picker is requested', async () => {

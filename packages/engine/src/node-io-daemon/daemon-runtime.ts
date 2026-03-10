@@ -1,8 +1,10 @@
 import * as http from 'node:http'
+import * as os from 'node:os'
 import type { Duplex } from 'node:stream'
 import { createNodeIoDaemonCapabilities } from './capabilities'
 import type { NodeIoDaemonExternalCapabilities } from './control-protocol'
 import { createTestFolderPickerRoot } from './folder-picker'
+import { NodeIoDaemonHttpStreamRegistry } from './http-stream-registry'
 import { NodeIoDaemonIoSession } from './io-session'
 import {
   NodeIoDaemonHashMismatchError,
@@ -11,13 +13,103 @@ import {
 import type { NodeIoDaemonConfig, NodeIoDaemonHttpStatus, NodeIoDaemonStatus } from './types'
 import { NodeIoDaemonRootStore } from './root-store'
 
+interface HttpByteRange {
+  start: number
+  endInclusive: number
+  totalSize: number
+  partial: boolean
+}
+
+function getContentLength(range: HttpByteRange): number {
+  return range.endInclusive < range.start ? 0 : range.endInclusive - range.start + 1
+}
+
+function getContentRangeHeader(range: HttpByteRange): string {
+  return `bytes ${range.start}-${range.endInclusive}/${range.totalSize}`
+}
+
+function resolveHttpByteRange(
+  rangeHeader: string | string[] | undefined,
+  totalSize: number,
+): HttpByteRange | null {
+  if (!Number.isFinite(totalSize) || totalSize < 0) {
+    return null
+  }
+
+  if (rangeHeader === undefined) {
+    return {
+      start: 0,
+      endInclusive: totalSize === 0 ? -1 : totalSize - 1,
+      totalSize,
+      partial: false,
+    }
+  }
+
+  if (Array.isArray(rangeHeader)) {
+    return null
+  }
+
+  if (!rangeHeader.startsWith('bytes=') || totalSize === 0) {
+    return null
+  }
+
+  const spec = rangeHeader.slice('bytes='.length).trim()
+  if (!spec || spec.includes(',')) {
+    return null
+  }
+
+  const parts = spec.split('-', 2)
+  if (parts.length !== 2) {
+    return null
+  }
+
+  const startPart = parts[0].trim()
+  const endPart = parts[1].trim()
+
+  if (!startPart) {
+    const suffixLength = Number.parseInt(endPart, 10)
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
+      return null
+    }
+    const start = Math.max(totalSize - suffixLength, 0)
+    return {
+      start,
+      endInclusive: totalSize - 1,
+      totalSize,
+      partial: true,
+    }
+  }
+
+  const start = Number.parseInt(startPart, 10)
+  if (!Number.isFinite(start) || start < 0 || start >= totalSize) {
+    return null
+  }
+
+  const end = endPart
+    ? Math.min(Number.parseInt(endPart, 10), totalSize - 1)
+    : totalSize - 1
+  if (!Number.isFinite(end) || end < start) {
+    return null
+  }
+
+  return {
+    start,
+    endInclusive: end,
+    totalSize,
+    partial: true,
+  }
+}
+
 export class NodeIoDaemonRuntime {
   private started = false
   private server: http.Server | null = null
+  private mediaServer: http.Server | null = null
   private boundPort: number
+  private mediaPort: number
   private readonly ioSessions = new Set<NodeIoDaemonIoSession>()
   private readonly rawSockets = new Set<Duplex>()
   private readonly rootStore: NodeIoDaemonRootStore
+  private readonly httpStreams = new NodeIoDaemonHttpStreamRegistry()
   private pairedToken: string | null
   private pairedExtensionId: string | null = null
   private pairedInstallId: string | null = null
@@ -25,6 +117,7 @@ export class NodeIoDaemonRuntime {
 
   constructor(private readonly daemonConfig: NodeIoDaemonConfig) {
     this.boundPort = daemonConfig.port
+    this.mediaPort = 0
     this.rootStore = new NodeIoDaemonRootStore(daemonConfig.roots)
     this.pairedToken = daemonConfig.authToken
     this.rootStore.onChange((roots) => {
@@ -43,6 +136,9 @@ export class NodeIoDaemonRuntime {
 
     const server = http.createServer((req, res) => {
       void this.handleRequest(req, res)
+    })
+    const mediaServer = http.createServer((req, res) => {
+      void this.handleMediaRequest(req, res)
     })
     server.on('connection', (socket) => {
       this.rawSockets.add(socket)
@@ -65,7 +161,21 @@ export class NodeIoDaemonRuntime {
       })
     })
 
+    await new Promise<void>((resolve, reject) => {
+      mediaServer.once('error', reject)
+      mediaServer.listen(0, this.daemonConfig.host, () => {
+        mediaServer.off('error', reject)
+        const address = mediaServer.address()
+        this.mediaPort =
+          typeof address === 'object' && address && typeof address.port === 'number'
+            ? address.port
+            : 0
+        resolve()
+      })
+    })
+
     this.server = server
+    this.mediaServer = mediaServer
     this.started = true
   }
 
@@ -74,6 +184,7 @@ export class NodeIoDaemonRuntime {
       session.destroy()
     }
     this.ioSessions.clear()
+    this.httpStreams.clear()
 
     for (const socket of this.rawSockets) {
       socket.destroy()
@@ -83,11 +194,14 @@ export class NodeIoDaemonRuntime {
     if (!this.server) {
       this.started = false
       this.boundPort = this.daemonConfig.port
+      this.mediaPort = 0
       return
     }
 
     const server = this.server
+    const mediaServer = this.mediaServer
     this.server = null
+    this.mediaServer = null
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
         if (error) {
@@ -97,9 +211,21 @@ export class NodeIoDaemonRuntime {
         }
       })
     })
+    if (mediaServer) {
+      await new Promise<void>((resolve, reject) => {
+        mediaServer.close((error) => {
+          if (error) {
+            reject(error)
+          } else {
+            resolve()
+          }
+        })
+      })
+    }
 
     this.started = false
     this.boundPort = this.daemonConfig.port
+    this.mediaPort = 0
   }
 
   getStatus(): NodeIoDaemonStatus {
@@ -139,6 +265,26 @@ export class NodeIoDaemonRuntime {
       return
     }
 
+    if (req.method === 'GET' && pathname === '/network/interfaces') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      this.sendJson(res, 200, this.getNetworkInterfaces())
+      return
+    }
+
+    if (req.method === 'GET' && pathname === '/network/gateway') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      this.sendJson(res, 200, null)
+      return
+    }
+
     if (pathname === '/pair' && req.method === 'POST') {
       const body = await this.readJsonBody(req)
       const token = body && typeof body === 'object' ? (body as Record<string, unknown>).token : null
@@ -154,6 +300,17 @@ export class NodeIoDaemonRuntime {
       }
 
       this.sendJson(res, 200, { status: pairResult })
+      return
+    }
+
+    if (pathname === '/stream/register' && req.method === 'POST') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const response = this.registerHttpStream(await this.readJsonBody(req))
+      this.sendJson(res, response.ok ? 200 : 400, response)
       return
     }
 
@@ -408,6 +565,90 @@ export class NodeIoDaemonRuntime {
     this.sendText(res, 404, 'Not Found')
   }
 
+  private async handleMediaRequest(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<void> {
+    const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+    if (req.method === 'GET' && pathname === '/health') {
+      this.sendText(res, 200, 'ok')
+      return
+    }
+
+    if (pathname.startsWith('/stream/') && (req.method === 'GET' || req.method === 'HEAD')) {
+      const token = decodeURIComponent(pathname.slice('/stream/'.length))
+      const stream = this.httpStreams.getAndTouch(token)
+      if (!stream) {
+        this.sendText(res, 404, 'Not Found')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystem(stream.rootKey)
+      if (!fileSystem) {
+        this.httpStreams.revoke(token)
+        this.sendText(res, 404, 'Not Found')
+        return
+      }
+
+      try {
+        const stat = await fileSystem.stat(stream.path)
+        if (!stat.is_file) {
+          this.httpStreams.revoke(token)
+          this.sendText(res, 404, 'Not Found')
+          return
+        }
+
+        const range = resolveHttpByteRange(req.headers.range, stat.size)
+        if (!range) {
+          res.statusCode = 416
+          res.setHeader('Accept-Ranges', 'bytes')
+          res.setHeader('Content-Range', `bytes */${stat.size}`)
+          res.setHeader('Content-Length', '0')
+          res.end()
+          return
+        }
+
+        const contentLength = getContentLength(range)
+        res.statusCode = range.partial ? 206 : 200
+        res.setHeader('Content-Type', stream.mimeType ?? 'application/octet-stream')
+        res.setHeader('Accept-Ranges', 'bytes')
+        res.setHeader('Cache-Control', 'private, no-store')
+        res.setHeader('Pragma', 'no-cache')
+        res.setHeader('Content-Length', String(contentLength))
+        if (range.partial) {
+          res.setHeader('Content-Range', getContentRangeHeader(range))
+        }
+
+        if (req.method === 'HEAD') {
+          res.end()
+          return
+        }
+
+        const chunkSize = 256 * 1024
+        let nextOffset = range.start
+        while (nextOffset <= range.endInclusive && !req.destroyed && !res.destroyed) {
+          const bytesToRead = Math.min(chunkSize, range.endInclusive - nextOffset + 1)
+          const chunk = await fileSystem.read(stream.path, nextOffset, bytesToRead)
+          if (chunk.byteLength === 0) {
+            throw new Error('Unexpected empty read while streaming file')
+          }
+          nextOffset += chunk.byteLength
+          res.write(Buffer.from(chunk))
+        }
+
+        if (!res.writableEnded) {
+          res.end()
+        }
+        return
+      } catch {
+        this.sendText(res, 404, 'Not Found')
+        return
+      }
+    }
+
+    this.sendText(res, 404, 'Not Found')
+  }
+
   private handleUpgrade(req: http.IncomingMessage, socket: Duplex, head: Buffer): void {
     const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
     if (pathname !== '/io' && pathname !== '/control') {
@@ -425,6 +666,7 @@ export class NodeIoDaemonRuntime {
         bootstrapMode: this.daemonConfig.bootstrapMode,
         getExternalCapabilities: () => this.getExternalCapabilities(),
         handleFolderPickerRequest: () => this.handleFolderPickerRequest(),
+        handleRegisterHttpStreamRequest: (request) => this.registerHttpStream(request),
         onClose: () => {
           if (session) {
             this.ioSessions.delete(session)
@@ -526,7 +768,92 @@ export class NodeIoDaemonRuntime {
   private getExternalCapabilities(): NodeIoDaemonExternalCapabilities {
     return {
       roots_manageable: true,
-      lan_share_urls: false,
+      lan_share_urls: true,
+    }
+  }
+
+  private getNetworkInterfaces(): Array<{ name: string; address: string; prefixLength: number }> {
+    const interfaces = os.networkInterfaces()
+    const results: Array<{ name: string; address: string; prefixLength: number }> = []
+
+    for (const [name, entries] of Object.entries(interfaces)) {
+      for (const entry of entries ?? []) {
+        if (!entry || entry.family !== 'IPv4') {
+          continue
+        }
+        results.push({
+          name,
+          address: entry.address,
+          prefixLength: this.netmaskToPrefixLength(entry.netmask),
+        })
+      }
+    }
+
+    return results
+  }
+
+  private netmaskToPrefixLength(netmask: string): number {
+    const octets = netmask.split('.').map((part) => Number.parseInt(part, 10))
+    if (octets.length !== 4 || octets.some((value) => !Number.isFinite(value) || value < 0 || value > 255)) {
+      return 24
+    }
+    return octets.reduce((count, octet) => count + octet.toString(2).replace(/0/g, '').length, 0)
+  }
+
+  private registerHttpStream(request: unknown): {
+    ok: boolean
+    mediaPort?: number
+    error?: string
+  } {
+    if (!request || typeof request !== 'object') {
+      return { ok: false, error: 'Invalid request body' }
+    }
+
+    const body = request as Record<string, unknown>
+    const streamToken = body.streamToken
+    const rootKey = body.rootKey
+    const relativePath = body.path
+    const fileSize = body.fileSize
+    const mimeType = body.mimeType
+
+    if (typeof streamToken !== 'string' || streamToken.length === 0 || streamToken.length > 256) {
+      return { ok: false, error: 'Invalid streamToken' }
+    }
+    if (typeof rootKey !== 'string' || rootKey.length === 0) {
+      return { ok: false, error: 'Invalid rootKey' }
+    }
+    if (
+      typeof relativePath !== 'string' ||
+      relativePath.length === 0 ||
+      relativePath.includes('\0') ||
+      relativePath.includes('..')
+    ) {
+      return { ok: false, error: 'Invalid path' }
+    }
+    if (typeof fileSize !== 'number' || !Number.isFinite(fileSize) || fileSize < 0) {
+      return { ok: false, error: 'Invalid fileSize' }
+    }
+    if (mimeType !== null && mimeType !== undefined && typeof mimeType !== 'string') {
+      return { ok: false, error: 'Invalid mimeType' }
+    }
+    if (!this.rootStore.get(rootKey)) {
+      return { ok: false, error: 'Invalid rootKey' }
+    }
+    if (this.mediaPort <= 0) {
+      return { ok: false, error: 'Media server not running' }
+    }
+
+    this.httpStreams.register({
+      token: streamToken,
+      rootKey,
+      path: relativePath,
+      fileSize,
+      mimeType: typeof mimeType === 'string' ? mimeType : null,
+    })
+
+    return {
+      ok: true,
+      mediaPort: this.mediaPort,
     }
   }
 
