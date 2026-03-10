@@ -1,0 +1,131 @@
+import { afterEach, describe, expect, it } from 'vitest'
+import { pathToFileURL } from 'node:url'
+import { prepareTorrentForVideoPlayback } from '../../../client/src/utils/watch-video'
+import type { DaemonBackedEngineStreamingFixture } from '../../integration/daemon/helpers/daemon-backed-engine-streaming'
+import {
+  createDaemonBackedEngineStreamingFixture,
+  makeRequest,
+  waitForCondition,
+} from '../../integration/daemon/helpers/daemon-backed-engine-streaming'
+import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
+
+describe('prepareTorrentForVideoPlayback with Node daemon-backed engine', () => {
+  let fixture: DaemonBackedEngineStreamingFixture | null = null
+
+  afterEach(async () => {
+    await fixture?.cleanup()
+    fixture = null
+  })
+
+  async function createStreamingFixture(): Promise<DaemonBackedEngineStreamingFixture> {
+    fixture = await createDaemonBackedEngineStreamingFixture({
+      async startDaemon(downloadDir) {
+        const daemon = createNodeIoDaemon({
+          host: '127.0.0.1',
+          port: 0,
+          bootstrapMode: 'realistic',
+          authToken: 'secret',
+          roots: [
+            {
+              key: 'root-a',
+              uri: pathToFileURL(downloadDir).toString(),
+              display_name: 'Download Root',
+              removable: true,
+              last_stat_ok: true,
+              last_checked: Date.now(),
+            },
+          ],
+        })
+        await daemon.start()
+        return {
+          port: daemon.getStatus().port,
+          token: 'secret',
+          installId: 'install-id',
+          stop: async () => {
+            await daemon.stop()
+          },
+        }
+      },
+    })
+    return fixture
+  }
+
+  async function waitForTorrentComplete(
+    createdFixture: DaemonBackedEngineStreamingFixture,
+    timeoutMs = 30_000,
+  ): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout waiting for daemon-backed download'))
+      }, timeoutMs)
+
+      createdFixture.torrent.once('complete', () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+      createdFixture.torrent.once('error', (error) => {
+        clearTimeout(timeout)
+        reject(error)
+      })
+    })
+  }
+
+  it(
+    'unskips and starts a stopped incomplete torrent so daemon-backed video streaming can proceed',
+    async () => {
+      const fixture = await createStreamingFixture()
+      await fixture.torrent.setFilePriorityAsync(0, 1)
+      await fixture.torrent.userStop()
+
+      expect(fixture.torrent.isFileSkipped(0)).toBe(true)
+      expect(fixture.torrent.userState).toBe('stopped')
+
+      const mediaPort = await fixture.registerStreamToken('watch-video-start-token')
+      const blockedResponse = await makeRequest(mediaPort, '/stream/watch-video-start-token', {
+        headers: {
+          Range: 'bytes=393216-393231',
+        },
+      })
+      expect(blockedResponse.statusCode).toBe(409)
+
+      await prepareTorrentForVideoPlayback(fixture.torrent, 0)
+
+      await waitForCondition(() => fixture.torrent.userState === 'active')
+      expect(fixture.torrent.isFileSkipped(0)).toBe(false)
+
+      const response = await makeRequest(mediaPort, '/stream/watch-video-start-token', {
+        headers: {
+          Range: 'bytes=393216-393231',
+        },
+      })
+      expect(response.statusCode).toBe(206)
+      expect(response.body.equals(fixture.fileContent.subarray(393216, 393232))).toBe(true)
+    },
+    40_000,
+  )
+
+  it(
+    'does not restart a stopped torrent when the watched file is already complete',
+    async () => {
+      const fixture = await createStreamingFixture()
+      await waitForTorrentComplete(fixture)
+      await fixture.torrent.userStop()
+
+      expect(fixture.torrent.userState).toBe('stopped')
+
+      await prepareTorrentForVideoPlayback(fixture.torrent, 0)
+
+      expect(fixture.torrent.userState).toBe('stopped')
+
+      const mediaPort = await fixture.registerStreamToken('watch-video-complete-token')
+      const response = await makeRequest(mediaPort, '/stream/watch-video-complete-token', {
+        headers: {
+          Range: 'bytes=0-31',
+        },
+      })
+      expect(response.statusCode).toBe(206)
+      expect(response.body.equals(fixture.fileContent.subarray(0, 32))).toBe(true)
+    },
+    40_000,
+  )
+})
