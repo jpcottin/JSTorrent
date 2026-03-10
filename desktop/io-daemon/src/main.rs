@@ -25,6 +25,7 @@ use tower_http::trace::TraceLayer;
 mod auth;
 mod config;
 mod control;
+mod control_stream;
 mod files;
 mod hashing;
 mod http;
@@ -116,6 +117,7 @@ pub struct AppState {
     pub stats: Arc<DaemonStats>,
     pub http_streams: Arc<media::HttpStreamSessionRegistry>,
     pub media_server: Arc<tokio::sync::Mutex<media::MediaServerState>>,
+    pub control_stream_sessions: Arc<control_stream::ControlStreamSessionRegistry>,
     pub http_stream_bridge: Option<Arc<dyn media::TorrentHttpStreamBridge>>,
 }
 
@@ -210,15 +212,23 @@ async fn run_managed(args: Args) -> anyhow::Result<()> {
         |c| (c.download_roots, c.extension_id),
     );
 
+    let http_streams = Arc::new(media::HttpStreamSessionRegistry::default());
+    let control_stream_sessions = Arc::new(control_stream::ControlStreamSessionRegistry::default());
     let state = Arc::new(AppState {
         token: Arc::new(std::sync::RwLock::new(token.clone())),
         profile_id: profile_id.clone(),
         extension_id: Arc::new(std::sync::RwLock::new(extension_id.clone())),
         download_roots: Arc::new(std::sync::RwLock::new(roots)),
         stats: Arc::new(DaemonStats::new()),
-        http_streams: Arc::new(media::HttpStreamSessionRegistry::default()),
+        http_streams: http_streams.clone(),
         media_server: Arc::new(tokio::sync::Mutex::new(media::MediaServerState::default())),
-        http_stream_bridge: None,
+        control_stream_sessions: control_stream_sessions.clone(),
+        http_stream_bridge: Some(Arc::new(
+            control_stream::ControlChannelTorrentHttpStreamBridge::new(
+                http_streams,
+                control_stream_sessions,
+            ),
+        )),
     });
 
     // Monitor parent process if specified
@@ -328,6 +338,8 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
     eprintln!("\nThe Chrome extension will auto-discover this daemon.");
     eprintln!("================================================\n");
 
+    let http_streams = Arc::new(media::HttpStreamSessionRegistry::default());
+    let control_stream_sessions = Arc::new(control_stream::ControlStreamSessionRegistry::default());
     let state = Arc::new(AppState {
         token: Arc::new(std::sync::RwLock::new(token.clone())),
         profile_id: profile_id.clone(),
@@ -336,9 +348,15 @@ async fn run_standalone(args: Args) -> anyhow::Result<()> {
         )),
         download_roots: Arc::new(std::sync::RwLock::new(roots)),
         stats: Arc::new(DaemonStats::new()),
-        http_streams: Arc::new(media::HttpStreamSessionRegistry::default()),
+        http_streams: http_streams.clone(),
         media_server: Arc::new(tokio::sync::Mutex::new(media::MediaServerState::default())),
-        http_stream_bridge: None,
+        control_stream_sessions: control_stream_sessions.clone(),
+        http_stream_bridge: Some(Arc::new(
+            control_stream::ControlChannelTorrentHttpStreamBridge::new(
+                http_streams,
+                control_stream_sessions,
+            ),
+        )),
     });
 
     // Create standalone state for pairing endpoints

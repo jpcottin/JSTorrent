@@ -1,4 +1,11 @@
-use crate::AppState;
+use crate::{
+    control_stream::{
+        ControlStreamSession, OP_CTRL_GET_CAPABILITIES, OP_CTRL_REGISTER_HTTP_STREAM,
+        OP_CTRL_REVOKE_TORRENT_HTTP_STREAMS,
+    },
+    media::{register_http_stream_with_owner, RegisterStreamRequest},
+    AppState,
+};
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -19,6 +26,7 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio::time::{timeout, Duration};
+use uuid::Uuid;
 
 // Opcodes
 const OP_CLIENT_HELLO: u8 = 0x01;
@@ -51,18 +59,26 @@ const OP_UDP_CLOSE: u8 = 0x24;
 const OP_UDP_JOIN_MULTICAST: u8 = 0x25;
 const OP_UDP_LEAVE_MULTICAST: u8 = 0x26;
 
-const OP_CTRL_GET_CAPABILITIES: u8 = 0xED;
-
 const PROTOCOL_VERSION: u8 = 1;
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/io", get(ws_handler))
-        .route("/control", get(ws_handler)) // Alias for Android compatibility
+        .route("/io", get(ws_io_handler))
+        .route("/control", get(ws_control_handler))
 }
 
-async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
-    ws.on_upgrade(|socket| handle_socket(socket, state))
+async fn ws_io_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
+    ws.on_upgrade(|socket| handle_socket(socket, state, ConnectionMode::Io))
+}
+
+async fn ws_control_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
+    ws.on_upgrade(|socket| handle_socket(socket, state, ConnectionMode::Control))
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ConnectionMode {
+    Io,
+    Control,
 }
 
 struct Envelope {
@@ -114,7 +130,7 @@ struct SocketManager {
     next_socket_id: u32,
 }
 
-async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
+async fn handle_socket(socket: WebSocket, state: Arc<AppState>, mode: ConnectionMode) {
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(100);
 
@@ -143,6 +159,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
     // Authentication State Machine
     let mut authenticated = false;
+    let mut control_owner_id: Option<String> = None;
 
     // Helper to send message
     let send_msg = |tx: &mpsc::Sender<Vec<u8>>, msg_type: u8, req_id: u32, payload: Vec<u8>| {
@@ -222,6 +239,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         let expected_token = state.token.read().unwrap().clone();
                         if token == expected_token {
                             authenticated = true;
+                            if mode == ConnectionMode::Control {
+                                let owner_id = format!("rust-control-{}", Uuid::new_v4());
+                                state.control_stream_sessions.insert(Arc::new(
+                                    ControlStreamSession::new(owner_id.clone(), tx.clone()),
+                                ));
+                                control_owner_id = Some(owner_id);
+                            }
                             // Send AUTH_RESULT success (0)
                             send_msg(&tx, OP_AUTH_RESULT, env.request_id, vec![0]).await;
                         } else {
@@ -238,6 +262,42 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                     }
                 }
                 continue;
+            }
+
+            if mode == ConnectionMode::Control {
+                if let Some(owner_id) = control_owner_id.as_deref() {
+                    if let Some(session) = state.control_stream_sessions.get(owner_id) {
+                        if env.msg_type == OP_ERROR {
+                            let message = String::from_utf8_lossy(payload).to_string();
+                            if session.handle_error(env.request_id, message).await {
+                                continue;
+                            }
+                        } else if env.request_id != 0 {
+                            let response_payload = if payload.is_empty() {
+                                serde_json::json!({})
+                            } else {
+                                match serde_json::from_slice(payload) {
+                                    Ok(payload) => payload,
+                                    Err(error) => {
+                                        send_error(
+                                            &tx,
+                                            env.request_id,
+                                            &format!("Invalid control JSON payload: {error}"),
+                                        )
+                                        .await;
+                                        continue;
+                                    }
+                                }
+                            };
+                            if session
+                                .handle_response(env.msg_type, env.request_id, response_payload)
+                                .await
+                            {
+                                continue;
+                            }
+                        }
+                    }
+                }
             }
 
             // Authenticated - Handle I/O
@@ -1092,6 +1152,117 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                     .into_bytes();
                     send_msg(&tx, OP_CTRL_GET_CAPABILITIES, env.request_id, payload).await;
                 }
+                OP_CTRL_REGISTER_HTTP_STREAM => {
+                    if mode != ConnectionMode::Control {
+                        send_error(
+                            &tx,
+                            env.request_id,
+                            "HTTP stream registration requires /control",
+                        )
+                        .await;
+                        continue;
+                    }
+
+                    let Some(owner_id) = control_owner_id.clone() else {
+                        send_error(
+                            &tx,
+                            env.request_id,
+                            "Control stream session is not initialized",
+                        )
+                        .await;
+                        continue;
+                    };
+
+                    let request: RegisterStreamRequest = match serde_json::from_slice(payload) {
+                        Ok(request) => request,
+                        Err(error) => {
+                            send_error(
+                                &tx,
+                                env.request_id,
+                                &format!("Invalid register HTTP stream payload: {error}"),
+                            )
+                            .await;
+                            continue;
+                        }
+                    };
+
+                    match register_http_stream_with_owner(state.clone(), request, Some(owner_id))
+                        .await
+                    {
+                        Ok(response) => {
+                            let payload = serde_json::json!({
+                                "ok": response.ok,
+                                "mediaPort": response.media_port,
+                            })
+                            .to_string()
+                            .into_bytes();
+                            send_msg(&tx, OP_CTRL_REGISTER_HTTP_STREAM, env.request_id, payload)
+                                .await;
+                        }
+                        Err((status, message)) => {
+                            send_error(
+                                &tx,
+                                env.request_id,
+                                &format!("{}: {message}", status.as_u16()),
+                            )
+                            .await;
+                        }
+                    }
+                }
+                OP_CTRL_REVOKE_TORRENT_HTTP_STREAMS => {
+                    if mode != ConnectionMode::Control {
+                        send_error(
+                            &tx,
+                            env.request_id,
+                            "Torrent stream revocation requires /control",
+                        )
+                        .await;
+                        continue;
+                    }
+
+                    let payload_json: serde_json::Value = match serde_json::from_slice(payload) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            if env.request_id != 0 {
+                                send_error(
+                                    &tx,
+                                    env.request_id,
+                                    &format!("Invalid revoke torrent streams payload: {error}"),
+                                )
+                                .await;
+                            }
+                            continue;
+                        }
+                    };
+
+                    let torrent_id = payload_json
+                        .get("torrentId")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("");
+                    if torrent_id.trim().is_empty() {
+                        if env.request_id != 0 {
+                            send_error(&tx, env.request_id, "Invalid torrentId").await;
+                        }
+                        continue;
+                    }
+
+                    let revoked = state.http_streams.revoke_torrent(torrent_id);
+                    if env.request_id != 0 {
+                        let payload = serde_json::json!({
+                            "ok": true,
+                            "revoked": revoked,
+                        })
+                        .to_string()
+                        .into_bytes();
+                        send_msg(
+                            &tx,
+                            OP_CTRL_REVOKE_TORRENT_HTTP_STREAMS,
+                            env.request_id,
+                            payload,
+                        )
+                        .await;
+                    }
+                }
                 _ => {
                     // Unknown opcode
                     send_error(&tx, env.request_id, "Unknown opcode").await;
@@ -1144,6 +1315,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         // Without this, the sockets remain bound until the function returns
         manager.udp_sockets.clear();
         // TCP sockets will be cleaned up when dropped
+    }
+
+    if let Some(owner_id) = control_owner_id {
+        if let Some(session) = state.control_stream_sessions.remove(&owner_id) {
+            session.close("Control stream disconnected").await;
+        }
+        state.http_streams.revoke_owned_by(&owner_id);
     }
 
     // Decrement WebSocket connection count

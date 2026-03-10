@@ -40,6 +40,7 @@ pub struct MediaServerState {
 #[derive(Clone)]
 pub struct RegisteredHttpStream {
     pub token: String,
+    pub owner_id: Option<String>,
     pub torrent_id: String,
     pub file_index: u32,
     pub root_key: String,
@@ -61,6 +62,7 @@ impl HttpStreamSessionRegistry {
     pub fn register(
         &self,
         token: String,
+        owner_id: Option<String>,
         torrent_id: String,
         file_index: u32,
         root_key: String,
@@ -71,6 +73,7 @@ impl HttpStreamSessionRegistry {
         let now = now_ms();
         let session = RegisteredHttpStream {
             token: token.clone(),
+            owner_id,
             torrent_id,
             file_index,
             root_key,
@@ -80,7 +83,10 @@ impl HttpStreamSessionRegistry {
             created_at_ms: now,
             last_accessed_at_ms: now,
         };
-        let mut sessions = self.sessions.write().expect("http stream registry poisoned");
+        let mut sessions = self
+            .sessions
+            .write()
+            .expect("http stream registry poisoned");
         sessions.retain(|_, existing| !is_expired(existing, now));
         sessions.insert(token, session.clone());
         session
@@ -88,7 +94,10 @@ impl HttpStreamSessionRegistry {
 
     pub fn get_and_touch(&self, token: &str) -> Option<RegisteredHttpStream> {
         let now = now_ms();
-        let mut sessions = self.sessions.write().expect("http stream registry poisoned");
+        let mut sessions = self
+            .sessions
+            .write()
+            .expect("http stream registry poisoned");
         match sessions.get_mut(token) {
             Some(session) if !is_expired(session, now) => {
                 session.last_accessed_at_ms = now;
@@ -103,15 +112,36 @@ impl HttpStreamSessionRegistry {
     }
 
     pub fn revoke(&self, token: &str) -> bool {
-        let mut sessions = self.sessions.write().expect("http stream registry poisoned");
+        let mut sessions = self
+            .sessions
+            .write()
+            .expect("http stream registry poisoned");
         sessions.remove(token).is_some()
     }
 
+    pub fn revoke_owned_by(&self, owner_id: &str) -> usize {
+        let mut sessions = self
+            .sessions
+            .write()
+            .expect("http stream registry poisoned");
+        let before = sessions.len();
+        sessions.retain(|_, session| session.owner_id.as_deref() != Some(owner_id));
+        before.saturating_sub(sessions.len())
+    }
+
     pub fn revoke_torrent(&self, torrent_id: &str) -> usize {
-        let mut sessions = self.sessions.write().expect("http stream registry poisoned");
+        let mut sessions = self
+            .sessions
+            .write()
+            .expect("http stream registry poisoned");
         let before = sessions.len();
         sessions.retain(|_, session| session.torrent_id != torrent_id);
         before.saturating_sub(sessions.len())
+    }
+
+    pub fn peek(&self, token: &str) -> Option<RegisteredHttpStream> {
+        let sessions = self.sessions.read().expect("http stream registry poisoned");
+        sessions.get(token).cloned()
     }
 }
 
@@ -133,7 +163,7 @@ pub struct TorrentHttpStreamError {
 }
 
 impl TorrentHttpStreamError {
-    fn new(status: TorrentHttpStreamStatus, message: impl Into<String>) -> Self {
+    pub(crate) fn new(status: TorrentHttpStreamStatus, message: impl Into<String>) -> Self {
         Self {
             status,
             message: message.into(),
@@ -172,23 +202,23 @@ pub trait TorrentHttpStreamBridge: Send + Sync {
     fn close_stream_session(&self, session_id: &str, reason: &str);
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct RegisterStreamRequest {
-    stream_token: String,
-    torrent_id: String,
-    file_index: u32,
-    root_key: String,
-    path: String,
-    file_size: u64,
-    mime_type: Option<String>,
+pub(crate) struct RegisterStreamRequest {
+    pub(crate) stream_token: String,
+    pub(crate) torrent_id: String,
+    pub(crate) file_index: u32,
+    pub(crate) root_key: String,
+    pub(crate) path: String,
+    pub(crate) file_size: u64,
+    pub(crate) mime_type: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RegisterStreamResponse {
-    ok: bool,
-    media_port: u16,
+pub(crate) struct RegisterStreamResponse {
+    pub(crate) ok: bool,
+    pub(crate) media_port: u16,
 }
 
 #[derive(Clone, Copy)]
@@ -209,7 +239,10 @@ impl HttpByteRange {
     }
 
     fn content_range_header(self) -> String {
-        format!("bytes {}-{}/{}", self.start, self.end_inclusive, self.total_size)
+        format!(
+            "bytes {}-{}/{}",
+            self.start, self.end_inclusive, self.total_size
+        )
     }
 }
 
@@ -221,6 +254,15 @@ async fn register_http_stream(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<RegisterStreamRequest>,
 ) -> Result<Json<RegisterStreamResponse>, (StatusCode, String)> {
+    let response = register_http_stream_with_owner(state, payload, None).await?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn register_http_stream_with_owner(
+    state: Arc<AppState>,
+    payload: RegisterStreamRequest,
+    owner_id: Option<String>,
+) -> Result<RegisterStreamResponse, (StatusCode, String)> {
     if payload.stream_token.trim().is_empty() || payload.stream_token.len() > 256 {
         return Err((StatusCode::BAD_REQUEST, "Invalid streamToken".to_string()));
     }
@@ -244,6 +286,7 @@ async fn register_http_stream(
 
     state.http_streams.register(
         payload.stream_token,
+        owner_id,
         payload.torrent_id,
         payload.file_index,
         payload.root_key,
@@ -253,15 +296,13 @@ async fn register_http_stream(
     );
 
     let media_port = ensure_media_server_started(state).await?;
-    Ok(Json(RegisterStreamResponse {
+    Ok(RegisterStreamResponse {
         ok: true,
         media_port,
-    }))
+    })
 }
 
-async fn ensure_media_server_started(
-    state: Arc<AppState>,
-) -> Result<u16, (StatusCode, String)> {
+async fn ensure_media_server_started(state: Arc<AppState>) -> Result<u16, (StatusCode, String)> {
     let mut media_state = state.media_server.lock().await;
     if let Some(port) = media_state.port {
         return Ok(port);
@@ -338,7 +379,12 @@ async fn stream_file(
         } else {
             StatusCode::OK
         })
-        .header(CONTENT_TYPE, stream.mime_type.unwrap_or_else(|| "application/octet-stream".into()))
+        .header(
+            CONTENT_TYPE,
+            stream
+                .mime_type
+                .unwrap_or_else(|| "application/octet-stream".into()),
+        )
         .header(ACCEPT_RANGES, "bytes")
         .header(CACHE_CONTROL, "private, no-store")
         .header(PRAGMA, "no-cache")
@@ -349,14 +395,22 @@ async fn stream_file(
     }
 
     if method == Method::HEAD {
-        return response.body(Body::empty()).unwrap_or_else(internal_response_error);
+        return response
+            .body(Body::empty())
+            .unwrap_or_else(internal_response_error);
     }
 
     if range.content_length() == 0 {
-        return response.body(Body::empty()).unwrap_or_else(internal_response_error);
+        return response
+            .body(Body::empty())
+            .unwrap_or_else(internal_response_error);
     }
 
-    if let Some(bridge) = state.http_stream_bridge.clone() {
+    if let Some(bridge) = state
+        .http_stream_bridge
+        .clone()
+        .filter(|_| stream.owner_id.is_some())
+    {
         let session_id = format!("rust-stream-{}", Uuid::new_v4());
         if let Err(error) = bridge
             .open_stream_session(&session_id, &token, &stream.torrent_id, stream.file_index)
@@ -610,10 +664,10 @@ mod tests {
         MediaServerState, RegisteredHttpStream, TorrentHttpStreamBridge, TorrentHttpStreamError,
         TorrentHttpStreamStatus,
     };
-    use crate::{AppState, DaemonStats};
+    use crate::{control_stream::ControlStreamSessionRegistry, AppState, DaemonStats};
     use async_trait::async_trait;
-    use axum::body::Bytes;
     use axum::body::to_bytes;
+    use axum::body::Bytes;
     use axum::extract::{Path, State};
     use axum::http::{header::RANGE, HeaderMap, Method, StatusCode};
     use axum::response::Response;
@@ -705,12 +759,17 @@ mod tests {
         let bytes: Bytes = fixture.body_bytes(response).await;
         assert_eq!(bytes.as_ref(), &fixture.contents[8..24]);
         assert_eq!(bridge.open_count.load(Ordering::Relaxed), 1);
-        assert_eq!(bridge.closed_reasons.lock().unwrap().as_slice(), ["request-complete"]);
+        assert_eq!(
+            bridge.closed_reasons.lock().unwrap().as_slice(),
+            ["request-complete"]
+        );
     }
 
     #[tokio::test]
     async fn stopped_torrent_returns_conflict() {
-        let bridge = Arc::new(FakeBridge::with_error(TorrentHttpStreamStatus::TorrentStopped));
+        let bridge = Arc::new(FakeBridge::with_error(
+            TorrentHttpStreamStatus::TorrentStopped,
+        ));
         let fixture = TestFixture::new(Some(bridge.clone())).await;
         fixture.register("stopped-token", "torrent-stop", 0, "fixture.bin", 32);
 
@@ -723,13 +782,21 @@ mod tests {
         .await;
 
         assert_eq!(response.status(), StatusCode::CONFLICT);
-        assert_eq!(fixture.body_bytes(response).await, Bytes::from_static(b"Torrent is stopped"));
-        assert_eq!(bridge.closed_reasons.lock().unwrap().as_slice(), ["request-complete"]);
+        assert_eq!(
+            fixture.body_bytes(response).await,
+            Bytes::from_static(b"Torrent is stopped")
+        );
+        assert_eq!(
+            bridge.closed_reasons.lock().unwrap().as_slice(),
+            ["request-complete"]
+        );
     }
 
     #[tokio::test]
     async fn removed_torrent_revokes_stream_token() {
-        let bridge = Arc::new(FakeBridge::with_error(TorrentHttpStreamStatus::TorrentRemoved));
+        let bridge = Arc::new(FakeBridge::with_error(
+            TorrentHttpStreamStatus::TorrentRemoved,
+        ));
         let fixture = TestFixture::new(Some(bridge)).await;
         fixture.register("removed-token", "torrent-remove", 0, "fixture.bin", 32);
 
@@ -780,6 +847,7 @@ mod tests {
                 stats: Arc::new(DaemonStats::new()),
                 http_streams: Arc::new(HttpStreamSessionRegistry::default()),
                 media_server: Arc::new(tokio::sync::Mutex::new(MediaServerState::default())),
+                control_stream_sessions: Arc::new(ControlStreamSessionRegistry::default()),
                 http_stream_bridge: bridge,
             });
 
@@ -800,6 +868,7 @@ mod tests {
         ) -> RegisteredHttpStream {
             self.state.http_streams.register(
                 token.to_string(),
+                Some("test-owner".to_string()),
                 torrent_id.to_string(),
                 file_index,
                 "root-a".to_string(),
@@ -830,10 +899,7 @@ mod tests {
     }
 
     enum BridgeBehavior {
-        Blocking {
-            gate: Arc<Notify>,
-            released: bool,
-        },
+        Blocking { gate: Arc<Notify>, released: bool },
         Error(TorrentHttpStreamStatus),
     }
 

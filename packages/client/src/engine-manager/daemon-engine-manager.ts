@@ -665,17 +665,15 @@ export class DaemonEngineManager implements IEngineManager {
   }
 
   private async getDaemonControlStreamService(): Promise<DaemonControlStreamService | null> {
-    if (this.channel.getState().platform !== 'chromeos') {
+    const platform = this.channel.getState().platform
+    if (platform !== 'chromeos' && platform !== 'desktop') {
       return null
     }
     const daemonInfo = this._daemonInfo
     if (!daemonInfo?.token) {
       return null
     }
-    const host = daemonInfo.host ?? CHROMEOS_ANDROID_HOST
-    if (host !== CHROMEOS_ANDROID_HOST) {
-      return null
-    }
+    const host = daemonInfo.host ?? (platform === 'chromeos' ? CHROMEOS_ANDROID_HOST : '127.0.0.1')
 
     if (!this.engine) {
       return null
