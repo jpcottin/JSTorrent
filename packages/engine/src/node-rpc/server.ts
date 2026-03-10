@@ -1,15 +1,102 @@
 import * as http from 'http'
 import { EngineController } from './controller'
 
+interface HttpByteRange {
+  start: number
+  endInclusive: number
+  totalSize: number
+  partial: boolean
+}
+
+function getContentLength(range: HttpByteRange): number {
+  return range.endInclusive < range.start ? 0 : range.endInclusive - range.start + 1
+}
+
+function getContentRangeHeader(range: HttpByteRange): string {
+  return `bytes ${range.start}-${range.endInclusive}/${range.totalSize}`
+}
+
+function resolveHttpByteRange(
+  rangeHeader: string | string[] | undefined,
+  totalSize: number,
+): HttpByteRange | null {
+  if (!Number.isFinite(totalSize) || totalSize < 0) {
+    return null
+  }
+
+  if (rangeHeader === undefined) {
+    return {
+      start: 0,
+      endInclusive: totalSize === 0 ? -1 : totalSize - 1,
+      totalSize,
+      partial: false,
+    }
+  }
+
+  if (Array.isArray(rangeHeader)) {
+    return null
+  }
+
+  if (!rangeHeader.startsWith('bytes=') || totalSize === 0) {
+    return null
+  }
+
+  const spec = rangeHeader.slice('bytes='.length).trim()
+  if (!spec || spec.includes(',')) {
+    return null
+  }
+
+  const parts = spec.split('-', 2)
+  if (parts.length !== 2) {
+    return null
+  }
+
+  const startPart = parts[0].trim()
+  const endPart = parts[1].trim()
+
+  if (!startPart) {
+    const suffixLength = Number.parseInt(endPart, 10)
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
+      return null
+    }
+    const start = Math.max(totalSize - suffixLength, 0)
+    return {
+      start,
+      endInclusive: totalSize - 1,
+      totalSize,
+      partial: true,
+    }
+  }
+
+  const start = Number.parseInt(startPart, 10)
+  if (!Number.isFinite(start) || start < 0 || start >= totalSize) {
+    return null
+  }
+
+  const end = endPart
+    ? Math.min(Number.parseInt(endPart, 10), totalSize - 1)
+    : totalSize - 1
+  if (!Number.isFinite(end) || end < start) {
+    return null
+  }
+
+  return {
+    start,
+    endInclusive: end,
+    totalSize,
+    partial: true,
+  }
+}
+
 export class HttpRpcServer {
   private server: http.Server
   private controller: EngineController
   private port: number
   private actualPort: number = 0
 
-  constructor(port: number = 0) {
+  constructor(port: number = 0, controller: EngineController = new EngineController()) {
     this.port = port
-    this.controller = new EngineController()
+    this.controller = controller
     this.server = http.createServer((req, res) => this.handleRequest(req, res))
   }
 
@@ -54,7 +141,12 @@ export class HttpRpcServer {
     }
 
     try {
-      if (url === '/engine/start' && method === 'POST') {
+      const pathname = new URL(url ?? '/', 'http://127.0.0.1').pathname
+      const contentMatch = pathname.match(/^\/torrent\/([^/]+)\/files\/(\d+)\/content$/)
+
+      if (contentMatch && (method === 'GET' || method === 'HEAD')) {
+        await this.handleTorrentFileContent(req, res, decodeURIComponent(contentMatch[1]), contentMatch[2])
+      } else if (url === '/engine/start' && method === 'POST') {
         const body = await this.readBody(req)
         this.controller.startEngine(body.config)
         this.sendJson(res, { ok: true })
@@ -141,11 +233,95 @@ export class HttpRpcServer {
       const code =
         message === 'EngineNotRunning' ||
         message === 'EngineAlreadyRunning' ||
-        message === 'TorrentNotFound'
+        message === 'TorrentNotFound' ||
+        message === 'TorrentFileNotFound'
           ? 400
           : 500
       res.writeHead(code)
       this.sendJson(res, { ok: false, error: message })
+    }
+  }
+
+  private async handleTorrentFileContent(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    torrentId: string,
+    fileIndexText: string,
+  ): Promise<void> {
+    const fileIndex = Number.parseInt(fileIndexText, 10)
+    if (!Number.isFinite(fileIndex) || fileIndex < 0) {
+      this.sendText(res, 404, 'Not Found')
+      return
+    }
+
+    try {
+      const info = this.controller.getTorrentFileContentInfo(torrentId, fileIndex)
+      if (!info.complete) {
+        this.sendText(res, 409, 'File is not complete')
+        return
+      }
+
+      const range = resolveHttpByteRange(req.headers.range, info.fileSize)
+      if (!range) {
+        res.statusCode = 416
+        res.setHeader('Accept-Ranges', 'bytes')
+        res.setHeader('Content-Range', `bytes */${info.fileSize}`)
+        res.setHeader('Content-Length', '0')
+        res.end()
+        return
+      }
+
+      const contentLength = getContentLength(range)
+      res.statusCode = range.partial ? 206 : 200
+      res.setHeader('Content-Type', info.mimeType ?? 'application/octet-stream')
+      res.setHeader('Accept-Ranges', 'bytes')
+      res.setHeader('Cache-Control', 'private, no-store')
+      res.setHeader('Pragma', 'no-cache')
+      res.setHeader('Content-Length', String(contentLength))
+      if (range.partial) {
+        res.setHeader('Content-Range', getContentRangeHeader(range))
+      }
+
+      if (req.method === 'HEAD') {
+        res.end()
+        return
+      }
+
+      const chunkSize = 256 * 1024
+      let nextOffset = range.start
+      while (nextOffset <= range.endInclusive && !req.destroyed && !res.destroyed) {
+        const bytesToRead = Math.min(chunkSize, range.endInclusive - nextOffset + 1)
+        const chunk = await this.controller.readTorrentFileContent(
+          torrentId,
+          fileIndex,
+          nextOffset,
+          bytesToRead,
+        )
+        if (chunk.byteLength === 0) {
+          throw new Error('Unexpected empty read while streaming complete file')
+        }
+        nextOffset += chunk.byteLength
+        res.write(Buffer.from(chunk))
+      }
+
+      if (!res.writableEnded) {
+        res.end()
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (message === 'TorrentNotFound' || message === 'TorrentFileNotFound') {
+        this.sendText(res, 404, 'Not Found')
+        return
+      }
+      if (message === 'EngineNotRunning') {
+        this.sendText(res, 503, 'Engine not running')
+        return
+      }
+      if (message === 'TorrentFileIncomplete') {
+        this.sendText(res, 409, 'File is not complete')
+        return
+      }
+      this.sendText(res, 500, message)
     }
   }
 
@@ -172,5 +348,14 @@ export class HttpRpcServer {
       res.setHeader('Content-Type', 'application/json')
     }
     res.end(JSON.stringify(data))
+  }
+
+  private sendText(res: http.ServerResponse, statusCode: number, message: string) {
+    res.statusCode = statusCode
+    if (!res.headersSent) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+      res.setHeader('Content-Length', String(Buffer.byteLength(message)))
+    }
+    res.end(message)
   }
 }

@@ -4,6 +4,30 @@ import { infoHashFromBytes } from '../utils/infohash'
 import { createNodeEngine, NodeEngineConfig } from '../presets/node'
 import { globalLogStore, LogLevel } from '../logging/logger'
 
+const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/x-m4v',
+  '.mkv': 'video/x-matroska',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.avi': 'video/x-msvideo',
+  '.ts': 'video/mp2t',
+  '.m2ts': 'video/mp2t',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+}
+
+function guessMimeType(filePath: string): string | null {
+  const lowerPath = filePath.toLowerCase()
+  const lastDot = lowerPath.lastIndexOf('.')
+  if (lastDot < 0) return null
+  return MIME_TYPES_BY_EXTENSION[lowerPath.slice(lastDot)] ?? null
+}
+
 export interface EngineStatus {
   ok: boolean
   running: boolean
@@ -21,6 +45,16 @@ export interface TorrentStatus {
   uploadRate: number
   totalUploaded: number
   peers: number
+}
+
+export interface TorrentFileContentInfo {
+  ok: boolean
+  id: string
+  fileIndex: number
+  filePath: string
+  fileSize: number
+  complete: boolean
+  mimeType: string | null
 }
 
 export class EngineController {
@@ -124,6 +158,59 @@ export class EngineController {
       totalUploaded: torrent.totalUploaded,
       peers: torrent.numPeers,
     }
+  }
+
+  getTorrentFileContentInfo(id: string, fileIndex: number): TorrentFileContentInfo {
+    if (!this.engine) {
+      throw new Error('EngineNotRunning')
+    }
+
+    const torrent = this.engine.getTorrent(id)
+    if (!torrent) {
+      throw new Error('TorrentNotFound')
+    }
+
+    const file = torrent.files[fileIndex]
+    if (!file) {
+      throw new Error('TorrentFileNotFound')
+    }
+
+    return {
+      ok: true,
+      id,
+      fileIndex,
+      filePath: file.path,
+      fileSize: file.length,
+      complete: torrent.isFileComplete(fileIndex),
+      mimeType: guessMimeType(file.path),
+    }
+  }
+
+  async readTorrentFileContent(
+    id: string,
+    fileIndex: number,
+    offset: number,
+    length: number,
+  ): Promise<Uint8Array> {
+    if (!this.engine) {
+      throw new Error('EngineNotRunning')
+    }
+
+    const torrent = this.engine.getTorrent(id)
+    if (!torrent) {
+      throw new Error('TorrentNotFound')
+    }
+
+    const file = torrent.files[fileIndex]
+    if (!file) {
+      throw new Error('TorrentFileNotFound')
+    }
+
+    if (!torrent.isFileComplete(fileIndex)) {
+      throw new Error('TorrentFileIncomplete')
+    }
+
+    return torrent.readFileBytes(fileIndex, offset, length)
   }
 
   pauseTorrent(id: string): void {
