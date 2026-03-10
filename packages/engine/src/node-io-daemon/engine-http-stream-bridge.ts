@@ -50,6 +50,28 @@ export function createNodeIoDaemonEngineHttpStreamBridge(
     return pieces.every((pieceIndex) => torrent.hasPiece(pieceIndex))
   }
 
+  const getUnstreamableStateError = (torrent: Torrent, fileIndex: number): Error | null => {
+    if (torrent.isFileSkipped(fileIndex)) {
+      return new Error('FileSkipped')
+    }
+
+    if (torrent.activityState === 'error') {
+      return new Error('TorrentErrored')
+    }
+
+    if (torrent.userState !== 'active') {
+      return torrent.userState === 'stopped'
+        ? new Error('TorrentStopped')
+        : new Error('TorrentInactive')
+    }
+
+    if (torrent.activityState === 'stopped' || torrent.activityState === 'queued') {
+      return new Error('TorrentInactive')
+    }
+
+    return null
+  }
+
   const createSession = ({
     streamToken,
     torrentId,
@@ -98,8 +120,9 @@ export function createNodeIoDaemonEngineHttpStreamBridge(
         if (isRangeAvailable(torrent, fileIndex, offset, length)) {
           return
         }
-        if (torrent.userState === 'stopped') {
-          throw new Error('TorrentStopped')
+        const unstreamableStateError = getUnstreamableStateError(torrent, fileIndex)
+        if (unstreamableStateError) {
+          throw unstreamableStateError
         }
 
         try {

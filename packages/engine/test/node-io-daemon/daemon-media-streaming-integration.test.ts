@@ -285,6 +285,44 @@ describe('node-io-daemon media streaming integration', () => {
   )
 
   it(
+    'serves already-complete ranges after the file is skipped',
+    async () => {
+      const fixture = await setupMediaFixture()
+
+      connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
+      await waitForPiece(fixture.leecherTorrent, 0)
+      await fixture.leecherTorrent.setFilePriorityAsync(0, 1)
+
+      const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+        headers: {
+          Range: 'bytes=0-4',
+        },
+      })
+      expect(response.statusCode).toBe(206)
+      expect(response.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
+    },
+    15000,
+  )
+
+  it(
+    'rejects incomplete ranges for skipped files without hanging',
+    async () => {
+      const fixture = await setupMediaFixture()
+
+      await fixture.leecherTorrent.setFilePriorityAsync(0, 1)
+
+      const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+        headers: {
+          Range: 'bytes=0-4',
+        },
+      })
+      expect(response.statusCode).toBe(409)
+      expect(response.body.toString('utf8')).toBe('File is skipped')
+    },
+    15000,
+  )
+
+  it(
     'rejects incomplete ranges after the torrent is stopped without hanging',
     async () => {
       const fixture = await setupMediaFixture()
@@ -302,6 +340,42 @@ describe('node-io-daemon media streaming integration', () => {
       })
       expect(response.statusCode).toBe(409)
       expect(response.body.toString('utf8')).toBe('Torrent is stopped')
+    },
+    15000,
+  )
+
+  it(
+    'rejects incomplete ranges when the torrent is queued',
+    async () => {
+      const fixture = await setupMediaFixture()
+
+      fixture.leecherTorrent.gracefulStop(0)
+
+      const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+        headers: {
+          Range: 'bytes=0-4',
+        },
+      })
+      expect(response.statusCode).toBe(409)
+      expect(response.body.toString('utf8')).toBe('Torrent is not active')
+    },
+    15000,
+  )
+
+  it(
+    'rejects incomplete ranges when the torrent is in an error state',
+    async () => {
+      const fixture = await setupMediaFixture()
+
+      fixture.leecherTorrent.errorMessage = 'Simulated playback failure'
+
+      const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+        headers: {
+          Range: 'bytes=0-4',
+        },
+      })
+      expect(response.statusCode).toBe(409)
+      expect(response.body.toString('utf8')).toBe('Torrent is in an error state')
     },
     15000,
   )

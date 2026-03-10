@@ -701,6 +701,18 @@ export class NodeIoDaemonRuntime {
           this.sendText(res, 409, 'Torrent is stopped')
           return
         }
+        if (message === 'TorrentInactive') {
+          this.sendText(res, 409, 'Torrent is not active')
+          return
+        }
+        if (message === 'TorrentErrored') {
+          this.sendText(res, 409, 'Torrent is in an error state')
+          return
+        }
+        if (message === 'FileSkipped') {
+          this.sendText(res, 409, 'File is skipped')
+          return
+        }
         if (
           message === 'TorrentRemoved' ||
           message === 'StreamSessionNotFound' ||
