@@ -491,26 +491,22 @@ async fn delete_file(
     if full_path.is_dir() {
         fs::remove_dir_all(full_path)
             .await
-            .map_err(|e| {
-                if e.kind() == ErrorKind::NotFound {
-                    (StatusCode::NOT_FOUND, e.to_string())
-                } else {
-                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                }
-            })?;
+            .map_err(map_delete_error)?;
     } else {
         fs::remove_file(full_path)
             .await
-            .map_err(|e| {
-                if e.kind() == ErrorKind::NotFound {
-                    (StatusCode::NOT_FOUND, e.to_string())
-                } else {
-                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                }
-            })?;
+            .map_err(map_delete_error)?;
     }
 
     Ok(())
+}
+
+fn map_delete_error(error: std::io::Error) -> (StatusCode, String) {
+    if error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(2) {
+        (StatusCode::NOT_FOUND, error.to_string())
+    } else {
+        (StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+    }
 }
 
 #[derive(Deserialize)]

@@ -70,7 +70,9 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     40_000,
   )
 
-  it(
+  conformanceCase(
+    'rust',
+    'stream.multi_chunk_waits',
     'streams across multiple Rust daemon chunks and torrent-piece waits',
     async () => {
       const waitCalls: Array<{ offset: number; length: number }> = []
@@ -183,41 +185,53 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     40_000,
   )
 
-  it('returns 409 for an incomplete range after the torrent is stopped', async () => {
-    const fixture = await createStreamingFixture()
+  conformanceCase(
+    'rust',
+    'stream.stopped_incomplete_returns_409',
+    'returns 409 for an incomplete range after the torrent is stopped',
+    async () => {
+      const fixture = await createStreamingFixture()
 
-    await fixture.torrent.userStop()
+      await fixture.torrent.userStop()
 
-    const mediaPort = await fixture.registerStreamToken('stopped-stream-token')
+      const mediaPort = await fixture.registerStreamToken('stopped-stream-token')
 
-    const response = await makeRequest(mediaPort, '/stream/stopped-stream-token', {
-      headers: {
-        Range: 'bytes=393216-393231',
-      },
-    })
+      const response = await makeRequest(mediaPort, '/stream/stopped-stream-token', {
+        headers: {
+          Range: 'bytes=393216-393231',
+        },
+      })
 
-    expect(response.statusCode).toBe(409)
-    expect(response.body.toString('utf8')).toContain('stopped')
-  })
+      expect(response.statusCode).toBe(409)
+      expect(response.body.toString('utf8')).toContain('stopped')
+    },
+  )
 
-  it('returns 404 after torrent removal revokes the registered token', async () => {
-    const fixture = await createStreamingFixture()
+  conformanceCase(
+    'rust',
+    'stream.removed_token_returns_404',
+    'returns 404 after torrent removal revokes the registered token',
+    async () => {
+      const fixture = await createStreamingFixture()
 
-    const mediaPort = await fixture.registerStreamToken('removed-stream-token')
+      const mediaPort = await fixture.registerStreamToken('removed-stream-token')
 
-    await fixture.daemonBackedEngine.engine.removeTorrent(fixture.torrent)
-    await delay(50)
+      await fixture.daemonBackedEngine.engine.removeTorrent(fixture.torrent)
+      await delay(50)
 
-    const response = await makeRequest(mediaPort, '/stream/removed-stream-token', {
-      headers: {
-        Range: 'bytes=0-15',
-      },
-    })
+      const response = await makeRequest(mediaPort, '/stream/removed-stream-token', {
+        headers: {
+          Range: 'bytes=0-15',
+        },
+      })
 
-    expect(response.statusCode).toBe(404)
-  })
+      expect(response.statusCode).toBe(404)
+    },
+  )
 
-  it(
+  conformanceCase(
+    'rust',
+    'stream.concurrent_readers_are_isolated',
     'serves two concurrent blocking requests on the same token independently',
     async () => {
       const fixture = await createStreamingFixture()

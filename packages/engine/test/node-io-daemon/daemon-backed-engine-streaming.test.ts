@@ -125,7 +125,9 @@ describe('DaemonBackedEngine with Node daemon streaming', () => {
     40_000,
   )
 
-  it(
+  conformanceCase(
+    'node',
+    'stream.stopped_incomplete_returns_409',
     'returns 409 for an incomplete range after the torrent is stopped',
     async () => {
       const fixture = await createStreamingFixture()
@@ -144,7 +146,9 @@ describe('DaemonBackedEngine with Node daemon streaming', () => {
     40_000,
   )
 
-  it(
+  conformanceCase(
+    'node',
+    'stream.removed_token_returns_404',
     'returns 404 after torrent removal revokes the registered token',
     async () => {
       const fixture = await createStreamingFixture()
@@ -164,12 +168,28 @@ describe('DaemonBackedEngine with Node daemon streaming', () => {
     40_000,
   )
 
-  it(
-    'streams a completed file across multiple Node daemon media chunks after control registration',
+  conformanceCase(
+    'node',
+    'stream.multi_chunk_waits',
+    'streams across multiple Node daemon chunks and torrent wait windows',
     async () => {
+      const waitCalls: Array<{ offset: number; length: number }> = []
       const fixture = await createStreamingFixture({
         fileSize: 2 * 256 * 1024 + 8192,
       })
+      const controlStream = fixture.daemonBackedEngine.getControlStreamService()
+      expect(controlStream).not.toBeNull()
+
+      const originalWaitForRange = (controlStream as any).waitForRange.bind(controlStream)
+      ;(controlStream as any).waitForRange = async (
+        sessionId: string,
+        offset: number,
+        requestedLength: number,
+      ) => {
+        waitCalls.push({ offset, length: requestedLength })
+        return await originalWaitForRange(sessionId, offset, requestedLength)
+      }
+
       await waitForTorrentComplete(fixture)
 
       const mediaPort = await fixture.registerStreamToken('multi-chunk-complete-stream-token')
@@ -181,11 +201,18 @@ describe('DaemonBackedEngine with Node daemon streaming', () => {
 
       expect(response.statusCode).toBe(206)
       expect(response.body.equals(fixture.fileContent)).toBe(true)
+      expect(waitCalls).toEqual([
+        { offset: 0, length: 256 * 1024 },
+        { offset: 256 * 1024, length: 256 * 1024 },
+        { offset: 2 * 256 * 1024, length: 8192 },
+      ])
     },
     40_000,
   )
 
-  it(
+  conformanceCase(
+    'node',
+    'stream.concurrent_readers_are_isolated',
     'serves two concurrent blocking requests on the same token independently',
     async () => {
       const fixture = await createStreamingFixture()

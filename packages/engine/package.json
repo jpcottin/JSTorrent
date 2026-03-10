@@ -54,6 +54,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:daemon": "vitest run --config vitest.daemon.config.ts",
+    "conformance:daemon": "node --import tsx scripts/run-daemon-conformance.ts",
     "test:streaming": "vitest run --config vitest.streaming.config.ts",
     "test:python": "cd integration/python && uv run python run_tests.py",
     "test:all": "vitest run && vitest run --config vitest.daemon.config.ts",

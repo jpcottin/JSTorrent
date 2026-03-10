@@ -11,7 +11,10 @@ import { ControlConnection } from '../../src/adapters/daemon/control-connection'
 import { fetchDaemonRoots, fetchDaemonStatus } from '../../src/adapters/daemon/daemon-client'
 import { DaemonConnection } from '../../src/adapters/daemon/daemon-connection'
 import { DaemonSocketFactory } from '../../src/adapters/daemon/daemon-socket-factory'
-import { NODE_IO_DAEMON_CAPABILITIES } from '../../src/node-io-daemon/capabilities'
+import {
+  createNodeIoDaemonCapabilities,
+  NODE_IO_DAEMON_CAPABILITIES,
+} from '../../src/node-io-daemon/capabilities'
 import { buildIoProtocolFrame } from '../../src/node-io-daemon/io-protocol'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
 import type { NodeIoDaemonHttpStreamBridge } from '../../src/node-io-daemon/types'
@@ -240,7 +243,11 @@ describe('node-io-daemon server', () => {
     expect(response.body.toString('utf8')).toBe('ok')
   })
 
-  it('serves daemon-compatible /status over POST and resets cleanly after stop', async () => {
+  conformanceCase(
+    'node',
+    'status.capabilities_are_reported',
+    'serves daemon-compatible /status over POST and reports capabilities',
+    async () => {
     daemon = createNodeIoDaemon({
       host: '127.0.0.1',
       port: 0,
@@ -284,9 +291,10 @@ describe('node-io-daemon server', () => {
       host: '127.0.0.1',
       port: 0,
       bootstrapMode: 'realistic',
-      capabilities: NODE_IO_DAEMON_CAPABILITIES,
+      capabilities: createNodeIoDaemonCapabilities(true),
     })
-  })
+    },
+  )
 
   it('supports daemon status discovery and /io auth handshake through the existing client', async () => {
     daemon = createNodeIoDaemon({
@@ -429,6 +437,54 @@ describe('node-io-daemon server', () => {
     expect(response.statusCode).toBe(404)
     expect(response.body.toString('utf8')).toContain('File not found')
   })
+
+  conformanceCase(
+    'node',
+    'ops.batch_delete.ignores_missing_entries',
+    'ignores missing entries during /ops/batch_delete and only reports real failures',
+    async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-batch-delete-'))
+      tempDirs.push(tempDir)
+      fs.mkdirSync(path.join(tempDir, 'nested'), { recursive: true })
+      fs.writeFileSync(path.join(tempDir, 'nested', 'present.txt'), 'hello')
+
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        roots: [
+          {
+            key: 'root-a',
+            uri: pathToFileURL(tempDir).toString(),
+            display_name: 'Downloads A',
+            removable: true,
+            last_stat_ok: true,
+            last_checked: Date.now(),
+          },
+        ],
+      })
+
+      await daemon.start()
+
+      const response = await makeRequest(daemon.getStatus().port, '/ops/batch_delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-JST-Auth': 'secret',
+        },
+        body: JSON.stringify({
+          root_key: 'root-a',
+          directory: 'nested',
+          entries: ['present.txt', 'missing.txt', '../escape.txt'],
+        }),
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(JSON.parse(response.body.toString('utf8'))).toEqual(['../escape.txt'])
+      expect(fs.existsSync(path.join(tempDir, 'nested', 'present.txt'))).toBe(false)
+    },
+  )
 
   it('answers control capability requests over /control', async () => {
     daemon = createNodeIoDaemon({

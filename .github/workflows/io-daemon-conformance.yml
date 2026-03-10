@@ -1,0 +1,46 @@
+name: IO Daemon Conformance
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'desktop/**'
+      - 'contracts/**'
+      - 'docs/contracts/**'
+      - '.github/workflows/io-daemon-conformance.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'desktop/**'
+      - 'contracts/**'
+      - 'docs/contracts/**'
+      - '.github/workflows/io-daemon-conformance.yml'
+
+jobs:
+  node-rust-conformance:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run Node and Rust daemon conformance gate
+        run: pnpm -C packages/engine run conformance:daemon

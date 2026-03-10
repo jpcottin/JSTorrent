@@ -613,6 +613,37 @@ export class NodeIoDaemonRuntime {
       return
     }
 
+    if (pathname === '/ops/batch_delete' && req.method === 'POST') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const body = await this.readJsonBody(req)
+      const rootKey = body && typeof body === 'object' ? (body as Record<string, unknown>).root_key : null
+      const directory = body && typeof body === 'object' ? (body as Record<string, unknown>).directory : null
+      const entries = body && typeof body === 'object' ? (body as Record<string, unknown>).entries : null
+      if (
+        typeof rootKey !== 'string' ||
+        typeof directory !== 'string' ||
+        !Array.isArray(entries) ||
+        !entries.every((entry) => typeof entry === 'string')
+      ) {
+        this.sendText(res, 400, 'Missing root_key, directory, or entries')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystem(rootKey)
+      if (!fileSystem) {
+        this.sendText(res, 404, 'Unknown root')
+        return
+      }
+
+      const failed = await fileSystem.batchDelete(directory, entries)
+      this.sendJson(res, 200, failed)
+      return
+    }
+
     this.sendText(res, 404, 'Not Found')
   }
 

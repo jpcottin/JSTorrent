@@ -223,6 +223,13 @@ Recommended reporting shape:
 - then run the required conformance cases for `node`, `rust`, and `android`
 - report a per-case matrix rather than only raw test names
 
+Current runner:
+
+- `pnpm -C packages/engine run conformance:daemon`
+- today this gates `node` and `rust`
+- the first gate is limited to the shared Node/Rust cases currently implemented in managed mode; bootstrap `/status` remains Node/Android-only in the manifest for now
+- `android` remains in the manifest but is not part of the Node runner until the instrumented companion tests are tagged with the same case IDs and exposed through an adapter
+
 Initial case areas:
 
 - status/capabilities

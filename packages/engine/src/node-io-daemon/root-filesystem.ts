@@ -52,6 +52,30 @@ export class NodeIoDaemonRootFileSystem {
     }
   }
 
+  async batchDelete(directory: string, entries: string[]): Promise<string[]> {
+    const absoluteDirectory = this.resolve(directory)
+    const failed: string[] = []
+
+    for (const entry of entries) {
+      if (entry.includes('/') || entry.includes('\\') || entry.includes('..')) {
+        failed.push(entry)
+        continue
+      }
+
+      const absoluteEntryPath = path.join(absoluteDirectory, entry)
+      try {
+        await fs.rm(absoluteEntryPath, { recursive: true, force: false })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          continue
+        }
+        failed.push(entry)
+      }
+    }
+
+    return failed
+  }
+
   async truncate(relativePath: string, length: number): Promise<void> {
     const absolutePath = this.resolve(relativePath)
     await fs.mkdir(path.dirname(absolutePath), { recursive: true })

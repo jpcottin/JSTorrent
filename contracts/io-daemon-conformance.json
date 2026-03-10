@@ -4,7 +4,7 @@
     {
       "id": "status.capabilities_are_reported",
       "kind": "shape",
-      "requiredIn": ["node", "rust", "android"]
+      "requiredIn": ["node", "android"]
     },
     {
       "id": "ops.delete.missing_returns_404",

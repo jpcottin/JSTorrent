@@ -69,6 +69,20 @@ pub struct StatusRequest {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StatusCapabilities {
+    pub health: bool,
+    pub status: bool,
+    pub io_web_socket: bool,
+    pub control_events: bool,
+    pub roots_read: bool,
+    pub roots_write: bool,
+    pub file_ops: bool,
+    pub media_complete_file206: bool,
+    pub media_blocking206: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StatusResponse {
     pub port: u16,
     pub paired: bool,
@@ -78,6 +92,7 @@ pub struct StatusResponse {
     pub token_valid: Option<bool>,
     /// WebSocket port for /control endpoint (same as port in standalone mode)
     pub io_port: Option<u16>,
+    pub capabilities: StatusCapabilities,
 }
 
 #[derive(Deserialize)]
@@ -141,6 +156,17 @@ async fn status_handler(
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
         token_valid,
         io_port: Some(state.port),
+        capabilities: StatusCapabilities {
+            health: true,
+            status: true,
+            io_web_socket: true,
+            control_events: true,
+            roots_read: true,
+            roots_write: true,
+            file_ops: true,
+            media_complete_file206: true,
+            media_blocking206: true,
+        },
     })
 }
 
@@ -288,6 +314,17 @@ mod tests {
             version: Some("0.1.29".into()),
             token_valid: Some(true),
             io_port: Some(7800),
+            capabilities: StatusCapabilities {
+                health: true,
+                status: true,
+                io_web_socket: true,
+                control_events: true,
+                roots_read: true,
+                roots_write: true,
+                file_ops: true,
+                media_complete_file206: true,
+                media_blocking206: true,
+            },
         };
         let json = serde_json::to_string(&response).unwrap();
         // Must use camelCase to match what the Chrome extension expects
