@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import type { DaemonBackedEngineDownloadFixture } from '../../integration/daemon/helpers/daemon-backed-engine-download'
 import { createDaemonBackedEngineDownloadFixture } from '../../integration/daemon/helpers/daemon-backed-engine-download'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
+import { conformanceCase } from '../helpers/conformance'
 
 describe('DaemonBackedEngine download flow with Node daemon', () => {
   let fixture: DaemonBackedEngineDownloadFixture | null = null
@@ -66,7 +67,9 @@ describe('DaemonBackedEngine download flow with Node daemon', () => {
     })
   }
 
-  it(
+  conformanceCase(
+    'node',
+    'download.root_added_after_engine_creation',
     'adds a download root after engine creation and downloads to the new default root',
     async () => {
       const fixture = await createDownloadFixture()
@@ -91,7 +94,9 @@ describe('DaemonBackedEngine download flow with Node daemon', () => {
     40_000,
   )
 
-  it(
+  conformanceCase(
+    'node',
+    'download.cleanup_removes_data',
     'removes downloaded data from the daemon-backed default root during cleanup',
     async () => {
       const fixture = await createDownloadFixture()

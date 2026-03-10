@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import type { DaemonBackedEngineDownloadFixture } from './helpers/daemon-backed-engine-download'
 import { createDaemonBackedEngineDownloadFixture } from './helpers/daemon-backed-engine-download'
 import { startDaemon } from './helpers/daemon-harness'
+import { conformanceCase } from '../../test/helpers/conformance'
 
 describe('DaemonBackedEngine download flow with Rust daemon', () => {
   let fixture: DaemonBackedEngineDownloadFixture | null = null
@@ -49,7 +50,9 @@ describe('DaemonBackedEngine download flow with Rust daemon', () => {
     })
   }
 
-  it(
+  conformanceCase(
+    'rust',
+    'download.root_added_after_engine_creation',
     'adds a download root after engine creation and downloads to the new default root',
     async () => {
       const fixture = await createDownloadFixture()
@@ -74,7 +77,9 @@ describe('DaemonBackedEngine download flow with Rust daemon', () => {
     40_000,
   )
 
-  it(
+  conformanceCase(
+    'rust',
+    'download.cleanup_removes_data',
     'removes downloaded data from the daemon-backed default root during cleanup',
     async () => {
       const fixture = await createDownloadFixture()

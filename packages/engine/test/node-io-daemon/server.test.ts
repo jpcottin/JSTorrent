@@ -15,6 +15,7 @@ import { NODE_IO_DAEMON_CAPABILITIES } from '../../src/node-io-daemon/capabiliti
 import { buildIoProtocolFrame } from '../../src/node-io-daemon/io-protocol'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
 import type { NodeIoDaemonHttpStreamBridge } from '../../src/node-io-daemon/types'
+import { conformanceCase } from '../helpers/conformance'
 import { TEST_TLS_CERTIFICATE_PEM, TEST_TLS_PRIVATE_KEY_PEM } from './tls-fixture'
 
 interface HttpResponseData {
@@ -390,7 +391,7 @@ describe('node-io-daemon server', () => {
     }
   })
 
-  it('returns 404 for a missing /ops/delete target', async () => {
+  conformanceCase('node', 'ops.delete.missing_returns_404', 'returns 404 for a missing /ops/delete target', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-delete-missing-'))
     tempDirs.push(tempDir)
 

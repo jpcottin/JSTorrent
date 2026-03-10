@@ -1,0 +1,151 @@
+{
+  "protocolVersion": 1,
+  "opcodes": [
+    {
+      "opcode": 224,
+      "hex": "0xE0",
+      "name": "ROOTS_CHANGED",
+      "channel": "control",
+      "kind": "notification",
+      "direction": "daemon_to_client"
+    },
+    {
+      "opcode": 225,
+      "hex": "0xE1",
+      "name": "EVENT",
+      "channel": "control",
+      "kind": "notification",
+      "direction": "daemon_to_client"
+    },
+    {
+      "opcode": 226,
+      "hex": "0xE2",
+      "name": "OPEN_FOLDER_PICKER",
+      "channel": "control",
+      "kind": "request_response",
+      "direction": "client_to_daemon"
+    },
+    {
+      "opcode": 233,
+      "hex": "0xE9",
+      "name": "OPEN_FILE",
+      "channel": "control",
+      "kind": "request_response",
+      "direction": "client_to_daemon"
+    },
+    {
+      "opcode": 234,
+      "hex": "0xEA",
+      "name": "REVEAL_IN_FOLDER",
+      "channel": "control",
+      "kind": "request_response",
+      "direction": "client_to_daemon"
+    },
+    {
+      "opcode": 235,
+      "hex": "0xEB",
+      "name": "POWER_HINT",
+      "channel": "control",
+      "kind": "notification",
+      "direction": "client_to_daemon"
+    },
+    {
+      "opcode": 236,
+      "hex": "0xEC",
+      "name": "REGISTER_HTTP_STREAM",
+      "channel": "control",
+      "kind": "request_response",
+      "direction": "client_to_daemon",
+      "requestShape": {
+        "required": [
+          "streamToken",
+          "torrentId",
+          "fileIndex",
+          "rootKey",
+          "path",
+          "fileSize",
+          "mimeType"
+        ]
+      }
+    },
+    {
+      "opcode": 237,
+      "hex": "0xED",
+      "name": "GET_CAPABILITIES",
+      "channel": "control",
+      "kind": "request_response",
+      "direction": "client_to_daemon"
+    },
+    {
+      "opcode": 238,
+      "hex": "0xEE",
+      "name": "OPEN_HTTP_STREAM_SESSION",
+      "channel": "control",
+      "kind": "request_response",
+      "direction": "daemon_to_client",
+      "requestShape": {
+        "required": [
+          "sessionId",
+          "streamToken",
+          "torrentId",
+          "fileIndex"
+        ]
+      }
+    },
+    {
+      "opcode": 239,
+      "hex": "0xEF",
+      "name": "WAIT_FOR_HTTP_STREAM_RANGE",
+      "channel": "control",
+      "kind": "request_response",
+      "direction": "daemon_to_client",
+      "requestShape": {
+        "required": [
+          "sessionId",
+          "offset",
+          "length"
+        ]
+      }
+    },
+    {
+      "opcode": 240,
+      "hex": "0xF0",
+      "name": "CANCEL_HTTP_STREAM_RANGE_WAIT",
+      "channel": "control",
+      "kind": "notification",
+      "direction": "daemon_to_client",
+      "requestShape": {
+        "required": [
+          "sessionId"
+        ]
+      }
+    },
+    {
+      "opcode": 241,
+      "hex": "0xF1",
+      "name": "CLOSE_HTTP_STREAM_SESSION",
+      "channel": "control",
+      "kind": "notification",
+      "direction": "daemon_to_client",
+      "requestShape": {
+        "required": [
+          "sessionId",
+          "reason"
+        ]
+      }
+    },
+    {
+      "opcode": 242,
+      "hex": "0xF2",
+      "name": "REVOKE_TORRENT_HTTP_STREAMS",
+      "channel": "control",
+      "kind": "notification",
+      "direction": "bidirectional",
+      "requestShape": {
+        "required": [
+          "torrentId"
+        ]
+      }
+    }
+  ]
+}

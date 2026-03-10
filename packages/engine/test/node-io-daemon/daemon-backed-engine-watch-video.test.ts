@@ -8,6 +8,7 @@ import {
   waitForCondition,
 } from '../../integration/daemon/helpers/daemon-backed-engine-streaming'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
+import { conformanceCase } from '../helpers/conformance'
 
 describe('prepareTorrentForVideoPlayback with Node daemon-backed engine', () => {
   let fixture: DaemonBackedEngineStreamingFixture | null = null
@@ -70,7 +71,9 @@ describe('prepareTorrentForVideoPlayback with Node daemon-backed engine', () => 
     })
   }
 
-  it(
+  conformanceCase(
+    'node',
+    'watch_video.unskip_and_start_incomplete_torrent',
     'unskips and starts a stopped incomplete torrent so daemon-backed video streaming can proceed',
     async () => {
       const fixture = await createStreamingFixture()
@@ -104,7 +107,9 @@ describe('prepareTorrentForVideoPlayback with Node daemon-backed engine', () => 
     40_000,
   )
 
-  it(
+  conformanceCase(
+    'node',
+    'watch_video.complete_stopped_torrent_stays_stopped',
     'does not restart a stopped torrent when the watched file is already complete',
     async () => {
       const fixture = await createStreamingFixture()

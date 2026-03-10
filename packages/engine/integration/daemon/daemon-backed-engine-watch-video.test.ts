@@ -7,6 +7,7 @@ import {
   waitForCondition,
 } from './helpers/daemon-backed-engine-streaming'
 import { startDaemon } from './helpers/daemon-harness'
+import { conformanceCase } from '../../test/helpers/conformance'
 
 describe('prepareTorrentForVideoPlayback with Rust daemon-backed engine', () => {
   let fixture: DaemonBackedEngineStreamingFixture | null = null
@@ -53,7 +54,9 @@ describe('prepareTorrentForVideoPlayback with Rust daemon-backed engine', () => 
     })
   }
 
-  it(
+  conformanceCase(
+    'rust',
+    'watch_video.unskip_and_start_incomplete_torrent',
     'unskips and starts a stopped incomplete torrent so daemon-backed video streaming can proceed',
     async () => {
       const fixture = await createStreamingFixture()
@@ -87,7 +90,9 @@ describe('prepareTorrentForVideoPlayback with Rust daemon-backed engine', () => 
     40_000,
   )
 
-  it(
+  conformanceCase(
+    'rust',
+    'watch_video.complete_stopped_torrent_stays_stopped',
     'does not restart a stopped torrent when the watched file is already complete',
     async () => {
       const fixture = await createStreamingFixture()

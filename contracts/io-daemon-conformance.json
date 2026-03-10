@@ -1,0 +1,76 @@
+{
+  "behaviorVersion": 1,
+  "cases": [
+    {
+      "id": "status.capabilities_are_reported",
+      "kind": "shape",
+      "requiredIn": ["node", "rust", "android"]
+    },
+    {
+      "id": "ops.delete.missing_returns_404",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust", "android"]
+    },
+    {
+      "id": "ops.batch_delete.ignores_missing_entries",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust", "android"]
+    },
+    {
+      "id": "stream.blocks_until_ready",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust", "android"],
+      "requiresCapability": "mediaBlocking206"
+    },
+    {
+      "id": "stream.multi_chunk_waits",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust", "android"],
+      "requiresCapability": "mediaBlocking206"
+    },
+    {
+      "id": "stream.stopped_incomplete_returns_409",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust", "android"],
+      "requiresCapability": "mediaBlocking206"
+    },
+    {
+      "id": "stream.removed_token_returns_404",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust", "android"],
+      "requiresCapability": "mediaBlocking206"
+    },
+    {
+      "id": "stream.concurrent_readers_are_isolated",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust", "android"],
+      "requiresCapability": "mediaBlocking206"
+    },
+    {
+      "id": "stream.cancel_isolation",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust", "android"],
+      "requiresCapability": "mediaBlocking206"
+    },
+    {
+      "id": "watch_video.unskip_and_start_incomplete_torrent",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust", "android"]
+    },
+    {
+      "id": "watch_video.complete_stopped_torrent_stays_stopped",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust", "android"]
+    },
+    {
+      "id": "download.root_added_after_engine_creation",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust"]
+    },
+    {
+      "id": "download.cleanup_removes_data",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust"]
+    }
+  ]
+}

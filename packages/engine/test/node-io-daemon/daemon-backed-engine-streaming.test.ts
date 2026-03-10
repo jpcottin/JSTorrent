@@ -8,6 +8,7 @@ import {
   startRequest,
 } from '../../integration/daemon/helpers/daemon-backed-engine-streaming'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
+import { conformanceCase } from '../helpers/conformance'
 
 describe('DaemonBackedEngine with Node daemon streaming', () => {
   let fixture: DaemonBackedEngineStreamingFixture | null = null
@@ -73,7 +74,9 @@ describe('DaemonBackedEngine with Node daemon streaming', () => {
     })
   }
 
-  it(
+  conformanceCase(
+    'node',
+    'stream.blocks_until_ready',
     'blocks a tokenized HTTP range until torrent bytes are available through the Node daemon',
     async () => {
       const fixture = await createStreamingFixture()
@@ -224,7 +227,9 @@ describe('DaemonBackedEngine with Node daemon streaming', () => {
     40_000,
   )
 
-  it(
+  conformanceCase(
+    'node',
+    'stream.cancel_isolation',
     'canceling one concurrent request does not cancel another on the same token',
     async () => {
       const fixture = await createStreamingFixture()

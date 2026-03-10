@@ -8,6 +8,7 @@ import {
   waitForCondition,
 } from './helpers/daemon-backed-engine-streaming'
 import { startDaemon } from './helpers/daemon-harness'
+import { conformanceCase } from '../../test/helpers/conformance'
 
 describe('DaemonBackedEngine with Rust daemon streaming', () => {
   let fixture: DaemonBackedEngineStreamingFixture | null = null
@@ -37,7 +38,9 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     return fixture
   }
 
-  it(
+  conformanceCase(
+    'rust',
+    'stream.blocks_until_ready',
     'blocks a tokenized HTTP range until torrent bytes are available through the Rust daemon',
     async () => {
       const fixture = await createStreamingFixture()
@@ -256,7 +259,9 @@ describe('DaemonBackedEngine with Rust daemon streaming', () => {
     40_000,
   )
 
-  it(
+  conformanceCase(
+    'rust',
+    'stream.cancel_isolation',
     'canceling one concurrent request does not cancel another on the same token',
     async () => {
       const fixture = await createStreamingFixture()
