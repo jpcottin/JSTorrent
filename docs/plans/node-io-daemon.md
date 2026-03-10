@@ -336,6 +336,63 @@ It is also the phase where `node-daemon-client ↔ node-io-daemon` becomes a mea
 
 At that point, `node-daemon-client` and extension-based tests can both exercise those surfaces against the same reference daemon.
 
+## Current Node Blocking Stream Contract
+
+The Node implementation is now far enough along to use as the leading-edge contract for Kotlin and Rust blocking `/stream/{token}` work.
+
+Current registration/session shape:
+
+- `REGISTER_HTTP_STREAM` is torrent-aware and carries `torrentId` plus `fileIndex`.
+- The daemon stores tokenized stream records tied to torrent lifecycle and control-session ownership.
+- The media server exposes real `GET` and `HEAD` handling on `/stream/{token}` with standard HTTP `Range` parsing.
+
+Current byte-serving contract:
+
+- The daemon waits chunk-by-chunk, not whole-file-at-once.
+- The current daemon chunk size is `256 KiB`.
+- For each chunk, the daemon asks the engine bridge to `waitForRange(offset, length)` and then reads bytes from disk normally.
+- Already-complete byte ranges serve directly even if the torrent later becomes stopped or the file later becomes skipped.
+
+Current lifecycle/error contract:
+
+- `torrent removed`
+  - revoke all tokens for that torrent
+  - cancel all in-flight waits
+  - new requests return `404`
+- `torrent stopped`
+  - keep tokens alive
+  - serve already-complete ranges
+  - fail incomplete ranges quickly with `409`
+  - cancel in-flight waits
+- `file skipped`
+  - serve already-complete ranges
+  - fail incomplete ranges quickly with `409`
+- `torrent queued/inactive`
+  - fail incomplete ranges quickly with `409`
+- `torrent error state`
+  - fail incomplete ranges quickly with `409`
+
+Current concurrency contract:
+
+- One token may serve multiple concurrent HTTP readers.
+- Canceling one request must not cancel a different request on the same token.
+- Torrent stop/remove must fan out to every active reader on that token.
+- Mixed outcomes are allowed:
+  - one request may get `206` for an already-complete range
+  - another concurrent request on the same token may get `409` if it still needs missing bytes
+
+Current Node status vocabulary:
+
+- `FileSkipped`
+- `TorrentErrored`
+- `TorrentInactive`
+- `TorrentRemoved`
+- `TorrentStopped`
+- `StreamSessionNotFound`
+- `StreamSessionMismatch`
+
+Those names now exist as shared Node constants and are the recommended starting vocabulary for Kotlin/Rust parity work, even if the wire shape later becomes typed result objects instead of raw string identifiers.
+
 ## Why This Is Valuable Even If It Never Ships Broadly
 
 - It gives us a spec-checking implementation that is easier to modify than Rust/Kotlin.

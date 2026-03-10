@@ -5,11 +5,17 @@ import {
   createStreamingPlaybackSession,
 } from '../streaming/streaming-playback-session'
 import type {
+  NodeIoDaemonHttpStreamStatus,
   NodeIoDaemonHttpStreamBridge,
   NodeIoDaemonHttpStreamCloseRequest,
   NodeIoDaemonHttpStreamLifecycleEvent,
   NodeIoDaemonHttpStreamSessionDescriptor,
   NodeIoDaemonHttpStreamWaitRequest,
+} from './types'
+import {
+  NODE_IO_DAEMON_HTTP_STREAM_STATUS,
+  createNodeIoDaemonHttpStreamStatusError,
+  getNodeIoDaemonHttpStreamStatus,
 } from './types'
 
 interface ActiveHttpStreamSession {
@@ -50,23 +56,26 @@ export function createNodeIoDaemonEngineHttpStreamBridge(
     return pieces.every((pieceIndex) => torrent.hasPiece(pieceIndex))
   }
 
-  const getUnstreamableStateError = (torrent: Torrent, fileIndex: number): Error | null => {
+  const getUnstreamableStateError = (
+    torrent: Torrent,
+    fileIndex: number,
+  ): NodeIoDaemonHttpStreamStatus | null => {
     if (torrent.isFileSkipped(fileIndex)) {
-      return new Error('FileSkipped')
+      return NODE_IO_DAEMON_HTTP_STREAM_STATUS.FileSkipped
     }
 
-    if (torrent.activityState === 'error') {
-      return new Error('TorrentErrored')
+    if (torrent.errorMessage) {
+      return NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentErrored
     }
 
     if (torrent.userState !== 'active') {
       return torrent.userState === 'stopped'
-        ? new Error('TorrentStopped')
-        : new Error('TorrentInactive')
+        ? NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentStopped
+        : NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentInactive
     }
 
     if (torrent.activityState === 'stopped' || torrent.activityState === 'queued') {
-      return new Error('TorrentInactive')
+      return NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentInactive
     }
 
     return null
@@ -79,12 +88,16 @@ export function createNodeIoDaemonEngineHttpStreamBridge(
   }: NodeIoDaemonHttpStreamSessionDescriptor): ActiveHttpStreamSession => {
     const torrent = engine.getTorrent(torrentId)
     if (!torrent) {
-      throw new Error('TorrentNotFound')
+      throw createNodeIoDaemonHttpStreamStatusError(
+        NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentRemoved,
+      )
     }
 
     const file = torrent.files[fileIndex]
     if (!file) {
-      throw new Error('TorrentFileNotFound')
+      throw createNodeIoDaemonHttpStreamStatusError(
+        NODE_IO_DAEMON_HTTP_STREAM_STATUS.StreamSessionMismatch,
+      )
     }
 
     const session = createStreamingPlaybackSession(createStreamingFileProvider(torrent, fileIndex), {
@@ -112,27 +125,39 @@ export function createNodeIoDaemonEngineHttpStreamBridge(
       waitForRange: async (offset, length, signal) => {
         const currentTorrent = engine.getTorrent(torrentId)
         if (!currentTorrent) {
-          throw new Error('TorrentRemoved')
+          throw createNodeIoDaemonHttpStreamStatusError(
+            NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentRemoved,
+          )
         }
         if (currentTorrent !== torrent) {
-          throw new Error('TorrentRemoved')
+          throw createNodeIoDaemonHttpStreamStatusError(
+            NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentRemoved,
+          )
         }
         if (isRangeAvailable(torrent, fileIndex, offset, length)) {
           return
         }
         const unstreamableStateError = getUnstreamableStateError(torrent, fileIndex)
         if (unstreamableStateError) {
-          throw unstreamableStateError
+          throw createNodeIoDaemonHttpStreamStatusError(unstreamableStateError)
         }
 
         try {
           await session.waitForRange(offset, length, signal)
         } catch (error) {
           if (isAbortError(error) && closeReason === 'torrent-stopped') {
-            throw new Error('TorrentStopped')
+            throw createNodeIoDaemonHttpStreamStatusError(
+              NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentStopped,
+            )
           }
           if (isAbortError(error) && closeReason === 'torrent-removed') {
-            throw new Error('TorrentRemoved')
+            throw createNodeIoDaemonHttpStreamStatusError(
+              NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentRemoved,
+            )
+          }
+          const streamStatus = getNodeIoDaemonHttpStreamStatus(error)
+          if (streamStatus) {
+            throw createNodeIoDaemonHttpStreamStatusError(streamStatus)
           }
           throw error
         }
@@ -149,10 +174,18 @@ export function createNodeIoDaemonEngineHttpStreamBridge(
     waitForRange(request: NodeIoDaemonHttpStreamWaitRequest): Promise<void> {
       let session = sessions.get(request.streamToken)
       if (!session) {
-        return Promise.reject(new Error('StreamSessionNotFound'))
+        return Promise.reject(
+          createNodeIoDaemonHttpStreamStatusError(
+            NODE_IO_DAEMON_HTTP_STREAM_STATUS.StreamSessionNotFound,
+          ),
+        )
       }
       if (session.torrentId !== request.torrentId || session.fileIndex !== request.fileIndex) {
-        return Promise.reject(new Error('StreamSessionMismatch'))
+        return Promise.reject(
+          createNodeIoDaemonHttpStreamStatusError(
+            NODE_IO_DAEMON_HTTP_STREAM_STATUS.StreamSessionMismatch,
+          ),
+        )
       }
       if (session.closed && session.torrent.userState === 'active') {
         session = createSession({

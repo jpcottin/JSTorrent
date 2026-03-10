@@ -18,6 +18,10 @@ import type {
   NodeIoDaemonHttpStatus,
   NodeIoDaemonStatus,
 } from './types'
+import {
+  NODE_IO_DAEMON_HTTP_STREAM_STATUS,
+  getNodeIoDaemonHttpStreamStatus,
+} from './types'
 import { NodeIoDaemonRootStore } from './root-store'
 
 interface HttpByteRange {
@@ -694,29 +698,30 @@ export class NodeIoDaemonRuntime {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         const name = error instanceof Error ? error.name : ''
+        const streamStatus = getNodeIoDaemonHttpStreamStatus(error)
         if (name === 'AbortError' || message === 'Aborted') {
           return
         }
-        if (message === 'TorrentStopped') {
+        if (streamStatus === NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentStopped) {
           this.sendText(res, 409, 'Torrent is stopped')
           return
         }
-        if (message === 'TorrentInactive') {
+        if (streamStatus === NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentInactive) {
           this.sendText(res, 409, 'Torrent is not active')
           return
         }
-        if (message === 'TorrentErrored') {
+        if (streamStatus === NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentErrored) {
           this.sendText(res, 409, 'Torrent is in an error state')
           return
         }
-        if (message === 'FileSkipped') {
+        if (streamStatus === NODE_IO_DAEMON_HTTP_STREAM_STATUS.FileSkipped) {
           this.sendText(res, 409, 'File is skipped')
           return
         }
         if (
-          message === 'TorrentRemoved' ||
-          message === 'StreamSessionNotFound' ||
-          message === 'StreamSessionMismatch'
+          streamStatus === NODE_IO_DAEMON_HTTP_STREAM_STATUS.TorrentRemoved ||
+          streamStatus === NODE_IO_DAEMON_HTTP_STREAM_STATUS.StreamSessionNotFound ||
+          streamStatus === NODE_IO_DAEMON_HTTP_STREAM_STATUS.StreamSessionMismatch
         ) {
           await this.revokeHttpStream(token, 'torrent-removed')
           this.sendText(res, 404, 'Not Found')

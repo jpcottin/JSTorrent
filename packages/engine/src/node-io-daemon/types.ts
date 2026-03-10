@@ -1,5 +1,48 @@
 export type NodeIoDaemonBootstrapMode = 'test' | 'realistic'
 
+export const NODE_IO_DAEMON_HTTP_STREAM_STATUS = {
+  FileSkipped: 'FileSkipped',
+  StreamSessionMismatch: 'StreamSessionMismatch',
+  StreamSessionNotFound: 'StreamSessionNotFound',
+  TorrentErrored: 'TorrentErrored',
+  TorrentInactive: 'TorrentInactive',
+  TorrentRemoved: 'TorrentRemoved',
+  TorrentStopped: 'TorrentStopped',
+} as const
+
+export type NodeIoDaemonHttpStreamStatus =
+  (typeof NODE_IO_DAEMON_HTTP_STREAM_STATUS)[keyof typeof NODE_IO_DAEMON_HTTP_STREAM_STATUS]
+
+export function createNodeIoDaemonHttpStreamStatusError(
+  status: NodeIoDaemonHttpStreamStatus,
+): Error {
+  const error = new Error(status)
+  error.name = status
+  return error
+}
+
+export function getNodeIoDaemonHttpStreamStatus(
+  error: unknown,
+): NodeIoDaemonHttpStreamStatus | null {
+  if (!(error instanceof Error)) {
+    return null
+  }
+
+  const candidates = [error.message, error.name]
+  for (const candidate of candidates) {
+    if (
+      candidate &&
+      Object.values(NODE_IO_DAEMON_HTTP_STREAM_STATUS).includes(
+        candidate as NodeIoDaemonHttpStreamStatus,
+      )
+    ) {
+      return candidate as NodeIoDaemonHttpStreamStatus
+    }
+  }
+
+  return null
+}
+
 export type NodeIoDaemonFolderPicker = () =>
   | NodeIoDaemonRoot
   | null
