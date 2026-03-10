@@ -15,7 +15,7 @@ pub async fn middleware(
 ) -> Result<Response, StatusCode> {
     // Allow health check and WebSocket upgrade without auth header
     // WebSocket auth is handled within the protocol
-    if req.uri().path() == "/health" || req.uri().path() == "/io" {
+    if req.uri().path() == "/health" || req.uri().path() == "/io" || req.uri().path() == "/control" {
         return Ok(next.run(req).await);
     }
 
