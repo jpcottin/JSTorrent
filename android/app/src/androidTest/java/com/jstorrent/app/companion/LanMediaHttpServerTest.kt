@@ -254,7 +254,7 @@ class LanMediaHttpServerTest {
     }
 
     @Test
-    fun rangeRequestBlocksThenReturnsPartialContent() {
+    fun conformance__stream__blocks_until_ready__impl__android() {
         val torrentId = "torrent-a"
         val token = "stream-${UUID.randomUUID()}"
         val content = ByteArray(64) { it.toByte() }
@@ -296,7 +296,7 @@ class LanMediaHttpServerTest {
     }
 
     @Test
-    fun concurrentRangeRequestsOnOneTokenCompleteIndependently() {
+    fun conformance__stream__concurrent_readers_are_isolated__impl__android() {
         val torrentId = "torrent-concurrent"
         val token = "stream-${UUID.randomUUID()}"
         val content = ByteArray(128) { (it * 3).toByte() }
@@ -351,7 +351,7 @@ class LanMediaHttpServerTest {
     }
 
     @Test
-    fun cancelingOneConcurrentReaderDoesNotCancelTheOther() {
+    fun conformance__stream__cancel_isolation__impl__android() {
         val torrentId = "torrent-cancel-isolated"
         val token = "stream-${UUID.randomUUID()}"
         val content = ByteArray(128) { (it * 5).toByte() }
@@ -383,15 +383,18 @@ class LanMediaHttpServerTest {
         )
 
         waitForCondition { deps.openedSessionIds.size == 2 && deps.readCount.get() == 2 }
-        val firstSessionId = deps.openedSessionIds[0]
-        val secondSessionId = deps.openedSessionIds[1]
         assertFalse(first.response.isDone)
         assertFalse(second.response.isDone)
 
         first.call.cancel()
-        waitForCondition { deps.closedSessionReasons[firstSessionId] == "client-aborted" }
+        waitForCondition { deps.closedSessionReasons.values.any { it == "client-aborted" } }
+        val abortedSessionId = deps.closedSessionReasons.entries
+            .first { it.value == "client-aborted" }
+            .key
 
-        deps.unblockSessionRead(secondSessionId)
+        deps.openedSessionIds
+            .filterNot { it == abortedSessionId }
+            .forEach { deps.unblockSessionRead(it) }
 
         val secondResponse = second.response.get(5, TimeUnit.SECONDS)
         assertEquals(206, secondResponse.statusCode)
@@ -401,8 +404,8 @@ class LanMediaHttpServerTest {
         val firstFailure = runCatching { first.response.get(5, TimeUnit.SECONDS) }
         assertTrue(firstFailure.isFailure)
         waitForCondition { deps.closedSessionReasons.size == 2 }
-        assertEquals("client-aborted", deps.closedSessionReasons[firstSessionId])
-        assertEquals("request-complete", deps.closedSessionReasons[secondSessionId])
+        assertEquals(1, deps.closedSessionReasons.values.count { it == "client-aborted" })
+        assertEquals(1, deps.closedSessionReasons.values.count { it == "request-complete" })
     }
 
     @Test
@@ -441,7 +444,7 @@ class LanMediaHttpServerTest {
     }
 
     @Test
-    fun torrentStoppedReturnsConflict() {
+    fun conformance__stream__stopped_incomplete_returns_409__impl__android() {
         val torrentId = "torrent-stopped"
         val token = "stream-${UUID.randomUUID()}"
         val content = ByteArray(48) { (it * 2).toByte() }
@@ -475,7 +478,7 @@ class LanMediaHttpServerTest {
     }
 
     @Test
-    fun torrentRemovedLifecycleRevokesToken() {
+    fun conformance__stream__removed_token_returns_404__impl__android() {
         val torrentId = "torrent-removed"
         val token = "stream-${UUID.randomUUID()}"
         val content = ByteArray(24) { (it + 1).toByte() }
@@ -510,6 +513,48 @@ class LanMediaHttpServerTest {
         assertEquals(404, response.statusCode)
         assertEquals(0, deps.openCount.get())
         assertEquals(0, deps.readCount.get())
+    }
+
+    @Test
+    fun conformance__stream__multi_chunk_waits__impl__android() {
+        val torrentId = "torrent-multi-chunk"
+        val token = "stream-${UUID.randomUUID()}"
+        val content = ByteArray(2 * 256 * 1024 + 8192) { (it % 251).toByte() }
+        deps.registerTorrentFile(torrentId, 0, "multi-chunk.bin", content)
+        val gate = deps.blockReadsForTorrent(torrentId)
+        registry.register(
+            ownerId = "owner-multi",
+            backendKind = HttpStreamBackendKind.LocalApp,
+            token = token,
+            torrentId = torrentId,
+            fileIndex = 0,
+            rootKey = "root-a",
+            path = "multi-chunk.bin",
+            fileSize = content.size.toLong(),
+            mimeType = "application/octet-stream",
+        )
+
+        val future = startRequest(
+            Request.Builder()
+                .url(streamUrl(token))
+                .header("Range", "bytes=0-${content.size - 1}")
+                .build()
+        )
+
+        assertTrue("first read should start", deps.readStarted.await(5, TimeUnit.SECONDS))
+        Thread.sleep(200)
+        assertFalse("request should still be blocked", future.isDone)
+
+        gate.complete(Unit)
+        val response = future.get(5, TimeUnit.SECONDS)
+
+        assertEquals(206, response.statusCode)
+        assertEquals("bytes 0-${content.size - 1}/${content.size}", response.headers["Content-Range"])
+        assertArrayEquals(content, response.body)
+        assertEquals(1, deps.openCount.get())
+        assertEquals(3, deps.readCount.get())
+        waitForCondition { deps.closedSessionReasons.size == 1 }
+        assertEquals("request-complete", deps.closedSessionReasons.values.single())
     }
 
     private fun streamUrl(token: String): String = "http://127.0.0.1:${server.boundPort}/stream/$token"

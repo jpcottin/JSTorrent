@@ -13,6 +13,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.junit.After
 import org.junit.Before
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
@@ -142,5 +143,20 @@ abstract class CompanionTestBase {
         // API: pair(token, installId, extensionId)
         tokenStore.pair(token, "test-install-id-12345", "testextensionid")
         return token
+    }
+
+    protected fun addTestFileRoot(token: String, name: String = "test_downloads_${System.currentTimeMillis()}"): Pair<String, File> {
+        val testDir = File(context.filesDir, name)
+        testDir.mkdirs()
+
+        val result = rootStore.addTestRoot(
+            uri = "file://${testDir.absolutePath}",
+            displayName = "Test Downloads"
+        )
+
+        // Trigger server root reload from disk.
+        get("/roots", extensionHeaders(token))
+
+        return result.key to testDir
     }
 }

@@ -1,0 +1,79 @@
+name: IO Daemon Android Conformance
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'packages/engine/**'
+      - 'contracts/**'
+      - 'docs/contracts/**'
+      - '.github/workflows/io-daemon-android-conformance.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'packages/engine/**'
+      - 'contracts/**'
+      - 'docs/contracts/**'
+      - '.github/workflows/io-daemon-android-conformance.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  android-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build engine bundle
+        run: pnpm -C packages/engine bundle:native
+
+      - name: Build Debug APK and Test APK
+        run: cd android && ./gradlew assembleDebug assembleDebugAndroidTest
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Android daemon conformance
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
+          disable-animations: true
+          script: pnpm -C packages/engine run conformance:daemon -- --implementations=android

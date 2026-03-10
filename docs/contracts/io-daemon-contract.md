@@ -227,8 +227,11 @@ Current runner:
 
 - `pnpm -C packages/engine run conformance:daemon`
 - today this gates `node` and `rust`
+- Android can be run explicitly with `pnpm -C packages/engine run conformance:daemon -- --implementations=android` when an emulator/device is available
+- the Android runner installs the debug app/test APKs and executes the tagged instrumented classes directly through `adb shell am instrument`
+- CI runs Android conformance in a dedicated emulator workflow rather than the default Node/Rust gate
 - the first gate is limited to the shared Node/Rust cases currently implemented in managed mode; bootstrap `/status` remains Node/Android-only in the manifest for now
-- `android` remains in the manifest but is not part of the Node runner until the instrumented companion tests are tagged with the same case IDs and exposed through an adapter
+- Android currently participates in the daemon HTTP/media cases only; the `watch_video.*` daemon-backed engine cases remain Node/Rust-specific and are `N/A` for Android in the matrix
 
 Initial case areas:
 

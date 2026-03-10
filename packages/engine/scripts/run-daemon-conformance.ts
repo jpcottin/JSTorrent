@@ -54,7 +54,13 @@ const __dirname = dirname(__filename)
 const engineRoot = resolve(__dirname, '..')
 const repoRoot = resolve(engineRoot, '..', '..')
 const contractsPath = resolve(repoRoot, 'contracts', 'io-daemon-conformance.json')
-const titlePattern = /\[conformance:([^\]]+)\]\[impl:(node|rust|android)\]/
+const bracketedTitlePattern = /\[conformance:([^\]]+)\]\[impl:(node|rust|android)\]/
+const androidSafeTitlePattern =
+  /conformance__([a-z0-9_]+(?:__[a-z0-9_]+)*)__impl__(node|rust|android)(?:__|$)/
+const androidConformanceClasses = [
+  'com.jstorrent.app.companion.DaemonContractHttpConformanceTest',
+  'com.jstorrent.app.companion.LanMediaHttpServerTest',
+]
 
 function parseImplementations(argv: string[]): Implementation[] {
   const arg = argv.find(value => value.startsWith('--implementations='))
@@ -83,12 +89,6 @@ function readManifest(): ConformanceManifest {
 }
 
 function runVitestForImplementation(implementation: Implementation, outputFile: string): VitestJsonReport {
-  if (implementation === 'android') {
-    throw new Error(
-      'Android conformance is not wired into the Node runner yet. Tag the instrumented tests and add an Android adapter before gating it here.',
-    )
-  }
-
   if (implementation === 'rust') {
     console.log('Building Rust IO daemon binary...')
     const buildResult = spawnSync('cargo', ['build', '-p', 'jstorrent-io-daemon'], {
@@ -141,19 +141,118 @@ function runVitestForImplementation(implementation: Implementation, outputFile: 
   return report
 }
 
+function runAndroidInstrumentedConformance(): ParsedAssertion[] {
+  const androidRoot = resolve(repoRoot, 'android')
+  console.log('Installing Android app and test APKs...')
+  const installResult = spawnSync(
+    './gradlew',
+    [':app:installDebug', ':app:installDebugAndroidTest'],
+    {
+      cwd: androidRoot,
+      encoding: 'utf8',
+      stdio: 'pipe',
+    },
+  )
+
+  if (installResult.status !== 0) {
+    process.stdout.write(installResult.stdout)
+    process.stderr.write(installResult.stderr)
+    throw new Error(`Android conformance install failed with exit code ${installResult.status ?? 'unknown'}`)
+  }
+
+  console.log('Running android conformance suite...')
+  const assertions: ParsedAssertion[] = []
+  for (const className of androidConformanceClasses) {
+    const instrumentResult = spawnSync(
+      'adb',
+      [
+        'shell',
+        'am',
+        'instrument',
+        '-w',
+        '-r',
+        '-e',
+        'class',
+        className,
+        'com.jstorrent.app.test/androidx.test.runner.AndroidJUnitRunner',
+      ],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: 'pipe',
+      },
+    )
+
+    const output = `${instrumentResult.stdout}${instrumentResult.stderr}`
+    const classAssertions = collectAndroidAssertionsFromInstrumentationOutput(output)
+    assertions.push(...classAssertions)
+
+    if (instrumentResult.status !== 0 && classAssertions.length === 0) {
+      process.stdout.write(instrumentResult.stdout)
+      process.stderr.write(instrumentResult.stderr)
+      throw new Error(
+        `Android instrumentation for ${className} failed with exit code ${instrumentResult.status ?? 'unknown'}`,
+      )
+    }
+  }
+
+  if (assertions.length === 0) {
+    throw new Error('Android conformance suite completed without instrumented test results')
+  }
+
+  return assertions
+}
+
+function collectAndroidAssertionsFromInstrumentationOutput(output: string): ParsedAssertion[] {
+  const assertions: ParsedAssertion[] = []
+  const lines = output.split(/\r?\n/)
+  let currentTestName: string | null = null
+
+  for (const line of lines) {
+    if (line.startsWith('INSTRUMENTATION_STATUS: test=')) {
+      currentTestName = line.slice('INSTRUMENTATION_STATUS: test='.length).trim()
+      continue
+    }
+
+    if (!line.startsWith('INSTRUMENTATION_STATUS_CODE:') || currentTestName == null) {
+      continue
+    }
+
+    const code = Number.parseInt(line.slice('INSTRUMENTATION_STATUS_CODE:'.length).trim(), 10)
+    if (code === 1) {
+      continue
+    }
+
+    const parsed = parseConformanceTitle(currentTestName)
+    if (!parsed) {
+      currentTestName = null
+      continue
+    }
+
+    assertions.push({
+      implementation: parsed.implementation,
+      caseId: parsed.caseId,
+      status: code === 0 ? 'passed' : 'failed',
+      title: currentTestName,
+    })
+    currentTestName = null
+  }
+
+  return assertions
+}
+
 function collectAssertions(report: VitestJsonReport): ParsedAssertion[] {
   const assertions: ParsedAssertion[] = []
 
   for (const suite of report.testResults) {
     for (const assertion of suite.assertionResults) {
-      const match = titlePattern.exec(assertion.title)
-      if (!match) {
+      const parsed = parseConformanceTitle(assertion.title)
+      if (!parsed) {
         continue
       }
-      const [, caseId, implementation] = match
       assertions.push({
-        implementation: implementation as Implementation,
-        caseId,
+        implementation: parsed.implementation,
+        caseId: parsed.caseId,
         status: assertion.status,
         title: assertion.title,
       })
@@ -161,6 +260,26 @@ function collectAssertions(report: VitestJsonReport): ParsedAssertion[] {
   }
 
   return assertions
+}
+
+function parseConformanceTitle(title: string): { caseId: string; implementation: Implementation } | null {
+  const bracketedMatch = bracketedTitlePattern.exec(title)
+  if (bracketedMatch) {
+    return {
+      caseId: bracketedMatch[1],
+      implementation: bracketedMatch[2] as Implementation,
+    }
+  }
+
+  const androidSafeMatch = androidSafeTitlePattern.exec(title)
+  if (androidSafeMatch) {
+    return {
+      caseId: androidSafeMatch[1].replaceAll('__', '.'),
+      implementation: androidSafeMatch[2] as Implementation,
+    }
+  }
+
+  return null
 }
 
 function aggregateByImplementation(assertions: ParsedAssertion[]): Map<Implementation, Map<string, AggregateResult>> {
@@ -265,9 +384,12 @@ function main(): void {
   try {
     const allAssertions: ParsedAssertion[] = []
     for (const implementation of implementations) {
-      const outputFile = join(tempDir, `${implementation}.json`)
-      const report = runVitestForImplementation(implementation, outputFile)
-      const assertions = collectAssertions(report)
+      const assertions =
+        implementation === 'android'
+          ? runAndroidInstrumentedConformance()
+          : collectAssertions(
+              runVitestForImplementation(implementation, join(tempDir, `${implementation}.json`)),
+            )
       allAssertions.push(...assertions)
     }
 

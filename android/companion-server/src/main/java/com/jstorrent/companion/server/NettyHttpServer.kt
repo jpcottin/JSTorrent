@@ -33,6 +33,19 @@ private const val TAG = "NettyHttpServer"
 private const val MAX_BODY_SIZE = 64 * 1024 * 1024 // 64MB
 
 @Serializable
+private data class StatusCapabilities(
+    val health: Boolean,
+    val status: Boolean,
+    val ioWebSocket: Boolean,
+    val controlEvents: Boolean,
+    val rootsRead: Boolean,
+    val rootsWrite: Boolean,
+    val fileOps: Boolean,
+    val mediaCompleteFile206: Boolean,
+    val mediaBlocking206: Boolean
+)
+
+@Serializable
 private data class StatusResponse(
     val port: Int,
     val ioPort: Int? = null,
@@ -41,7 +54,8 @@ private data class StatusResponse(
     val extensionId: String? = null,
     val installId: String? = null,
     val version: String? = null,
-    val tokenValid: Boolean? = null
+    val tokenValid: Boolean? = null,
+    val capabilities: StatusCapabilities,
 )
 
 @Serializable
@@ -431,7 +445,18 @@ private class NettyHttpHandler(
             extensionId = deps.tokenStore.extensionId,
             installId = deps.tokenStore.installId,
             version = deps.versionName,
-            tokenValid = tokenValid
+            tokenValid = tokenValid,
+            capabilities = StatusCapabilities(
+                health = true,
+                status = true,
+                ioWebSocket = true,
+                controlEvents = true,
+                rootsRead = true,
+                rootsWrite = true,
+                fileOps = true,
+                mediaCompleteFile206 = true,
+                mediaBlocking206 = true,
+            )
         )
 
         sendJsonResponse(ctx, request, HttpResponseStatus.OK, json.encodeToString(response))

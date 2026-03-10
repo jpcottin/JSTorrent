@@ -55,12 +55,12 @@
     {
       "id": "watch_video.unskip_and_start_incomplete_torrent",
       "kind": "behavior",
-      "requiredIn": ["node", "rust", "android"]
+      "requiredIn": ["node", "rust"]
     },
     {
       "id": "watch_video.complete_stopped_torrent_stays_stopped",
       "kind": "behavior",
-      "requiredIn": ["node", "rust", "android"]
+      "requiredIn": ["node", "rust"]
     },
     {
       "id": "download.root_added_after_engine_creation",
