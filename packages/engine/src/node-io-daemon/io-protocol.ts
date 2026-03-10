@@ -12,6 +12,10 @@ export const IO_OP_TCP_CONNECTED = 0x11
 export const IO_OP_TCP_SEND = 0x12
 export const IO_OP_TCP_RECV = 0x13
 export const IO_OP_TCP_CLOSE = 0x14
+export const IO_OP_TCP_LISTEN = 0x15
+export const IO_OP_TCP_LISTEN_RESULT = 0x16
+export const IO_OP_TCP_ACCEPT = 0x17
+export const IO_OP_TCP_STOP_LISTEN = 0x18
 
 export interface IoProtocolEnvelope {
   version: number

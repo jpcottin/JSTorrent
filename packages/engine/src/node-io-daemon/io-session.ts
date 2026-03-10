@@ -4,11 +4,15 @@ import {
   IO_OP_AUTH,
   IO_OP_CLIENT_HELLO,
   IO_OP_SERVER_HELLO,
+  IO_OP_TCP_ACCEPT,
   IO_OP_TCP_CLOSE,
   IO_OP_TCP_CONNECT,
   IO_OP_TCP_CONNECTED,
+  IO_OP_TCP_LISTEN,
+  IO_OP_TCP_LISTEN_RESULT,
   IO_OP_TCP_RECV,
   IO_OP_TCP_SEND,
+  IO_OP_TCP_STOP_LISTEN,
   IO_PROTOCOL_VERSION,
   buildIoProtocolAuthResultFrame,
   buildIoProtocolErrorFrame,
@@ -40,10 +44,16 @@ interface TcpSocketRecord {
   active: boolean
 }
 
+interface TcpServerRecord {
+  server: net.Server
+}
+
 export class NodeIoDaemonIoSession {
   private state: SessionState = 'await_hello'
   private buffer = Buffer.alloc(0)
   private readonly tcpSockets = new Map<number, TcpSocketRecord>()
+  private readonly tcpServers = new Map<number, TcpServerRecord>()
+  private nextAcceptedSocketId = 0x10000
 
   constructor(private readonly options: NodeIoDaemonIoSessionOptions) {
     const { socket } = options
@@ -94,6 +104,7 @@ export class NodeIoDaemonIoSession {
     }
     this.state = 'closed'
     this.destroyTcpSockets()
+    this.destroyTcpServers()
     this.options.socket.destroy()
     this.options.onClose()
   }
@@ -104,6 +115,7 @@ export class NodeIoDaemonIoSession {
     }
     this.state = 'closed'
     this.destroyTcpSockets()
+    this.destroyTcpServers()
     this.options.onClose()
   }
 
@@ -227,6 +239,16 @@ export class NodeIoDaemonIoSession {
       return
     }
 
+    if (envelope.msgType === IO_OP_TCP_LISTEN) {
+      this.handleTcpListen(envelope.requestId, envelope.payload)
+      return
+    }
+
+    if (envelope.msgType === IO_OP_TCP_STOP_LISTEN) {
+      this.handleTcpStopListen(envelope.payload)
+      return
+    }
+
     if (envelope.msgType === IO_OP_TCP_CLOSE) {
       this.handleTcpClose(envelope.payload)
       return
@@ -297,6 +319,75 @@ export class NodeIoDaemonIoSession {
     socket.once('error', handleError)
   }
 
+  private handleTcpListen(requestId: number, payload: Uint8Array): void {
+    if (payload.byteLength < 6) {
+      this.sendProtocolFrame(
+        IO_OP_TCP_LISTEN_RESULT,
+        requestId,
+        this.buildTcpListenFailurePayload(0),
+      )
+      return
+    }
+
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+    const serverId = view.getUint32(0, true)
+    const port = view.getUint16(4, true)
+    const bindAddr = new TextDecoder().decode(payload.slice(6))
+    const host = bindAddr || '0.0.0.0'
+
+    if (this.tcpServers.has(serverId)) {
+      this.sendProtocolFrame(
+        IO_OP_TCP_LISTEN_RESULT,
+        requestId,
+        this.buildTcpListenFailurePayload(serverId),
+      )
+      return
+    }
+
+    const server = net.createServer((socket) => {
+      const socketId = this.nextAcceptedSocketId++
+      this.tcpSockets.set(socketId, { socket, active: true })
+      socket.setNoDelay(true)
+      this.attachActiveTcpSocket(socketId, socket)
+
+      this.sendProtocolFrame(
+        IO_OP_TCP_ACCEPT,
+        0,
+        this.buildTcpAcceptPayload(
+          serverId,
+          socketId,
+          socket.remotePort ?? 0,
+          socket.remoteAddress ?? '',
+        ),
+      )
+    })
+
+    server.on('error', () => {
+      if (this.tcpServers.get(serverId)?.server === server) {
+        this.tcpServers.delete(serverId)
+      }
+      this.sendProtocolFrame(
+        IO_OP_TCP_LISTEN_RESULT,
+        requestId,
+        this.buildTcpListenFailurePayload(serverId),
+      )
+    })
+
+    server.listen(port, host, () => {
+      const address = server.address()
+      const boundPort =
+        typeof address === 'object' && address && typeof address.port === 'number'
+          ? address.port
+          : 0
+      this.tcpServers.set(serverId, { server })
+      this.sendProtocolFrame(
+        IO_OP_TCP_LISTEN_RESULT,
+        requestId,
+        this.buildTcpListenSuccessPayload(serverId, boundPort),
+      )
+    })
+  }
+
   private handleTcpSend(payload: Uint8Array): void {
     if (payload.byteLength < 4) {
       return
@@ -312,12 +403,7 @@ export class NodeIoDaemonIoSession {
 
     if (!record.active) {
       record.active = true
-      record.socket.on('data', (chunk: Buffer) => {
-        const data = new Uint8Array(4 + chunk.byteLength)
-        new DataView(data.buffer).setUint32(0, socketId, true)
-        data.set(chunk, 4)
-        this.sendProtocolFrame(IO_OP_TCP_RECV, 0, data)
-      })
+      this.attachActiveTcpSocket(socketId, record.socket)
     }
 
     const writePayload = Buffer.from(payload.slice(4))
@@ -350,6 +436,24 @@ export class NodeIoDaemonIoSession {
     record.socket.destroy()
   }
 
+  private handleTcpStopListen(payload: Uint8Array): void {
+    if (payload.byteLength < 4) {
+      return
+    }
+
+    const serverId = new DataView(payload.buffer, payload.byteOffset, payload.byteLength).getUint32(
+      0,
+      true,
+    )
+    const record = this.tcpServers.get(serverId)
+    if (!record) {
+      return
+    }
+
+    this.tcpServers.delete(serverId)
+    record.server.close()
+  }
+
   private handleSocketClosed(socketId: number, hadError: boolean): void {
     const record = this.tcpSockets.get(socketId)
     if (!record) {
@@ -367,6 +471,18 @@ export class NodeIoDaemonIoSession {
     payload[4] = hadError ? 1 : 0
     view.setUint32(5, 0, true)
     this.sendProtocolFrame(IO_OP_TCP_CLOSE, 0, payload)
+  }
+
+  private attachActiveTcpSocket(socketId: number, socket: net.Socket): void {
+    socket.on('data', (chunk: Buffer) => {
+      const data = new Uint8Array(4 + chunk.byteLength)
+      new DataView(data.buffer).setUint32(0, socketId, true)
+      data.set(chunk, 4)
+      this.sendProtocolFrame(IO_OP_TCP_RECV, 0, data)
+    })
+    socket.on('close', (hadError) => {
+      this.handleSocketClosed(socketId, hadError)
+    })
   }
 
   private buildTcpConnectSuccessPayload(socketId: number, remoteAddress: string): Uint8Array {
@@ -390,10 +506,53 @@ export class NodeIoDaemonIoSession {
     return payload
   }
 
+  private buildTcpListenSuccessPayload(serverId: number, boundPort: number): Uint8Array {
+    const payload = new Uint8Array(11)
+    const view = new DataView(payload.buffer)
+    view.setUint32(0, serverId, true)
+    payload[4] = 0
+    view.setUint16(5, boundPort, true)
+    view.setUint32(7, 0, true)
+    return payload
+  }
+
+  private buildTcpListenFailurePayload(serverId: number): Uint8Array {
+    const payload = new Uint8Array(11)
+    const view = new DataView(payload.buffer)
+    view.setUint32(0, serverId, true)
+    payload[4] = 1
+    view.setUint16(5, 0, true)
+    view.setUint32(7, 1, true)
+    return payload
+  }
+
+  private buildTcpAcceptPayload(
+    serverId: number,
+    socketId: number,
+    remotePort: number,
+    remoteAddress: string,
+  ): Uint8Array {
+    const remoteAddressBytes = new TextEncoder().encode(remoteAddress)
+    const payload = new Uint8Array(10 + remoteAddressBytes.byteLength)
+    const view = new DataView(payload.buffer)
+    view.setUint32(0, serverId, true)
+    view.setUint32(4, socketId, true)
+    view.setUint16(8, remotePort, true)
+    payload.set(remoteAddressBytes, 10)
+    return payload
+  }
+
   private destroyTcpSockets(): void {
     for (const [socketId, record] of this.tcpSockets) {
       this.tcpSockets.delete(socketId)
       record.socket.destroy()
+    }
+  }
+
+  private destroyTcpServers(): void {
+    for (const [serverId, record] of this.tcpServers) {
+      this.tcpServers.delete(serverId)
+      record.server.close()
     }
   }
 
@@ -431,6 +590,7 @@ export class NodeIoDaemonIoSession {
 
     this.state = 'closed'
     this.destroyTcpSockets()
+    this.destroyTcpServers()
     this.options.socket.end(encodeCloseWebSocketFrame(code, reason))
     this.options.onClose()
   }

@@ -4,10 +4,12 @@ import {
   PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES,
   PHASE_TWO_NODE_IO_DAEMON_CAPABILITIES,
   PHASE_THREE_NODE_IO_DAEMON_CAPABILITIES,
+  PHASE_FOUR_NODE_IO_DAEMON_CAPABILITIES,
   createPhaseZeroNodeIoDaemonCapabilities,
   createPhaseOneNodeIoDaemonCapabilities,
   createPhaseTwoNodeIoDaemonCapabilities,
   createPhaseThreeNodeIoDaemonCapabilities,
+  createPhaseFourNodeIoDaemonCapabilities,
 } from '../../src/node-io-daemon/capabilities'
 
 describe('node-io-daemon capabilities', () => {
@@ -49,5 +51,13 @@ describe('node-io-daemon capabilities', () => {
     )
     expect(PHASE_THREE_NODE_IO_DAEMON_CAPABILITIES.ioWebSocket).toBe(true)
     expect(PHASE_THREE_NODE_IO_DAEMON_CAPABILITIES.fileOps).toBe(false)
+  })
+
+  it('keeps the phase four capability surface stable while listen/accept lands', () => {
+    expect(createPhaseFourNodeIoDaemonCapabilities()).toEqual(
+      PHASE_FOUR_NODE_IO_DAEMON_CAPABILITIES,
+    )
+    expect(PHASE_FOUR_NODE_IO_DAEMON_CAPABILITIES.ioWebSocket).toBe(true)
+    expect(PHASE_FOUR_NODE_IO_DAEMON_CAPABILITIES.controlEvents).toBe(false)
   })
 })

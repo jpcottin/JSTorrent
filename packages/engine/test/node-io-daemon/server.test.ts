@@ -50,7 +50,7 @@ async function makeRequest(
   })
 }
 
-describe('node-io-daemon phase three server', () => {
+describe('node-io-daemon phase four server', () => {
   let daemon: ReturnType<typeof createNodeIoDaemon> | null = null
   let tcpServer: net.Server | null = null
 
@@ -82,7 +82,7 @@ describe('node-io-daemon phase three server', () => {
 
     expect(daemon.getStatus()).toEqual({
       implementation: 'node-io-daemon',
-      phase: 'phase3',
+      phase: 'phase4',
       started: false,
       host: '127.0.0.1',
       port: 0,
@@ -145,7 +145,7 @@ describe('node-io-daemon phase three server', () => {
     expect(payload.ioPort).toBe(startedStatus.port)
     expect(payload.paired).toBe(true)
     expect(payload.tokenValid).toBe(true)
-    expect(payload.phase).toBe('phase3')
+    expect(payload.phase).toBe('phase4')
     expect(payload.capabilities.ioWebSocket).toBe(true)
 
     const notFound = await makeRequest(startedStatus.port, '/missing')
@@ -154,7 +154,7 @@ describe('node-io-daemon phase three server', () => {
     await daemon.stop()
     expect(daemon.getStatus()).toEqual({
       implementation: 'node-io-daemon',
-      phase: 'phase3',
+      phase: 'phase4',
       started: false,
       host: '127.0.0.1',
       port: 0,
@@ -266,6 +266,89 @@ describe('node-io-daemon phase three server', () => {
       connection.close()
     }
   })
+
+  it('supports inbound TCP listen and accept through the daemon socket adapter', async () => {
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+    })
+    await daemon.start()
+
+    const status = await fetchDaemonStatus(
+      '127.0.0.1',
+      daemon.getStatus().port,
+      'secret',
+      'extension-id',
+      'install',
+    )
+    const connection = new DaemonConnection(
+      daemon.getStatus().port,
+      '127.0.0.1',
+      undefined,
+      'secret',
+      status.ioPort,
+    )
+    const factory = new DaemonSocketFactory(connection)
+
+    try {
+      await connection.connectWebSocket()
+      const server = factory.createTcpServer()
+
+      const acceptedSocketPromise = new Promise<{
+        remoteAddress: string | undefined
+        remotePort: number | undefined
+        socket: { onData(cb: (data: Uint8Array) => void): void; send(data: Uint8Array): void }
+      }>((resolve) => {
+        server.on('connection', (socket: { remoteAddress?: string; remotePort?: number }) => {
+          resolve({
+            remoteAddress: socket.remoteAddress,
+            remotePort: socket.remotePort,
+            socket: socket as {
+              onData(cb: (data: Uint8Array) => void): void
+              send(data: Uint8Array): void
+            },
+          })
+        })
+      })
+
+      server.listen(0)
+      await waitForConditionWithDaemonFlush(factory, () => server.address() !== null)
+
+      const address = server.address()
+      expect(address).not.toBeNull()
+      const port = address!.port
+      expect(port).toBeGreaterThan(0)
+
+      const client = net.createConnection({ host: '127.0.0.1', port })
+
+      const accepted = await waitForWithDaemonFlush(factory, acceptedSocketPromise)
+      expect(accepted.remoteAddress).toBeTruthy()
+      expect(accepted.remotePort).toBeGreaterThan(0)
+
+      const serverDataPromise = new Promise<string>((resolve) => {
+        accepted.socket.onData((data) => {
+          resolve(Buffer.from(data).toString('utf8'))
+        })
+      })
+
+      client.write('hello-server')
+      await expect(waitForWithDaemonFlush(factory, serverDataPromise)).resolves.toBe('hello-server')
+
+      const clientDataPromise = new Promise<string>((resolve) => {
+        client.once('data', (chunk) => resolve(Buffer.from(chunk).toString('utf8')))
+      })
+
+      accepted.socket.send(new TextEncoder().encode('hello-client'))
+      await expect(clientDataPromise).resolves.toBe('hello-client')
+
+      client.destroy()
+      server.close()
+    } finally {
+      connection.close()
+    }
+  })
 })
 
 async function waitForWithDaemonFlush<T>(
@@ -302,4 +385,19 @@ async function waitForWithDaemonFlush<T>(
   }
 
   return value as T
+}
+
+async function waitForConditionWithDaemonFlush(
+  factory: DaemonSocketFactory,
+  condition: () => boolean,
+  timeoutMs = 2000,
+): Promise<void> {
+  const start = Date.now()
+  while (!condition()) {
+    factory.flushCallbacks()
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('Timed out waiting for daemon condition')
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
 }
