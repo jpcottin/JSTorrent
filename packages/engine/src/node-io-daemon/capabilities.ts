@@ -15,3 +15,13 @@ export const PHASE_ZERO_NODE_IO_DAEMON_CAPABILITIES: NodeIoDaemonCapabilities = 
 export function createPhaseZeroNodeIoDaemonCapabilities(): NodeIoDaemonCapabilities {
   return { ...PHASE_ZERO_NODE_IO_DAEMON_CAPABILITIES }
 }
+
+export const PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES: NodeIoDaemonCapabilities = {
+  ...PHASE_ZERO_NODE_IO_DAEMON_CAPABILITIES,
+  health: true,
+  status: true,
+}
+
+export function createPhaseOneNodeIoDaemonCapabilities(): NodeIoDaemonCapabilities {
+  return { ...PHASE_ONE_NODE_IO_DAEMON_CAPABILITIES }
+}

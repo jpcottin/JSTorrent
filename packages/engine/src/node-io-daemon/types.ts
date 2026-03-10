@@ -22,7 +22,7 @@ export interface NodeIoDaemonCapabilities {
 
 export interface NodeIoDaemonStatus {
   implementation: 'node-io-daemon'
-  phase: 'phase0'
+  phase: 'phase0' | 'phase1'
   started: boolean
   host: string
   port: number
