@@ -16,6 +16,7 @@ import com.jstorrent.companion.server.TorrentHttpStreamLifecycleEvent
 import com.jstorrent.companion.server.TorrentHttpStreamSessionInfo
 import com.jstorrent.companion.server.TorrentHttpStreamStatus
 import com.jstorrent.io.file.FileManagerImpl
+import java.io.IOException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -26,6 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import okhttp3.Headers
 import okhttp3.OkHttpClient
+import okhttp3.Call
 import okhttp3.Request
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -42,6 +44,11 @@ private data class HttpResponseData(
     val statusCode: Int,
     val headers: Headers,
     val body: ByteArray,
+)
+
+private data class ManagedHttpRequest(
+    val call: Call,
+    val response: CompletableFuture<HttpResponseData>,
 )
 
 private data class FakeTorrentFileKey(
@@ -64,6 +71,8 @@ private class FakeLanMediaDeps(
     private val activeSessions = ConcurrentHashMap<String, FakeActiveSession>()
     private val failureByTorrentId = ConcurrentHashMap<String, TorrentHttpStreamStatus>()
     private val blockReadsGate = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
+    private val individuallyBlockedTorrents = ConcurrentHashMap.newKeySet<String>()
+    private val sessionReadGates = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
 
     val openCount = AtomicInteger(0)
     val readCount = AtomicInteger(0)
@@ -131,6 +140,14 @@ private class FakeLanMediaDeps(
         }
     }
 
+    fun blockReadsPerSessionForTorrent(torrentId: String) {
+        individuallyBlockedTorrents += torrentId
+    }
+
+    fun unblockSessionRead(sessionId: String) {
+        sessionReadGates[sessionId]?.complete(Unit)
+    }
+
     fun emitLifecycle(event: TorrentHttpStreamLifecycleEvent) {
         listeners.forEach { it(event) }
     }
@@ -145,6 +162,9 @@ private class FakeLanMediaDeps(
             ?: throw TorrentHttpStreamException(TorrentHttpStreamStatus.StreamSessionMismatch)
         openCount.incrementAndGet()
         openedSessionIds += sessionId
+        if (individuallyBlockedTorrents.contains(torrentId)) {
+            sessionReadGates[sessionId] = CompletableDeferred()
+        }
         activeSessions[sessionId] = FakeActiveSession(
             torrentId = torrentId,
             fileIndex = fileIndex,
@@ -163,7 +183,13 @@ private class FakeLanMediaDeps(
         readCount.incrementAndGet()
         readStarted.countDown()
 
+        sessionReadGates[sessionId]?.await()
         blockReadsGate[session.torrentId]?.await()
+
+        val closeReason = closedSessionReasons[sessionId]
+        if (closeReason == "client-aborted" || !activeSessions.containsKey(sessionId)) {
+            throw IOException("Aborted")
+        }
 
         failureByTorrentId[session.torrentId]?.let { status ->
             throw TorrentHttpStreamException(status)
@@ -177,6 +203,7 @@ private class FakeLanMediaDeps(
     override fun closeTorrentHttpStreamSession(sessionId: String, reason: String) {
         closedSessionReasons[sessionId] = reason
         activeSessions.remove(sessionId)
+        sessionReadGates.remove(sessionId)?.complete(Unit)
     }
 
     override fun subscribeTorrentHttpStreamLifecycle(
@@ -319,6 +346,60 @@ class LanMediaHttpServerTest {
     }
 
     @Test
+    fun cancelingOneConcurrentReaderDoesNotCancelTheOther() {
+        val torrentId = "torrent-cancel-isolated"
+        val token = "stream-${UUID.randomUUID()}"
+        val content = ByteArray(128) { (it * 5).toByte() }
+        deps.registerTorrentFile(torrentId, 0, content)
+        deps.blockReadsPerSessionForTorrent(torrentId)
+        registry.register(
+            ownerId = "owner-cancel",
+            token = token,
+            torrentId = torrentId,
+            fileIndex = 0,
+            rootKey = "root-a",
+            path = "cancel.bin",
+            fileSize = content.size.toLong(),
+            mimeType = "application/octet-stream",
+        )
+
+        val first = startManagedRequest(
+            Request.Builder()
+                .url(streamUrl(token))
+                .header("Range", "bytes=0-15")
+                .build()
+        )
+        val second = startManagedRequest(
+            Request.Builder()
+                .url(streamUrl(token))
+                .header("Range", "bytes=32-47")
+                .build()
+        )
+
+        waitForCondition { deps.openedSessionIds.size == 2 && deps.readCount.get() == 2 }
+        val firstSessionId = deps.openedSessionIds[0]
+        val secondSessionId = deps.openedSessionIds[1]
+        assertFalse(first.response.isDone)
+        assertFalse(second.response.isDone)
+
+        first.call.cancel()
+        waitForCondition { deps.closedSessionReasons[firstSessionId] == "client-aborted" }
+
+        deps.unblockSessionRead(secondSessionId)
+
+        val secondResponse = second.response.get(5, TimeUnit.SECONDS)
+        assertEquals(206, secondResponse.statusCode)
+        assertEquals("bytes 32-47/${content.size}", secondResponse.headers["Content-Range"])
+        assertArrayEquals(content.copyOfRange(32, 48), secondResponse.body)
+
+        val firstFailure = runCatching { first.response.get(5, TimeUnit.SECONDS) }
+        assertTrue(firstFailure.isFailure)
+        waitForCondition { deps.closedSessionReasons.size == 2 }
+        assertEquals("client-aborted", deps.closedSessionReasons[firstSessionId])
+        assertEquals("request-complete", deps.closedSessionReasons[secondSessionId])
+    }
+
+    @Test
     fun headRequestDoesNotOpenTorrentStreamSession() {
         val torrentId = "torrent-head"
         val token = "stream-${UUID.randomUUID()}"
@@ -438,6 +519,22 @@ class LanMediaHttpServerTest {
         return CompletableFuture.supplyAsync {
             execute(request)
         }
+    }
+
+    private fun startManagedRequest(request: Request): ManagedHttpRequest {
+        val call = httpClient.newCall(request)
+        return ManagedHttpRequest(
+            call = call,
+            response = CompletableFuture.supplyAsync {
+                call.execute().use { response ->
+                    HttpResponseData(
+                        statusCode = response.code,
+                        headers = response.headers,
+                        body = response.body?.bytes() ?: ByteArray(0),
+                    )
+                }
+            },
+        )
     }
 
     private fun waitForCondition(
