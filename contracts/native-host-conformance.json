@@ -1,0 +1,36 @@
+{
+  "protocolVersion": 1,
+  "behaviorVersion": 1,
+  "cases": [
+    {
+      "id": "handshake.daemon_info_is_returned",
+      "kind": "shape",
+      "requiredIn": ["rust"]
+    },
+    {
+      "id": "handshake.capabilities_are_reported",
+      "kind": "shape",
+      "requiredIn": ["rust"]
+    },
+    {
+      "id": "handshake.roots_are_included_in_daemon_info",
+      "kind": "shape",
+      "requiredIn": ["rust"]
+    },
+    {
+      "id": "handshake.profile_in_use_is_reported",
+      "kind": "behavior",
+      "requiredIn": ["rust"]
+    },
+    {
+      "id": "handshake.invalid_profile_id_creates_new_profile",
+      "kind": "behavior",
+      "requiredIn": ["rust"]
+    },
+    {
+      "id": "profiles.kv_isolated_per_profile",
+      "kind": "behavior",
+      "requiredIn": ["rust"]
+    }
+  ]
+}

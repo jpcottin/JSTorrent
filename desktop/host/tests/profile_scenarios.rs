@@ -349,7 +349,8 @@ fn test_no_profile_id_always_creates_new() {
 
 /// Host A active with profile. Host B sends same profile_id → ProfileInUse.
 #[test]
-fn test_profile_in_use_detection() {
+#[allow(non_snake_case)]
+fn conformance__handshake__profile_in_use_is_reported__impl__rust() {
     assert_daemon_binary_exists();
     let config_dir = tempfile::tempdir().unwrap();
 
@@ -530,7 +531,8 @@ fn test_multiple_independent_profiles() {
 
 /// Explicit bad profile_id → auto-creates a new profile (self-recovery).
 #[test]
-fn test_invalid_profile_id() {
+#[allow(non_snake_case)]
+fn conformance__handshake__invalid_profile_id_creates_new_profile__impl__rust() {
     assert_daemon_binary_exists();
     let config_dir = tempfile::tempdir().unwrap();
 
@@ -557,7 +559,8 @@ fn test_invalid_profile_id() {
 
 /// KV data is isolated per profile and persists across host restarts.
 #[test]
-fn test_per_profile_kv_isolation() {
+#[allow(non_snake_case)]
+fn conformance__profiles__kv_isolated_per_profile__impl__rust() {
     assert_daemon_binary_exists();
     let config_dir = tempfile::tempdir().unwrap();
 

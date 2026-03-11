@@ -46,7 +46,8 @@ fn wait_with_timeout(child: &mut std::process::Child, timeout: Duration) -> bool
 }
 
 #[test]
-fn test_host_bridge_handshake() {
+#[allow(non_snake_case)]
+fn conformance__handshake__daemon_info_is_returned__impl__rust() {
     let host_bin = env!("CARGO_BIN_EXE_jstorrent-host");
 
     // Check io-daemon exists (sibling binary, different package)
@@ -137,6 +138,7 @@ fn test_host_bridge_handshake() {
         .as_str()
         .expect("version must be a string");
     assert!(!version.is_empty(), "version must not be empty");
+    assert!(payload["roots"].is_array(), "roots must be present as an array");
 
     eprintln!("Handshake OK: port={port}, version={version}, profileId={profile_id}");
 
@@ -165,4 +167,90 @@ fn test_host_bridge_handshake() {
     }
 
     eprintln!("system-bridge exited cleanly after stdin EOF");
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn conformance__handshake__capabilities_are_reported__impl__rust() {
+    let host_bin = env!("CARGO_BIN_EXE_jstorrent-host");
+    let config_dir = tempfile::tempdir().expect("failed to create temp config dir");
+
+    let mut child = Command::new(host_bin)
+        .env("JSTORRENT_CONFIG_DIR", config_dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn jstorrent-host");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+
+    let handshake = serde_json::json!({
+        "id": "test-capabilities",
+        "op": "handshake",
+        "extensionId": "tauri-integration-test",
+    });
+    write_native_message(&mut stdin, &handshake);
+
+    let response = read_native_message(&mut stdout);
+    assert_eq!(response["ok"], true, "handshake must succeed: {response}");
+    assert_eq!(response["type"], "DaemonInfo");
+
+    let capabilities = response["payload"]["capabilities"]
+        .as_object()
+        .expect("DaemonInfo.capabilities must be present");
+    assert_eq!(
+        capabilities.get("roots_manageable").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        capabilities.get("lan_share_urls").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+
+    drop(stdin);
+    if !wait_with_timeout(&mut child, Duration::from_secs(10)) {
+        child.kill().ok();
+        panic!("system-bridge did not exit within 10 seconds after stdin close");
+    }
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn conformance__handshake__roots_are_included_in_daemon_info__impl__rust() {
+    let host_bin = env!("CARGO_BIN_EXE_jstorrent-host");
+    let config_dir = tempfile::tempdir().expect("failed to create temp config dir");
+
+    let mut child = Command::new(host_bin)
+        .env("JSTORRENT_CONFIG_DIR", config_dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn jstorrent-host");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+
+    let handshake = serde_json::json!({
+        "id": "test-roots",
+        "op": "handshake",
+        "extensionId": "tauri-integration-test",
+    });
+    write_native_message(&mut stdin, &handshake);
+
+    let response = read_native_message(&mut stdout);
+    assert_eq!(response["ok"], true, "handshake must succeed: {response}");
+    assert_eq!(response["type"], "DaemonInfo");
+    assert!(
+        response["payload"]["roots"].is_array(),
+        "DaemonInfo.roots must be present as an array"
+    );
+
+    drop(stdin);
+    if !wait_with_timeout(&mut child, Duration::from_secs(10)) {
+        child.kill().ok();
+        panic!("system-bridge did not exit within 10 seconds after stdin close");
+    }
 }
