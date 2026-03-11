@@ -27,6 +27,10 @@ export default defineConfig({
         '@jstorrent/engine': resolve(__dirname, '../packages/engine/src'),
         '@jstorrent/client/core': resolve(__dirname, '../packages/client/src/core'),
         '@jstorrent/client': resolve(__dirname, '../packages/client/src'),
+        '@jstorrent/ui/piece-visualization': resolve(
+          __dirname,
+          '../packages/ui/src/components/PieceVisualization.tsx',
+        ),
         '@jstorrent/ui': resolve(__dirname, '../packages/ui/src'),
       },
     },

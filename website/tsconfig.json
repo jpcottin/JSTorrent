@@ -9,6 +9,7 @@
       "@jstorrent/client/core": ["../packages/client/src/core"],
       "@jstorrent/client": ["../packages/client/src"],
       "@jstorrent/client/*": ["../packages/client/src/*"],
+      "@jstorrent/ui/piece-visualization": ["../packages/ui/src/components/PieceVisualization.tsx"],
       "@jstorrent/ui": ["../packages/ui/src"],
       "@jstorrent/ui/*": ["../packages/ui/src/*"]
     }
