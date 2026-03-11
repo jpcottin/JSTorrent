@@ -1,0 +1,121 @@
+{
+  "protocolVersion": 1,
+  "operations": [
+    {
+      "name": "handshake",
+      "rustVariant": "Handshake",
+      "kind": "request_response",
+      "direction": "client_to_host",
+      "requestShape": {
+        "required": ["id", "op", "extensionId"],
+        "optional": ["installId", "profileId", "clientType", "clientVersion"]
+      },
+      "successResponse": {
+        "type": "DaemonInfo",
+        "requiredPayloadFields": ["profileId", "port", "token", "version", "roots"],
+        "optionalPayloadFields": [
+          "protocolVersion",
+          "behaviorVersion",
+          "addToken",
+          "capabilities",
+          "desktopVersion"
+        ]
+      },
+      "errorResponses": [
+        {
+          "type": "ProfileInUse",
+          "error": "profile_in_use",
+          "requiredPayloadFields": ["profileId", "pid", "started"],
+          "optionalPayloadFields": ["clientType", "clientVersion", "browserName"]
+        }
+      ]
+    },
+    {
+      "name": "takeOver",
+      "rustVariant": "TakeOver",
+      "kind": "request_response",
+      "direction": "client_to_host",
+      "requestShape": {
+        "required": ["id", "op", "extensionId", "profileId"],
+        "optional": ["installId", "clientType", "clientVersion"]
+      },
+      "successResponse": {
+        "type": "DaemonInfo",
+        "requiredPayloadFields": ["profileId", "port", "token", "version", "roots"],
+        "optionalPayloadFields": [
+          "protocolVersion",
+          "behaviorVersion",
+          "addToken",
+          "capabilities",
+          "desktopVersion"
+        ]
+      }
+    },
+    {
+      "name": "registerDownloadRoot",
+      "rustVariant": "RegisterDownloadRoot",
+      "kind": "request_response",
+      "direction": "client_to_host",
+      "requestShape": {
+        "required": ["id", "op", "path"]
+      },
+      "successResponse": {
+        "type": "RootAdded",
+        "requiredPayloadFields": ["root"]
+      }
+    },
+    {
+      "name": "deleteDownloadRoot",
+      "rustVariant": "DeleteDownloadRoot",
+      "kind": "request_response",
+      "direction": "client_to_host",
+      "requestShape": {
+        "required": ["id", "op", "key"]
+      },
+      "successResponse": {
+        "type": "RootRemoved",
+        "requiredPayloadFields": ["key"]
+      }
+    },
+    {
+      "name": "kvGet",
+      "rustVariant": "KvGet",
+      "kind": "request_response",
+      "direction": "client_to_host",
+      "requestShape": {
+        "required": ["id", "op", "key"]
+      },
+      "successResponse": {
+        "type": "KvValue",
+        "requiredPayloadFields": [],
+        "optionalPayloadFields": ["value"]
+      }
+    },
+    {
+      "name": "kvSet",
+      "rustVariant": "KvSet",
+      "kind": "request_response",
+      "direction": "client_to_host",
+      "requestShape": {
+        "required": ["id", "op", "key", "value"]
+      },
+      "successResponse": {
+        "type": "Empty",
+        "requiredPayloadFields": []
+      }
+    },
+    {
+      "name": "readTorrentFile",
+      "rustVariant": "ReadTorrentFile",
+      "kind": "request_response",
+      "direction": "client_to_host",
+      "requestShape": {
+        "required": ["id", "op", "path"]
+      },
+      "successResponse": {
+        "type": "TorrentFileContents",
+        "requiredPayloadFields": ["name", "contentsBase64"]
+      }
+    }
+  ]
+}

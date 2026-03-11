@@ -17,6 +17,7 @@ It is the normative source for:
 Machine-readable companion:
 
 - [native-host-conformance.json](/Users/kgraehl/code/jstorrent/contracts/native-host-conformance.json)
+- [native-host-protocol.json](/Users/kgraehl/code/jstorrent/contracts/native-host-protocol.json)
 
 Declared contract generation:
 
@@ -46,6 +47,11 @@ Messages are:
 - length-prefixed JSON
 - request/response correlated by `id`
 - tagged by operation name in the request and `type` in the response payload
+
+The machine-readable protocol manifest records the currently formalized request
+operations and their success/error response types. It is intentionally narrower
+than the full Rust enum surface at first; contract additions should land there
+before new operations are treated as stable.
 
 ## Handshake Request
 
