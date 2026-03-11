@@ -94,8 +94,24 @@ export class UnchokeAlgorithm {
 
     const interested = peers.filter((p) => p.peerInterested)
 
+    // Special case: 0 upload slots means pure leecher mode.
+    // Keep everyone choked and revoke any previously granted slots.
+    if (this.config.maxUploadSlots <= 0) {
+      const decisions: ChokeDecision[] = []
+
+      for (const peer of peers) {
+        if (this.state.unchokedPeerIds.has(peer.id)) {
+          decisions.push({ peerId: peer.id, action: 'choke', reason: 'replaced' })
+        }
+      }
+
+      this.state.optimisticPeerId = null
+      this.state.unchokedPeerIds = new Set()
+      return decisions
+    }
+
     // 1. Tit-for-tat: top N-1 by download rate
-    const regularSlots = this.config.maxUploadSlots - 1
+    const regularSlots = Math.max(0, this.config.maxUploadSlots - 1)
     const byDownloadRate = [...interested].sort((a, b) => b.downloadRate - a.downloadRate)
     const titForTatPeers = byDownloadRate.slice(0, regularSlots)
 

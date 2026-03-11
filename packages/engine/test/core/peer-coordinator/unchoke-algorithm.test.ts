@@ -79,6 +79,22 @@ describe('UnchokeAlgorithm', () => {
       expect(unchokes.length).toBeLessThanOrEqual(2)
     })
 
+    it('should keep all peers choked when maxUploadSlots is 0', () => {
+      const algo = new UnchokeAlgorithm({ maxUploadSlots: 0 }, fakeClock, fakeRandom)
+      const peers: UnchokePeerSnapshot[] = Array.from({ length: 5 }, (_, i) => ({
+        id: `peer${i}`,
+        peerInterested: true,
+        amChoking: true,
+        downloadRate: i * 100,
+        connectedAt: 0,
+      }))
+
+      const decisions = algo.evaluate(peers)
+
+      expect(decisions.filter((d) => d.action === 'unchoke')).toHaveLength(0)
+      expect(algo.getProtectedPeers().size).toBe(0)
+    })
+
     it('should only unchoke interested peers', () => {
       const algo = new UnchokeAlgorithm({ maxUploadSlots: 4 }, fakeClock, fakeRandom)
       const peers: UnchokePeerSnapshot[] = [

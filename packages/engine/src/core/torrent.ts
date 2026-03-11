@@ -2610,6 +2610,10 @@ export class Torrent extends EngineComponent {
   setMaxUploadSlots(max: number) {
     this.maxUploadSlots = max
     this._peerCoordinator.updateUnchokeConfig({ maxUploadSlots: max })
+
+    // Force prompt re-evaluation so slot reductions choke peers immediately.
+    this._peerCoordinator.reset()
+    this._tickLoop.runMaintenance()
   }
 
   setSendBufferWatermark(bytes: number) {

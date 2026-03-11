@@ -276,4 +276,38 @@ describe('Torrent Connection Limits', () => {
       expect(violations.some((v) => v.type === 'limit_exceeded')).toBe(true)
     })
   })
+
+  describe('upload slots', () => {
+    it('should choke an already unchoked peer immediately when maxUploadSlots becomes 0', async () => {
+      const torrent = new Torrent(
+        mockEngine as unknown as BtEngine,
+        new Uint8Array(20),
+        new Uint8Array(20),
+        mockSocketFactory,
+        6881,
+        undefined,
+        [],
+        20,
+        1,
+      )
+
+      await torrent.start()
+
+      const socket = createMockSocket()
+      const peer = new PeerConnection(mockEngine, socket, {
+        remoteAddress: '10.0.0.1',
+        remotePort: 6881,
+      })
+      torrent.addPeer(peer)
+      peer.peerInterested = true
+
+      const tickLoop = (torrent as unknown as { _tickLoop: { runMaintenance: () => void } })
+        ._tickLoop
+      tickLoop.runMaintenance()
+      expect(peer.amChoking).toBe(false)
+
+      torrent.setMaxUploadSlots(0)
+      expect(peer.amChoking).toBe(true)
+    })
+  })
 })
