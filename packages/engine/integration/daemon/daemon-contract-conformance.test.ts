@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { afterEach, describe, expect } from 'vitest'
@@ -46,7 +47,7 @@ describe('Rust daemon HTTP contract conformance', () => {
       extensionId?: string
       installId?: string
       headers?: Record<string, string>
-      body?: string
+      body?: BodyInit
     } = {},
   ): Promise<Response> {
     if (!harness) {
@@ -252,6 +253,44 @@ describe('Rust daemon HTTP contract conformance', () => {
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual(['../escape.txt'])
       await expect(fs.access(path.join(harness.dataDir, 'nested', 'present.txt'))).rejects.toThrow()
+    },
+  )
+
+  conformanceCase(
+    'rust',
+    'network.interfaces_are_reported',
+    'returns a JSON array from /network/interfaces',
+    async () => {
+      harness = await startDaemon()
+
+      const response = await makeAuthenticatedRequest('/network/interfaces')
+
+      expect(response.status).toBe(200)
+      const payload = (await response.json()) as unknown
+      expect(Array.isArray(payload)).toBe(true)
+    },
+  )
+
+  conformanceCase(
+    'rust',
+    'hash.sha1_bytes_are_reported',
+    'returns the raw SHA-1 digest from POST /hash/sha1',
+    async () => {
+      harness = await startDaemon()
+      const payload = Buffer.from('Hello, World!', 'utf8')
+
+      const response = await makeAuthenticatedRequest('/hash/sha1', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+        },
+        body: payload,
+      })
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toContain('application/octet-stream')
+      const hashBytes = Buffer.from(await response.arrayBuffer())
+      expect(hashBytes).toEqual(crypto.createHash('sha1').update(payload).digest())
     },
   )
 })

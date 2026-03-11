@@ -32,6 +32,16 @@
       "requiredIn": ["node", "rust", "android"]
     },
     {
+      "id": "network.interfaces_are_reported",
+      "kind": "shape",
+      "requiredIn": ["node", "rust", "android"]
+    },
+    {
+      "id": "hash.sha1_bytes_are_reported",
+      "kind": "shape",
+      "requiredIn": ["rust", "android"]
+    },
+    {
       "id": "ops.delete.missing_returns_404",
       "kind": "behavior",
       "requiredIn": ["node", "rust", "android"]

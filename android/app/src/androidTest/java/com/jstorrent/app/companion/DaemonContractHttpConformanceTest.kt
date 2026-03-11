@@ -3,6 +3,7 @@ package com.jstorrent.app.companion
 import com.jstorrent.app.service.IoDaemonService
 import com.jstorrent.io.protocol.Protocol
 import java.io.File
+import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -18,6 +19,7 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -195,6 +197,26 @@ class DaemonContractHttpConformanceTest : CompanionTestBase() {
         val capabilities = payload["capabilities"]?.jsonObject ?: error("Missing capabilities object")
         assertTrue(capabilities["roots_manageable"]?.jsonPrimitive?.booleanOrNull ?: false)
         assertTrue(capabilities["lan_share_urls"]?.jsonPrimitive?.booleanOrNull ?: false)
+    }
+
+    @Test
+    fun conformance__network__interfaces_are_reported__impl__android() {
+        val response = get("/network/interfaces", extensionHeaders(token))
+
+        assertEquals(200, response.code)
+        val body = response.body?.string() ?: ""
+        assertTrue(body.startsWith("["))
+    }
+
+    @Test
+    fun conformance__hash__sha1_bytes_are_reported__impl__android() {
+        val payload = "Hello, World!".toByteArray()
+        val response = postBytes("/hash/sha1", payload, extensionHeaders(token))
+
+        assertEquals(200, response.code)
+        val hashBytes = response.body?.bytes() ?: ByteArray(0)
+        assertEquals(20, hashBytes.size)
+        assertArrayEquals(MessageDigest.getInstance("SHA-1").digest(payload), hashBytes)
     }
 
     @Test

@@ -673,6 +673,30 @@ describe('node-io-daemon server', () => {
     },
   )
 
+  conformanceCase(
+    'node',
+    'network.interfaces_are_reported',
+    'returns a JSON array from /network/interfaces',
+    async () => {
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+      })
+      await daemon.start()
+
+      const response = await makeRequest(daemon.getStatus().port, '/network/interfaces', {
+        headers: {
+          'X-JST-Auth': 'secret',
+        },
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(Array.isArray(JSON.parse(response.body.toString('utf8')))).toBe(true)
+    },
+  )
+
   it('registers an HTTP stream over /control and serves it from the media port', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-'))
     tempDirs.push(tempDir)

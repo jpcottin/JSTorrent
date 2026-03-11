@@ -68,8 +68,10 @@ Baseline HTTP endpoints:
 - `GET /health`
 - `POST /status`
 - `/status` may include optional `protocolVersion` and `behaviorVersion`
+- `GET /network/interfaces`
 - `GET /roots`
 - `DELETE /roots/:key`
+- `POST /hash/sha1` where supported
 - `POST /files/ensure_dir`
 - `POST /ops/truncate`
 - `POST /ops/delete`
@@ -90,13 +92,17 @@ Authentication:
 Baseline HTTP conformance cases:
 
 - `health.ok_is_reported`
+- `network.interfaces_are_reported`
 - `roots.list_is_reported`
 - `roots.delete_existing_root_succeeds`
+- `hash.sha1_bytes_are_reported`
 
 Current implementation scope note:
 
 - `GET /roots` is currently required in `node` and `android` for the managed daemon conformance matrix
 - `DELETE /roots/:key` is currently required in `node` and `android`
+- `GET /network/interfaces` is required in `node`, `rust`, and `android`
+- `POST /hash/sha1` is currently required in `rust` and `android`; Node does not expose that endpoint in contract generation 1
 - Rust standalone exposes `GET /roots`, but the managed native-host daemon path used by the default Rust conformance gate does not; `roots.*` therefore remains `N/A` for `rust` in contract generation 1
 
 ## File Operation Semantics
