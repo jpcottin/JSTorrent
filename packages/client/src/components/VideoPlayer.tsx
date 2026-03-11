@@ -5,9 +5,10 @@ import type {
   StreamingPlayerController,
   StreamingVisualization,
 } from '@jstorrent/engine'
-import { createTorrentSourceFromSession } from '@jstorrent/engine'
-import { PlaysVideoEngine, Source } from 'playsvideo'
+import { createTorrentSourceFromSession } from '../utils/create-source-from-session'
+import { PlaysVideoEngine, Source, createCustomControls } from 'playsvideo'
 import type {
+  CustomControlsHandle,
   PlaybackDecisionDetail,
   PlaybackEvaluationResult,
   PlaybackOption as PlaysVideoPlaybackOption,
@@ -51,6 +52,8 @@ export function VideoPlayer({
   }>({ phase: 'loading', errorMessage: null, bytes })
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [playbackPolicy, setPlaybackPolicy] = useState<PlaybackPolicy>(initialPlaybackPolicy)
+  const [controlsType, setControlsType] = useState<'stock' | 'custom'>('stock')
+  const customControlsRef = useRef<CustomControlsHandle | null>(null)
 
   // Reset state when session changes (avoids setState in effect body)
   if (state.bytes !== bytes) {
@@ -212,6 +215,26 @@ export function VideoPlayer({
     }
   }, [])
 
+  // Custom controls lifecycle
+  useEffect(() => {
+    const video = videoRef.current
+    const container = fullscreenTargetRef.current
+    if (!video || !container || phase !== 'ready') return
+
+    if (controlsType === 'custom') {
+      video.removeAttribute('controls')
+      const handle = createCustomControls({ video, container })
+      customControlsRef.current = handle
+      return () => {
+        handle.destroy()
+        customControlsRef.current = null
+        video.setAttribute('controls', '')
+      }
+    }
+    // stock: ensure native controls are on
+    video.setAttribute('controls', '')
+  }, [controlsType, phase])
+
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (closeOnBackdrop && e.target === e.currentTarget) onClose()
   }
@@ -245,6 +268,16 @@ export function VideoPlayer({
             <button
               type="button"
               style={secondaryButtonStyle}
+              onClick={() => setControlsType((c) => (c === 'stock' ? 'custom' : 'stock'))}
+              title={
+                controlsType === 'stock' ? 'Switch to custom controls' : 'Switch to native controls'
+              }
+            >
+              {controlsType === 'stock' ? 'Controls: Native' : 'Controls: Custom'}
+            </button>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
               onClick={() => void toggleFullscreen()}
               title={isFullscreen ? 'Exit fullscreen (F)' : 'Enter fullscreen (F)'}
             >
@@ -257,6 +290,7 @@ export function VideoPlayer({
 
         <div
           ref={fullscreenTargetRef}
+          className={controlsType === 'custom' ? 'pv-video-container' : undefined}
           onDoubleClick={() => void toggleFullscreen()}
           style={{
             ...mediaAreaStyle,
@@ -275,7 +309,7 @@ export function VideoPlayer({
 
           <video
             ref={videoRef}
-            controls
+            controls={controlsType === 'stock'}
             autoPlay
             style={{
               ...videoStyle,

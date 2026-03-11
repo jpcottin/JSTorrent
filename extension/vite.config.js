@@ -183,8 +183,16 @@ export default defineConfig({
   resolve: {
     alias: {
       '@jstorrent/engine': resolve(__dirname, '../packages/engine/src/index.ts'),
+      '@jstorrent/client/video-popup': resolve(
+        __dirname,
+        '../packages/client/src/components/VideoPopupPage.tsx',
+      ),
       '@jstorrent/client/core': resolve(__dirname, '../packages/client/src/core.ts'),
       '@jstorrent/client': resolve(__dirname, '../packages/client/src/index.ts'),
+      '@jstorrent/ui/piece-visualization': resolve(
+        __dirname,
+        '../packages/ui/src/components/PieceVisualization.tsx',
+      ),
       '@jstorrent/ui/styles.css': resolve(__dirname, '../packages/ui/src/styles.css'),
       '@jstorrent/ui': resolve(__dirname, '../packages/ui/src/index.ts'),
     },

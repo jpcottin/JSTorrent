@@ -20,8 +20,10 @@
     "paths": {
       "@jstorrent/engine/*": ["./packages/engine/src/*"],
       "@jstorrent/engine": ["./packages/engine/src/index.ts"],
+      "@jstorrent/client/video-popup": ["./packages/client/src/components/VideoPopupPage.tsx"],
       "@jstorrent/client/*": ["./packages/client/src/*"],
       "@jstorrent/client": ["./packages/client/src/index.ts"],
+      "@jstorrent/ui/piece-visualization": ["./packages/ui/src/components/PieceVisualization.tsx"],
       "@jstorrent/ui/*": ["./packages/ui/src/*"],
       "@jstorrent/ui": ["./packages/ui/src/index.ts"],
       "@jstorrent/ui/styles.css": ["./packages/ui/src/styles.css"]

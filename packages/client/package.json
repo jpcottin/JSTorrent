@@ -13,6 +13,10 @@
     "./core": {
       "types": "./dist/core.d.ts",
       "import": "./dist/core.js"
+    },
+    "./video-popup": {
+      "types": "./dist/components/VideoPopupPage.d.ts",
+      "import": "./dist/components/VideoPopupPage.js"
     }
   },
   "scripts": {
@@ -25,7 +29,7 @@
   "dependencies": {
     "@jstorrent/engine": "workspace:*",
     "@jstorrent/ui": "workspace:*",
-    "playsvideo": "^0.4.4"
+    "playsvideo": "^0.4.5"
   },
   "peerDependencies": {
     "react": "^18.2.0"

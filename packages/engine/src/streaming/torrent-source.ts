@@ -30,27 +30,14 @@ import {
   createStreamingFileProvider,
   createStreamingPlaybackSession,
 } from './streaming-playback-session'
-import type { ByteRangeStreamingSession, StreamingFileProvider } from './streaming-file-provider'
+import type { StreamingFileProvider } from './streaming-file-provider'
+import { createTorrentSourceFromSession } from './torrent-source-session'
 
-/**
- * The shape of mediabunny's ReadResult (not importing to avoid dependency).
- *
- * offset = the file byte position at which `bytes` begins. mediabunny uses
- * this to compute `bufferPos = requestedStart - offset` inside FileSlice.
- * For torrent reads, offset must equal the requested start position so that
- * bufferPos starts at 0 (the beginning of our returned buffer).
- */
-export interface ReadResult {
-  bytes: Uint8Array
-  view: DataView
-  offset: number
-}
+export type { ReadResult } from './torrent-source-session'
+export { createTorrentSourceFromSession } from './torrent-source-session'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SourceConstructor = abstract new (...args: any[]) => any
-type AbortAwareStreamingSession = ByteRangeStreamingSession & {
-  setCurrentSignal?(signal: AbortSignal | null): void
-}
 
 /**
  * Create a mediabunny-compatible Source backed by torrent piece data.
@@ -69,56 +56,6 @@ export function createTorrentSource<T extends SourceConstructor>(
 ): InstanceType<T> {
   const provider = createStreamingFileProvider(torrent, fileIndex)
   return createTorrentSourceFromProvider(SourceClass, provider)
-}
-
-export function createTorrentSourceFromSession<T extends SourceConstructor>(
-  SourceClass: T,
-  session: ByteRangeStreamingSession,
-): InstanceType<T> {
-  let disposed = false
-  const abortAwareSession = session as AbortAwareStreamingSession
-
-  // Create a concrete subclass that implements the abstract methods
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  class TorrentSource extends (SourceClass as abstract new () => any) {
-    /** Instance-level signal set by the pipeline before each segment. */
-    currentSignal: AbortSignal | null = null
-
-    setCurrentSignal(signal: AbortSignal | null): void {
-      this.currentSignal = signal
-      abortAwareSession.setCurrentSignal?.(signal)
-    }
-
-    _retrieveSize(): number {
-      return session.fileSize
-    }
-
-    _read(start: number, end: number, signal?: AbortSignal): Promise<ReadResult> | null {
-      if (disposed) {
-        console.log(`[torrent-source] read rejected after dispose start=${start} end=${end}`)
-        return Promise.reject(new DOMException('Aborted', 'AbortError'))
-      }
-
-      if (start < 0 || end < start || end > session.fileSize) {
-        return null
-      }
-
-      const effectiveSignal = signal ?? this.currentSignal ?? undefined
-      return session.read(start, end - start, effectiveSignal).then((bytes) => ({
-        bytes,
-        view: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-        offset: start,
-      }))
-    }
-
-    _dispose(): void {
-      if (disposed) return
-      disposed = true
-      session.close()
-    }
-  }
-
-  return new TorrentSource() as InstanceType<T>
 }
 
 /**
