@@ -338,6 +338,23 @@ describe('Rust daemon HTTP contract conformance', () => {
 
   conformanceCase(
     'rust',
+    'files.ensure_dir_creates_directory',
+    'creates nested directories through POST /files/ensure_dir',
+    async () => {
+      harness = await startDaemon()
+
+      const response = await makeJsonRequest('/files/ensure_dir', {
+        root_key: 'default',
+        path: 'nested/inner',
+      })
+      expect(response.status).toBe(200)
+      const stat = await fs.stat(path.join(harness.dataDir, 'nested', 'inner'))
+      expect(stat.isDirectory()).toBe(true)
+    },
+  )
+
+  conformanceCase(
+    'rust',
     'network.interfaces_are_reported',
     'returns a JSON array from /network/interfaces',
     async () => {

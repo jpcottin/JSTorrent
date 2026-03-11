@@ -339,4 +339,16 @@ class DaemonContractHttpConformanceTest : CompanionTestBase() {
             .toSet()
         assertEquals(setOf("file1.txt", "sub"), entries)
     }
+
+    @Test
+    fun conformance__files__ensure_dir_creates_directory__impl__android() {
+        val response = post(
+            "/files/ensure_dir",
+            """{"root_key":"$testRootKey","path":"nested/inner"}""",
+            extensionHeaders(token)
+        )
+
+        assertEquals(200, response.code)
+        assertTrue(File(testDir, "nested/inner").isDirectory)
+    }
 }

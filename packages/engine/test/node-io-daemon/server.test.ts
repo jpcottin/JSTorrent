@@ -908,6 +908,49 @@ describe('node-io-daemon server', () => {
     },
   )
 
+  conformanceCase(
+    'node',
+    'files.ensure_dir_creates_directory',
+    'creates nested directories through POST /files/ensure_dir',
+    async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-ensure-dir-'))
+      tempDirs.push(tempDir)
+
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        roots: [
+          {
+            key: 'root-a',
+            uri: pathToFileURL(tempDir).toString(),
+            display_name: 'Temp Root',
+            removable: true,
+            last_stat_ok: true,
+            last_checked: Date.now(),
+          },
+        ],
+      })
+      await daemon.start()
+
+      const response = await makeRequest(daemon.getStatus().port, '/files/ensure_dir', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-JST-Auth': 'secret',
+        },
+        body: JSON.stringify({
+          root_key: 'root-a',
+          path: 'nested/inner',
+        }),
+      })
+      expect(response.statusCode).toBe(200)
+      expect(fs.existsSync(path.join(tempDir, 'nested', 'inner'))).toBe(true)
+      expect(fs.statSync(path.join(tempDir, 'nested', 'inner')).isDirectory()).toBe(true)
+    },
+  )
+
   it('registers an HTTP stream over /control and serves it from the media port', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-'))
     tempDirs.push(tempDir)

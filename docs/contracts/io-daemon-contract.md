@@ -100,6 +100,7 @@ Baseline HTTP conformance cases:
 - `ops.stat_reports_metadata`
 - `ops.list_tree_reports_file_entries`
 - `ops.list_reports_directory_entries`
+- `files.ensure_dir_creates_directory`
 
 Current implementation scope note:
 
@@ -137,6 +138,11 @@ Presence and stat:
 - `GET /ops/list`
 - returns `200` with a JSON array of entry names
 - returns only the direct children of the requested directory
+
+- `POST /files/ensure_dir`
+- creates the requested directory path under the given root
+- nested directories must be created as needed
+- success is observed by effect and `200` status, not by a shared response body shape
 
 Single delete:
 

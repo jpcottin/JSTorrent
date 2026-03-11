@@ -72,6 +72,11 @@
       "requiredIn": ["node", "rust", "android"]
     },
     {
+      "id": "files.ensure_dir_creates_directory",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust", "android"]
+    },
+    {
       "id": "stream.blocks_until_ready",
       "kind": "behavior",
       "requiredIn": ["node", "rust", "android"],
