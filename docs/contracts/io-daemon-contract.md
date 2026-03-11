@@ -98,6 +98,7 @@ Baseline HTTP conformance cases:
 - `hash.sha1_bytes_are_reported`
 - `ops.exists_reports_presence`
 - `ops.stat_reports_metadata`
+- `ops.list_tree_reports_file_entries`
 
 Current implementation scope note:
 
@@ -123,6 +124,14 @@ Presence and stat:
   - `is_directory`
   - `is_file`
 - missing file paths must return `404`
+
+- `GET /ops/list_tree`
+- returns `200` with a JSON array of file entries
+- each entry must contain:
+  - `path`
+  - `size`
+- returned paths are relative to the requested base path
+- nonexistent directories return `200` with an empty array
 
 Single delete:
 

@@ -298,6 +298,29 @@ describe('Rust daemon HTTP contract conformance', () => {
 
   conformanceCase(
     'rust',
+    'ops.list_tree_reports_file_entries',
+    'returns recursive file entries from GET /ops/list_tree',
+    async () => {
+      harness = await startDaemon()
+      await fs.mkdir(path.join(harness.dataDir, 'tree_dir', 'sub'), { recursive: true })
+      await fs.writeFile(path.join(harness.dataDir, 'tree_dir', 'file1.txt'), 'AAAA')
+      await fs.writeFile(path.join(harness.dataDir, 'tree_dir', 'sub', 'file2.bin'), 'BBBBBB')
+
+      const response = await makeAuthenticatedRequest('/ops/list_tree?root_key=default&path=tree_dir')
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual([
+        { path: 'file1.txt', size: 4 },
+        { path: 'sub/file2.bin', size: 6 },
+      ])
+
+      const missingResponse = await makeAuthenticatedRequest('/ops/list_tree?root_key=default&path=missing_dir')
+      expect(missingResponse.status).toBe(200)
+      await expect(missingResponse.json()).resolves.toEqual([])
+    },
+  )
+
+  conformanceCase(
+    'rust',
     'network.interfaces_are_reported',
     'returns a JSON array from /network/interfaces',
     async () => {

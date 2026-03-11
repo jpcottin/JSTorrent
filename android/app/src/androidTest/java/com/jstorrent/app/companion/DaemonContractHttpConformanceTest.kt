@@ -291,4 +291,34 @@ class DaemonContractHttpConformanceTest : CompanionTestBase() {
         )
         assertEquals(404, missingResponse.code)
     }
+
+    @Test
+    fun conformance__ops__list_tree_reports_file_entries__impl__android() {
+        File(testDir, "tree_dir").mkdirs()
+        File(testDir, "tree_dir/file1.txt").writeText("AAAA")
+        File(testDir, "tree_dir/sub").mkdirs()
+        File(testDir, "tree_dir/sub/file2.bin").writeText("BBBBBB")
+
+        val response = get(
+            "/ops/list_tree?root_key=$testRootKey&path=tree_dir",
+            extensionHeaders(token)
+        )
+        assertEquals(200, response.code)
+        val entries = json.parseToJsonElement(response.body?.string() ?: "").jsonArray
+        assertEquals(
+            setOf("file1.txt" to 4L, "sub/file2.bin" to 6L),
+            entries.map {
+                val obj = it.jsonObject
+                obj["path"]!!.jsonPrimitive.content to obj["size"]!!.jsonPrimitive.content.toLong()
+            }.toSet()
+        )
+
+        val missingResponse = get(
+            "/ops/list_tree?root_key=$testRootKey&path=missing_dir",
+            extensionHeaders(token)
+        )
+        assertEquals(200, missingResponse.code)
+        val missingEntries = json.parseToJsonElement(missingResponse.body?.string() ?: "").jsonArray
+        assertTrue(missingEntries.isEmpty())
+    }
 }

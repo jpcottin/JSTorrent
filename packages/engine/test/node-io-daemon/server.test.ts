@@ -807,6 +807,64 @@ describe('node-io-daemon server', () => {
     },
   )
 
+  conformanceCase(
+    'node',
+    'ops.list_tree_reports_file_entries',
+    'returns recursive file entries from GET /ops/list_tree',
+    async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-list-tree-'))
+      tempDirs.push(tempDir)
+      fs.mkdirSync(path.join(tempDir, 'tree_dir', 'sub'), { recursive: true })
+      fs.writeFileSync(path.join(tempDir, 'tree_dir', 'file1.txt'), 'AAAA')
+      fs.writeFileSync(path.join(tempDir, 'tree_dir', 'sub', 'file2.bin'), 'BBBBBB')
+
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        roots: [
+          {
+            key: 'root-a',
+            uri: pathToFileURL(tempDir).toString(),
+            display_name: 'Temp Root',
+            removable: true,
+            last_stat_ok: true,
+            last_checked: Date.now(),
+          },
+        ],
+      })
+      await daemon.start()
+
+      const response = await makeRequest(
+        daemon.getStatus().port,
+        '/ops/list_tree?root_key=root-a&path=tree_dir',
+        {
+          headers: {
+            'X-JST-Auth': 'secret',
+          },
+        },
+      )
+      expect(response.statusCode).toBe(200)
+      expect(JSON.parse(response.body.toString('utf8'))).toEqual([
+        { path: 'file1.txt', size: 4 },
+        { path: 'sub/file2.bin', size: 6 },
+      ])
+
+      const missingResponse = await makeRequest(
+        daemon.getStatus().port,
+        '/ops/list_tree?root_key=root-a&path=missing_dir',
+        {
+          headers: {
+            'X-JST-Auth': 'secret',
+          },
+        },
+      )
+      expect(missingResponse.statusCode).toBe(200)
+      expect(JSON.parse(missingResponse.body.toString('utf8'))).toEqual([])
+    },
+  )
+
   it('registers an HTTP stream over /control and serves it from the media port', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-'))
     tempDirs.push(tempDir)

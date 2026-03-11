@@ -560,6 +560,27 @@ export class NodeIoDaemonRuntime {
       return
     }
 
+    if (pathname === '/ops/list_tree' && req.method === 'GET') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystemFromRequest(req)
+      const relativePath = this.readQueryPath(req)
+      if (!fileSystem || relativePath === null) {
+        this.sendText(res, 400, 'Missing root_key or path')
+        return
+      }
+
+      try {
+        this.sendJson(res, 200, await fileSystem.listTree(relativePath))
+      } catch (error) {
+        this.sendText(res, 400, error instanceof Error ? error.message : String(error))
+      }
+      return
+    }
+
     if (pathname === '/ops/truncate' && req.method === 'POST') {
       if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
         this.sendText(res, 401, 'Unauthorized')
