@@ -951,6 +951,51 @@ describe('node-io-daemon server', () => {
     },
   )
 
+  conformanceCase(
+    'node',
+    'ops.truncate_resizes_file',
+    'truncates an existing file through POST /ops/truncate',
+    async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-truncate-'))
+      tempDirs.push(tempDir)
+      fs.writeFileSync(path.join(tempDir, 'truncate.txt'), 'hello world')
+
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        roots: [
+          {
+            key: 'root-a',
+            uri: pathToFileURL(tempDir).toString(),
+            display_name: 'Temp Root',
+            removable: true,
+            last_stat_ok: true,
+            last_checked: Date.now(),
+          },
+        ],
+      })
+      await daemon.start()
+
+      const response = await makeRequest(daemon.getStatus().port, '/ops/truncate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-JST-Auth': 'secret',
+        },
+        body: JSON.stringify({
+          root_key: 'root-a',
+          path: 'truncate.txt',
+          length: 5,
+        }),
+      })
+      expect(response.statusCode).toBe(200)
+      expect(fs.readFileSync(path.join(tempDir, 'truncate.txt'), 'utf8')).toBe('hello')
+      expect(fs.statSync(path.join(tempDir, 'truncate.txt')).size).toBe(5)
+    },
+  )
+
   it('registers an HTTP stream over /control and serves it from the media port', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-'))
     tempDirs.push(tempDir)

@@ -77,6 +77,11 @@
       "requiredIn": ["node", "rust", "android"]
     },
     {
+      "id": "ops.truncate_resizes_file",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust"]
+    },
+    {
       "id": "stream.blocks_until_ready",
       "kind": "behavior",
       "requiredIn": ["node", "rust", "android"],

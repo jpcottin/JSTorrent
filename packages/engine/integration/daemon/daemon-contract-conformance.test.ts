@@ -355,6 +355,27 @@ describe('Rust daemon HTTP contract conformance', () => {
 
   conformanceCase(
     'rust',
+    'ops.truncate_resizes_file',
+    'truncates an existing file through POST /ops/truncate',
+    async () => {
+      harness = await startDaemon()
+      await fs.writeFile(path.join(harness.dataDir, 'truncate.txt'), 'hello world')
+
+      const response = await makeJsonRequest('/ops/truncate', {
+        root_key: 'default',
+        path: 'truncate.txt',
+        length: 5,
+      })
+      expect(response.status).toBe(200)
+      await expect(fs.readFile(path.join(harness.dataDir, 'truncate.txt'), 'utf8')).resolves.toBe('hello')
+      await expect(fs.stat(path.join(harness.dataDir, 'truncate.txt'))).resolves.toMatchObject({
+        size: 5,
+      })
+    },
+  )
+
+  conformanceCase(
+    'rust',
     'network.interfaces_are_reported',
     'returns a JSON array from /network/interfaces',
     async () => {

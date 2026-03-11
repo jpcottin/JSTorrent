@@ -101,6 +101,7 @@ Baseline HTTP conformance cases:
 - `ops.list_tree_reports_file_entries`
 - `ops.list_reports_directory_entries`
 - `files.ensure_dir_creates_directory`
+- `ops.truncate_resizes_file`
 
 Current implementation scope note:
 
@@ -143,6 +144,15 @@ Presence and stat:
 - creates the requested directory path under the given root
 - nested directories must be created as needed
 - success is observed by effect and `200` status, not by a shared response body shape
+
+- `POST /ops/truncate`
+- truncates an existing file to the requested length
+- success is observed by effect and `200` status, not by a shared response body shape
+
+Current implementation scope note:
+
+- `POST /ops/truncate` is currently required in `node` and `rust`
+- Android has underlying truncate support in its file manager but does not expose `/ops/truncate` on the companion HTTP surface in contract generation 1
 
 Single delete:
 
