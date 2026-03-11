@@ -36,6 +36,26 @@
       "id": "profiles.kv_isolated_per_profile",
       "kind": "behavior",
       "requiredIn": ["rust"]
+    },
+    {
+      "id": "profiles.takeover_reuses_profile",
+      "kind": "behavior",
+      "requiredIn": ["rust"]
+    },
+    {
+      "id": "roots.register_download_root_returns_root_added",
+      "kind": "behavior",
+      "requiredIn": ["rust"]
+    },
+    {
+      "id": "roots.delete_download_root_returns_root_removed",
+      "kind": "behavior",
+      "requiredIn": ["rust"]
+    },
+    {
+      "id": "torrent.read_torrent_file_returns_contents",
+      "kind": "behavior",
+      "requiredIn": ["rust"]
     }
   ]
 }

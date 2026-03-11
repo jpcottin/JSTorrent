@@ -172,6 +172,26 @@ fn read_torrent_file(host: &mut HostProcess, path: &str) -> serde_json::Value {
     read_native_message(&mut host.stdout)
 }
 
+fn register_download_root(host: &mut HostProcess, path: &str) -> serde_json::Value {
+    let msg = serde_json::json!({
+        "id": next_id(),
+        "op": "registerDownloadRoot",
+        "path": path,
+    });
+    write_native_message(host.stdin.as_mut().unwrap(), &msg);
+    read_native_message(&mut host.stdout)
+}
+
+fn delete_download_root(host: &mut HostProcess, key: &str) -> serde_json::Value {
+    let msg = serde_json::json!({
+        "id": next_id(),
+        "op": "deleteDownloadRoot",
+        "key": key,
+    });
+    write_native_message(host.stdin.as_mut().unwrap(), &msg);
+    read_native_message(&mut host.stdout)
+}
+
 fn takeover(host: &mut HostProcess, extension_id: &str, profile_id: &str) -> serde_json::Value {
     let msg = serde_json::json!({
         "id": next_id(),
@@ -451,7 +471,8 @@ fn test_stale_process_takeover() {
 
 /// Host B sends TakeOver with A's profile_id → kills A, takes profile.
 #[test]
-fn test_explicit_takeover() {
+#[allow(non_snake_case)]
+fn conformance__profiles__takeover_reuses_profile__impl__rust() {
     assert_daemon_binary_exists();
     let config_dir = tempfile::tempdir().unwrap();
 
@@ -484,6 +505,76 @@ fn test_explicit_takeover() {
     );
 
     shutdown_host(host_b);
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn conformance__roots__register_download_root_returns_root_added__impl__rust() {
+    assert_daemon_binary_exists();
+    let config_dir = tempfile::tempdir().unwrap();
+
+    let mut host = spawn_host(config_dir.path());
+    let response = handshake(&mut host, "ext-root-add", None);
+    let (profile_id, _, _) = assert_daemon_info(&response);
+
+    let root_dir = tempfile::tempdir().unwrap();
+    let canonical_root_path = root_dir.path().canonicalize().unwrap();
+    let add_response = register_download_root(&mut host, root_dir.path().to_str().unwrap());
+
+    assert_eq!(add_response["ok"], true, "registerDownloadRoot should succeed: {add_response}");
+    assert_eq!(add_response["type"], "RootAdded");
+
+    let root = &add_response["payload"]["root"];
+    assert_eq!(root["path"].as_str().unwrap(), canonical_root_path.to_str().unwrap());
+    let root_key = root["key"].as_str().expect("RootAdded must include root key");
+    assert!(!root_key.is_empty(), "root key must not be empty");
+
+    let rpc_info = read_rpc_info(config_dir.path());
+    let profile = rpc_info["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["profile_id"].as_str() == Some(&profile_id))
+        .expect("should find profile");
+    let roots = profile["download_roots"].as_array().unwrap();
+    assert!(roots.iter().any(|entry| entry["key"].as_str() == Some(root_key)));
+
+    shutdown_host(host);
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn conformance__roots__delete_download_root_returns_root_removed__impl__rust() {
+    assert_daemon_binary_exists();
+    let config_dir = tempfile::tempdir().unwrap();
+
+    let mut host = spawn_host(config_dir.path());
+    let response = handshake(&mut host, "ext-root-remove", None);
+    let (profile_id, _, _) = assert_daemon_info(&response);
+
+    let root_dir = tempfile::tempdir().unwrap();
+    let add_response = register_download_root(&mut host, root_dir.path().to_str().unwrap());
+    let root_key = add_response["payload"]["root"]["key"]
+        .as_str()
+        .expect("RootAdded must include root key")
+        .to_string();
+
+    let remove_response = delete_download_root(&mut host, &root_key);
+    assert_eq!(remove_response["ok"], true, "deleteDownloadRoot should succeed: {remove_response}");
+    assert_eq!(remove_response["type"], "RootRemoved");
+    assert_eq!(remove_response["payload"]["key"].as_str().unwrap(), root_key);
+
+    let rpc_info = read_rpc_info(config_dir.path());
+    let profile = rpc_info["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["profile_id"].as_str() == Some(&profile_id))
+        .expect("should find profile");
+    let roots = profile["download_roots"].as_array().unwrap();
+    assert!(!roots.iter().any(|entry| entry["key"].as_str() == Some(root_key.as_str())));
+
+    shutdown_host(host);
 }
 
 /// Two hosts both send profile_id: None → two different profiles, two daemons.
@@ -860,7 +951,8 @@ fn test_desktop_ever_used_preserved() {
 /// Write a test .torrent file → send ReadTorrentFile → get back TorrentFileContents.
 /// Also test rejection for non-.torrent paths.
 #[test]
-fn test_read_torrent_file() {
+#[allow(non_snake_case)]
+fn conformance__torrent__read_torrent_file_returns_contents__impl__rust() {
     assert_daemon_binary_exists();
     let config_dir = tempfile::tempdir().unwrap();
 

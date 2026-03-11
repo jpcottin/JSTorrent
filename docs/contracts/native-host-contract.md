@@ -8,6 +8,9 @@ It is the normative source for:
 - native messaging handshake request/response shapes
 - `DaemonInfo` bootstrap semantics
 - `ProfileInUse` takeover semantics
+- explicit `takeOver` semantics
+- download-root registration/removal semantics
+- `readTorrentFile` semantics
 - profile and KV isolation guarantees
 - native-host conformance case IDs
 
@@ -158,6 +161,38 @@ Required behavior:
 - stale incumbent on same profile is reclaimed
 - explicit `takeOver` transfers the profile to the new host
 
+## Root Management Rules
+
+Native-host root operations:
+
+- `registerDownloadRoot`
+- `deleteDownloadRoot`
+
+Required behavior:
+
+- `registerDownloadRoot` returns `ok: true` with `type: "RootAdded"`
+- `RootAdded.payload.root` contains the newly registered root metadata
+- the added root persists in profile state for subsequent bootstrap
+- `deleteDownloadRoot` returns `ok: true` with `type: "RootRemoved"` when the key exists
+- the removed root is no longer present in persisted profile state
+
+Current capability note:
+
+- root mutation is advertised by `DaemonInfo.capabilities.roots_manageable`
+
+## Torrent File Rules
+
+Native-host torrent file operation:
+
+- `readTorrentFile`
+
+Required behavior:
+
+- successful `.torrent` reads return `ok: true` with `type: "TorrentFileContents"`
+- payload contains the original file name
+- payload contains base64 content that round-trips to the file bytes
+- non-`.torrent` paths and unreadable paths fail without returning `TorrentFileContents`
+
 ## KV Isolation Rules
 
 Required behavior:
@@ -191,6 +226,9 @@ Initial required case areas:
 - live profile conflict returns `ProfileInUse`
 - invalid profile ID creates a new profile
 - KV data is isolated per profile
+- explicit takeover reuses the requested profile
+- register/delete root operations return the expected root payloads
+- `readTorrentFile` returns torrent contents payloads
 
 Current runner:
 
