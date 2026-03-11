@@ -1027,7 +1027,10 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
       return
     }
 
-    const unstreamableStateError = getUnstreamablePlaybackStateError(session.torrent, session.fileIndex)
+    const unstreamableStateError = getUnstreamablePlaybackStateError(
+      session.torrent,
+      session.fileIndex,
+    )
     if (unstreamableStateError) {
       throw createPlaybackHttpStreamStatusError(unstreamableStateError)
     }

@@ -11,7 +11,10 @@ import { PeerConnection } from '../../src/core/peer-connection'
 import { Torrent } from '../../src/core/torrent'
 import { TorrentCreator } from '../../src/core/torrent-creator'
 import { createNodeIoDaemonEngineHttpStreamBridge } from '../../src/node-io-daemon/engine-http-stream-bridge'
-import type { NodeIoDaemonHttpStreamBridge, NodeIoDaemonHttpStreamWaitRequest } from '../../src/node-io-daemon/types'
+import type {
+  NodeIoDaemonHttpStreamBridge,
+  NodeIoDaemonHttpStreamWaitRequest,
+} from '../../src/node-io-daemon/types'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
 
 interface HttpResponseData {
@@ -298,466 +301,402 @@ describe('node-io-daemon media streaming integration', () => {
     await waitForCondition(() => torrent.hasPiece(pieceIndex))
   }
 
-  it(
-    'blocks a tokenized HTTP range until a real torrent piece arrives',
-    async () => {
-      const fixture = await setupMediaFixture()
+  it('blocks a tokenized HTTP range until a real torrent piece arrives', async () => {
+    const fixture = await setupMediaFixture()
 
-      let settled = false
-      const responsePromise = makeRequest(fixture.mediaPort, '/stream/stream-token', {
+    let settled = false
+    const responsePromise = makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    }).then((response) => {
+      settled = true
+      return response
+    })
+
+    await delay(50)
+    expect(settled).toBe(false)
+
+    connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
+
+    const response = await responsePromise
+    expect(response.statusCode).toBe(206)
+    expect(response.headers['content-range']).toBe(`bytes 0-4/${fixture.fileContent.length}`)
+    expect(response.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
+    expect((fixture.leecherTorrent.bitfield?.cardinality() ?? 0) > 0).toBe(true)
+  }, 15000)
+
+  it('streams across multiple daemon chunks and torrent-piece waits', async () => {
+    const waitCalls: NodeIoDaemonHttpStreamWaitRequest[] = []
+    const fixture = await setupMediaFixture({
+      fileSize: 2 * 256 * 1024 + 8192,
+      bridgeFactory: (engine) => {
+        const bridge = createNodeIoDaemonEngineHttpStreamBridge(engine)
+        return {
+          ...bridge,
+          async waitForRange(request) {
+            waitCalls.push({ ...request })
+            await bridge.waitForRange(request)
+          },
+        }
+      },
+    })
+
+    let settled = false
+    const responsePromise = makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: `bytes=0-${fixture.fileContent.length - 1}`,
+      },
+    }).then((response) => {
+      settled = true
+      return response
+    })
+
+    await delay(50)
+    expect(settled).toBe(false)
+
+    connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
+
+    const response = await responsePromise
+    expect(response.statusCode).toBe(206)
+    expect(response.body.equals(fixture.fileContent)).toBe(true)
+    expect(waitCalls.map((call) => ({ offset: call.offset, length: call.length }))).toEqual([
+      { offset: 0, length: 256 * 1024 },
+      { offset: 256 * 1024, length: 256 * 1024 },
+      { offset: 2 * 256 * 1024, length: 8192 },
+    ])
+  }, 20000)
+
+  it('serves two concurrent requests on the same token independently', async () => {
+    const fixture = await setupMediaFixture()
+
+    let firstSettled = false
+    let secondSettled = false
+    const firstResponse = makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    }).then((response) => {
+      firstSettled = true
+      return response
+    })
+    const secondResponse = makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=1-5',
+      },
+    }).then((response) => {
+      secondSettled = true
+      return response
+    })
+
+    await delay(50)
+    expect(firstSettled).toBe(false)
+    expect(secondSettled).toBe(false)
+
+    connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
+
+    const [first, second] = await Promise.all([firstResponse, secondResponse])
+    expect(first.statusCode).toBe(206)
+    expect(first.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
+    expect(second.statusCode).toBe(206)
+    expect(second.body.equals(fixture.fileContent.subarray(1, 6))).toBe(true)
+  }, 15000)
+
+  it('canceling one concurrent request does not cancel another on the same token', async () => {
+    const fixture = await setupMediaFixture()
+
+    const first = startRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    })
+    const second = startRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=1-5',
+      },
+    })
+
+    await delay(50)
+    first.req.destroy()
+
+    await expect(first.response).rejects.toBeInstanceOf(Error)
+
+    connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
+
+    const secondResponse = await second.response
+    expect(secondResponse.statusCode).toBe(206)
+    expect(secondResponse.body.equals(fixture.fileContent.subarray(1, 6))).toBe(true)
+  }, 15000)
+
+  it('serves already-complete ranges after the torrent is stopped', async () => {
+    const fixture = await setupMediaFixture()
+
+    connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
+    await waitForPiece(fixture.leecherTorrent, 0)
+
+    fixture.leecherTorrent.userStop()
+
+    const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    })
+    expect(response.statusCode).toBe(206)
+    expect(response.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
+  }, 15000)
+
+  it('serves already-complete ranges after the file is skipped', async () => {
+    const fixture = await setupMediaFixture()
+
+    connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
+    await waitForPiece(fixture.leecherTorrent, 0)
+    await fixture.leecherTorrent.setFilePriorityAsync(0, 1)
+
+    const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    })
+    expect(response.statusCode).toBe(206)
+    expect(response.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
+  }, 15000)
+
+  it('rejects incomplete ranges for skipped files without hanging', async () => {
+    const fixture = await setupMediaFixture()
+
+    await fixture.leecherTorrent.setFilePriorityAsync(0, 1)
+
+    const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    })
+    expect(response.statusCode).toBe(409)
+    expect(response.body.toString('utf8')).toBe('File is skipped')
+  }, 15000)
+
+  it('rejects incomplete ranges after the torrent is stopped without hanging', async () => {
+    const fixture = await setupMediaFixture()
+
+    connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
+    await waitForPiece(fixture.leecherTorrent, 0)
+    fixture.leecherTorrent.userStop()
+
+    await waitForCondition(() => !fixture.leecherTorrent.hasPiece(15))
+
+    const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=245760-245764',
+      },
+    })
+    expect(response.statusCode).toBe(409)
+    expect(response.body.toString('utf8')).toBe('Torrent is stopped')
+  }, 15000)
+
+  it('rejects incomplete ranges when the torrent is queued', async () => {
+    const fixture = await setupMediaFixture()
+
+    fixture.leecherTorrent.gracefulStop(0)
+
+    const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    })
+    expect(response.statusCode).toBe(409)
+    expect(response.body.toString('utf8')).toBe('Torrent is not active')
+  }, 15000)
+
+  it('rejects incomplete ranges when the torrent is in an error state', async () => {
+    const fixture = await setupMediaFixture()
+
+    fixture.leecherTorrent.errorMessage = 'Simulated playback failure'
+
+    const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    })
+    expect(response.statusCode).toBe(409)
+    expect(response.body.toString('utf8')).toBe('Torrent is in an error state')
+  }, 15000)
+
+  it('cancels an in-flight blocking wait when the torrent is stopped', async () => {
+    const fixture = await setupMediaFixture()
+
+    let settled = false
+    const responsePromise = makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    }).then((response) => {
+      settled = true
+      return response
+    })
+
+    await delay(50)
+    expect(settled).toBe(false)
+
+    fixture.leecherTorrent.userStop()
+
+    const response = await responsePromise
+    expect(response.statusCode).toBe(409)
+    expect(response.body.toString('utf8')).toBe('Torrent is stopped')
+  }, 15000)
+
+  it('fans out torrent stop to multiple concurrent blocking requests on the same token', async () => {
+    const fixture = await setupMediaFixture()
+
+    let firstSettled = false
+    let secondSettled = false
+    const firstResponse = makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    }).then((response) => {
+      firstSettled = true
+      return response
+    })
+    const secondResponse = makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=1-5',
+      },
+    }).then((response) => {
+      secondSettled = true
+      return response
+    })
+
+    await delay(50)
+    expect(firstSettled).toBe(false)
+    expect(secondSettled).toBe(false)
+
+    fixture.leecherTorrent.userStop()
+
+    const [first, second] = await Promise.all([firstResponse, secondResponse])
+    expect(first.statusCode).toBe(409)
+    expect(first.body.toString('utf8')).toBe('Torrent is stopped')
+    expect(second.statusCode).toBe(409)
+    expect(second.body.toString('utf8')).toBe('Torrent is stopped')
+  }, 15000)
+
+  it('serves complete ranges while rejecting incomplete ranges concurrently after the torrent is stopped', async () => {
+    const fixture = await setupMediaFixture()
+
+    connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
+    await waitForPiece(fixture.leecherTorrent, 0)
+    fixture.leecherTorrent.userStop()
+
+    const [completeResponse, incompleteResponse] = await Promise.all([
+      makeRequest(fixture.mediaPort, '/stream/stream-token', {
         headers: {
           Range: 'bytes=0-4',
         },
-      }).then((response) => {
-        settled = true
-        return response
-      })
-
-      await delay(50)
-      expect(settled).toBe(false)
-
-      connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
-
-      const response = await responsePromise
-      expect(response.statusCode).toBe(206)
-      expect(response.headers['content-range']).toBe(`bytes 0-4/${fixture.fileContent.length}`)
-      expect(response.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
-      expect((fixture.leecherTorrent.bitfield?.cardinality() ?? 0) > 0).toBe(true)
-    },
-    15000,
-  )
-
-  it(
-    'streams across multiple daemon chunks and torrent-piece waits',
-    async () => {
-      const waitCalls: NodeIoDaemonHttpStreamWaitRequest[] = []
-      const fixture = await setupMediaFixture({
-        fileSize: 2 * 256 * 1024 + 8192,
-        bridgeFactory: (engine) => {
-          const bridge = createNodeIoDaemonEngineHttpStreamBridge(engine)
-          return {
-            ...bridge,
-            async waitForRange(request) {
-              waitCalls.push({ ...request })
-              await bridge.waitForRange(request)
-            },
-          }
-        },
-      })
-
-      let settled = false
-      const responsePromise = makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: `bytes=0-${fixture.fileContent.length - 1}`,
-        },
-      }).then((response) => {
-        settled = true
-        return response
-      })
-
-      await delay(50)
-      expect(settled).toBe(false)
-
-      connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
-
-      const response = await responsePromise
-      expect(response.statusCode).toBe(206)
-      expect(response.body.equals(fixture.fileContent)).toBe(true)
-      expect(waitCalls.map((call) => ({ offset: call.offset, length: call.length }))).toEqual([
-        { offset: 0, length: 256 * 1024 },
-        { offset: 256 * 1024, length: 256 * 1024 },
-        { offset: 2 * 256 * 1024, length: 8192 },
-      ])
-    },
-    20000,
-  )
-
-  it(
-    'serves two concurrent requests on the same token independently',
-    async () => {
-      const fixture = await setupMediaFixture()
-
-      let firstSettled = false
-      let secondSettled = false
-      const firstResponse = makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=0-4',
-        },
-      }).then((response) => {
-        firstSettled = true
-        return response
-      })
-      const secondResponse = makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=1-5',
-        },
-      }).then((response) => {
-        secondSettled = true
-        return response
-      })
-
-      await delay(50)
-      expect(firstSettled).toBe(false)
-      expect(secondSettled).toBe(false)
-
-      connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
-
-      const [first, second] = await Promise.all([firstResponse, secondResponse])
-      expect(first.statusCode).toBe(206)
-      expect(first.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
-      expect(second.statusCode).toBe(206)
-      expect(second.body.equals(fixture.fileContent.subarray(1, 6))).toBe(true)
-    },
-    15000,
-  )
-
-  it(
-    'canceling one concurrent request does not cancel another on the same token',
-    async () => {
-      const fixture = await setupMediaFixture()
-
-      const first = startRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=0-4',
-        },
-      })
-      const second = startRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=1-5',
-        },
-      })
-
-      await delay(50)
-      first.req.destroy()
-
-      await expect(first.response).rejects.toBeInstanceOf(Error)
-
-      connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
-
-      const secondResponse = await second.response
-      expect(secondResponse.statusCode).toBe(206)
-      expect(secondResponse.body.equals(fixture.fileContent.subarray(1, 6))).toBe(true)
-    },
-    15000,
-  )
-
-  it(
-    'serves already-complete ranges after the torrent is stopped',
-    async () => {
-      const fixture = await setupMediaFixture()
-
-      connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
-      await waitForPiece(fixture.leecherTorrent, 0)
-
-      fixture.leecherTorrent.userStop()
-
-      const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=0-4',
-        },
-      })
-      expect(response.statusCode).toBe(206)
-      expect(response.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
-    },
-    15000,
-  )
-
-  it(
-    'serves already-complete ranges after the file is skipped',
-    async () => {
-      const fixture = await setupMediaFixture()
-
-      connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
-      await waitForPiece(fixture.leecherTorrent, 0)
-      await fixture.leecherTorrent.setFilePriorityAsync(0, 1)
-
-      const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=0-4',
-        },
-      })
-      expect(response.statusCode).toBe(206)
-      expect(response.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
-    },
-    15000,
-  )
-
-  it(
-    'rejects incomplete ranges for skipped files without hanging',
-    async () => {
-      const fixture = await setupMediaFixture()
-
-      await fixture.leecherTorrent.setFilePriorityAsync(0, 1)
-
-      const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=0-4',
-        },
-      })
-      expect(response.statusCode).toBe(409)
-      expect(response.body.toString('utf8')).toBe('File is skipped')
-    },
-    15000,
-  )
-
-  it(
-    'rejects incomplete ranges after the torrent is stopped without hanging',
-    async () => {
-      const fixture = await setupMediaFixture()
-
-      connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
-      await waitForPiece(fixture.leecherTorrent, 0)
-      fixture.leecherTorrent.userStop()
-
-      await waitForCondition(() => !fixture.leecherTorrent.hasPiece(15))
-
-      const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      }),
+      makeRequest(fixture.mediaPort, '/stream/stream-token', {
         headers: {
           Range: 'bytes=245760-245764',
         },
-      })
-      expect(response.statusCode).toBe(409)
-      expect(response.body.toString('utf8')).toBe('Torrent is stopped')
-    },
-    15000,
-  )
+      }),
+    ])
 
-  it(
-    'rejects incomplete ranges when the torrent is queued',
-    async () => {
-      const fixture = await setupMediaFixture()
+    expect(completeResponse.statusCode).toBe(206)
+    expect(completeResponse.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
+    expect(incompleteResponse.statusCode).toBe(409)
+    expect(incompleteResponse.body.toString('utf8')).toBe('Torrent is stopped')
+  }, 15000)
 
-      fixture.leecherTorrent.gracefulStop(0)
+  it('serves complete ranges while rejecting incomplete ranges concurrently after the file is skipped', async () => {
+    const fixture = await setupMediaFixture()
 
-      const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+    connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
+    await waitForPiece(fixture.leecherTorrent, 0)
+    await fixture.leecherTorrent.setFilePriorityAsync(0, 1)
+
+    const [completeResponse, incompleteResponse] = await Promise.all([
+      makeRequest(fixture.mediaPort, '/stream/stream-token', {
         headers: {
           Range: 'bytes=0-4',
         },
-      })
-      expect(response.statusCode).toBe(409)
-      expect(response.body.toString('utf8')).toBe('Torrent is not active')
-    },
-    15000,
-  )
-
-  it(
-    'rejects incomplete ranges when the torrent is in an error state',
-    async () => {
-      const fixture = await setupMediaFixture()
-
-      fixture.leecherTorrent.errorMessage = 'Simulated playback failure'
-
-      const response = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      }),
+      makeRequest(fixture.mediaPort, '/stream/stream-token', {
         headers: {
-          Range: 'bytes=0-4',
+          Range: 'bytes=245760-245764',
         },
-      })
-      expect(response.statusCode).toBe(409)
-      expect(response.body.toString('utf8')).toBe('Torrent is in an error state')
-    },
-    15000,
-  )
+      }),
+    ])
 
-  it(
-    'cancels an in-flight blocking wait when the torrent is stopped',
-    async () => {
-      const fixture = await setupMediaFixture()
+    expect(completeResponse.statusCode).toBe(206)
+    expect(completeResponse.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
+    expect(incompleteResponse.statusCode).toBe(409)
+    expect(incompleteResponse.body.toString('utf8')).toBe('File is skipped')
+  }, 15000)
 
-      let settled = false
-      const responsePromise = makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=0-4',
-        },
-      }).then((response) => {
-        settled = true
-        return response
-      })
+  it('fans out torrent removal to multiple concurrent blocking requests on the same token', async () => {
+    const fixture = await setupMediaFixture()
 
-      await delay(50)
-      expect(settled).toBe(false)
+    let firstSettled = false
+    let secondSettled = false
+    const firstResponse = makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    }).then((response) => {
+      firstSettled = true
+      return response
+    })
+    const secondResponse = makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=1-5',
+      },
+    }).then((response) => {
+      secondSettled = true
+      return response
+    })
 
-      fixture.leecherTorrent.userStop()
+    await delay(50)
+    expect(firstSettled).toBe(false)
+    expect(secondSettled).toBe(false)
 
-      const response = await responsePromise
-      expect(response.statusCode).toBe(409)
-      expect(response.body.toString('utf8')).toBe('Torrent is stopped')
-    },
-    15000,
-  )
+    await leecher!.removeTorrentByHash(fixture.leecherTorrent.infoHashStr)
 
-  it(
-    'fans out torrent stop to multiple concurrent blocking requests on the same token',
-    async () => {
-      const fixture = await setupMediaFixture()
+    const [first, second] = await Promise.all([firstResponse, secondResponse])
+    expect(first.statusCode).toBe(404)
+    expect(second.statusCode).toBe(404)
 
-      let firstSettled = false
-      let secondSettled = false
-      const firstResponse = makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=0-4',
-        },
-      }).then((response) => {
-        firstSettled = true
-        return response
-      })
-      const secondResponse = makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=1-5',
-        },
-      }).then((response) => {
-        secondSettled = true
-        return response
-      })
+    const retryResponse = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    })
+    expect(retryResponse.statusCode).toBe(404)
+  }, 15000)
 
-      await delay(50)
-      expect(firstSettled).toBe(false)
-      expect(secondSettled).toBe(false)
+  it('revokes the token and cancels an in-flight wait when the torrent is removed', async () => {
+    const fixture = await setupMediaFixture()
 
-      fixture.leecherTorrent.userStop()
+    let settled = false
+    const responsePromise = makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    }).then((response) => {
+      settled = true
+      return response
+    })
 
-      const [first, second] = await Promise.all([firstResponse, secondResponse])
-      expect(first.statusCode).toBe(409)
-      expect(first.body.toString('utf8')).toBe('Torrent is stopped')
-      expect(second.statusCode).toBe(409)
-      expect(second.body.toString('utf8')).toBe('Torrent is stopped')
-    },
-    15000,
-  )
+    await delay(50)
+    expect(settled).toBe(false)
 
-  it(
-    'serves complete ranges while rejecting incomplete ranges concurrently after the torrent is stopped',
-    async () => {
-      const fixture = await setupMediaFixture()
+    await leecher!.removeTorrentByHash(fixture.leecherTorrent.infoHashStr)
 
-      connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
-      await waitForPiece(fixture.leecherTorrent, 0)
-      fixture.leecherTorrent.userStop()
+    const response = await responsePromise
+    expect(response.statusCode).toBe(404)
 
-      const [completeResponse, incompleteResponse] = await Promise.all([
-        makeRequest(fixture.mediaPort, '/stream/stream-token', {
-          headers: {
-            Range: 'bytes=0-4',
-          },
-        }),
-        makeRequest(fixture.mediaPort, '/stream/stream-token', {
-          headers: {
-            Range: 'bytes=245760-245764',
-          },
-        }),
-      ])
-
-      expect(completeResponse.statusCode).toBe(206)
-      expect(completeResponse.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
-      expect(incompleteResponse.statusCode).toBe(409)
-      expect(incompleteResponse.body.toString('utf8')).toBe('Torrent is stopped')
-    },
-    15000,
-  )
-
-  it(
-    'serves complete ranges while rejecting incomplete ranges concurrently after the file is skipped',
-    async () => {
-      const fixture = await setupMediaFixture()
-
-      connectSeederAndLeecher(fixture.seedingTorrent, fixture.leecherTorrent)
-      await waitForPiece(fixture.leecherTorrent, 0)
-      await fixture.leecherTorrent.setFilePriorityAsync(0, 1)
-
-      const [completeResponse, incompleteResponse] = await Promise.all([
-        makeRequest(fixture.mediaPort, '/stream/stream-token', {
-          headers: {
-            Range: 'bytes=0-4',
-          },
-        }),
-        makeRequest(fixture.mediaPort, '/stream/stream-token', {
-          headers: {
-            Range: 'bytes=245760-245764',
-          },
-        }),
-      ])
-
-      expect(completeResponse.statusCode).toBe(206)
-      expect(completeResponse.body.equals(fixture.fileContent.subarray(0, 5))).toBe(true)
-      expect(incompleteResponse.statusCode).toBe(409)
-      expect(incompleteResponse.body.toString('utf8')).toBe('File is skipped')
-    },
-    15000,
-  )
-
-  it(
-    'fans out torrent removal to multiple concurrent blocking requests on the same token',
-    async () => {
-      const fixture = await setupMediaFixture()
-
-      let firstSettled = false
-      let secondSettled = false
-      const firstResponse = makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=0-4',
-        },
-      }).then((response) => {
-        firstSettled = true
-        return response
-      })
-      const secondResponse = makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=1-5',
-        },
-      }).then((response) => {
-        secondSettled = true
-        return response
-      })
-
-      await delay(50)
-      expect(firstSettled).toBe(false)
-      expect(secondSettled).toBe(false)
-
-      await leecher!.removeTorrentByHash(fixture.leecherTorrent.infoHashStr)
-
-      const [first, second] = await Promise.all([firstResponse, secondResponse])
-      expect(first.statusCode).toBe(404)
-      expect(second.statusCode).toBe(404)
-
-      const retryResponse = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=0-4',
-        },
-      })
-      expect(retryResponse.statusCode).toBe(404)
-    },
-    15000,
-  )
-
-  it(
-    'revokes the token and cancels an in-flight wait when the torrent is removed',
-    async () => {
-      const fixture = await setupMediaFixture()
-
-      let settled = false
-      const responsePromise = makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=0-4',
-        },
-      }).then((response) => {
-        settled = true
-        return response
-      })
-
-      await delay(50)
-      expect(settled).toBe(false)
-
-      await leecher!.removeTorrentByHash(fixture.leecherTorrent.infoHashStr)
-
-      const response = await responsePromise
-      expect(response.statusCode).toBe(404)
-
-      const retryResponse = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
-        headers: {
-          Range: 'bytes=0-4',
-        },
-      })
-      expect(retryResponse.statusCode).toBe(404)
-    },
-    15000,
-  )
+    const retryResponse = await makeRequest(fixture.mediaPort, '/stream/stream-token', {
+      headers: {
+        Range: 'bytes=0-4',
+      },
+    })
+    expect(retryResponse.statusCode).toBe(404)
+  }, 15000)
 })

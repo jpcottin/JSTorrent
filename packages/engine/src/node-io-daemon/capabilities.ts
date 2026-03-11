@@ -15,9 +15,7 @@ export const NODE_IO_DAEMON_CAPABILITIES: NodeIoDaemonCapabilities = {
   mediaBlocking206: false,
 }
 
-export function createNodeIoDaemonCapabilities(
-  mediaBlocking206 = false,
-): NodeIoDaemonCapabilities {
+export function createNodeIoDaemonCapabilities(mediaBlocking206 = false): NodeIoDaemonCapabilities {
   return {
     ...NODE_IO_DAEMON_CAPABILITIES,
     mediaBlocking206,

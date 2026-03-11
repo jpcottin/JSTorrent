@@ -105,25 +105,21 @@ describe('DaemonBackedEngine with Node daemon streaming', () => {
     40_000,
   )
 
-  it(
-    'serves a completed file over tokenized HTTP after control-channel registration',
-    async () => {
-      const fixture = await createStreamingFixture()
-      await waitForTorrentComplete(fixture)
+  it('serves a completed file over tokenized HTTP after control-channel registration', async () => {
+    const fixture = await createStreamingFixture()
+    await waitForTorrentComplete(fixture)
 
-      const mediaPort = await fixture.registerStreamToken('completed-stream-token')
-      const response = await makeRequest(mediaPort, '/stream/completed-stream-token', {
-        headers: {
-          Range: 'bytes=0-31',
-        },
-      })
+    const mediaPort = await fixture.registerStreamToken('completed-stream-token')
+    const response = await makeRequest(mediaPort, '/stream/completed-stream-token', {
+      headers: {
+        Range: 'bytes=0-31',
+      },
+    })
 
-      expect(response.statusCode).toBe(206)
-      expect(response.headers['content-range']).toBe(`bytes 0-31/${fixture.fileContent.length}`)
-      expect(response.body.equals(fixture.fileContent.subarray(0, 32))).toBe(true)
-    },
-    40_000,
-  )
+    expect(response.statusCode).toBe(206)
+    expect(response.headers['content-range']).toBe(`bytes 0-31/${fixture.fileContent.length}`)
+    expect(response.body.equals(fixture.fileContent.subarray(0, 32))).toBe(true)
+  }, 40_000)
 
   conformanceCase(
     'node',
@@ -180,7 +176,9 @@ describe('DaemonBackedEngine with Node daemon streaming', () => {
       const controlStream = fixture.daemonBackedEngine.getControlStreamService()
       expect(controlStream).not.toBeNull()
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- monkey-patching private method for test
       const originalWaitForRange = (controlStream as any).waitForRange.bind(controlStream)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(controlStream as any).waitForRange = async (
         sessionId: string,
         offset: number,
@@ -285,38 +283,38 @@ describe('DaemonBackedEngine with Node daemon streaming', () => {
     40_000,
   )
 
-  it(
-    'serves concurrent completed-range readers on the same token independently',
-    async () => {
-      const fixture = await createStreamingFixture()
-      await waitForTorrentComplete(fixture)
+  it('serves concurrent completed-range readers on the same token independently', async () => {
+    const fixture = await createStreamingFixture()
+    await waitForTorrentComplete(fixture)
 
-      const mediaPort = await fixture.registerStreamToken('concurrent-complete-stream-token')
-      const firstResponsePromise = startRequest(mediaPort, '/stream/concurrent-complete-stream-token', {
+    const mediaPort = await fixture.registerStreamToken('concurrent-complete-stream-token')
+    const firstResponsePromise = startRequest(
+      mediaPort,
+      '/stream/concurrent-complete-stream-token',
+      {
         headers: {
           Range: 'bytes=0-15',
         },
-      }).response
-      const secondResponsePromise = startRequest(
-        mediaPort,
-        '/stream/concurrent-complete-stream-token',
-        {
-          headers: {
-            Range: 'bytes=32-63',
-          },
+      },
+    ).response
+    const secondResponsePromise = startRequest(
+      mediaPort,
+      '/stream/concurrent-complete-stream-token',
+      {
+        headers: {
+          Range: 'bytes=32-63',
         },
-      ).response
+      },
+    ).response
 
-      const [firstResponse, secondResponse] = await Promise.all([
-        firstResponsePromise,
-        secondResponsePromise,
-      ])
+    const [firstResponse, secondResponse] = await Promise.all([
+      firstResponsePromise,
+      secondResponsePromise,
+    ])
 
-      expect(firstResponse.statusCode).toBe(206)
-      expect(firstResponse.body.equals(fixture.fileContent.subarray(0, 16))).toBe(true)
-      expect(secondResponse.statusCode).toBe(206)
-      expect(secondResponse.body.equals(fixture.fileContent.subarray(32, 64))).toBe(true)
-    },
-    40_000,
-  )
+    expect(firstResponse.statusCode).toBe(206)
+    expect(firstResponse.body.equals(fixture.fileContent.subarray(0, 16))).toBe(true)
+    expect(secondResponse.statusCode).toBe(206)
+    expect(secondResponse.body.equals(fixture.fileContent.subarray(32, 64))).toBe(true)
+  }, 40_000)
 })

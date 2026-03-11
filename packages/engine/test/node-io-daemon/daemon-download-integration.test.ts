@@ -26,26 +26,25 @@ describe('node-io-daemon daemon download integration', () => {
   let tracker: SimpleTracker | null = null
   let tempDir: string | null = null
 
-  afterEach(
-    async () => {
-      if (leecher) {
-        for (const torrent of [...leecher.torrents]) {
-          await leecher.removeTorrent(torrent)
-        }
-        await leecher.destroy()
-        leecher = null
+  afterEach(async () => {
+    if (leecher) {
+      for (const torrent of [...leecher.torrents]) {
+        await leecher.removeTorrent(torrent)
       }
+      await leecher.destroy()
+      leecher = null
+    }
     if (connection) {
       connection.close()
       connection = null
     }
-      if (seeder) {
-        for (const torrent of [...seeder.torrents]) {
-          await seeder.removeTorrent(torrent)
-        }
-        await seeder.destroy()
-        seeder = null
+    if (seeder) {
+      for (const torrent of [...seeder.torrents]) {
+        await seeder.removeTorrent(torrent)
       }
+      await seeder.destroy()
+      seeder = null
+    }
     if (daemon) {
       await daemon.stop()
       daemon = null
@@ -54,141 +53,135 @@ describe('node-io-daemon daemon download integration', () => {
       await tracker.close()
       tracker = null
     }
-      if (tempDir) {
-        fs.rmSync(tempDir, { recursive: true, force: true })
-        tempDir = null
-      }
-    },
-    30_000,
-  )
+    if (tempDir) {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+      tempDir = null
+    }
+  }, 30_000)
 
-  it(
-    'downloads a real torrent through daemon-backed storage',
-    async () => {
-      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-download-'))
-      const seedDir = path.join(tempDir, 'seed')
-      const downloadDir = path.join(tempDir, 'download')
-      fs.mkdirSync(seedDir, { recursive: true })
-      fs.mkdirSync(downloadDir, { recursive: true })
+  it('downloads a real torrent through daemon-backed storage', async () => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-download-'))
+    const seedDir = path.join(tempDir, 'seed')
+    const downloadDir = path.join(tempDir, 'download')
+    fs.mkdirSync(seedDir, { recursive: true })
+    fs.mkdirSync(downloadDir, { recursive: true })
 
-      const trackerServer = new SimpleTracker({ udpPort: 0 })
-      tracker = trackerServer
-      const ports = await trackerServer.start()
-      const trackerUrl = `udp://127.0.0.1:${ports.udpPort}`
+    const trackerServer = new SimpleTracker({ udpPort: 0 })
+    tracker = trackerServer
+    const ports = await trackerServer.start()
+    const trackerUrl = `udp://127.0.0.1:${ports.udpPort}`
 
-      const socketFactory = new NodeSocketFactory()
-      const seederConfig = new MemoryConfigHub({
-        dhtEnabled: false,
-        upnpEnabled: false,
-      })
-      const leecherConfig = new MemoryConfigHub({
-        dhtEnabled: false,
-        upnpEnabled: false,
-      })
+    const socketFactory = new NodeSocketFactory()
+    const seederConfig = new MemoryConfigHub({
+      dhtEnabled: false,
+      upnpEnabled: false,
+    })
+    const leecherConfig = new MemoryConfigHub({
+      dhtEnabled: false,
+      upnpEnabled: false,
+    })
 
-      const fileName = 'fixture.bin'
-      const fileContent = crypto.randomBytes(512 * 1024)
-      fs.writeFileSync(path.join(seedDir, fileName), fileContent)
+    const fileName = 'fixture.bin'
+    const fileContent = crypto.randomBytes(512 * 1024)
+    fs.writeFileSync(path.join(seedDir, fileName), fileContent)
 
-      const torrentBuffer = await TorrentCreator.create(
-        new NodeStorageHandle('fixture', 'fixture', seedDir),
-        fileName,
-        new NodeHasher(),
+    const torrentBuffer = await TorrentCreator.create(
+      new NodeStorageHandle('fixture', 'fixture', seedDir),
+      fileName,
+      new NodeHasher(),
+      {
+        announceList: [[trackerUrl]],
+        pieceLength: 16 * 1024,
+      },
+    )
+
+    seeder = new BtEngine({
+      socketFactory,
+      fileSystem: new ScopedNodeFileSystem(seedDir),
+      downloadPath: seedDir,
+      port: 0,
+      config: seederConfig,
+    })
+
+    const { torrent: seedingTorrent } = await seeder.addTorrent(torrentBuffer)
+    if (!seedingTorrent) {
+      throw new Error('Failed to add seeding torrent')
+    }
+    await seedingTorrent.recheckData()
+    await seedingTorrent.start()
+
+    daemon = createNodeIoDaemon({
+      host: '127.0.0.1',
+      port: 0,
+      bootstrapMode: 'realistic',
+      authToken: 'secret',
+      roots: [
         {
-          announceList: [[trackerUrl]],
-          pieceLength: 16 * 1024,
+          key: 'root-a',
+          uri: pathToFileURL(downloadDir).toString(),
+          display_name: 'Download Root',
+          removable: true,
+          last_stat_ok: true,
+          last_checked: Date.now(),
         },
-      )
+      ],
+    })
+    await daemon.start()
 
-      seeder = new BtEngine({
-        socketFactory,
-        fileSystem: new ScopedNodeFileSystem(seedDir),
-        downloadPath: seedDir,
-        port: 0,
-        config: seederConfig,
+    const status = await fetchDaemonStatus(
+      '127.0.0.1',
+      daemon.getStatus().port,
+      'secret',
+      'extension-id',
+      'install-id',
+    )
+    connection = new DaemonConnection(
+      daemon.getStatus().port,
+      '127.0.0.1',
+      undefined,
+      'secret',
+      status.ioPort,
+    )
+    const roots = await fetchDaemonRoots(connection)
+
+    leecher = await createDaemonEngine({
+      connection,
+      contentRoots: roots,
+      defaultContentRoot: 'root-a',
+      sessionStore: new MemorySessionStore(),
+      config: leecherConfig,
+      port: 0,
+    })
+
+    const { torrent: downloadingTorrent } = await leecher.addTorrent(torrentBuffer)
+    if (!downloadingTorrent) {
+      throw new Error('Failed to add downloading torrent')
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout waiting for daemon-backed download'))
+      }, 30_000)
+
+      downloadingTorrent.once('complete', () => {
+        clearTimeout(timeout)
+        resolve()
       })
-
-      const { torrent: seedingTorrent } = await seeder.addTorrent(torrentBuffer)
-      if (!seedingTorrent) {
-        throw new Error('Failed to add seeding torrent')
-      }
-      await seedingTorrent.recheckData()
-      await seedingTorrent.start()
-
-      daemon = createNodeIoDaemon({
-        host: '127.0.0.1',
-        port: 0,
-        bootstrapMode: 'realistic',
-        authToken: 'secret',
-        roots: [
-          {
-            key: 'root-a',
-            uri: pathToFileURL(downloadDir).toString(),
-            display_name: 'Download Root',
-            removable: true,
-            last_stat_ok: true,
-            last_checked: Date.now(),
-          },
-        ],
+      downloadingTorrent.once('error', (error) => {
+        clearTimeout(timeout)
+        reject(error)
       })
-      await daemon.start()
+    })
 
-      const status = await fetchDaemonStatus(
-        '127.0.0.1',
-        daemon.getStatus().port,
-        'secret',
-        'extension-id',
-        'install-id',
-      )
-      connection = new DaemonConnection(
-        daemon.getStatus().port,
-        '127.0.0.1',
-        undefined,
-        'secret',
-        status.ioPort,
-      )
-      const roots = await fetchDaemonRoots(connection)
+    const downloadedPath = path.join(downloadDir, fileName)
+    const downloadedContent = fs.readFileSync(downloadedPath)
+    expect(downloadedContent.equals(fileContent)).toBe(true)
 
-      leecher = await createDaemonEngine({
-        connection,
-        contentRoots: roots,
-        defaultContentRoot: 'root-a',
-        sessionStore: new MemorySessionStore(),
-        config: leecherConfig,
-        port: 0,
-      })
-
-      const { torrent: downloadingTorrent } = await leecher.addTorrent(torrentBuffer)
-      if (!downloadingTorrent) {
-        throw new Error('Failed to add downloading torrent')
-      }
-
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Timeout waiting for daemon-backed download'))
-        }, 30_000)
-
-        downloadingTorrent.once('complete', () => {
-          clearTimeout(timeout)
-          resolve()
-        })
-        downloadingTorrent.once('error', (error) => {
-          clearTimeout(timeout)
-          reject(error)
-        })
-      })
-
-      const downloadedPath = path.join(downloadDir, fileName)
-      const downloadedContent = fs.readFileSync(downloadedPath)
-      expect(downloadedContent.equals(fileContent)).toBe(true)
-
-      const daemonRead = await connection.requestBinaryWithHeaders('GET', '/read/root-a', {
-        'X-Path-Base64': Buffer.from(fileName, 'utf8').toString('base64'),
-        'X-Offset': '0',
-        'X-Length': String(fileContent.length),
-      })
-      expect(Buffer.from(daemonRead).equals(fileContent)).toBe(true)
-    },
-    40_000,
-  )
+    const daemonRead = await connection.requestBinaryWithHeaders('GET', '/read/root-a', {
+      'X-Path-Base64': Buffer.from(fileName, 'utf8').toString('base64'),
+      'X-Offset': '0',
+      'X-Length': String(fileContent.length),
+    })
+    expect(Buffer.from(daemonRead).equals(fileContent)).toBe(true)
+  }, 40_000)
 })

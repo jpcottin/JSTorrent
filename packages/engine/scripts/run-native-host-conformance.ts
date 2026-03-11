@@ -37,14 +37,15 @@ const engineRoot = resolve(__dirname, '..')
 const repoRoot = resolve(engineRoot, '..', '..')
 const desktopRoot = resolve(repoRoot, 'desktop')
 const contractsPath = resolve(repoRoot, 'contracts', 'native-host-conformance.json')
-const rustSafeTitlePattern =
-  /conformance__([a-z0-9_]+(?:__[a-z0-9_]+)*)__impl__(rust)(?:__|$)/
+const rustSafeTitlePattern = /conformance__([a-z0-9_]+(?:__[a-z0-9_]+)*)__impl__(rust)(?:__|$)/
 
 function readManifest(): ConformanceManifest {
   return JSON.parse(readFileSync(contractsPath, 'utf8')) as ConformanceManifest
 }
 
-function parseConformanceTitle(title: string): { caseId: string; implementation: Implementation } | null {
+function parseConformanceTitle(
+  title: string,
+): { caseId: string; implementation: Implementation } | null {
   const rustSafeMatch = rustSafeTitlePattern.exec(title)
   if (!rustSafeMatch) {
     return null
@@ -94,7 +95,8 @@ function runRustNativeHostConformance(): ParsedAssertion[] {
 function collectRustAssertions(output: string): ParsedAssertion[] {
   const assertions: ParsedAssertion[] = []
   const lines = output.split(/\r?\n/)
-  const testLinePattern = /^test (conformance__[a-z0-9_]+(?:__[a-z0-9_]+)*__impl__rust) \.\.\. (ok|FAILED)$/i
+  const testLinePattern =
+    /^test (conformance__[a-z0-9_]+(?:__[a-z0-9_]+)*__impl__rust) \.\.\. (ok|FAILED)$/i
 
   for (const line of lines) {
     const match = testLinePattern.exec(line.trim())
@@ -116,7 +118,9 @@ function collectRustAssertions(output: string): ParsedAssertion[] {
   return assertions
 }
 
-function aggregateByImplementation(assertions: ParsedAssertion[]): Map<Implementation, Map<string, AggregateResult>> {
+function aggregateByImplementation(
+  assertions: ParsedAssertion[],
+): Map<Implementation, Map<string, AggregateResult>> {
   const byImplementation = new Map<Implementation, Map<string, AggregateResult>>()
 
   for (const assertion of assertions) {
@@ -144,14 +148,19 @@ function aggregateByImplementation(assertions: ParsedAssertion[]): Map<Implement
   return byImplementation
 }
 
-function validateManifestReferences(manifest: ConformanceManifest, assertions: ParsedAssertion[]): void {
+function validateManifestReferences(
+  manifest: ConformanceManifest,
+  assertions: ParsedAssertion[],
+): void {
   const caseIds = new Set(manifest.cases.map((testCase) => testCase.id))
   const unknownCaseIds = [...new Set(assertions.map((assertion) => assertion.caseId))].filter(
     (caseId) => !caseIds.has(caseId),
   )
 
   if (unknownCaseIds.length > 0) {
-    throw new Error(`Conformance-tagged tests reference unknown case IDs: ${unknownCaseIds.join(', ')}`)
+    throw new Error(
+      `Conformance-tagged tests reference unknown case IDs: ${unknownCaseIds.join(', ')}`,
+    )
   }
 }
 

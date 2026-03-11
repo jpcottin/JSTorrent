@@ -400,11 +400,8 @@ export class NodeIoDaemonIoSession {
     payload: Uint8Array
   }): void {
     if (envelope.msgType === CONTROL_OP_GET_CAPABILITIES) {
-      const {
-        protocolVersion,
-        behaviorVersion,
-        ...capabilities
-      } = this.options.getExternalCapabilities()
+      const { protocolVersion, behaviorVersion, ...capabilities } =
+        this.options.getExternalCapabilities()
       this.sendControlResponse(envelope.msgType, envelope.requestId, {
         ok: true,
         protocolVersion,
@@ -484,9 +481,7 @@ export class NodeIoDaemonIoSession {
       const parsed = text.length > 0 ? (JSON.parse(text) as Record<string, unknown>) : {}
       pending.resolve(parsed)
     } catch (error) {
-      pending.reject(
-        error instanceof Error ? error : new Error('Invalid control response payload'),
-      )
+      pending.reject(error instanceof Error ? error : new Error('Invalid control response payload'))
     }
     return true
   }
@@ -802,11 +797,7 @@ export class NodeIoDaemonIoSession {
     const bindAddr = new TextDecoder().decode(payload.slice(6))
 
     if (this.udpSockets.has(socketId)) {
-      this.sendProtocolFrame(
-        IO_OP_UDP_BOUND,
-        requestId,
-        this.buildUdpBoundFailurePayload(socketId),
-      )
+      this.sendProtocolFrame(IO_OP_UDP_BOUND, requestId, this.buildUdpBoundFailurePayload(socketId))
       return
     }
 

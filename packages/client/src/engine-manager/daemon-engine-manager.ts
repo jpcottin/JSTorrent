@@ -703,7 +703,9 @@ export class DaemonEngineManager implements IEngineManager {
   private async resolveLanAddress(daemonInfo: DaemonInfo): Promise<string | null> {
     const daemonHost = daemonInfo.host ?? '127.0.0.1'
     const tokenHeaders: HeadersInit | undefined =
-      this.channel.getState().platform === 'desktop' ? { 'X-JST-Auth': daemonInfo.token } : undefined
+      this.channel.getState().platform === 'desktop'
+        ? { 'X-JST-Auth': daemonInfo.token }
+        : undefined
     const [interfaces, gateway] = await Promise.all([
       fetch(`http://${daemonHost}:${daemonInfo.port}/network/interfaces`, {
         headers: tokenHeaders,
@@ -711,7 +713,11 @@ export class DaemonEngineManager implements IEngineManager {
         if (!response.ok) {
           throw new Error(`Failed to query network interfaces: ${response.status}`)
         }
-        return (await response.json()) as Array<{ name: string; address: string; prefixLength: number }>
+        return (await response.json()) as Array<{
+          name: string
+          address: string
+          prefixLength: number
+        }>
       }),
       fetch(`http://${daemonHost}:${daemonInfo.port}/network/gateway`, {
         headers: tokenHeaders,
@@ -743,12 +749,18 @@ export class DaemonEngineManager implements IEngineManager {
 
     if (gateway?.interfaceName) {
       const gatewayCandidates = candidates.filter((iface) => iface.name === gateway.interfaceName)
-      const preferredGatewayCandidate = gatewayCandidates.find((iface) => isPrivateLan(iface.address))
+      const preferredGatewayCandidate = gatewayCandidates.find((iface) =>
+        isPrivateLan(iface.address),
+      )
       if (preferredGatewayCandidate) return preferredGatewayCandidate.address
       if (gatewayCandidates[0]) return gatewayCandidates[0].address
     }
 
-    return candidates.find((iface) => isPrivateLan(iface.address))?.address ?? candidates[0]?.address ?? null
+    return (
+      candidates.find((iface) => isPrivateLan(iface.address))?.address ??
+      candidates[0]?.address ??
+      null
+    )
   }
 
   getFilePath(torrentHash: string, filePath: string): string | null {

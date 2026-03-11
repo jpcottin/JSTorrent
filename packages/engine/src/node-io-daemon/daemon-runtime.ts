@@ -22,15 +22,8 @@ import {
   NodeIoDaemonHashMismatchError,
   NodeIoDaemonRootFileSystem,
 } from './root-filesystem'
-import type {
-  NodeIoDaemonConfig,
-  NodeIoDaemonHttpStatus,
-  NodeIoDaemonStatus,
-} from './types'
-import {
-  NODE_IO_DAEMON_HTTP_STREAM_STATUS,
-  getNodeIoDaemonHttpStreamStatus,
-} from './types'
+import type { NodeIoDaemonConfig, NodeIoDaemonHttpStatus, NodeIoDaemonStatus } from './types'
+import { NODE_IO_DAEMON_HTTP_STREAM_STATUS, getNodeIoDaemonHttpStreamStatus } from './types'
 import { NodeIoDaemonRootStore } from './root-store'
 
 interface HttpByteRange {
@@ -114,9 +107,7 @@ function resolveHttpByteRange(
     return null
   }
 
-  const end = endPart
-    ? Math.min(Number.parseInt(endPart, 10), totalSize - 1)
-    : totalSize - 1
+  const end = endPart ? Math.min(Number.parseInt(endPart, 10), totalSize - 1) : totalSize - 1
   if (!Number.isFinite(end) || end < start) {
     return null
   }
@@ -336,7 +327,8 @@ export class NodeIoDaemonRuntime {
 
     if (pathname === '/pair' && req.method === 'POST') {
       const body = await this.readJsonBody(req)
-      const token = body && typeof body === 'object' ? (body as Record<string, unknown>).token : null
+      const token =
+        body && typeof body === 'object' ? (body as Record<string, unknown>).token : null
       if (typeof token !== 'string' || token.length === 0) {
         this.sendText(res, 400, 'Missing token')
         return
@@ -542,8 +534,10 @@ export class NodeIoDaemonRuntime {
       }
 
       const body = await this.readJsonBody(req)
-      const rootKey = body && typeof body === 'object' ? (body as Record<string, unknown>).root_key : null
-      const relativePath = body && typeof body === 'object' ? (body as Record<string, unknown>).path : null
+      const rootKey =
+        body && typeof body === 'object' ? (body as Record<string, unknown>).root_key : null
+      const relativePath =
+        body && typeof body === 'object' ? (body as Record<string, unknown>).path : null
       if (typeof rootKey !== 'string' || typeof relativePath !== 'string') {
         this.sendText(res, 400, 'Missing root_key or path')
         return
@@ -609,10 +603,17 @@ export class NodeIoDaemonRuntime {
       }
 
       const body = await this.readJsonBody(req)
-      const rootKey = body && typeof body === 'object' ? (body as Record<string, unknown>).root_key : null
-      const relativePath = body && typeof body === 'object' ? (body as Record<string, unknown>).path : null
-      const length = body && typeof body === 'object' ? (body as Record<string, unknown>).length : null
-      if (typeof rootKey !== 'string' || typeof relativePath !== 'string' || typeof length !== 'number') {
+      const rootKey =
+        body && typeof body === 'object' ? (body as Record<string, unknown>).root_key : null
+      const relativePath =
+        body && typeof body === 'object' ? (body as Record<string, unknown>).path : null
+      const length =
+        body && typeof body === 'object' ? (body as Record<string, unknown>).length : null
+      if (
+        typeof rootKey !== 'string' ||
+        typeof relativePath !== 'string' ||
+        typeof length !== 'number'
+      ) {
         this.sendText(res, 400, 'Missing root_key, path, or length')
         return
       }
@@ -635,8 +636,10 @@ export class NodeIoDaemonRuntime {
       }
 
       const body = await this.readJsonBody(req)
-      const rootKey = body && typeof body === 'object' ? (body as Record<string, unknown>).root_key : null
-      const relativePath = body && typeof body === 'object' ? (body as Record<string, unknown>).path : null
+      const rootKey =
+        body && typeof body === 'object' ? (body as Record<string, unknown>).root_key : null
+      const relativePath =
+        body && typeof body === 'object' ? (body as Record<string, unknown>).path : null
       if (typeof rootKey !== 'string' || typeof relativePath !== 'string') {
         this.sendText(res, 400, 'Missing root_key or path')
         return
@@ -668,9 +671,12 @@ export class NodeIoDaemonRuntime {
       }
 
       const body = await this.readJsonBody(req)
-      const rootKey = body && typeof body === 'object' ? (body as Record<string, unknown>).root_key : null
-      const directory = body && typeof body === 'object' ? (body as Record<string, unknown>).directory : null
-      const entries = body && typeof body === 'object' ? (body as Record<string, unknown>).entries : null
+      const rootKey =
+        body && typeof body === 'object' ? (body as Record<string, unknown>).root_key : null
+      const directory =
+        body && typeof body === 'object' ? (body as Record<string, unknown>).directory : null
+      const entries =
+        body && typeof body === 'object' ? (body as Record<string, unknown>).entries : null
       if (
         typeof rootKey !== 'string' ||
         typeof directory !== 'string' ||
@@ -735,7 +741,9 @@ export class NodeIoDaemonRuntime {
       const controlBridge =
         stream.ownerId !== null && stream.fileIndex !== null ? this.controlHttpStreamBridge : null
       const localBridge =
-        controlBridge === null && stream.fileIndex !== null ? this.daemonConfig.httpStreamBridge : null
+        controlBridge === null && stream.fileIndex !== null
+          ? this.daemonConfig.httpStreamBridge
+          : null
       const requestSessionId =
         controlBridge !== null ? `node-stream-${this.nextRequestStreamSessionId++}` : null
 
@@ -860,7 +868,9 @@ export class NodeIoDaemonRuntime {
       } finally {
         if (controlBridge && requestSessionId) {
           const closeReason = requestAbort.signal.aborted ? 'client-aborted' : 'request-complete'
-          void this.controlHttpStreamBridge.closeRequestSession(requestSessionId, closeReason).catch(() => {})
+          void this.controlHttpStreamBridge
+            .closeRequestSession(requestSessionId, closeReason)
+            .catch(() => {})
         }
         req.off('aborted', abortRequest)
         req.off('close', abortRequest)
@@ -879,8 +889,7 @@ export class NodeIoDaemonRuntime {
     }
 
     let session: NodeIoDaemonIoSession | null = null
-    const ownerId =
-      pathname === '/control' ? `ctrl-${this.nextControlOwnerId++}` : null
+    const ownerId = pathname === '/control' ? `ctrl-${this.nextControlOwnerId++}` : null
     session = NodeIoDaemonIoSession.upgrade(
       { headers: req.headers },
       {
@@ -1035,7 +1044,10 @@ export class NodeIoDaemonRuntime {
 
   private netmaskToPrefixLength(netmask: string): number {
     const octets = netmask.split('.').map((part) => Number.parseInt(part, 10))
-    if (octets.length !== 4 || octets.some((value) => !Number.isFinite(value) || value < 0 || value > 255)) {
+    if (
+      octets.length !== 4 ||
+      octets.some((value) => !Number.isFinite(value) || value < 0 || value > 255)
+    ) {
       return 24
     }
     return octets.reduce((count, octet) => count + octet.toString(2).replace(/0/g, '').length, 0)
@@ -1258,7 +1270,9 @@ export class NodeIoDaemonRuntime {
     return new NodeIoDaemonRootFileSystem(root.uri)
   }
 
-  private getRootFileSystemFromRequest(req: http.IncomingMessage): NodeIoDaemonRootFileSystem | null {
+  private getRootFileSystemFromRequest(
+    req: http.IncomingMessage,
+  ): NodeIoDaemonRootFileSystem | null {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     const rootKey = url.searchParams.get('root_key')
     if (!rootKey) {

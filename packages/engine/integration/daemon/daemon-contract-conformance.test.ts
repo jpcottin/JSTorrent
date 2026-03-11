@@ -125,7 +125,7 @@ describe('Rust daemon HTTP contract conformance', () => {
     })
   }
 
-  async function sendControlJsonRequest<TPayload extends unknown>(
+  async function sendControlJsonRequest<TPayload>(
     ws: WebSocket,
     opcode: number,
     requestId: number,
@@ -138,10 +138,11 @@ describe('Rust daemon HTTP contract conformance', () => {
 
       ws.onmessage = (event) => {
         const frame = new Uint8Array(event.data as ArrayBuffer)
-        const responseRequestId = new DataView(frame.buffer, frame.byteOffset, frame.byteLength).getUint32(
-          4,
-          true,
-        )
+        const responseRequestId = new DataView(
+          frame.buffer,
+          frame.byteOffset,
+          frame.byteLength,
+        ).getUint32(4, true)
         if (responseRequestId !== requestId) {
           return
         }
@@ -155,7 +156,9 @@ describe('Rust daemon HTTP contract conformance', () => {
         })
       }
 
-      ws.send(buildProtocolFrame(opcode, requestId, new TextEncoder().encode(JSON.stringify(payload))))
+      ws.send(
+        buildProtocolFrame(opcode, requestId, new TextEncoder().encode(JSON.stringify(payload))),
+      )
     })
   }
 
@@ -264,11 +267,15 @@ describe('Rust daemon HTTP contract conformance', () => {
       harness = await startDaemon()
       await fs.writeFile(path.join(harness.dataDir, 'present.txt'), 'hello')
 
-      const presentResponse = await makeAuthenticatedRequest('/ops/exists?root_key=default&path=present.txt')
+      const presentResponse = await makeAuthenticatedRequest(
+        '/ops/exists?root_key=default&path=present.txt',
+      )
       expect(presentResponse.status).toBe(200)
       await expect(presentResponse.json()).resolves.toEqual({ exists: true })
 
-      const missingResponse = await makeAuthenticatedRequest('/ops/exists?root_key=default&path=missing.txt')
+      const missingResponse = await makeAuthenticatedRequest(
+        '/ops/exists?root_key=default&path=missing.txt',
+      )
       expect(missingResponse.status).toBe(200)
       await expect(missingResponse.json()).resolves.toEqual({ exists: false })
     },
@@ -291,7 +298,9 @@ describe('Rust daemon HTTP contract conformance', () => {
         is_file: true,
       })
 
-      const missingResponse = await makeAuthenticatedRequest('/ops/stat?root_key=default&path=missing.txt')
+      const missingResponse = await makeAuthenticatedRequest(
+        '/ops/stat?root_key=default&path=missing.txt',
+      )
       expect(missingResponse.status).toBe(404)
     },
   )
@@ -306,14 +315,18 @@ describe('Rust daemon HTTP contract conformance', () => {
       await fs.writeFile(path.join(harness.dataDir, 'tree_dir', 'file1.txt'), 'AAAA')
       await fs.writeFile(path.join(harness.dataDir, 'tree_dir', 'sub', 'file2.bin'), 'BBBBBB')
 
-      const response = await makeAuthenticatedRequest('/ops/list_tree?root_key=default&path=tree_dir')
+      const response = await makeAuthenticatedRequest(
+        '/ops/list_tree?root_key=default&path=tree_dir',
+      )
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual([
         { path: 'file1.txt', size: 4 },
         { path: 'sub/file2.bin', size: 6 },
       ])
 
-      const missingResponse = await makeAuthenticatedRequest('/ops/list_tree?root_key=default&path=missing_dir')
+      const missingResponse = await makeAuthenticatedRequest(
+        '/ops/list_tree?root_key=default&path=missing_dir',
+      )
       expect(missingResponse.status).toBe(200)
       await expect(missingResponse.json()).resolves.toEqual([])
     },
@@ -367,7 +380,9 @@ describe('Rust daemon HTTP contract conformance', () => {
         length: 5,
       })
       expect(response.status).toBe(200)
-      await expect(fs.readFile(path.join(harness.dataDir, 'truncate.txt'), 'utf8')).resolves.toBe('hello')
+      await expect(fs.readFile(path.join(harness.dataDir, 'truncate.txt'), 'utf8')).resolves.toBe(
+        'hello',
+      )
       await expect(fs.stat(path.join(harness.dataDir, 'truncate.txt'))).resolves.toMatchObject({
         size: 5,
       })

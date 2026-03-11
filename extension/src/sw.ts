@@ -745,6 +745,7 @@ function handleMessage(
     displayName?: string
     sessionId?: string
     fileName?: string
+    fileIndex?: number
     fileSize?: number
   },
   sendResponse: SendResponse,
@@ -1055,7 +1056,13 @@ function handleMessage(
     const path = message.path as string | undefined
     const fileSize = message.fileSize as number | undefined
     const mimeType = message.mimeType as string | null | undefined
-    if (!torrentId || typeof fileIndex !== 'number' || !rootKey || !path || typeof fileSize !== 'number') {
+    if (
+      !torrentId ||
+      typeof fileIndex !== 'number' ||
+      !rootKey ||
+      !path ||
+      typeof fileSize !== 'number'
+    ) {
       sendResponse({ ok: false, error: 'Missing torrentId, fileIndex, rootKey, path, or fileSize' })
       return true
     }

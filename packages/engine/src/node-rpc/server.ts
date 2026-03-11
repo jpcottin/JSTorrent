@@ -82,9 +82,7 @@ function resolveHttpByteRange(
     return null
   }
 
-  const end = endPart
-    ? Math.min(Number.parseInt(endPart, 10), totalSize - 1)
-    : totalSize - 1
+  const end = endPart ? Math.min(Number.parseInt(endPart, 10), totalSize - 1) : totalSize - 1
   if (!Number.isFinite(end) || end < start) {
     return null
   }

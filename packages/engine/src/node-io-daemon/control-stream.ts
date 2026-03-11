@@ -6,10 +6,7 @@ import {
 } from './control-protocol'
 import type { NodeIoDaemonRegisteredHttpStream } from './http-stream-registry'
 import type { NodeIoDaemonIoSession } from './io-session'
-import {
-  NODE_IO_DAEMON_HTTP_STREAM_STATUS,
-  type NodeIoDaemonHttpStreamStatus,
-} from './types'
+import { NODE_IO_DAEMON_HTTP_STREAM_STATUS, type NodeIoDaemonHttpStreamStatus } from './types'
 import type { NodeIoDaemonHttpStreamRegistry } from './http-stream-registry'
 
 function createHttpStreamStatusError(

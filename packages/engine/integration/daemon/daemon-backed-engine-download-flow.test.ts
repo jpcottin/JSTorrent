@@ -32,7 +32,11 @@ describe('DaemonBackedEngine download flow with Rust daemon', () => {
   }
 
   async function waitForTorrentComplete(
-    torrent: NonNullable<Awaited<ReturnType<typeof createDownloadFixture>>['daemonBackedEngine']['engine']['torrents'][number]>,
+    torrent: NonNullable<
+      Awaited<
+        ReturnType<typeof createDownloadFixture>
+      >['daemonBackedEngine']['engine']['torrents'][number]
+    >,
     timeoutMs = 30_000,
   ): Promise<void> {
     await new Promise<void>((resolve, reject) => {

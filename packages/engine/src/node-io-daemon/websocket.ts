@@ -11,7 +11,10 @@ export interface DecodedWebSocketFrame {
 }
 
 export function createWebSocketAcceptValue(key: string): string {
-  return crypto.createHash('sha1').update(key + WEBSOCKET_GUID).digest('base64')
+  return crypto
+    .createHash('sha1')
+    .update(key + WEBSOCKET_GUID)
+    .digest('base64')
 }
 
 export function decodeWebSocketFrame(buffer: Buffer): DecodedWebSocketFrame | null {

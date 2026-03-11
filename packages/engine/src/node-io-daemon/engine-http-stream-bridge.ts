@@ -48,7 +48,12 @@ export function createNodeIoDaemonEngineHttpStreamBridge(
     return error.name === 'AbortError' || error.message === 'Aborted'
   }
 
-  const isRangeAvailable = (torrent: Torrent, fileIndex: number, offset: number, length: number): boolean => {
+  const isRangeAvailable = (
+    torrent: Torrent,
+    fileIndex: number,
+    offset: number,
+    length: number,
+  ): boolean => {
     if (length === 0) {
       return true
     }
@@ -100,10 +105,13 @@ export function createNodeIoDaemonEngineHttpStreamBridge(
       )
     }
 
-    const session = createStreamingPlaybackSession(createStreamingFileProvider(torrent, fileIndex), {
-      tokenPrefix: `daemon-http:${streamToken}`,
-      logPrefix: `[daemon-http:${streamToken}]`,
-    })
+    const session = createStreamingPlaybackSession(
+      createStreamingFileProvider(torrent, fileIndex),
+      {
+        tokenPrefix: `daemon-http:${streamToken}`,
+        logPrefix: `[daemon-http:${streamToken}]`,
+      },
+    )
     let closeReason: string | null = null
     let closed = false
 

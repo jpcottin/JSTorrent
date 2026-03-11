@@ -105,11 +105,7 @@ class ControlledHttpStreamBridge implements NodeIoDaemonHttpStreamBridge {
   readonly pendingWaits: PendingStreamWait[] = []
   abortCount = 0
 
-  openStreamSession(session: {
-    streamToken: string
-    torrentId: string
-    fileIndex: number
-  }): void {
+  openStreamSession(session: { streamToken: string; torrentId: string; fileIndex: number }): void {
     this.openedSessions.push({ ...session })
   }
 
@@ -216,91 +212,96 @@ describe('node-io-daemon server', () => {
     }
   })
 
-  conformanceCase('node', 'health.ok_is_reported', 'starts a listener and serves /health', async () => {
-    daemon = createNodeIoDaemon({
-      host: '127.0.0.1',
-      port: 0,
-    })
+  conformanceCase(
+    'node',
+    'health.ok_is_reported',
+    'starts a listener and serves /health',
+    async () => {
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+      })
 
-    expect(daemon.getStatus()).toEqual({
-      implementation: 'node-io-daemon',
-      started: false,
-      host: '127.0.0.1',
-      port: 0,
-      bootstrapMode: 'test',
-      protocolVersion: 1,
-      behaviorVersion: 1,
-      capabilities: createNodeIoDaemonCapabilities(true),
-    })
+      expect(daemon.getStatus()).toEqual({
+        implementation: 'node-io-daemon',
+        started: false,
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'test',
+        protocolVersion: 1,
+        behaviorVersion: 1,
+        capabilities: createNodeIoDaemonCapabilities(true),
+      })
 
-    await daemon.start()
+      await daemon.start()
 
-    const status = daemon.getStatus()
-    expect(status.started).toBe(true)
-    expect(status.port).toBeGreaterThan(0)
+      const status = daemon.getStatus()
+      expect(status.started).toBe(true)
+      expect(status.port).toBeGreaterThan(0)
 
-    const response = await makeRequest(status.port, '/health')
-    expect(response.statusCode).toBe(200)
-    expect(response.headers['access-control-allow-origin']).toBe('*')
-    expect(response.body.toString('utf8')).toBe('ok')
-  })
+      const response = await makeRequest(status.port, '/health')
+      expect(response.statusCode).toBe(200)
+      expect(response.headers['access-control-allow-origin']).toBe('*')
+      expect(response.body.toString('utf8')).toBe('ok')
+    },
+  )
 
   conformanceCase(
     'node',
     'status.capabilities_are_reported',
     'serves daemon-compatible /status over POST and reports capabilities',
     async () => {
-    daemon = createNodeIoDaemon({
-      host: '127.0.0.1',
-      port: 0,
-      bootstrapMode: 'realistic',
-      authToken: 'secret',
-      configPath: '/tmp/node-io-daemon.json',
-    })
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        configPath: '/tmp/node-io-daemon.json',
+      })
 
-    await daemon.start()
-    const startedStatus = daemon.getStatus()
-    const response = await makeRequest(startedStatus.port, '/status', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-JST-Auth': 'secret',
-      },
-    })
-    expect(response.statusCode).toBe(200)
-    expect(response.headers['content-type']).toContain('application/json')
+      await daemon.start()
+      const startedStatus = daemon.getStatus()
+      const response = await makeRequest(startedStatus.port, '/status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-JST-Auth': 'secret',
+        },
+      })
+      expect(response.statusCode).toBe(200)
+      expect(response.headers['content-type']).toContain('application/json')
 
-    const payload = JSON.parse(response.body.toString('utf8')) as {
-      port: number
-      ioPort: number | null
-      paired: boolean
-      tokenValid: boolean | null
-      protocolVersion?: number
-      behaviorVersion?: number
-      capabilities: { ioWebSocket: boolean }
-    }
-    expect(payload.port).toBe(startedStatus.port)
-    expect(payload.ioPort).toBe(startedStatus.port)
-    expect(payload.paired).toBe(true)
-    expect(payload.tokenValid).toBe(true)
-    expect(payload.capabilities.ioWebSocket).toBe(true)
-    expect(payload.protocolVersion).toBe(1)
-    expect(payload.behaviorVersion).toBe(1)
+      const payload = JSON.parse(response.body.toString('utf8')) as {
+        port: number
+        ioPort: number | null
+        paired: boolean
+        tokenValid: boolean | null
+        protocolVersion?: number
+        behaviorVersion?: number
+        capabilities: { ioWebSocket: boolean }
+      }
+      expect(payload.port).toBe(startedStatus.port)
+      expect(payload.ioPort).toBe(startedStatus.port)
+      expect(payload.paired).toBe(true)
+      expect(payload.tokenValid).toBe(true)
+      expect(payload.capabilities.ioWebSocket).toBe(true)
+      expect(payload.protocolVersion).toBe(1)
+      expect(payload.behaviorVersion).toBe(1)
 
-    const notFound = await makeRequest(startedStatus.port, '/missing')
-    expect(notFound.statusCode).toBe(404)
+      const notFound = await makeRequest(startedStatus.port, '/missing')
+      expect(notFound.statusCode).toBe(404)
 
-    await daemon.stop()
-    expect(daemon.getStatus()).toEqual({
-      implementation: 'node-io-daemon',
-      started: false,
-      host: '127.0.0.1',
-      port: 0,
-      bootstrapMode: 'realistic',
-      protocolVersion: 1,
-      behaviorVersion: 1,
-      capabilities: createNodeIoDaemonCapabilities(true),
-    })
+      await daemon.stop()
+      expect(daemon.getStatus()).toEqual({
+        implementation: 'node-io-daemon',
+        started: false,
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        protocolVersion: 1,
+        behaviorVersion: 1,
+        capabilities: createNodeIoDaemonCapabilities(true),
+      })
     },
   )
 
@@ -472,7 +473,9 @@ describe('node-io-daemon server', () => {
       expect(deleteResponse.statusCode).toBe(200)
 
       const remainingRoots = await fetchDaemonRoots(httpConnection)
-      expect(remainingRoots).toEqual([{ key: 'root-b', label: 'Downloads B', path: 'file:///downloads/b' }])
+      expect(remainingRoots).toEqual([
+        { key: 'root-b', label: 'Downloads B', path: 'file:///downloads/b' },
+      ])
     },
   )
 
@@ -546,50 +549,57 @@ describe('node-io-daemon server', () => {
       await expect(rootsChangedPromise).resolves.toEqual(['root-b'])
 
       const remainingRoots = await fetchDaemonRoots(httpConnection)
-      expect(remainingRoots).toEqual([{ key: 'root-b', label: 'Downloads B', path: 'file:///downloads/b' }])
+      expect(remainingRoots).toEqual([
+        { key: 'root-b', label: 'Downloads B', path: 'file:///downloads/b' },
+      ])
     } finally {
       control.close()
     }
   })
 
-  conformanceCase('node', 'ops.delete.missing_returns_404', 'returns 404 for a missing /ops/delete target', async () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-delete-missing-'))
-    tempDirs.push(tempDir)
+  conformanceCase(
+    'node',
+    'ops.delete.missing_returns_404',
+    'returns 404 for a missing /ops/delete target',
+    async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-delete-missing-'))
+      tempDirs.push(tempDir)
 
-    daemon = createNodeIoDaemon({
-      host: '127.0.0.1',
-      port: 0,
-      bootstrapMode: 'realistic',
-      authToken: 'secret',
-      roots: [
-        {
-          key: 'root-a',
-          uri: pathToFileURL(tempDir).toString(),
-          display_name: 'Downloads A',
-          removable: true,
-          last_stat_ok: true,
-          last_checked: Date.now(),
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        roots: [
+          {
+            key: 'root-a',
+            uri: pathToFileURL(tempDir).toString(),
+            display_name: 'Downloads A',
+            removable: true,
+            last_stat_ok: true,
+            last_checked: Date.now(),
+          },
+        ],
+      })
+
+      await daemon.start()
+
+      const response = await makeRequest(daemon.getStatus().port, '/ops/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-JST-Auth': 'secret',
         },
-      ],
-    })
+        body: JSON.stringify({
+          root_key: 'root-a',
+          path: 'missing-file.bin',
+        }),
+      })
 
-    await daemon.start()
-
-    const response = await makeRequest(daemon.getStatus().port, '/ops/delete', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-JST-Auth': 'secret',
-      },
-      body: JSON.stringify({
-        root_key: 'root-a',
-        path: 'missing-file.bin',
-      }),
-    })
-
-    expect(response.statusCode).toBe(404)
-    expect(response.body.toString('utf8')).toContain('File not found')
-  })
+      expect(response.statusCode).toBe(404)
+      expect(response.body.toString('utf8')).toContain('File not found')
+    },
+  )
 
   conformanceCase(
     'node',
@@ -644,32 +654,32 @@ describe('node-io-daemon server', () => {
     'control.capabilities_are_reported',
     'answers control capability requests over /control',
     async () => {
-    daemon = createNodeIoDaemon({
-      host: '127.0.0.1',
-      port: 0,
-      bootstrapMode: 'realistic',
-      authToken: 'secret',
-    })
-    await daemon.start()
-
-    const ws = await connectAuthenticatedControlWebSocket(daemon.getStatus().port, 'secret')
-
-    try {
-      const response = await sendControlJsonRequest(ws, 0xed, 9, {})
-      expect(response.opcode).toBe(0xed)
-      expect(response.requestId).toBe(9)
-      expect(response.payload).toEqual({
-        ok: true,
-        protocolVersion: 1,
-        behaviorVersion: 1,
-        capabilities: {
-          roots_manageable: true,
-          lan_share_urls: true,
-        },
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
       })
-    } finally {
-      ws.close()
-    }
+      await daemon.start()
+
+      const ws = await connectAuthenticatedControlWebSocket(daemon.getStatus().port, 'secret')
+
+      try {
+        const response = await sendControlJsonRequest(ws, 0xed, 9, {})
+        expect(response.opcode).toBe(0xed)
+        expect(response.requestId).toBe(9)
+        expect(response.payload).toEqual({
+          ok: true,
+          protocolVersion: 1,
+          behaviorVersion: 1,
+          capabilities: {
+            roots_manageable: true,
+            lan_share_urls: true,
+          },
+        })
+      } finally {
+        ws.close()
+      }
     },
   )
 
@@ -1020,34 +1030,38 @@ describe('node-io-daemon server', () => {
     })
     await daemon.start()
 
-    const ws = await connectAuthenticatedControlWebSocket(daemon.getStatus().port, 'secret')
+    const port = daemon.getStatus().port
 
-    try {
-      const response = await sendControlJsonRequest<{ ok: boolean; mediaPort: number }>(ws, 0xec, 17, {
+    // Register via HTTP API (no ownerId) so media serving uses direct file reads
+    // without needing a torrent engine bridge
+    const registerResponse = await makeRequest(port, '/stream/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-jst-auth': 'secret',
+      },
+      body: JSON.stringify({
         streamToken: 'token-123',
         torrentId: 'torrent-123',
         rootKey: 'root-a',
         path: 'movie.mp4',
         fileSize: content.length,
         mimeType: 'video/mp4',
-      })
+      }),
+    })
 
-      expect(response.opcode).toBe(0xec)
-      expect(response.requestId).toBe(17)
-      expect(response.payload).toEqual({
-        ok: true,
-        mediaPort: expect.any(Number),
-      })
-      const mediaPort = response.payload.mediaPort
-      const mediaResponse = await makeRequest(mediaPort, '/stream/token-123', {
-        headers: { Range: 'bytes=0-4' },
-      })
-      expect(mediaResponse.statusCode).toBe(206)
-      expect(mediaResponse.headers['content-range']).toBe(`bytes 0-4/${content.length}`)
-      expect(mediaResponse.body.toString('utf8')).toBe('hello')
-    } finally {
-      ws.close()
-    }
+    const payload = JSON.parse(registerResponse.body.toString('utf8'))
+    expect(registerResponse.statusCode).toBe(200)
+    expect(payload.ok).toBe(true)
+    expect(typeof payload.mediaPort).toBe('number')
+
+    const mediaPort = payload.mediaPort
+    const mediaResponse = await makeRequest(mediaPort, '/stream/token-123', {
+      headers: { Range: 'bytes=0-4' },
+    })
+    expect(mediaResponse.statusCode).toBe(206)
+    expect(mediaResponse.headers['content-range']).toBe(`bytes 0-4/${content.length}`)
+    expect(mediaResponse.body.toString('utf8')).toBe('hello')
   })
 
   it('blocks tokenized media ranges until the torrent bridge resolves the wait', async () => {
@@ -1349,15 +1363,20 @@ describe('node-io-daemon server', () => {
 
     const ws = await connectAuthenticatedControlWebSocket(daemon.getStatus().port, 'secret')
 
-    const response = await sendControlJsonRequest<{ ok: boolean; mediaPort: number }>(ws, 0xec, 23, {
-      streamToken: 'owned-token',
-      torrentId: 'torrent-123',
-      fileIndex: 0,
-      rootKey: 'root-a',
-      path: 'movie.mp4',
-      fileSize: content.length,
-      mimeType: 'video/mp4',
-    })
+    const response = await sendControlJsonRequest<{ ok: boolean; mediaPort: number }>(
+      ws,
+      0xec,
+      23,
+      {
+        streamToken: 'owned-token',
+        torrentId: 'torrent-123',
+        fileIndex: 0,
+        rootKey: 'root-a',
+        path: 'movie.mp4',
+        fileSize: content.length,
+        mimeType: 'video/mp4',
+      },
+    )
     expect(response.payload).toEqual({
       ok: true,
       mediaPort: expect.any(Number),
@@ -1724,7 +1743,11 @@ describe('node-io-daemon server', () => {
   it('supports UDP bind/send/receive through the daemon socket adapter', async () => {
     udpServer = dgram.createSocket('udp4')
     udpServer.on('message', (message, remoteInfo) => {
-      udpServer!.send(Buffer.concat([Buffer.from('udp:'), message]), remoteInfo.port, remoteInfo.address)
+      udpServer!.send(
+        Buffer.concat([Buffer.from('udp:'), message]),
+        remoteInfo.port,
+        remoteInfo.address,
+      )
     })
 
     await new Promise<void>((resolve, reject) => {
@@ -1836,7 +1859,10 @@ async function waitForConditionWithDaemonFlush(
   }
 }
 
-async function connectAuthenticatedControlWebSocket(port: number, token: string): Promise<WebSocket> {
+async function connectAuthenticatedControlWebSocket(
+  port: number,
+  token: string,
+): Promise<WebSocket> {
   return await new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/control`)
     ws.binaryType = 'arraybuffer'
@@ -1890,7 +1916,7 @@ async function connectAuthenticatedControlWebSocket(port: number, token: string)
   })
 }
 
-async function sendControlJsonRequest<TPayload extends unknown>(
+async function sendControlJsonRequest<TPayload>(
   ws: WebSocket,
   opcode: number,
   requestId: number,
@@ -1904,10 +1930,11 @@ async function sendControlJsonRequest<TPayload extends unknown>(
     ws.onmessage = (event) => {
       const frame = new Uint8Array(event.data as ArrayBuffer)
       const responseOpcode = frame[1]
-      const responseRequestId = new DataView(frame.buffer, frame.byteOffset, frame.byteLength).getUint32(
-        4,
-        true,
-      )
+      const responseRequestId = new DataView(
+        frame.buffer,
+        frame.byteOffset,
+        frame.byteLength,
+      ).getUint32(4, true)
       if (responseRequestId !== requestId) {
         return
       }
@@ -1921,6 +1948,8 @@ async function sendControlJsonRequest<TPayload extends unknown>(
       })
     }
 
-    ws.send(buildIoProtocolFrame(opcode, requestId, new TextEncoder().encode(JSON.stringify(payload))))
+    ws.send(
+      buildIoProtocolFrame(opcode, requestId, new TextEncoder().encode(JSON.stringify(payload))),
+    )
   })
 }

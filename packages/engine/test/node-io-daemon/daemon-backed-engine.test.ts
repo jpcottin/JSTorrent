@@ -12,7 +12,12 @@ import { DaemonConnection } from '../../src/adapters/daemon/daemon-connection'
 import { DaemonBackedEngine } from '../../src/adapters/daemon/daemon-backed-engine'
 import { MemorySessionStore } from '../../src/adapters/memory/memory-session-store'
 import { MemoryConfigHub } from '../../src/config/memory-config-hub'
-import { NodeHasher, NodeSocketFactory, NodeStorageHandle, ScopedNodeFileSystem } from '../../src/adapters/node'
+import {
+  NodeHasher,
+  NodeSocketFactory,
+  NodeStorageHandle,
+  ScopedNodeFileSystem,
+} from '../../src/adapters/node'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
 import { SimpleTracker } from '../helpers/simple-tracker'
 
@@ -286,107 +291,99 @@ describe('DaemonBackedEngine', () => {
     }
   })
 
-  it(
-    'downloads a real torrent through the daemon-backed engine harness',
-    async () => {
-      const { harness, torrentBuffer, fileName, fileContent, downloadDir } =
-        await createDownloadHarness()
+  it('downloads a real torrent through the daemon-backed engine harness', async () => {
+    const { harness, torrentBuffer, fileName, fileContent, downloadDir } =
+      await createDownloadHarness()
 
-      try {
-        const { torrent } = await harness.engine.addTorrent(torrentBuffer)
-        if (!torrent) {
-          throw new Error('Failed to add downloading torrent')
-        }
-
-        await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error('Timeout waiting for daemon-backed download'))
-          }, 30_000)
-
-          torrent.once('complete', () => {
-            clearTimeout(timeout)
-            resolve()
-          })
-          torrent.once('error', (error) => {
-            clearTimeout(timeout)
-            reject(error)
-          })
-        })
-
-        const downloadedPath = path.join(downloadDir, fileName)
-        const downloadedContent = fs.readFileSync(downloadedPath)
-        expect(downloadedContent.equals(fileContent)).toBe(true)
-
-        const daemonRead = await harness.connection.requestBinaryWithHeaders('GET', '/read/root-a', {
-          'X-Path-Base64': Buffer.from(fileName, 'utf8').toString('base64'),
-          'X-Offset': '0',
-          'X-Length': String(fileContent.length),
-        })
-        expect(Buffer.from(daemonRead).equals(fileContent)).toBe(true)
-      } finally {
-        await cleanupHarness(harness)
+    try {
+      const { torrent } = await harness.engine.addTorrent(torrentBuffer)
+      if (!torrent) {
+        throw new Error('Failed to add downloading torrent')
       }
-    },
-    40_000,
-  )
 
-  it(
-    'serves a completed file over tokenized HTTP after control-channel registration',
-    async () => {
-      const { harness, torrentBuffer, fileName, fileContent } = await createDownloadHarness()
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Timeout waiting for daemon-backed download'))
+        }, 30_000)
 
-      try {
-        const { torrent } = await harness.engine.addTorrent(torrentBuffer)
-        if (!torrent) {
-          throw new Error('Failed to add downloading torrent')
-        }
-
-        await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error('Timeout waiting for daemon-backed download'))
-          }, 30_000)
-
-          torrent.once('complete', () => {
-            clearTimeout(timeout)
-            resolve()
-          })
-          torrent.once('error', (error) => {
-            clearTimeout(timeout)
-            reject(error)
-          })
+        torrent.once('complete', () => {
+          clearTimeout(timeout)
+          resolve()
         })
-
-        const { mediaPort } = await harness.registerHttpStream(
-          {
-            host: '127.0.0.1',
-            port: daemon!.getStatus().port,
-            token: 'secret',
-            extensionId: 'extension-id',
-            installId: 'install-id',
-          },
-          {
-            streamToken: 'completed-stream-token',
-            torrentId: torrent.infoHashStr,
-            fileIndex: 0,
-            rootKey: 'root-a',
-            path: fileName,
-            fileSize: fileContent.length,
-            mimeType: 'application/octet-stream',
-          },
-        )
-
-        const response = await makeRequest(mediaPort, '/stream/completed-stream-token', {
-          headers: {
-            Range: 'bytes=0-31',
-          },
+        torrent.once('error', (error) => {
+          clearTimeout(timeout)
+          reject(error)
         })
-        expect(response.statusCode).toBe(206)
-        expect(response.headers['content-range']).toBe(`bytes 0-31/${fileContent.length}`)
-        expect(response.body.equals(fileContent.subarray(0, 32))).toBe(true)
-      } finally {
-        await cleanupHarness(harness)
+      })
+
+      const downloadedPath = path.join(downloadDir, fileName)
+      const downloadedContent = fs.readFileSync(downloadedPath)
+      expect(downloadedContent.equals(fileContent)).toBe(true)
+
+      const daemonRead = await harness.connection.requestBinaryWithHeaders('GET', '/read/root-a', {
+        'X-Path-Base64': Buffer.from(fileName, 'utf8').toString('base64'),
+        'X-Offset': '0',
+        'X-Length': String(fileContent.length),
+      })
+      expect(Buffer.from(daemonRead).equals(fileContent)).toBe(true)
+    } finally {
+      await cleanupHarness(harness)
+    }
+  }, 40_000)
+
+  it('serves a completed file over tokenized HTTP after control-channel registration', async () => {
+    const { harness, torrentBuffer, fileName, fileContent } = await createDownloadHarness()
+
+    try {
+      const { torrent } = await harness.engine.addTorrent(torrentBuffer)
+      if (!torrent) {
+        throw new Error('Failed to add downloading torrent')
       }
-    },
-    40_000,
-  )
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Timeout waiting for daemon-backed download'))
+        }, 30_000)
+
+        torrent.once('complete', () => {
+          clearTimeout(timeout)
+          resolve()
+        })
+        torrent.once('error', (error) => {
+          clearTimeout(timeout)
+          reject(error)
+        })
+      })
+
+      const { mediaPort } = await harness.registerHttpStream(
+        {
+          host: '127.0.0.1',
+          port: daemon!.getStatus().port,
+          token: 'secret',
+          extensionId: 'extension-id',
+          installId: 'install-id',
+        },
+        {
+          streamToken: 'completed-stream-token',
+          torrentId: torrent.infoHashStr,
+          fileIndex: 0,
+          rootKey: 'root-a',
+          path: fileName,
+          fileSize: fileContent.length,
+          mimeType: 'application/octet-stream',
+        },
+      )
+
+      const response = await makeRequest(mediaPort, '/stream/completed-stream-token', {
+        headers: {
+          Range: 'bytes=0-31',
+        },
+      })
+      expect(response.statusCode).toBe(206)
+      expect(response.headers['content-range']).toBe(`bytes 0-31/${fileContent.length}`)
+      expect(response.body.equals(fileContent.subarray(0, 32))).toBe(true)
+    } finally {
+      await cleanupHarness(harness)
+    }
+  }, 40_000)
 })

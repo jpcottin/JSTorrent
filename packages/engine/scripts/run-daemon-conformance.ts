@@ -63,19 +63,19 @@ const androidConformanceClasses = [
 ]
 
 function parseImplementations(argv: string[]): Implementation[] {
-  const arg = argv.find(value => value.startsWith('--implementations='))
+  const arg = argv.find((value) => value.startsWith('--implementations='))
   if (!arg) {
     return ['node', 'rust']
   }
   const values = arg
     .slice('--implementations='.length)
     .split(',')
-    .map(value => value.trim())
+    .map((value) => value.trim())
     .filter(Boolean)
   if (values.length === 0) {
     throw new Error('No implementations provided to --implementations')
   }
-  const implementations = values.map(value => {
+  const implementations = values.map((value) => {
     if (value !== 'node' && value !== 'rust' && value !== 'android') {
       throw new Error(`Unsupported implementation "${value}"`)
     }
@@ -88,7 +88,10 @@ function readManifest(): ConformanceManifest {
   return JSON.parse(readFileSync(contractsPath, 'utf8')) as ConformanceManifest
 }
 
-function runVitestForImplementation(implementation: Implementation, outputFile: string): VitestJsonReport {
+function runVitestForImplementation(
+  implementation: Implementation,
+  outputFile: string,
+): VitestJsonReport {
   if (implementation === 'rust') {
     console.log('Building Rust IO daemon binary...')
     const buildResult = spawnSync('cargo', ['build', '-p', 'jstorrent-io-daemon'], {
@@ -105,7 +108,17 @@ function runVitestForImplementation(implementation: Implementation, outputFile: 
 
   const args =
     implementation === 'node'
-      ? ['exec', 'vitest', 'run', 'test/node-io-daemon', '-t', 'conformance:', '--reporter=json', '--outputFile', outputFile]
+      ? [
+          'exec',
+          'vitest',
+          'run',
+          'test/node-io-daemon',
+          '-t',
+          'conformance:',
+          '--reporter=json',
+          '--outputFile',
+          outputFile,
+        ]
       : [
           'exec',
           'vitest',
@@ -130,12 +143,16 @@ function runVitestForImplementation(implementation: Implementation, outputFile: 
   if (result.status !== 0) {
     process.stdout.write(result.stdout)
     process.stderr.write(result.stderr)
-    throw new Error(`${implementation} conformance suite failed with exit code ${result.status ?? 'unknown'}`)
+    throw new Error(
+      `${implementation} conformance suite failed with exit code ${result.status ?? 'unknown'}`,
+    )
   }
 
   const report = JSON.parse(readFileSync(outputFile, 'utf8')) as VitestJsonReport
   if (!report.success) {
-    throw new Error(`${implementation} conformance suite completed without a successful Vitest report`)
+    throw new Error(
+      `${implementation} conformance suite completed without a successful Vitest report`,
+    )
   }
 
   return report
@@ -157,7 +174,9 @@ function runAndroidInstrumentedConformance(): ParsedAssertion[] {
   if (installResult.status !== 0) {
     process.stdout.write(installResult.stdout)
     process.stderr.write(installResult.stderr)
-    throw new Error(`Android conformance install failed with exit code ${installResult.status ?? 'unknown'}`)
+    throw new Error(
+      `Android conformance install failed with exit code ${installResult.status ?? 'unknown'}`,
+    )
   }
 
   console.log('Running android conformance suite...')
@@ -262,7 +281,9 @@ function collectAssertions(report: VitestJsonReport): ParsedAssertion[] {
   return assertions
 }
 
-function parseConformanceTitle(title: string): { caseId: string; implementation: Implementation } | null {
+function parseConformanceTitle(
+  title: string,
+): { caseId: string; implementation: Implementation } | null {
   const bracketedMatch = bracketedTitlePattern.exec(title)
   if (bracketedMatch) {
     return {
@@ -282,7 +303,9 @@ function parseConformanceTitle(title: string): { caseId: string; implementation:
   return null
 }
 
-function aggregateByImplementation(assertions: ParsedAssertion[]): Map<Implementation, Map<string, AggregateResult>> {
+function aggregateByImplementation(
+  assertions: ParsedAssertion[],
+): Map<Implementation, Map<string, AggregateResult>> {
   const byImplementation = new Map<Implementation, Map<string, AggregateResult>>()
 
   for (const assertion of assertions) {
@@ -310,12 +333,19 @@ function aggregateByImplementation(assertions: ParsedAssertion[]): Map<Implement
   return byImplementation
 }
 
-function validateManifestReferences(manifest: ConformanceManifest, assertions: ParsedAssertion[]): void {
-  const caseIds = new Set(manifest.cases.map(testCase => testCase.id))
-  const unknownCaseIds = [...new Set(assertions.map(assertion => assertion.caseId))].filter(caseId => !caseIds.has(caseId))
+function validateManifestReferences(
+  manifest: ConformanceManifest,
+  assertions: ParsedAssertion[],
+): void {
+  const caseIds = new Set(manifest.cases.map((testCase) => testCase.id))
+  const unknownCaseIds = [...new Set(assertions.map((assertion) => assertion.caseId))].filter(
+    (caseId) => !caseIds.has(caseId),
+  )
 
   if (unknownCaseIds.length > 0) {
-    throw new Error(`Conformance-tagged tests reference unknown case IDs: ${unknownCaseIds.join(', ')}`)
+    throw new Error(
+      `Conformance-tagged tests reference unknown case IDs: ${unknownCaseIds.join(', ')}`,
+    )
   }
 }
 
@@ -324,7 +354,7 @@ function buildMatrix(
   implementations: Implementation[],
   aggregates: Map<Implementation, Map<string, AggregateResult>>,
 ): Array<Record<string, string>> {
-  return manifest.cases.map(testCase => {
+  return manifest.cases.map((testCase) => {
     const row: Record<string, string> = { case: testCase.id }
     for (const implementation of implementations) {
       if (!testCase.requiredIn.includes(implementation)) {
@@ -338,14 +368,23 @@ function buildMatrix(
   })
 }
 
-function formatMarkdownTable(implementations: Implementation[], rows: Array<Record<string, string>>): string {
-  const headers = ['Case', ...implementations.map(value => value[0].toUpperCase() + value.slice(1))]
+function formatMarkdownTable(
+  implementations: Implementation[],
+  rows: Array<Record<string, string>>,
+): string {
+  const headers = [
+    'Case',
+    ...implementations.map((value) => value[0].toUpperCase() + value.slice(1)),
+  ]
   const separator = headers.map(() => '---')
-  const body = rows.map(row => [row.case, ...implementations.map(implementation => row[implementation])])
+  const body = rows.map((row) => [
+    row.case,
+    ...implementations.map((implementation) => row[implementation]),
+  ])
   const lines = [
     `| ${headers.join(' | ')} |`,
     `| ${separator.join(' | ')} |`,
-    ...body.map(columns => `| ${columns.join(' | ')} |`),
+    ...body.map((columns) => `| ${columns.join(' | ')} |`),
   ]
   return lines.join('\n')
 }

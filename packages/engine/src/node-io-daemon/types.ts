@@ -54,8 +54,7 @@ export interface NodeIoDaemonHttpStreamSessionDescriptor {
   fileIndex: number
 }
 
-export interface NodeIoDaemonHttpStreamWaitRequest
-  extends NodeIoDaemonHttpStreamSessionDescriptor {
+export interface NodeIoDaemonHttpStreamWaitRequest extends NodeIoDaemonHttpStreamSessionDescriptor {
   offset: number
   length: number
   signal?: AbortSignal
@@ -72,9 +71,7 @@ export interface NodeIoDaemonHttpStreamLifecycleEvent {
 }
 
 export interface NodeIoDaemonHttpStreamBridge {
-  openStreamSession(
-    session: NodeIoDaemonHttpStreamSessionDescriptor,
-  ): Promise<void> | void
+  openStreamSession(session: NodeIoDaemonHttpStreamSessionDescriptor): Promise<void> | void
   waitForRange(request: NodeIoDaemonHttpStreamWaitRequest): Promise<void>
   closeStreamSession?(request: NodeIoDaemonHttpStreamCloseRequest): Promise<void> | void
   subscribeLifecycle?(

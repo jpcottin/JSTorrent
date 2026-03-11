@@ -60,8 +60,9 @@ function createFakeController(data: Buffer, complete = true) {
 
   return {
     getTorrentFileContentInfo: vi.fn(() => info),
-    readTorrentFileContent: vi.fn(async (_id: string, _fileIndex: number, offset: number, length: number) =>
-      new Uint8Array(data.subarray(offset, offset + length)),
+    readTorrentFileContent: vi.fn(
+      async (_id: string, _fileIndex: number, offset: number, length: number) =>
+        new Uint8Array(data.subarray(offset, offset + length)),
     ),
   }
 }

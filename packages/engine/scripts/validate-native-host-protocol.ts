@@ -100,7 +100,8 @@ function requestFieldPattern(fieldName: string): RegExp {
     installId: /#\[serde\(default, rename = "installId"\)\][\s\S]*?install_id: Option<String>/,
     profileId: /#\[serde\(default, rename = "profileId"\)\][\s\S]*?profile_id: Option<String>/,
     clientType: /#\[serde\(default, rename = "clientType"\)\][\s\S]*?client_type: Option<String>/,
-    clientVersion: /#\[serde\(default, rename = "clientVersion"\)\][\s\S]*?client_version: Option<String>/,
+    clientVersion:
+      /#\[serde\(default, rename = "clientVersion"\)\][\s\S]*?client_version: Option<String>/,
     path: /\bpath: String\b/,
     key: /\bkey: String\b/,
     value: /\bvalue: String\b/,
@@ -119,15 +120,19 @@ function responseFieldPattern(fieldName: string): RegExp {
     token: /token:\s*String/,
     version: /version:\s*String/,
     roots: /roots:\s*Vec<DownloadRoot>/,
-    protocolVersion: /#\[serde\(rename = "protocolVersion"[\s\S]*?\)\][\s\S]*?protocol_version: Option<u32>/,
-    behaviorVersion: /#\[serde\(rename = "behaviorVersion"[\s\S]*?\)\][\s\S]*?behavior_version: Option<u32>/,
+    protocolVersion:
+      /#\[serde\(rename = "protocolVersion"[\s\S]*?\)\][\s\S]*?protocol_version: Option<u32>/,
+    behaviorVersion:
+      /#\[serde\(rename = "behaviorVersion"[\s\S]*?\)\][\s\S]*?behavior_version: Option<u32>/,
     addToken: /#\[serde\(rename = "addToken"[\s\S]*?\)\][\s\S]*?add_token: Option<String>/,
     capabilities: /capabilities:\s*Option<DaemonCapabilities>/,
-    desktopVersion: /#\[serde\(rename = "desktopVersion"[\s\S]*?\)\][\s\S]*?desktop_version: Option<String>/,
+    desktopVersion:
+      /#\[serde\(rename = "desktopVersion"[\s\S]*?\)\][\s\S]*?desktop_version: Option<String>/,
     pid: /pid:\s*u32/,
     started: /started:\s*u64/,
     clientType: /#\[serde\(rename = "clientType"[\s\S]*?\)\][\s\S]*?client_type: Option<String>/,
-    clientVersion: /#\[serde\(rename = "clientVersion"[\s\S]*?\)\][\s\S]*?client_version: Option<String>/,
+    clientVersion:
+      /#\[serde\(rename = "clientVersion"[\s\S]*?\)\][\s\S]*?client_version: Option<String>/,
     browserName: /#\[serde\(rename = "browserName"[\s\S]*?\)\][\s\S]*?browser_name: Option<String>/,
     root: /root:\s*DownloadRoot/,
     key: /key:\s*String/,
@@ -142,17 +147,19 @@ function responseFieldPattern(fieldName: string): RegExp {
   return pattern
 }
 
-function validateRequestShapeAgainstSource(operation: NativeHostOperation, protocolSource: string): void {
+function validateRequestShapeAgainstSource(
+  operation: NativeHostOperation,
+  protocolSource: string,
+): void {
   const block = extractVariantBlock(protocolSource, operation.rustVariant)
-  for (const field of [...operation.requestShape.required, ...(operation.requestShape.optional ?? [])]) {
+  for (const field of [
+    ...operation.requestShape.required,
+    ...(operation.requestShape.optional ?? []),
+  ]) {
     if (field === 'id' || field === 'op') {
       continue
     }
-    requirePattern(
-      block,
-      requestFieldPattern(field),
-      `${operation.name} request field ${field}`,
-    )
+    requirePattern(block, requestFieldPattern(field), `${operation.name} request field ${field}`)
   }
 }
 
@@ -165,17 +172,37 @@ function validateResponseShapeAgainstSource(
 ): void {
   const block = extractVariantBlock(protocolSource, response.type)
   for (const field of response.requiredPayloadFields) {
-    requirePattern(block, responseFieldPattern(field), `${operationName} ${fieldName} field ${field}`)
+    requirePattern(
+      block,
+      responseFieldPattern(field),
+      `${operationName} ${fieldName} field ${field}`,
+    )
   }
   for (const field of response.optionalPayloadFields ?? []) {
-    requirePattern(block, responseFieldPattern(field), `${operationName} ${fieldName} optional field ${field}`)
+    requirePattern(
+      block,
+      responseFieldPattern(field),
+      `${operationName} ${fieldName} optional field ${field}`,
+    )
   }
   if (response.error) {
-    requirePattern(mainSource, new RegExp(`"${response.error}"`), `${operationName} error literal ${response.error}`)
+    requirePattern(
+      mainSource,
+      new RegExp(`"${response.error}"`),
+      `${operationName} error literal ${response.error}`,
+    )
   }
   if (response.type === 'DaemonInfo') {
-    requirePattern(protocolSource, /\broots_manageable: bool\b/, `${operationName} DaemonCapabilities roots_manageable`)
-    requirePattern(protocolSource, /\blan_share_urls: bool\b/, `${operationName} DaemonCapabilities lan_share_urls`)
+    requirePattern(
+      protocolSource,
+      /\broots_manageable: bool\b/,
+      `${operationName} DaemonCapabilities roots_manageable`,
+    )
+    requirePattern(
+      protocolSource,
+      /\blan_share_urls: bool\b/,
+      `${operationName} DaemonCapabilities lan_share_urls`,
+    )
   }
 }
 
@@ -193,7 +220,9 @@ function validateManifest(
   const seenNames = new Set<string>()
   for (const operation of manifest.operations) {
     if (seenNames.has(operation.name)) {
-      throw new Error(`Duplicate operation name in native-host protocol manifest: ${operation.name}`)
+      throw new Error(
+        `Duplicate operation name in native-host protocol manifest: ${operation.name}`,
+      )
     }
     seenNames.add(operation.name)
 
@@ -205,11 +234,28 @@ function validateManifest(
 
     validateRequestShape(operation)
     validateRequestShapeAgainstSource(operation, protocolSource)
-    validateResponseShape(operation.successResponse, responseVariants, operation.name, 'successResponse')
-    validateResponseShapeAgainstSource(operation.name, operation.successResponse, protocolSource, mainSource, 'successResponse')
+    validateResponseShape(
+      operation.successResponse,
+      responseVariants,
+      operation.name,
+      'successResponse',
+    )
+    validateResponseShapeAgainstSource(
+      operation.name,
+      operation.successResponse,
+      protocolSource,
+      mainSource,
+      'successResponse',
+    )
     for (const errorResponse of operation.errorResponses ?? []) {
       validateResponseShape(errorResponse, responseVariants, operation.name, 'errorResponses')
-      validateResponseShapeAgainstSource(operation.name, errorResponse, protocolSource, mainSource, 'errorResponses')
+      validateResponseShapeAgainstSource(
+        operation.name,
+        errorResponse,
+        protocolSource,
+        mainSource,
+        'errorResponses',
+      )
     }
   }
 }

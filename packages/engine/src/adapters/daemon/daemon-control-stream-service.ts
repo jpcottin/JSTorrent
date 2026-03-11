@@ -1,5 +1,8 @@
 import { BtEngine } from '../../core/bt-engine'
-import { createStreamingFileProvider, createStreamingPlaybackSession } from '../../streaming/streaming-playback-session'
+import {
+  createStreamingFileProvider,
+  createStreamingPlaybackSession,
+} from '../../streaming/streaming-playback-session'
 import type { Torrent } from '../../core/torrent'
 
 const PROTOCOL_VERSION = 1
@@ -290,7 +293,11 @@ export class DaemonControlStreamService {
     }
 
     this.ws?.send(
-      buildFrame(header.opcode, header.requestId, new TextEncoder().encode(JSON.stringify(response))),
+      buildFrame(
+        header.opcode,
+        header.requestId,
+        new TextEncoder().encode(JSON.stringify(response)),
+      ),
     )
   }
 
@@ -356,10 +363,13 @@ export class DaemonControlStreamService {
 
     this.closeSession(sessionId, 'replaced')
 
-    const session = createStreamingPlaybackSession(createStreamingFileProvider(torrent, fileIndex), {
-      tokenPrefix: `daemon-control:${streamToken}`,
-      logPrefix: `[daemon-control:${sessionId}]`,
-    })
+    const session = createStreamingPlaybackSession(
+      createStreamingFileProvider(torrent, fileIndex),
+      {
+        tokenPrefix: `daemon-control:${streamToken}`,
+        logPrefix: `[daemon-control:${sessionId}]`,
+      },
+    )
     session.open()
 
     const activeSession: ActiveStreamSession = {
