@@ -126,7 +126,9 @@ function logVitestFailureSummary(
   )
 
   if (failures.length === 0) {
-    console.error(`Vitest reported failure for ${implementation}, but no failed assertions were captured.`)
+    console.error(
+      `Vitest reported failure for ${implementation}, but no failed assertions were captured.`,
+    )
     return
   }
 
