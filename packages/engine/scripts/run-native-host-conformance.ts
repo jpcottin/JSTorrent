@@ -56,9 +56,30 @@ function parseConformanceTitle(
   }
 }
 
+function ensureRustNativeHostPrerequisitesBuilt(): void {
+  console.log('Building Rust native-host conformance prerequisites...')
+  const result = spawnSync('cargo', ['build', '-p', 'jstorrent-io-daemon'], {
+    cwd: desktopRoot,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  })
+
+  if (result.status !== 0) {
+    process.stdout.write(result.stdout)
+    process.stderr.write(result.stderr)
+    throw new Error(
+      `Failed to build Rust native-host conformance prerequisites with exit code ${
+        result.status ?? 'unknown'
+      }`,
+    )
+  }
+}
+
 function runRustNativeHostConformance(): ParsedAssertion[] {
   const testTargets = ['native_messaging', 'profile_scenarios']
   const assertions: ParsedAssertion[] = []
+
+  ensureRustNativeHostPrerequisitesBuilt()
 
   for (const target of testTargets) {
     console.log(`Running rust native-host conformance suite (${target})...`)
@@ -76,9 +97,12 @@ function runRustNativeHostConformance(): ParsedAssertion[] {
     const targetAssertions = collectRustAssertions(output)
     assertions.push(...targetAssertions)
 
-    if (result.status !== 0 && targetAssertions.length === 0) {
+    if (result.status !== 0) {
       process.stdout.write(result.stdout)
       process.stderr.write(result.stderr)
+    }
+
+    if (result.status !== 0 && targetAssertions.length === 0) {
       throw new Error(
         `Rust native-host conformance suite ${target} failed with exit code ${result.status ?? 'unknown'}`,
       )
