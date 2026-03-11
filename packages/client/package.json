@@ -29,7 +29,7 @@
   "dependencies": {
     "@jstorrent/engine": "workspace:*",
     "@jstorrent/ui": "workspace:*",
-    "playsvideo": "^0.4.5"
+    "playsvideo": "^0.4.6"
   },
   "peerDependencies": {
     "react": "^18.2.0"
