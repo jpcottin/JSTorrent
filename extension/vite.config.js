@@ -189,10 +189,6 @@ export default defineConfig({
       ),
       '@jstorrent/client/core': resolve(__dirname, '../packages/client/src/core.ts'),
       '@jstorrent/client': resolve(__dirname, '../packages/client/src/index.ts'),
-      '@jstorrent/ui/piece-visualization': resolve(
-        __dirname,
-        '../packages/ui/src/components/PieceVisualization.tsx',
-      ),
       '@jstorrent/ui/styles.css': resolve(__dirname, '../packages/ui/src/styles.css'),
       '@jstorrent/ui': resolve(__dirname, '../packages/ui/src/index.ts'),
     },

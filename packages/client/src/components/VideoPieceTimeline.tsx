@@ -14,7 +14,7 @@ import {
   PieceState,
   type BitFieldLike,
   type PieceVisualizationData,
-} from '@jstorrent/ui/piece-visualization'
+} from '@jstorrent/ui'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 const POLL_INTERVAL_MS = 500
