@@ -1,0 +1,8 @@
+{
+  "id": "jstorrent",
+  "displayName": "JSTorrent",
+  "hostnames": ["updates.jstorrent.com"],
+  "githubRepo": "kzahel/jstorrent",
+  "tagPrefix": "tauri-app-v",
+  "tauriUpdates": true
+}
