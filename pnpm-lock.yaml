@@ -188,8 +188,8 @@ importers:
         specifier: workspace:*
         version: link:../ui
       playsvideo:
-        specifier: ^0.4.3
-        version: 0.4.3
+        specifier: ^0.4.4
+        version: 0.4.4
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -3547,8 +3547,8 @@ packages:
   pkg-types@1.3.1:
     resolution: {integrity: sha512-/Jm5M4RvtBFVkKWRu2BLUTNP8/M2a+UwuAX+ae4770q1qVGtfjG+WTCupoZixokjmHiry8uI+dlY8KXYV5HVVQ==}
 
-  playsvideo@0.4.3:
-    resolution: {integrity: sha512-qxFomJqEDoYKLoDcsqk2G05sXy+TAlf3S7TConlMXIQPyAW4wLQBIuL/L3NDyR2nt6Dbz57q0sltx2e6hObIiw==}
+  playsvideo@0.4.4:
+    resolution: {integrity: sha512-JrdY6z9TSbrCD8AM8oj5bDso3nFAAkrvZubHPpyh8PnN0pMxzci/yIK/Gd3mPDUUWgdRa2ccME+hK6nK7+WBpQ==}
 
   playwright-core@1.56.1:
     resolution: {integrity: sha512-hutraynyn31F+Bifme+Ps9Vq59hKuUCz7H1kDOcBs+2oGguKkWTU50bBWrtz34OUWmIwpBTWDxaRPXrIXkgvmQ==}
@@ -8285,7 +8285,7 @@ snapshots:
       mlly: 1.8.0
       pathe: 2.0.3
 
-  playsvideo@0.4.3:
+  playsvideo@0.4.4:
     dependencies:
       hls.js: 1.6.15
       mediabunny: https://codeload.github.com/kzahel/mediabunny/tar.gz/cd3cd2beb9c122dfa6fa89edbd7a73f2fa9df7a0
