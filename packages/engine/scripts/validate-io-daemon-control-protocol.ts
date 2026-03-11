@@ -9,6 +9,13 @@ interface OpcodeEntry {
   hex: string
   name: string
   implementedIn?: Implementation[]
+  requestShape?: {
+    required: string[]
+  }
+  responseShape?: {
+    required: string[]
+    nestedRequired?: Record<string, string[]>
+  }
 }
 
 interface OpcodeManifest {
@@ -23,8 +30,25 @@ const repoRoot = resolve(engineRoot, '..', '..')
 
 const manifestPath = resolve(repoRoot, 'contracts', 'io-daemon-control-opcodes.json')
 const nodeProtocolPath = resolve(repoRoot, 'packages', 'engine', 'src', 'node-io-daemon', 'control-protocol.ts')
+const nodeRuntimePath = resolve(repoRoot, 'packages', 'engine', 'src', 'node-io-daemon', 'daemon-runtime.ts')
+const nodeIoSessionPath = resolve(repoRoot, 'packages', 'engine', 'src', 'node-io-daemon', 'io-session.ts')
 const rustControlStreamPath = resolve(repoRoot, 'desktop', 'io-daemon', 'src', 'control_stream.rs')
+const rustMediaPath = resolve(repoRoot, 'desktop', 'io-daemon', 'src', 'media.rs')
+const rustWsPath = resolve(repoRoot, 'desktop', 'io-daemon', 'src', 'ws.rs')
 const androidProtocolPath = resolve(repoRoot, 'android', 'io-core', 'src', 'main', 'java', 'com', 'jstorrent', 'io', 'protocol', 'Protocol.kt')
+const androidControlHandlerPath = resolve(
+  repoRoot,
+  'android',
+  'companion-server',
+  'src',
+  'main',
+  'java',
+  'com',
+  'jstorrent',
+  'companion',
+  'server',
+  'ControlWebSocketHandler.kt',
+)
 
 const nodeNameToConst: Record<string, string> = {
   ROOTS_CHANGED: 'CONTROL_OP_ROOTS_CHANGED',
@@ -105,6 +129,113 @@ function validateUniqueManifestEntries(manifest: OpcodeManifest): void {
   }
 }
 
+function requirePattern(source: string, pattern: RegExp, description: string): void {
+  if (!pattern.test(source)) {
+    throw new Error(`Missing expected control protocol shape in source: ${description}`)
+  }
+}
+
+function validateNodeShapes(entries: OpcodeEntry[], runtimeSource: string, ioSessionSource: string): void {
+  for (const entry of entries) {
+    if (entry.name === 'REGISTER_HTTP_STREAM') {
+      for (const field of entry.requestShape?.required ?? []) {
+        requirePattern(runtimeSource, new RegExp(`\\bbody\\.${field}\\b`), `node REGISTER_HTTP_STREAM request field ${field}`)
+      }
+      for (const field of entry.responseShape?.required ?? []) {
+        requirePattern(
+          runtimeSource + ioSessionSource,
+          new RegExp(`\\b${field}\\b`),
+          `node REGISTER_HTTP_STREAM response field ${field}`,
+        )
+      }
+    }
+
+    if (entry.name === 'GET_CAPABILITIES') {
+      for (const field of entry.responseShape?.required ?? []) {
+        requirePattern(ioSessionSource, new RegExp(`\\b${field}\\b`), `node GET_CAPABILITIES response field ${field}`)
+      }
+      for (const nestedField of entry.responseShape?.nestedRequired?.capabilities ?? []) {
+        requirePattern(
+          ioSessionSource + runtimeSource,
+          new RegExp(`\\b${nestedField}\\b`),
+          `node GET_CAPABILITIES capability ${nestedField}`,
+        )
+      }
+    }
+  }
+}
+
+function validateRustShapes(entries: OpcodeEntry[], mediaSource: string, wsSource: string): void {
+  for (const entry of entries) {
+    if (entry.name === 'REGISTER_HTTP_STREAM') {
+      const rustFieldMap: Record<string, string> = {
+        streamToken: 'stream_token',
+        torrentId: 'torrent_id',
+        fileIndex: 'file_index',
+        rootKey: 'root_key',
+        path: 'path',
+        fileSize: 'file_size',
+        mimeType: 'mime_type',
+      }
+      for (const field of entry.requestShape?.required ?? []) {
+        const rustField = rustFieldMap[field]
+        requirePattern(mediaSource, new RegExp(`pub\\(crate\\) ${rustField}:`), `rust REGISTER_HTTP_STREAM request field ${field}`)
+      }
+      for (const field of entry.responseShape?.required ?? []) {
+        const rustField = field === 'mediaPort' ? 'media_port' : field
+        requirePattern(mediaSource + wsSource, new RegExp(`\\b${rustField}\\b`), `rust REGISTER_HTTP_STREAM response field ${field}`)
+      }
+    }
+
+    if (entry.name === 'GET_CAPABILITIES') {
+      for (const field of entry.responseShape?.required ?? []) {
+        requirePattern(wsSource, new RegExp(`"${field}"`), `rust GET_CAPABILITIES response field ${field}`)
+      }
+      for (const nestedField of entry.responseShape?.nestedRequired?.capabilities ?? []) {
+        requirePattern(wsSource, new RegExp(`"${nestedField}"`), `rust GET_CAPABILITIES capability ${nestedField}`)
+      }
+    }
+  }
+}
+
+function validateAndroidShapes(entries: OpcodeEntry[], controlHandlerSource: string): void {
+  for (const entry of entries) {
+    if (entry.name === 'REGISTER_HTTP_STREAM') {
+      for (const field of entry.requestShape?.required ?? []) {
+        requirePattern(
+          controlHandlerSource,
+          new RegExp(`request\\["${field}"\\]`),
+          `android REGISTER_HTTP_STREAM request field ${field}`,
+        )
+      }
+      for (const field of entry.responseShape?.required ?? []) {
+        requirePattern(
+          controlHandlerSource,
+          new RegExp(`"${field}"`),
+          `android REGISTER_HTTP_STREAM response field ${field}`,
+        )
+      }
+    }
+
+    if (entry.name === 'GET_CAPABILITIES') {
+      for (const field of entry.responseShape?.required ?? []) {
+        requirePattern(
+          controlHandlerSource,
+          new RegExp(`"${field}"`),
+          `android GET_CAPABILITIES response field ${field}`,
+        )
+      }
+      for (const nestedField of entry.responseShape?.nestedRequired?.capabilities ?? []) {
+        requirePattern(
+          controlHandlerSource,
+          new RegExp(`"${nestedField}"`),
+          `android GET_CAPABILITIES capability ${nestedField}`,
+        )
+      }
+    }
+  }
+}
+
 function validateImplementation(
   implementation: Implementation,
   entries: OpcodeEntry[],
@@ -136,8 +267,13 @@ function main(): void {
   validateUniqueManifestEntries(manifest)
 
   const nodeSource = readFileSync(nodeProtocolPath, 'utf8')
+  const nodeRuntimeSource = readFileSync(nodeRuntimePath, 'utf8')
+  const nodeIoSessionSource = readFileSync(nodeIoSessionPath, 'utf8')
   const rustSource = readFileSync(rustControlStreamPath, 'utf8')
+  const rustMediaSource = readFileSync(rustMediaPath, 'utf8')
+  const rustWsSource = readFileSync(rustWsPath, 'utf8')
   const androidSource = readFileSync(androidProtocolPath, 'utf8')
+  const androidControlHandlerSource = readFileSync(androidControlHandlerPath, 'utf8')
 
   const nodeConstants = parseImplementationConstants(
     nodeSource,
@@ -156,15 +292,18 @@ function main(): void {
     const entries = manifest.opcodes.filter((entry) => (entry.implementedIn ?? ['node', 'rust', 'android']).includes(implementation))
     if (implementation === 'node') {
       validateImplementation(implementation, entries, nodeConstants, nodeNameToConst)
+      validateNodeShapes(entries, nodeRuntimeSource, nodeIoSessionSource)
     } else if (implementation === 'rust') {
       validateImplementation(implementation, entries, rustConstants, rustNameToConst)
+      validateRustShapes(entries, rustMediaSource, rustWsSource)
     } else {
       validateImplementation(implementation, entries, androidConstants, androidNameToConst)
+      validateAndroidShapes(entries, androidControlHandlerSource)
     }
   }
 
   console.log(
-    `Validated IO daemon control opcode manifest against Node, Rust, and Android sources (${manifest.opcodes.length} opcodes)`,
+    `Validated IO daemon control opcode manifest and selected request/response shapes against Node, Rust, and Android sources (${manifest.opcodes.length} opcodes)`,
   )
 }
 

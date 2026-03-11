@@ -73,6 +73,12 @@
           "fileSize",
           "mimeType"
         ]
+      },
+      "responseShape": {
+        "required": [
+          "ok",
+          "mediaPort"
+        ]
       }
     },
     {
@@ -82,7 +88,21 @@
       "implementedIn": ["node", "rust", "android"],
       "channel": "control",
       "kind": "request_response",
-      "direction": "client_to_daemon"
+      "direction": "client_to_daemon",
+      "responseShape": {
+        "required": [
+          "ok",
+          "protocolVersion",
+          "behaviorVersion",
+          "capabilities"
+        ],
+        "nestedRequired": {
+          "capabilities": [
+            "roots_manageable",
+            "lan_share_urls"
+          ]
+        }
+      }
     },
     {
       "opcode": 238,
