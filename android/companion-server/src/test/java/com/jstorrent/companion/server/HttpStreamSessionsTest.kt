@@ -40,6 +40,7 @@ class HttpStreamSessionsTest {
 
         registry.register(
             ownerId = "owner-a",
+            backendKind = HttpStreamBackendKind.LocalApp,
             token = "token-a",
             torrentId = "torrent-a",
             fileIndex = 0,
@@ -50,6 +51,7 @@ class HttpStreamSessionsTest {
         )
         registry.register(
             ownerId = "owner-b",
+            backendKind = HttpStreamBackendKind.LocalApp,
             token = "token-b",
             torrentId = "torrent-b",
             fileIndex = 1,
@@ -75,6 +77,7 @@ class HttpStreamSessionsTest {
 
         registry.register(
             ownerId = "owner-a",
+            backendKind = HttpStreamBackendKind.LocalApp,
             token = "token-a",
             torrentId = "torrent-a",
             fileIndex = 0,
@@ -85,6 +88,7 @@ class HttpStreamSessionsTest {
         )
         registry.register(
             ownerId = "owner-b",
+            backendKind = HttpStreamBackendKind.LocalApp,
             token = "token-b",
             torrentId = "torrent-a",
             fileIndex = 1,
@@ -95,6 +99,7 @@ class HttpStreamSessionsTest {
         )
         registry.register(
             ownerId = "owner-c",
+            backendKind = HttpStreamBackendKind.LocalApp,
             token = "token-c",
             torrentId = "torrent-c",
             fileIndex = 2,

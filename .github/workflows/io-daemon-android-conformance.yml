@@ -47,9 +47,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
+        run: corepack enable pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -76,4 +74,6 @@ jobs:
           arch: x86_64
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
           disable-animations: true
-          script: pnpm -C packages/engine run conformance:daemon -- --implementations=android
+          script: |
+            corepack enable pnpm
+            pnpm -C packages/engine run conformance:daemon -- --implementations=android

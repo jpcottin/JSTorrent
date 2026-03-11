@@ -21,6 +21,10 @@
       "types": "./dist/adapters/native/index.d.ts",
       "import": "./dist/adapters/native/index.js"
     },
+    "./node-io-daemon": {
+      "types": "./dist/node-io-daemon/index.d.ts",
+      "import": "./dist/node-io-daemon/index.js"
+    },
     "./presets/native": {
       "types": "./dist/presets/native.d.ts",
       "import": "./dist/presets/native.js"

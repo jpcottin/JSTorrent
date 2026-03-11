@@ -42,5 +42,10 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libgtk-3-dev
+
       - name: Run native-host conformance gate
         run: pnpm -C packages/engine run conformance:native-host

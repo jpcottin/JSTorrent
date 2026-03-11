@@ -88,6 +88,54 @@ function readManifest(): ConformanceManifest {
   return JSON.parse(readFileSync(contractsPath, 'utf8')) as ConformanceManifest
 }
 
+function tryReadVitestReport(outputFile: string): VitestJsonReport | null {
+  try {
+    return JSON.parse(readFileSync(outputFile, 'utf8')) as VitestJsonReport
+  } catch {
+    return null
+  }
+}
+
+function formatFailureMessage(message: string | undefined): string {
+  if (!message) {
+    return 'No failure message captured'
+  }
+  const firstNonEmptyLine = message
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
+  return firstNonEmptyLine ?? 'No failure message captured'
+}
+
+function logVitestFailureSummary(
+  implementation: Implementation,
+  report: VitestJsonReport | null,
+): void {
+  if (!report) {
+    console.error(`No Vitest JSON report was captured for ${implementation}.`)
+    return
+  }
+
+  const failures = report.testResults.flatMap((suite) =>
+    suite.assertionResults
+      .filter((assertion) => assertion.status === 'failed')
+      .map((assertion) => ({
+        title: assertion.title,
+        message: formatFailureMessage(assertion.failureMessages?.[0]),
+      })),
+  )
+
+  if (failures.length === 0) {
+    console.error(`Vitest reported failure for ${implementation}, but no failed assertions were captured.`)
+    return
+  }
+
+  console.error(`${implementation} conformance failures:`)
+  for (const failure of failures) {
+    console.error(`- ${failure.title}: ${failure.message}`)
+  }
+}
+
 function runVitestForImplementation(
   implementation: Implementation,
   outputFile: string,
@@ -139,17 +187,23 @@ function runVitestForImplementation(
     encoding: 'utf8',
     stdio: 'pipe',
   })
+  const report = tryReadVitestReport(outputFile)
 
   if (result.status !== 0) {
     process.stdout.write(result.stdout)
     process.stderr.write(result.stderr)
+    logVitestFailureSummary(implementation, report)
     throw new Error(
       `${implementation} conformance suite failed with exit code ${result.status ?? 'unknown'}`,
     )
   }
 
-  const report = JSON.parse(readFileSync(outputFile, 'utf8')) as VitestJsonReport
+  if (!report) {
+    throw new Error(`${implementation} conformance suite did not produce a readable Vitest report`)
+  }
+
   if (!report.success) {
+    logVitestFailureSummary(implementation, report)
     throw new Error(
       `${implementation} conformance suite completed without a successful Vitest report`,
     )
