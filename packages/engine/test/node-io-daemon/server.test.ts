@@ -216,7 +216,7 @@ describe('node-io-daemon server', () => {
     }
   })
 
-  it('starts a listener and serves /health', async () => {
+  conformanceCase('node', 'health.ok_is_reported', 'starts a listener and serves /health', async () => {
     daemon = createNodeIoDaemon({
       host: '127.0.0.1',
       port: 0,
@@ -230,7 +230,7 @@ describe('node-io-daemon server', () => {
       bootstrapMode: 'test',
       protocolVersion: 1,
       behaviorVersion: 1,
-      capabilities: NODE_IO_DAEMON_CAPABILITIES,
+      capabilities: createNodeIoDaemonCapabilities(true),
     })
 
     await daemon.start()
@@ -362,6 +362,119 @@ describe('node-io-daemon server', () => {
       connection.close()
     }
   })
+
+  conformanceCase(
+    'node',
+    'roots.list_is_reported',
+    'serves authenticated roots from /roots',
+    async () => {
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        roots: [
+          {
+            key: 'root-a',
+            uri: 'file:///downloads/a',
+            display_name: 'Downloads A',
+            removable: true,
+            last_stat_ok: true,
+            last_checked: 100,
+          },
+          {
+            key: 'root-b',
+            uri: 'file:///downloads/b',
+            display_name: 'Downloads B',
+            removable: false,
+            last_stat_ok: true,
+            last_checked: 200,
+          },
+        ],
+      })
+      await daemon.start()
+
+      const status = await fetchDaemonStatus(
+        '127.0.0.1',
+        daemon.getStatus().port,
+        'secret',
+        'extension-id',
+        'install',
+      )
+      const httpConnection = new DaemonConnection(
+        daemon.getStatus().port,
+        '127.0.0.1',
+        undefined,
+        'secret',
+        status.ioPort,
+      )
+
+      const roots = await fetchDaemonRoots(httpConnection)
+      expect(roots).toEqual([
+        { key: 'root-a', label: 'Downloads A', path: 'file:///downloads/a' },
+        { key: 'root-b', label: 'Downloads B', path: 'file:///downloads/b' },
+      ])
+    },
+  )
+
+  conformanceCase(
+    'node',
+    'roots.delete_existing_root_succeeds',
+    'deletes an existing root through DELETE /roots/:key',
+    async () => {
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        roots: [
+          {
+            key: 'root-a',
+            uri: 'file:///downloads/a',
+            display_name: 'Downloads A',
+            removable: true,
+            last_stat_ok: true,
+            last_checked: 100,
+          },
+          {
+            key: 'root-b',
+            uri: 'file:///downloads/b',
+            display_name: 'Downloads B',
+            removable: false,
+            last_stat_ok: true,
+            last_checked: 200,
+          },
+        ],
+      })
+      await daemon.start()
+
+      const status = await fetchDaemonStatus(
+        '127.0.0.1',
+        daemon.getStatus().port,
+        'secret',
+        'extension-id',
+        'install',
+      )
+      const httpConnection = new DaemonConnection(
+        daemon.getStatus().port,
+        '127.0.0.1',
+        undefined,
+        'secret',
+        status.ioPort,
+      )
+
+      const deleteResponse = await makeRequest(daemon.getStatus().port, '/roots/root-a', {
+        method: 'DELETE',
+        headers: {
+          'X-JST-Auth': 'secret',
+        },
+      })
+      expect(deleteResponse.statusCode).toBe(200)
+
+      const remainingRoots = await fetchDaemonRoots(httpConnection)
+      expect(remainingRoots).toEqual([{ key: 'root-b', label: 'Downloads B', path: 'file:///downloads/b' }])
+    },
+  )
 
   it('serves authenticated roots and broadcasts deletions over /control', async () => {
     daemon = createNodeIoDaemon({
@@ -526,7 +639,11 @@ describe('node-io-daemon server', () => {
     },
   )
 
-  it('answers control capability requests over /control', async () => {
+  conformanceCase(
+    'node',
+    'control.capabilities_are_reported',
+    'answers control capability requests over /control',
+    async () => {
     daemon = createNodeIoDaemon({
       host: '127.0.0.1',
       port: 0,
@@ -553,7 +670,8 @@ describe('node-io-daemon server', () => {
     } finally {
       ws.close()
     }
-  })
+    },
+  )
 
   it('registers an HTTP stream over /control and serves it from the media port', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-'))

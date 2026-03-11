@@ -87,6 +87,18 @@ Authentication:
 - companion implementations may additionally require extension headers depending on mode
 - `/stream/{token}` is authorized by possession of the stream token
 
+Baseline HTTP conformance cases:
+
+- `health.ok_is_reported`
+- `roots.list_is_reported`
+- `roots.delete_existing_root_succeeds`
+
+Current implementation scope note:
+
+- `GET /roots` is currently required in `node` and `android` for the managed daemon conformance matrix
+- `DELETE /roots/:key` is currently required in `node` and `android`
+- Rust standalone exposes `GET /roots`, but the managed native-host daemon path used by the default Rust conformance gate does not; `roots.*` therefore remains `N/A` for `rust` in contract generation 1
+
 ## File Operation Semantics
 
 Single delete:
@@ -129,6 +141,10 @@ Current shared opcodes:
 - `0xF2 REVOKE_TORRENT_HTTP_STREAMS`
 
 Opcode numbers and structural metadata are recorded in the JSON opcode manifest.
+
+Control conformance cases:
+
+- `control.capabilities_are_reported`
 
 ## Stream Registration Model
 

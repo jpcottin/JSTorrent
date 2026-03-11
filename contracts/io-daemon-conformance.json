@@ -2,6 +2,11 @@
   "behaviorVersion": 1,
   "cases": [
     {
+      "id": "health.ok_is_reported",
+      "kind": "shape",
+      "requiredIn": ["node", "rust", "android"]
+    },
+    {
       "id": "status.capabilities_are_reported",
       "kind": "shape",
       "requiredIn": ["node", "android"]
@@ -10,6 +15,21 @@
       "id": "status.contract_versions_are_reported",
       "kind": "shape",
       "requiredIn": ["node", "android"]
+    },
+    {
+      "id": "roots.list_is_reported",
+      "kind": "shape",
+      "requiredIn": ["node", "android"]
+    },
+    {
+      "id": "roots.delete_existing_root_succeeds",
+      "kind": "behavior",
+      "requiredIn": ["node", "android"]
+    },
+    {
+      "id": "control.capabilities_are_reported",
+      "kind": "shape",
+      "requiredIn": ["node", "rust", "android"]
     },
     {
       "id": "ops.delete.missing_returns_404",
