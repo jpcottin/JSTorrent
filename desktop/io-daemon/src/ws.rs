@@ -1143,6 +1143,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, mode: Connection
                 OP_CTRL_GET_CAPABILITIES => {
                     let payload = serde_json::json!({
                         "ok": true,
+                        "protocolVersion": 1,
+                        "behaviorVersion": 1,
                         "capabilities": {
                             "roots_manageable": false,
                             "lan_share_urls": true,

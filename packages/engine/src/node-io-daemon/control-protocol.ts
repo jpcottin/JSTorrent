@@ -13,6 +13,8 @@ export const CONTROL_OP_CLOSE_HTTP_STREAM_SESSION = 0xf1
 export const CONTROL_OP_REVOKE_TORRENT_HTTP_STREAMS = 0xf2
 
 export interface NodeIoDaemonExternalCapabilities {
+  protocolVersion: number
+  behaviorVersion: number
   roots_manageable: boolean
   lan_share_urls: boolean
 }

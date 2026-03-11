@@ -1,5 +1,8 @@
 import type { NodeIoDaemonCapabilities } from './types'
 
+export const IO_DAEMON_PROTOCOL_VERSION = 1
+export const IO_DAEMON_BEHAVIOR_VERSION = 1
+
 export const NODE_IO_DAEMON_CAPABILITIES: NodeIoDaemonCapabilities = {
   health: true,
   status: true,

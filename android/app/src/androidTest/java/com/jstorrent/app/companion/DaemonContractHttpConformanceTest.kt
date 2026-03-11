@@ -54,6 +54,19 @@ class DaemonContractHttpConformanceTest : CompanionTestBase() {
         assertTrue(capabilities["status"]?.jsonPrimitive?.booleanOrNull ?: false)
         assertTrue(capabilities["fileOps"]?.jsonPrimitive?.booleanOrNull ?: false)
         assertTrue(capabilities["mediaBlocking206"]?.jsonPrimitive?.booleanOrNull ?: false)
+        assertEquals(1, payload["protocolVersion"]?.jsonPrimitive?.content?.toIntOrNull())
+        assertEquals(1, payload["behaviorVersion"]?.jsonPrimitive?.content?.toIntOrNull())
+    }
+
+    @Test
+    fun conformance__status__contract_versions_are_reported__impl__android() {
+        val response = post("/status", """{"token":"$token"}""", extensionHeaders())
+        assertEquals(200, response.code)
+
+        val body = response.body?.string() ?: ""
+        val payload = json.parseToJsonElement(body).jsonObject
+        assertEquals(1, payload["protocolVersion"]?.jsonPrimitive?.content?.toIntOrNull())
+        assertEquals(1, payload["behaviorVersion"]?.jsonPrimitive?.content?.toIntOrNull())
     }
 
     @Test

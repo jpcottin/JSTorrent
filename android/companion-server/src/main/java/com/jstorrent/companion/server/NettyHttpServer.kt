@@ -55,6 +55,8 @@ private data class StatusResponse(
     val installId: String? = null,
     val version: String? = null,
     val tokenValid: Boolean? = null,
+    val protocolVersion: Int? = null,
+    val behaviorVersion: Int? = null,
     val capabilities: StatusCapabilities,
 )
 
@@ -446,6 +448,8 @@ private class NettyHttpHandler(
             installId = deps.tokenStore.installId,
             version = deps.versionName,
             tokenValid = tokenValid,
+            protocolVersion = 1,
+            behaviorVersion = 1,
             capabilities = StatusCapabilities(
                 health = true,
                 status = true,

@@ -1,7 +1,11 @@
 import * as http from 'node:http'
 import * as os from 'node:os'
 import type { Duplex } from 'node:stream'
-import { createNodeIoDaemonCapabilities } from './capabilities'
+import {
+  createNodeIoDaemonCapabilities,
+  IO_DAEMON_BEHAVIOR_VERSION,
+  IO_DAEMON_PROTOCOL_VERSION,
+} from './capabilities'
 import {
   NodeIoDaemonControlChannelHttpStreamBridge,
   NodeIoDaemonControlStreamRegistry,
@@ -274,6 +278,8 @@ export class NodeIoDaemonRuntime {
       host: this.daemonConfig.host,
       port: this.boundPort,
       bootstrapMode: this.daemonConfig.bootstrapMode,
+      protocolVersion: IO_DAEMON_PROTOCOL_VERSION,
+      behaviorVersion: IO_DAEMON_BEHAVIOR_VERSION,
       capabilities: createNodeIoDaemonCapabilities(this.supportsBlockingHttpStreams()),
     }
   }
@@ -897,6 +903,8 @@ export class NodeIoDaemonRuntime {
       tokenValid,
       implementation: 'node-io-daemon',
       bootstrapMode: this.daemonConfig.bootstrapMode,
+      protocolVersion: IO_DAEMON_PROTOCOL_VERSION,
+      behaviorVersion: IO_DAEMON_BEHAVIOR_VERSION,
       capabilities: createNodeIoDaemonCapabilities(this.supportsBlockingHttpStreams()),
     }
   }
@@ -956,6 +964,8 @@ export class NodeIoDaemonRuntime {
 
   private getExternalCapabilities(): NodeIoDaemonExternalCapabilities {
     return {
+      protocolVersion: IO_DAEMON_PROTOCOL_VERSION,
+      behaviorVersion: IO_DAEMON_BEHAVIOR_VERSION,
       roots_manageable: true,
       lan_share_urls: true,
     }

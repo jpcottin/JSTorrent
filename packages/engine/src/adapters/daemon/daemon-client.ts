@@ -44,6 +44,8 @@ export interface DaemonStatusResponse {
   installId?: string
   version?: string
   tokenValid?: boolean
+  protocolVersion?: number
+  behaviorVersion?: number
   capabilities?: Record<string, boolean>
 }
 

@@ -7,6 +7,11 @@
       "requiredIn": ["node", "android"]
     },
     {
+      "id": "status.contract_versions_are_reported",
+      "kind": "shape",
+      "requiredIn": ["node", "android"]
+    },
+    {
       "id": "ops.delete.missing_returns_404",
       "kind": "behavior",
       "requiredIn": ["node", "rust", "android"]

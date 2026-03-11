@@ -387,6 +387,8 @@ class ControlWebSocketHandler(
             opcode = Protocol.OP_CTRL_GET_CAPABILITIES,
             response = buildJsonObject {
                 put("ok", true)
+                put("protocolVersion", 1)
+                put("behaviorVersion", 1)
                 put(
                     "capabilities",
                     buildJsonObject {

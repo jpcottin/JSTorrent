@@ -28,6 +28,12 @@ Declared contract generation:
 
 These versions are not yet advertised by every implementation. The intended rollout is to expose them alongside the existing capability handshake and `/status` response.
 
+Backward compatibility:
+
+- version fields are additive and optional on the wire
+- existing clients must continue to work when these fields are absent
+- new clients must treat absent `protocolVersion` / `behaviorVersion` as a legacy daemon and fall back to capability-based behavior checks
+
 Meaning:
 
 - `protocolVersion` governs wire shape: endpoints, envelopes, field names, opcode numbers.
@@ -61,6 +67,7 @@ Baseline HTTP endpoints:
 
 - `GET /health`
 - `POST /status`
+- `/status` may include optional `protocolVersion` and `behaviorVersion`
 - `GET /roots`
 - `DELETE /roots/:key`
 - `POST /files/ensure_dir`
@@ -114,6 +121,7 @@ Current shared opcodes:
 - `0xEB POWER_HINT`
 - `0xEC REGISTER_HTTP_STREAM`
 - `0xED GET_CAPABILITIES`
+- `GET_CAPABILITIES` may include optional `protocolVersion` and `behaviorVersion` alongside the existing capability payload
 - `0xEE OPEN_HTTP_STREAM_SESSION`
 - `0xEF WAIT_FOR_HTTP_STREAM_RANGE`
 - `0xF0 CANCEL_HTTP_STREAM_RANGE_WAIT`

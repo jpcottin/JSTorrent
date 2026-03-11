@@ -90,6 +90,8 @@ pub struct StatusResponse {
     pub install_id: Option<String>,
     pub version: Option<String>,
     pub token_valid: Option<bool>,
+    pub protocol_version: Option<u32>,
+    pub behavior_version: Option<u32>,
     /// WebSocket port for /control endpoint (same as port in standalone mode)
     pub io_port: Option<u16>,
     pub capabilities: StatusCapabilities,
@@ -155,6 +157,8 @@ async fn status_handler(
         install_id: config.install_id.clone(),
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
         token_valid,
+        protocol_version: Some(1),
+        behavior_version: Some(1),
         io_port: Some(state.port),
         capabilities: StatusCapabilities {
             health: true,
@@ -313,6 +317,8 @@ mod tests {
             install_id: Some("176d95f1".into()),
             version: Some("0.1.29".into()),
             token_valid: Some(true),
+            protocol_version: Some(1),
+            behavior_version: Some(1),
             io_port: Some(7800),
             capabilities: StatusCapabilities {
                 health: true,
@@ -339,6 +345,14 @@ mod tests {
         assert!(
             json.contains("\"tokenValid\""),
             "expected camelCase tokenValid, got: {json}"
+        );
+        assert!(
+            json.contains("\"protocolVersion\":1"),
+            "expected protocolVersion, got: {json}"
+        );
+        assert!(
+            json.contains("\"behaviorVersion\":1"),
+            "expected behaviorVersion, got: {json}"
         );
         assert!(
             json.contains("\"ioPort\""),

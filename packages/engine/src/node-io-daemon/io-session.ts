@@ -400,9 +400,16 @@ export class NodeIoDaemonIoSession {
     payload: Uint8Array
   }): void {
     if (envelope.msgType === CONTROL_OP_GET_CAPABILITIES) {
+      const {
+        protocolVersion,
+        behaviorVersion,
+        ...capabilities
+      } = this.options.getExternalCapabilities()
       this.sendControlResponse(envelope.msgType, envelope.requestId, {
         ok: true,
-        capabilities: this.options.getExternalCapabilities(),
+        protocolVersion,
+        behaviorVersion,
+        capabilities,
       })
       return
     }

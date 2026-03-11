@@ -120,6 +120,8 @@ export interface NodeIoDaemonStatus {
   host: string
   port: number
   bootstrapMode: NodeIoDaemonBootstrapMode
+  protocolVersion: number
+  behaviorVersion: number
   capabilities: NodeIoDaemonCapabilities
 }
 
@@ -133,6 +135,8 @@ export interface NodeIoDaemonHttpStatus {
   tokenValid: boolean | null
   implementation: 'node-io-daemon'
   bootstrapMode: NodeIoDaemonBootstrapMode
+  protocolVersion?: number
+  behaviorVersion?: number
   capabilities: NodeIoDaemonCapabilities
 }
 

@@ -228,6 +228,8 @@ describe('node-io-daemon server', () => {
       host: '127.0.0.1',
       port: 0,
       bootstrapMode: 'test',
+      protocolVersion: 1,
+      behaviorVersion: 1,
       capabilities: NODE_IO_DAEMON_CAPABILITIES,
     })
 
@@ -273,6 +275,8 @@ describe('node-io-daemon server', () => {
       ioPort: number | null
       paired: boolean
       tokenValid: boolean | null
+      protocolVersion?: number
+      behaviorVersion?: number
       capabilities: { ioWebSocket: boolean }
     }
     expect(payload.port).toBe(startedStatus.port)
@@ -280,6 +284,8 @@ describe('node-io-daemon server', () => {
     expect(payload.paired).toBe(true)
     expect(payload.tokenValid).toBe(true)
     expect(payload.capabilities.ioWebSocket).toBe(true)
+    expect(payload.protocolVersion).toBe(1)
+    expect(payload.behaviorVersion).toBe(1)
 
     const notFound = await makeRequest(startedStatus.port, '/missing')
     expect(notFound.statusCode).toBe(404)
@@ -291,8 +297,42 @@ describe('node-io-daemon server', () => {
       host: '127.0.0.1',
       port: 0,
       bootstrapMode: 'realistic',
+      protocolVersion: 1,
+      behaviorVersion: 1,
       capabilities: createNodeIoDaemonCapabilities(true),
     })
+    },
+  )
+
+  conformanceCase(
+    'node',
+    'status.contract_versions_are_reported',
+    'reports additive protocol and behavior versions in /status',
+    async () => {
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+      })
+
+      await daemon.start()
+      const startedStatus = daemon.getStatus()
+      const response = await makeRequest(startedStatus.port, '/status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-JST-Auth': 'secret',
+        },
+      })
+
+      expect(response.statusCode).toBe(200)
+      const payload = JSON.parse(response.body.toString('utf8')) as {
+        protocolVersion?: number
+        behaviorVersion?: number
+      }
+      expect(payload.protocolVersion).toBe(1)
+      expect(payload.behaviorVersion).toBe(1)
     },
   )
 
@@ -503,6 +543,8 @@ describe('node-io-daemon server', () => {
       expect(response.requestId).toBe(9)
       expect(response.payload).toEqual({
         ok: true,
+        protocolVersion: 1,
+        behaviorVersion: 1,
         capabilities: {
           roots_manageable: true,
           lan_share_urls: true,
