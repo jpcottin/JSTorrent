@@ -15,6 +15,8 @@ export interface DaemonInfo {
   port: number
   token: string
   version?: string
+  protocolVersion?: number
+  behaviorVersion?: number
   roots: Array<{
     key: string
     path: string

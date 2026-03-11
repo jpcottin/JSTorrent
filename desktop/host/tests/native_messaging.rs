@@ -138,6 +138,14 @@ fn conformance__handshake__daemon_info_is_returned__impl__rust() {
         .as_str()
         .expect("version must be a string");
     assert!(!version.is_empty(), "version must not be empty");
+    let protocol_version = payload["protocolVersion"]
+        .as_u64()
+        .expect("protocolVersion must be a number");
+    assert_eq!(protocol_version, 1, "protocolVersion must be 1");
+    let behavior_version = payload["behaviorVersion"]
+        .as_u64()
+        .expect("behaviorVersion must be a number");
+    assert_eq!(behavior_version, 1, "behaviorVersion must be 1");
     assert!(payload["roots"].is_array(), "roots must be present as an array");
 
     eprintln!("Handshake OK: port={port}, version={version}, profileId={profile_id}");
@@ -208,6 +216,43 @@ fn conformance__handshake__capabilities_are_reported__impl__rust() {
         capabilities.get("lan_share_urls").and_then(|v| v.as_bool()),
         Some(true)
     );
+
+    drop(stdin);
+    if !wait_with_timeout(&mut child, Duration::from_secs(10)) {
+        child.kill().ok();
+        panic!("system-bridge did not exit within 10 seconds after stdin close");
+    }
+}
+
+#[test]
+#[allow(non_snake_case)]
+fn conformance__handshake__contract_versions_are_reported__impl__rust() {
+    let host_bin = env!("CARGO_BIN_EXE_jstorrent-host");
+    let config_dir = tempfile::tempdir().expect("failed to create temp config dir");
+
+    let mut child = Command::new(host_bin)
+        .env("JSTORRENT_CONFIG_DIR", config_dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn jstorrent-host");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+
+    let handshake = serde_json::json!({
+        "id": "test-versions",
+        "op": "handshake",
+        "extensionId": "tauri-integration-test",
+    });
+    write_native_message(&mut stdin, &handshake);
+
+    let response = read_native_message(&mut stdout);
+    assert_eq!(response["ok"], true, "handshake must succeed: {response}");
+    assert_eq!(response["type"], "DaemonInfo");
+    assert_eq!(response["payload"]["protocolVersion"].as_u64(), Some(1));
+    assert_eq!(response["payload"]["behaviorVersion"].as_u64(), Some(1));
 
     drop(stdin);
     if !wait_with_timeout(&mut child, Duration::from_secs(10)) {

@@ -20,6 +20,8 @@ export interface DaemonInfo {
   port: number
   token: string
   version?: string
+  protocolVersion?: number
+  behaviorVersion?: number
   roots: DownloadRoot[]
   /** Host address for daemon connection. Defaults to 127.0.0.1 on desktop, but differs on ChromeOS. */
   host?: string

@@ -369,6 +369,8 @@ async fn do_handshake(
             port,
             token,
             version: env!("CARGO_PKG_VERSION").to_string(),
+            protocol_version: Some(1),
+            behavior_version: Some(1),
             roots,
             add_token: rpc_info.add_token,
             capabilities: Some(DaemonCapabilities {

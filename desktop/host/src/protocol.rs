@@ -160,6 +160,10 @@ pub enum ResponsePayload {
         port: u16,
         token: String,
         version: String,
+        #[serde(rename = "protocolVersion", skip_serializing_if = "Option::is_none")]
+        protocol_version: Option<u32>,
+        #[serde(rename = "behaviorVersion", skip_serializing_if = "Option::is_none")]
+        behavior_version: Option<u32>,
         roots: Vec<DownloadRoot>,
         #[serde(rename = "addToken", skip_serializing_if = "Option::is_none")]
         add_token: Option<String>,

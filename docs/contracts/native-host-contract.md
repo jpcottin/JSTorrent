@@ -15,6 +15,11 @@ Machine-readable companion:
 
 - [native-host-conformance.json](/Users/kgraehl/code/jstorrent/contracts/native-host-conformance.json)
 
+Declared contract generation:
+
+- `protocolVersion = 1`
+- `behaviorVersion = 1`
+
 ## Scope
 
 This contract covers the desktop native-host bootstrap path, not the IO daemon
@@ -99,10 +104,11 @@ Required payload fields:
 
 Optional payload fields:
 
+- `protocolVersion`
+- `behaviorVersion`
 - `addToken`
 - `capabilities`
 - `desktopVersion`
-- future additive version fields such as `protocolVersion` / `behaviorVersion`
 
 Semantics:
 
@@ -110,6 +116,7 @@ Semantics:
 - returned `port` and `token` bootstrap subsequent daemon communication
 - `roots` is the initial download-root snapshot for the selected profile
 - `addToken` is stable across restarts for the same config directory
+- absent `protocolVersion` / `behaviorVersion` must be treated as legacy bootstrap behavior
 
 ## ProfileInUse Response
 
