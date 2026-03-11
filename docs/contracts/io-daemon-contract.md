@@ -142,6 +142,12 @@ Current shared opcodes:
 
 Opcode numbers and structural metadata are recorded in the JSON opcode manifest.
 
+Implementation scope:
+
+- the opcode manifest records `implementedIn` for opcodes that are not exposed by every daemon implementation
+- desktop Rust currently implements the stream-control opcode subset plus `GET_CAPABILITIES`
+- Node and Android expose the broader desktop-companion control surface including root notifications and local file/folder actions
+
 Control conformance cases:
 
 - `control.capabilities_are_reported`

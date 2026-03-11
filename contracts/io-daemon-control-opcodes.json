@@ -5,6 +5,7 @@
       "opcode": 224,
       "hex": "0xE0",
       "name": "ROOTS_CHANGED",
+      "implementedIn": ["node", "android"],
       "channel": "control",
       "kind": "notification",
       "direction": "daemon_to_client"
@@ -13,6 +14,7 @@
       "opcode": 225,
       "hex": "0xE1",
       "name": "EVENT",
+      "implementedIn": ["node", "android"],
       "channel": "control",
       "kind": "notification",
       "direction": "daemon_to_client"
@@ -21,6 +23,7 @@
       "opcode": 226,
       "hex": "0xE2",
       "name": "OPEN_FOLDER_PICKER",
+      "implementedIn": ["node", "android"],
       "channel": "control",
       "kind": "request_response",
       "direction": "client_to_daemon"
@@ -29,6 +32,7 @@
       "opcode": 233,
       "hex": "0xE9",
       "name": "OPEN_FILE",
+      "implementedIn": ["node", "android"],
       "channel": "control",
       "kind": "request_response",
       "direction": "client_to_daemon"
@@ -37,6 +41,7 @@
       "opcode": 234,
       "hex": "0xEA",
       "name": "REVEAL_IN_FOLDER",
+      "implementedIn": ["node", "android"],
       "channel": "control",
       "kind": "request_response",
       "direction": "client_to_daemon"
@@ -45,6 +50,7 @@
       "opcode": 235,
       "hex": "0xEB",
       "name": "POWER_HINT",
+      "implementedIn": ["android"],
       "channel": "control",
       "kind": "notification",
       "direction": "client_to_daemon"
@@ -53,6 +59,7 @@
       "opcode": 236,
       "hex": "0xEC",
       "name": "REGISTER_HTTP_STREAM",
+      "implementedIn": ["node", "rust", "android"],
       "channel": "control",
       "kind": "request_response",
       "direction": "client_to_daemon",
@@ -72,6 +79,7 @@
       "opcode": 237,
       "hex": "0xED",
       "name": "GET_CAPABILITIES",
+      "implementedIn": ["node", "rust", "android"],
       "channel": "control",
       "kind": "request_response",
       "direction": "client_to_daemon"
@@ -80,6 +88,7 @@
       "opcode": 238,
       "hex": "0xEE",
       "name": "OPEN_HTTP_STREAM_SESSION",
+      "implementedIn": ["node", "rust", "android"],
       "channel": "control",
       "kind": "request_response",
       "direction": "daemon_to_client",
@@ -96,6 +105,7 @@
       "opcode": 239,
       "hex": "0xEF",
       "name": "WAIT_FOR_HTTP_STREAM_RANGE",
+      "implementedIn": ["node", "rust", "android"],
       "channel": "control",
       "kind": "request_response",
       "direction": "daemon_to_client",
@@ -111,6 +121,7 @@
       "opcode": 240,
       "hex": "0xF0",
       "name": "CANCEL_HTTP_STREAM_RANGE_WAIT",
+      "implementedIn": ["node", "rust", "android"],
       "channel": "control",
       "kind": "notification",
       "direction": "daemon_to_client",
@@ -124,6 +135,7 @@
       "opcode": 241,
       "hex": "0xF1",
       "name": "CLOSE_HTTP_STREAM_SESSION",
+      "implementedIn": ["node", "rust", "android"],
       "channel": "control",
       "kind": "notification",
       "direction": "daemon_to_client",
@@ -138,6 +150,7 @@
       "opcode": 242,
       "hex": "0xF2",
       "name": "REVOKE_TORRENT_HTTP_STREAMS",
+      "implementedIn": ["node", "rust", "android"],
       "channel": "control",
       "kind": "notification",
       "direction": "bidirectional",
