@@ -697,6 +697,116 @@ describe('node-io-daemon server', () => {
     },
   )
 
+  conformanceCase(
+    'node',
+    'ops.exists_reports_presence',
+    'returns presence information from GET /ops/exists',
+    async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-exists-'))
+      tempDirs.push(tempDir)
+      fs.writeFileSync(path.join(tempDir, 'present.txt'), 'hello')
+
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        roots: [
+          {
+            key: 'root-a',
+            uri: pathToFileURL(tempDir).toString(),
+            display_name: 'Temp Root',
+            removable: true,
+            last_stat_ok: true,
+            last_checked: Date.now(),
+          },
+        ],
+      })
+      await daemon.start()
+
+      const presentResponse = await makeRequest(
+        daemon.getStatus().port,
+        '/ops/exists?root_key=root-a&path=present.txt',
+        {
+          headers: {
+            'X-JST-Auth': 'secret',
+          },
+        },
+      )
+      expect(presentResponse.statusCode).toBe(200)
+      expect(JSON.parse(presentResponse.body.toString('utf8'))).toEqual({ exists: true })
+
+      const missingResponse = await makeRequest(
+        daemon.getStatus().port,
+        '/ops/exists?root_key=root-a&path=missing.txt',
+        {
+          headers: {
+            'X-JST-Auth': 'secret',
+          },
+        },
+      )
+      expect(missingResponse.statusCode).toBe(200)
+      expect(JSON.parse(missingResponse.body.toString('utf8'))).toEqual({ exists: false })
+    },
+  )
+
+  conformanceCase(
+    'node',
+    'ops.stat_reports_metadata',
+    'returns file metadata from GET /ops/stat',
+    async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stat-'))
+      tempDirs.push(tempDir)
+      fs.writeFileSync(path.join(tempDir, 'present.txt'), 'hello')
+
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        roots: [
+          {
+            key: 'root-a',
+            uri: pathToFileURL(tempDir).toString(),
+            display_name: 'Temp Root',
+            removable: true,
+            last_stat_ok: true,
+            last_checked: Date.now(),
+          },
+        ],
+      })
+      await daemon.start()
+
+      const response = await makeRequest(
+        daemon.getStatus().port,
+        '/ops/stat?root_key=root-a&path=present.txt',
+        {
+          headers: {
+            'X-JST-Auth': 'secret',
+          },
+        },
+      )
+      expect(response.statusCode).toBe(200)
+      expect(JSON.parse(response.body.toString('utf8'))).toEqual({
+        size: 5,
+        mtime: expect.any(Number),
+        is_directory: false,
+        is_file: true,
+      })
+
+      const missingResponse = await makeRequest(
+        daemon.getStatus().port,
+        '/ops/stat?root_key=root-a&path=missing.txt',
+        {
+          headers: {
+            'X-JST-Auth': 'secret',
+          },
+        },
+      )
+      expect(missingResponse.statusCode).toBe(404)
+    },
+  )
+
   it('registers an HTTP stream over /control and serves it from the media port', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-'))
     tempDirs.push(tempDir)

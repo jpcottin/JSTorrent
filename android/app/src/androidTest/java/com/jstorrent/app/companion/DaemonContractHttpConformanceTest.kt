@@ -248,4 +248,47 @@ class DaemonContractHttpConformanceTest : CompanionTestBase() {
         assertEquals(listOf("../escape.txt"), failedEntries)
         assertFalse(File(nestedDir, "present.txt").exists())
     }
+
+    @Test
+    fun conformance__ops__exists_reports_presence__impl__android() {
+        File(testDir, "present.txt").writeText("hello")
+
+        val presentResponse = get(
+            "/ops/exists?root_key=$testRootKey&path=present.txt",
+            extensionHeaders(token)
+        )
+        assertEquals(200, presentResponse.code)
+        val presentPayload = json.parseToJsonElement(presentResponse.body?.string() ?: "").jsonObject
+        assertTrue(presentPayload["exists"]?.jsonPrimitive?.booleanOrNull ?: false)
+
+        val missingResponse = get(
+            "/ops/exists?root_key=$testRootKey&path=missing.txt",
+            extensionHeaders(token)
+        )
+        assertEquals(200, missingResponse.code)
+        val missingPayload = json.parseToJsonElement(missingResponse.body?.string() ?: "").jsonObject
+        assertFalse(missingPayload["exists"]?.jsonPrimitive?.booleanOrNull ?: true)
+    }
+
+    @Test
+    fun conformance__ops__stat_reports_metadata__impl__android() {
+        File(testDir, "present.txt").writeText("hello")
+
+        val response = get(
+            "/ops/stat?root_key=$testRootKey&path=present.txt",
+            extensionHeaders(token)
+        )
+        assertEquals(200, response.code)
+        val payload = json.parseToJsonElement(response.body?.string() ?: "").jsonObject
+        assertEquals(5L, payload["size"]?.jsonPrimitive?.content?.toLongOrNull())
+        assertTrue((payload["mtime"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L) > 0L)
+        assertFalse(payload["is_directory"]?.jsonPrimitive?.booleanOrNull ?: true)
+        assertTrue(payload["is_file"]?.jsonPrimitive?.booleanOrNull ?: false)
+
+        val missingResponse = get(
+            "/ops/stat?root_key=$testRootKey&path=missing.txt",
+            extensionHeaders(token)
+        )
+        assertEquals(404, missingResponse.code)
+    }
 }

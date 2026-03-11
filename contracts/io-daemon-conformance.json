@@ -52,6 +52,16 @@
       "requiredIn": ["node", "rust", "android"]
     },
     {
+      "id": "ops.exists_reports_presence",
+      "kind": "shape",
+      "requiredIn": ["node", "rust", "android"]
+    },
+    {
+      "id": "ops.stat_reports_metadata",
+      "kind": "shape",
+      "requiredIn": ["node", "rust", "android"]
+    },
+    {
       "id": "stream.blocks_until_ready",
       "kind": "behavior",
       "requiredIn": ["node", "rust", "android"],

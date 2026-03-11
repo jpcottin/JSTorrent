@@ -96,6 +96,8 @@ Baseline HTTP conformance cases:
 - `roots.list_is_reported`
 - `roots.delete_existing_root_succeeds`
 - `hash.sha1_bytes_are_reported`
+- `ops.exists_reports_presence`
+- `ops.stat_reports_metadata`
 
 Current implementation scope note:
 
@@ -106,6 +108,21 @@ Current implementation scope note:
 - Rust standalone exposes `GET /roots`, but the managed native-host daemon path used by the default Rust conformance gate does not; `roots.*` therefore remains `N/A` for `rust` in contract generation 1
 
 ## File Operation Semantics
+
+Presence and stat:
+
+- `GET /ops/exists`
+- returns `200` with JSON `{ "exists": boolean }`
+- existing file paths must report `true`
+- missing file paths must report `false`
+
+- `GET /ops/stat`
+- existing file paths must return `200` with JSON metadata containing:
+  - `size`
+  - `mtime`
+  - `is_directory`
+  - `is_file`
+- missing file paths must return `404`
 
 Single delete:
 

@@ -258,6 +258,46 @@ describe('Rust daemon HTTP contract conformance', () => {
 
   conformanceCase(
     'rust',
+    'ops.exists_reports_presence',
+    'returns presence information from GET /ops/exists',
+    async () => {
+      harness = await startDaemon()
+      await fs.writeFile(path.join(harness.dataDir, 'present.txt'), 'hello')
+
+      const presentResponse = await makeAuthenticatedRequest('/ops/exists?root_key=default&path=present.txt')
+      expect(presentResponse.status).toBe(200)
+      await expect(presentResponse.json()).resolves.toEqual({ exists: true })
+
+      const missingResponse = await makeAuthenticatedRequest('/ops/exists?root_key=default&path=missing.txt')
+      expect(missingResponse.status).toBe(200)
+      await expect(missingResponse.json()).resolves.toEqual({ exists: false })
+    },
+  )
+
+  conformanceCase(
+    'rust',
+    'ops.stat_reports_metadata',
+    'returns file metadata from GET /ops/stat',
+    async () => {
+      harness = await startDaemon()
+      await fs.writeFile(path.join(harness.dataDir, 'present.txt'), 'hello')
+
+      const response = await makeAuthenticatedRequest('/ops/stat?root_key=default&path=present.txt')
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({
+        size: 5,
+        mtime: expect.any(Number),
+        is_directory: false,
+        is_file: true,
+      })
+
+      const missingResponse = await makeAuthenticatedRequest('/ops/stat?root_key=default&path=missing.txt')
+      expect(missingResponse.status).toBe(404)
+    },
+  )
+
+  conformanceCase(
+    'rust',
     'network.interfaces_are_reported',
     'returns a JSON array from /network/interfaces',
     async () => {
