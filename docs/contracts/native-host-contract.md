@@ -185,6 +185,14 @@ Initial required case areas:
 - invalid profile ID creates a new profile
 - KV data is isolated per profile
 
+Current runner:
+
+- `pnpm -C packages/engine run conformance:native-host`
+- today this runs the tagged Rust native-host integration tests and reports a
+  per-case matrix
+- the runner treats these host tests as the executable source of truth for the
+  desktop bootstrap contract
+
 ## Backward Compatibility
 
 Compatibility rules:
