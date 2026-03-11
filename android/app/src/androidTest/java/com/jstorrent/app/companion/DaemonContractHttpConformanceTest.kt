@@ -321,4 +321,22 @@ class DaemonContractHttpConformanceTest : CompanionTestBase() {
         val missingEntries = json.parseToJsonElement(missingResponse.body?.string() ?: "").jsonArray
         assertTrue(missingEntries.isEmpty())
     }
+
+    @Test
+    fun conformance__ops__list_reports_directory_entries__impl__android() {
+        File(testDir, "list_dir").mkdirs()
+        File(testDir, "list_dir/file1.txt").writeText("AAAA")
+        File(testDir, "list_dir/sub").mkdirs()
+        File(testDir, "list_dir/sub/file2.bin").writeText("BBBBBB")
+
+        val response = get(
+            "/ops/list?root_key=$testRootKey&path=list_dir",
+            extensionHeaders(token)
+        )
+        assertEquals(200, response.code)
+        val entries = json.parseToJsonElement(response.body?.string() ?: "").jsonArray
+            .map { it.jsonPrimitive.content }
+            .toSet()
+        assertEquals(setOf("file1.txt", "sub"), entries)
+    }
 }

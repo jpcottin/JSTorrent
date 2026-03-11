@@ -67,6 +67,11 @@
       "requiredIn": ["node", "rust", "android"]
     },
     {
+      "id": "ops.list_reports_directory_entries",
+      "kind": "shape",
+      "requiredIn": ["node", "rust", "android"]
+    },
+    {
       "id": "stream.blocks_until_ready",
       "kind": "behavior",
       "requiredIn": ["node", "rust", "android"],

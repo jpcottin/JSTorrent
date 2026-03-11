@@ -321,6 +321,23 @@ describe('Rust daemon HTTP contract conformance', () => {
 
   conformanceCase(
     'rust',
+    'ops.list_reports_directory_entries',
+    'returns direct directory entries from GET /ops/list',
+    async () => {
+      harness = await startDaemon()
+      await fs.mkdir(path.join(harness.dataDir, 'list_dir', 'sub'), { recursive: true })
+      await fs.writeFile(path.join(harness.dataDir, 'list_dir', 'file1.txt'), 'AAAA')
+      await fs.writeFile(path.join(harness.dataDir, 'list_dir', 'sub', 'file2.bin'), 'BBBBBB')
+
+      const response = await makeAuthenticatedRequest('/ops/list?root_key=default&path=list_dir')
+      expect(response.status).toBe(200)
+      const payload = ((await response.json()) as string[]).slice().sort()
+      expect(payload).toEqual(['file1.txt', 'sub'])
+    },
+  )
+
+  conformanceCase(
+    'rust',
     'network.interfaces_are_reported',
     'returns a JSON array from /network/interfaces',
     async () => {

@@ -135,6 +135,14 @@ export class NodeIoDaemonRootFileSystem {
     }
   }
 
+  async list(relativePath: string): Promise<string[]> {
+    try {
+      return await fs.readdir(this.resolve(relativePath))
+    } catch {
+      return []
+    }
+  }
+
   async listTree(relativePath: string): Promise<NodeIoDaemonRootFsEntry[]> {
     const results: NodeIoDaemonRootFsEntry[] = []
     await this.walk(relativePath, relativePath, results)

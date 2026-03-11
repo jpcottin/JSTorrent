@@ -865,6 +865,49 @@ describe('node-io-daemon server', () => {
     },
   )
 
+  conformanceCase(
+    'node',
+    'ops.list_reports_directory_entries',
+    'returns direct directory entries from GET /ops/list',
+    async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-list-'))
+      tempDirs.push(tempDir)
+      fs.mkdirSync(path.join(tempDir, 'list_dir', 'sub'), { recursive: true })
+      fs.writeFileSync(path.join(tempDir, 'list_dir', 'file1.txt'), 'AAAA')
+      fs.writeFileSync(path.join(tempDir, 'list_dir', 'sub', 'file2.bin'), 'BBBBBB')
+
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        roots: [
+          {
+            key: 'root-a',
+            uri: pathToFileURL(tempDir).toString(),
+            display_name: 'Temp Root',
+            removable: true,
+            last_stat_ok: true,
+            last_checked: Date.now(),
+          },
+        ],
+      })
+      await daemon.start()
+
+      const response = await makeRequest(
+        daemon.getStatus().port,
+        '/ops/list?root_key=root-a&path=list_dir',
+        {
+          headers: {
+            'X-JST-Auth': 'secret',
+          },
+        },
+      )
+      expect(response.statusCode).toBe(200)
+      expect(JSON.parse(response.body.toString('utf8')).sort()).toEqual(['file1.txt', 'sub'])
+    },
+  )
+
   it('registers an HTTP stream over /control and serves it from the media port', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-stream-'))
     tempDirs.push(tempDir)

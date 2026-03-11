@@ -99,6 +99,7 @@ Baseline HTTP conformance cases:
 - `ops.exists_reports_presence`
 - `ops.stat_reports_metadata`
 - `ops.list_tree_reports_file_entries`
+- `ops.list_reports_directory_entries`
 
 Current implementation scope note:
 
@@ -132,6 +133,10 @@ Presence and stat:
   - `size`
 - returned paths are relative to the requested base path
 - nonexistent directories return `200` with an empty array
+
+- `GET /ops/list`
+- returns `200` with a JSON array of entry names
+- returns only the direct children of the requested directory
 
 Single delete:
 
