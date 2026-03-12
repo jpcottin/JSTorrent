@@ -1,4 +1,4 @@
-import { parseTorrentInput } from '@jstorrent/engine'
+import { Bencode, parseTorrentInput } from '@jstorrent/engine'
 import type { IEngineManager } from '../engine-manager/types'
 import { ExtensionSandboxLabHost } from './extension-sandbox-lab-host'
 import { createInstalledPluginRecord } from './plugin-utils'
@@ -38,6 +38,51 @@ function describeInvalidTorrentPayload(bodyText: string): string {
     return 'Downloaded URL returned JSON instead of a valid .torrent file'
   }
   return 'Downloaded data is not a valid .torrent file'
+}
+
+function normalizeRelativeTorrentUrlSeeds(
+  torrentBytes: Uint8Array,
+  finalUrl?: string,
+): Uint8Array {
+  if (!finalUrl) {
+    return torrentBytes
+  }
+
+  const decoded = Bencode.decode(torrentBytes) as Record<string, unknown> | null
+  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
+    return torrentBytes
+  }
+
+  const urlList = decoded['url-list']
+  const normalizeEntry = (entry: unknown): Uint8Array | null => {
+    if (!(entry instanceof Uint8Array)) return null
+    const text = new TextDecoder().decode(entry).trim()
+    if (!text.startsWith('/')) return null
+    return new TextEncoder().encode(new URL(text, finalUrl).toString())
+  }
+
+  let changed = false
+  if (urlList instanceof Uint8Array) {
+    const normalized = normalizeEntry(urlList)
+    if (normalized) {
+      decoded['url-list'] = normalized
+      changed = true
+    }
+  } else if (Array.isArray(urlList)) {
+    const normalizedList = urlList.map((entry) => {
+      const normalized = normalizeEntry(entry)
+      if (normalized) {
+        changed = true
+        return normalized
+      }
+      return entry
+    })
+    if (changed) {
+      decoded['url-list'] = normalizedList
+    }
+  }
+
+  return changed ? Bencode.encode(decoded) : torrentBytes
 }
 
 export class SearchPluginService {
@@ -197,8 +242,10 @@ export class SearchPluginService {
         throw new Error(`Torrent download failed: HTTP ${response.statusCode}`)
       }
 
+      const torrentBytes = normalizeRelativeTorrentUrlSeeds(response.bodyBytes, response.finalUrl)
+
       try {
-        await parseTorrentInput(response.bodyBytes, engine.hasher)
+        await parseTorrentInput(torrentBytes, engine.hasher)
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         throw new Error(
@@ -206,7 +253,7 @@ export class SearchPluginService {
         )
       }
 
-      const added = await engine.addTorrent(response.bodyBytes)
+      const added = await engine.addTorrent(torrentBytes)
       return {
         isDuplicate: added.isDuplicate,
         mode: 'torrent',

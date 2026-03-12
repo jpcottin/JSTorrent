@@ -33,6 +33,7 @@ export interface SearchPluginFetchResponse {
   bytes: number
   statusCode: number
   remoteAddress?: string
+  finalUrl?: string
 }
 
 export interface SearchResult {

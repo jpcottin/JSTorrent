@@ -852,6 +852,7 @@ export class DaemonEngineManager implements IEngineManager {
     let body: Uint8Array
     let statusCode: number
     let remoteAddress: string | undefined
+    let finalUrl: string | undefined
 
     if (method === 'POST') {
       const client = new MinimalHttpClient(this.socketFactory, undefined, 'http-tracker')
@@ -859,6 +860,7 @@ export class DaemonEngineManager implements IEngineManager {
       body = response.body
       statusCode = response.statusCode
       remoteAddress = response.remoteAddress
+      finalUrl = input.url
     } else {
       const transport = new SocketHttpTransport(this.socketFactory, undefined, 'http-tracker')
       let currentUrl = input.url
@@ -897,6 +899,7 @@ export class DaemonEngineManager implements IEngineManager {
         body = concatChunks(chunks)
         statusCode = response.head.statusCode
         remoteAddress = response.remoteAddress
+        finalUrl = currentUrl
         break
       }
     }
@@ -907,6 +910,7 @@ export class DaemonEngineManager implements IEngineManager {
       bytes: body.byteLength,
       statusCode,
       remoteAddress,
+      finalUrl,
     }
   }
 
