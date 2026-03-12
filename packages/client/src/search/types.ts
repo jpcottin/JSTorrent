@@ -29,7 +29,7 @@ export interface SearchPluginFetchPolicy {
 
 export interface SearchPluginFetchResponse {
   bodyText: string
-  bodyBase64: string
+  bodyBytes: Uint8Array
   bytes: number
   statusCode: number
   remoteAddress?: string

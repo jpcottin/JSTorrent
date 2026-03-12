@@ -429,8 +429,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
           throw new Error(`Torrent download failed: HTTP ${response.statusCode}`)
         }
 
-        const bytes = Uint8Array.from(atob(response.bodyBase64), (char) => char.charCodeAt(0))
-        const added = await engine.addTorrent(bytes)
+        const added = await engine.addTorrent(response.bodyBytes)
         setSearchStatus(
           added.isDuplicate
             ? `Torrent already exists: ${displayResult.result.name}`
