@@ -19,6 +19,8 @@ export type {
   SearchPluginFetchPolicy,
   SearchPluginFetchResponse,
   SearchResult,
+  SearchRunSummary,
+  SearchDisplayResult,
   SearchPluginLogLevel,
   SearchPluginLogEntry,
   SearchPluginRequestTrace,

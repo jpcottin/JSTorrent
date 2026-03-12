@@ -48,6 +48,22 @@ export interface SearchResult {
   publishedAt?: number
 }
 
+export interface SearchRunSummary {
+  pluginId: string
+  pluginName: string
+  ok: boolean
+  durationMs: number
+  resultCount: number
+  errorMessage?: string
+}
+
+export interface SearchDisplayResult {
+  pluginId: string
+  pluginName: string
+  allowedHosts: string[]
+  result: SearchResult
+}
+
 export type SearchPluginLogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 export interface SearchPluginLogEntry {

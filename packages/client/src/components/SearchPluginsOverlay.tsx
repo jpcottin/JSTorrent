@@ -4,13 +4,14 @@ import { useEngineManager } from '../context/EngineManagerContext'
 import { standaloneAlert, standaloneConfirm } from '../utils/dialogs'
 import type {
   InstalledPluginRecord,
+  SearchDisplayResult,
   SearchPluginDraftRunResult,
   SearchPluginManifest,
-  SearchResult,
   SearchPluginSearchInput,
+  SearchRunSummary,
 } from '../search/types'
 import { ExtensionSandboxLabHost } from '../search/extension-sandbox-lab-host'
-import { createInstalledPluginRecord } from '../search/plugin-utils'
+import { SearchPluginOverlayHost } from '../search/search-plugin-overlay-host'
 
 type SearchPluginsTab = 'search' | 'installed' | 'add' | 'lab'
 
@@ -41,22 +42,6 @@ const TABS: { id: SearchPluginsTab; label: string }[] = [
   { id: 'lab', label: 'Plugin Lab' },
 ]
 
-interface SearchRunSummary {
-  pluginId: string
-  pluginName: string
-  ok: boolean
-  durationMs: number
-  resultCount: number
-  errorMessage?: string
-}
-
-interface SearchDisplayResult {
-  pluginId: string
-  pluginName: string
-  allowedHosts: string[]
-  result: SearchResult
-}
-
 const INITIAL_SAMPLE_SOURCE = `export const manifest = {
   name: 'Internet Archive',
   hosts: ['archive.org'],
@@ -79,7 +64,8 @@ const RECOMMENDED_PLUGINS: SearchPluginManifest[] = [
 
 export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayProps) {
   const engineManager = useEngineManager()
-  const hostRef = useRef<ExtensionSandboxLabHost | null>(null)
+  const sandboxHostRef = useRef<ExtensionSandboxLabHost | null>(null)
+  const pluginHostRef = useRef<SearchPluginOverlayHost | null>(null)
   const [activeTab, setActiveTab] = useState<SearchPluginsTab>('search')
   const [installedPlugins, setInstalledPlugins] = useState<InstalledPluginRecord[]>([])
   const [selectedPluginIds, setSelectedPluginIds] = useState<string[]>([])
@@ -101,17 +87,20 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
   const [searchResults, setSearchResults] = useState<SearchDisplayResult[]>([])
   const [searchSummaries, setSearchSummaries] = useState<SearchRunSummary[]>([])
 
-  if (!hostRef.current) {
-    hostRef.current = new ExtensionSandboxLabHost({
+  if (!sandboxHostRef.current) {
+    sandboxHostRef.current = new ExtensionSandboxLabHost({
       fetch: (input) => engineManager.searchPluginFetch(input),
     })
+  }
+  if (!pluginHostRef.current) {
+    pluginHostRef.current = new SearchPluginOverlayHost(engineManager, sandboxHostRef.current)
   }
 
   useEffect(() => {
     if (!isOpen) return
 
-    void engineManager
-      .listInstalledSearchPlugins()
+    void pluginHostRef.current!
+      .listInstalledPlugins()
       .then((plugins) => {
         setInstalledPlugins(plugins)
         setSelectedPluginIds((current) => {
@@ -127,7 +116,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
         console.error('[SearchPluginsOverlay] Failed to load installed plugins', error)
         setInstallStatus(error instanceof Error ? error.message : String(error))
       })
-  }, [engineManager, isOpen])
+  }, [isOpen])
 
   useEffect(() => {
     if (!isOpen) return
@@ -144,15 +133,16 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
 
   useEffect(() => {
     return () => {
-      hostRef.current?.dispose()
-      hostRef.current = null
+      sandboxHostRef.current?.dispose()
+      sandboxHostRef.current = null
+      pluginHostRef.current = null
     }
   }, [])
 
   if (!isOpen) return null
 
   const installDisabled = sourceUrl.trim().length === 0
-  const runtimeAvailable = hostRef.current.isAvailable()
+  const runtimeAvailable = pluginHostRef.current.isAvailable()
 
   const handleSourceUrlChange = (value: string) => {
     setSourceUrl(value)
@@ -164,13 +154,12 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     setInstallBusy(true)
     setInstallStatus('Fetching plugin source...')
     try {
-      const source = await hostRef.current!.fetchSource(sourceUrl.trim())
-      const inspection = await hostRef.current!.inspectSource(source)
-      setDraftSource(source)
-      setInstallPreview(inspection.manifest)
+      const loaded = await pluginHostRef.current!.loadSourceFromUrl(sourceUrl.trim())
+      setDraftSource(loaded.source)
+      setInstallPreview(loaded.manifest)
       setActiveTab('lab')
       setLabStatus('Fetched source into the plugin lab.')
-      setInstallStatus(`Loaded ${inspection.manifest.name} into the plugin lab.`)
+      setInstallStatus(`Loaded ${loaded.manifest.name} into the plugin lab.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setInstallStatus(message)
@@ -185,16 +174,10 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     setInstallStatus('Fetching plugin source...')
     try {
       const normalizedUrl = sourceUrl.trim()
-      const source = await hostRef.current!.fetchSource(normalizedUrl)
-      const inspection = await hostRef.current!.inspectSource(source)
-      const plugin = await createInstalledPluginRecord({
-        code: source,
-        manifest: inspection.manifest,
-        sourceUrl: normalizedUrl,
-      })
+      const prepared = await pluginHostRef.current!.prepareInstallFromUrl(normalizedUrl)
 
       const confirmed = standaloneConfirm(
-        `Install plugin "${plugin.manifest.name}"?\n\nDeclared hosts:\n${plugin.manifest.hosts
+        `Install plugin "${prepared.plugin.manifest.name}"?\n\nDeclared hosts:\n${prepared.plugin.manifest.hosts
           .map((host) => `- ${host}`)
           .join('\n')}`,
       )
@@ -203,15 +186,18 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
         return
       }
 
-      await engineManager.saveInstalledSearchPlugin(plugin)
-      const refreshed = await engineManager.listInstalledSearchPlugins()
+      await pluginHostRef.current!.saveInstalledPlugin(prepared.plugin)
+
+      const refreshed = await pluginHostRef.current!.listInstalledPlugins()
       setInstalledPlugins(refreshed)
       setSelectedPluginIds((current) =>
-        current.includes(plugin.pluginId) ? current : [...current, plugin.pluginId],
+        current.includes(prepared.plugin.pluginId)
+          ? current
+          : [...current, prepared.plugin.pluginId],
       )
-      setInstallPreview(plugin.manifest)
-      setDraftSource(source)
-      setInstallStatus(`Installed ${plugin.manifest.name}.`)
+      setInstallPreview(prepared.manifest)
+      setDraftSource(prepared.source)
+      setInstallStatus(`Installed ${prepared.plugin.manifest.name}.`)
       setActiveTab('installed')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -228,8 +214,8 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     }
 
     try {
-      await engineManager.removeInstalledSearchPlugin(pluginId)
-      const refreshed = await engineManager.listInstalledSearchPlugins()
+      await pluginHostRef.current!.removeInstalledPlugin(pluginId)
+      const refreshed = await pluginHostRef.current!.listInstalledPlugins()
       setInstalledPlugins(refreshed)
       setSelectedPluginIds((current) => current.filter((id) => id !== pluginId))
     } catch (error) {
@@ -256,7 +242,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     )
 
     try {
-      const result = await hostRef.current!.runDraft(source, searchInput)
+      const result = await pluginHostRef.current!.runDraft(source, searchInput)
       setDraftRunResult(result)
       setLabStatus(
         result.trace.ok
@@ -302,13 +288,8 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
 
   const handleTogglePluginEnabled = async (plugin: InstalledPluginRecord) => {
     try {
-      const updatedPlugin: InstalledPluginRecord = {
-        ...plugin,
-        enabled: !plugin.enabled,
-        updatedAt: Date.now(),
-      }
-      await engineManager.saveInstalledSearchPlugin(updatedPlugin)
-      const refreshed = await engineManager.listInstalledSearchPlugins()
+      const updatedPlugin = await pluginHostRef.current!.setPluginEnabled(plugin, !plugin.enabled)
+      const refreshed = await pluginHostRef.current!.listInstalledPlugins()
       setInstalledPlugins(refreshed)
       setSelectedPluginIds((current) => {
         if (updatedPlugin.enabled) {
@@ -346,54 +327,11 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     setSearchSummaries([])
 
     try {
-      const summaries: SearchRunSummary[] = []
-      const aggregateResults: SearchDisplayResult[] = []
-
-      for (const plugin of selectedPlugins) {
-        try {
-          const result = await hostRef.current!.runDraft(plugin.code, searchInput)
-          aggregateResults.push(
-            ...result.trace.results.map((entry) => ({
-              pluginId: plugin.pluginId,
-              pluginName: plugin.manifest.name,
-              allowedHosts: plugin.manifest.hosts,
-              result: entry,
-            })),
-          )
-          summaries.push({
-            pluginId: plugin.pluginId,
-            pluginName: plugin.manifest.name,
-            ok: result.trace.ok,
-            durationMs: result.trace.durationMs,
-            resultCount: result.trace.results.length,
-            errorMessage: result.trace.error?.message,
-          })
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          summaries.push({
-            pluginId: plugin.pluginId,
-            pluginName: plugin.manifest.name,
-            ok: false,
-            durationMs: 0,
-            resultCount: 0,
-            errorMessage: message,
-          })
-        }
-      }
-
-      aggregateResults.sort((left, right) => {
-        const leftSeeds = left.result.seeds ?? -1
-        const rightSeeds = right.result.seeds ?? -1
-        if (leftSeeds !== rightSeeds) {
-          return rightSeeds - leftSeeds
-        }
-        return left.result.name.localeCompare(right.result.name)
-      })
-
-      setSearchSummaries(summaries)
-      setSearchResults(aggregateResults)
+      const output = await pluginHostRef.current!.runSearch(selectedPlugins, searchInput)
+      setSearchSummaries(output.summaries)
+      setSearchResults(output.results)
       setSearchStatus(
-        `Search finished: ${aggregateResults.length} results from ${selectedPlugins.length} plugin${selectedPlugins.length === 1 ? '' : 's'}.`,
+        `Search finished: ${output.results.length} results from ${selectedPlugins.length} plugin${selectedPlugins.length === 1 ? '' : 's'}.`,
       )
     } finally {
       setSearchBusy(false)
@@ -405,40 +343,12 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     setResultActionBusyKey(actionKey)
 
     try {
-      const engine = await engineManager.init()
-      if (displayResult.result.magnetUrl) {
-        const added = await engine.addTorrent(displayResult.result.magnetUrl)
-        setSearchStatus(
-          added.isDuplicate
-            ? `Torrent already exists: ${displayResult.result.name}`
-            : `Added torrent from magnet: ${displayResult.result.name}`,
-        )
-        return
-      }
-
-      if (displayResult.result.torrentUrl) {
-        const response = await engineManager.searchPluginFetch(
-          {
-            url: displayResult.result.torrentUrl,
-            method: 'GET',
-          },
-          { allowedHosts: displayResult.allowedHosts },
-        )
-
-        if (response.statusCode >= 400) {
-          throw new Error(`Torrent download failed: HTTP ${response.statusCode}`)
-        }
-
-        const added = await engine.addTorrent(response.bodyBytes)
-        setSearchStatus(
-          added.isDuplicate
-            ? `Torrent already exists: ${displayResult.result.name}`
-            : `Added torrent file: ${displayResult.result.name}`,
-        )
-        return
-      }
-
-      throw new Error('Result does not include a magnet or torrent URL')
+      const added = await pluginHostRef.current!.addSearchResult(displayResult)
+      setSearchStatus(
+        added.isDuplicate
+          ? `Torrent already exists: ${displayResult.result.name}`
+          : `Added torrent ${added.mode === 'magnet' ? 'from magnet' : 'file'}: ${displayResult.result.name}`,
+      )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       standaloneAlert(message)
