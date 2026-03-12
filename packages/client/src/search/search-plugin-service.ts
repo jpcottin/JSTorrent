@@ -1,5 +1,5 @@
 import type { IEngineManager } from '../engine-manager/types'
-import type { ExtensionSandboxLabHost } from './extension-sandbox-lab-host'
+import { ExtensionSandboxLabHost } from './extension-sandbox-lab-host'
 import { createInstalledPluginRecord } from './plugin-utils'
 import type {
   InstalledPluginRecord,
@@ -25,11 +25,18 @@ export interface SearchPluginSearchOutput {
   summaries: SearchRunSummary[]
 }
 
-export class SearchPluginOverlayHost {
-  constructor(
-    private readonly engineManager: IEngineManager,
-    private readonly sandboxHost: ExtensionSandboxLabHost,
-  ) {}
+export class SearchPluginService {
+  private readonly sandboxHost: ExtensionSandboxLabHost
+
+  constructor(private readonly engineManager: IEngineManager) {
+    this.sandboxHost = new ExtensionSandboxLabHost({
+      fetch: (input, policy) => this.engineManager.searchPluginFetch(input, policy),
+    })
+  }
+
+  dispose(): void {
+    this.sandboxHost.dispose()
+  }
 
   isAvailable(): boolean {
     return this.sandboxHost.isAvailable()

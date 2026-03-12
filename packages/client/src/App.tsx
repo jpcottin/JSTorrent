@@ -4,6 +4,7 @@ import { getConfigDefault } from '@jstorrent/engine'
 import { EngineProvider } from './context/EngineContext'
 import { ConfigProvider } from './context/ConfigContext'
 import { EngineManagerProvider } from './context/EngineManagerContext'
+import { SearchPluginServiceProvider } from './context/SearchPluginServiceContext'
 import { useConfigInit } from './hooks/useConfigInit'
 import { createHostChannel } from './host/create-host-channel'
 import { HostChannelProvider } from './host/HostChannelContext'
@@ -307,14 +308,15 @@ function App() {
   // The useConfigInit hook handles applying theme/maxFps/progressBarStyle when ready
   const content = (
     <EngineManagerProvider manager={engineManager}>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100vh',
-          fontFamily: 'sans-serif',
-        }}
-      >
+      <SearchPluginServiceProvider>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100vh',
+            fontFamily: 'sans-serif',
+          }}
+        >
         {/* Header with System Bridge indicator */}
         <div
           style={{
@@ -593,11 +595,12 @@ function App() {
             setActiveTab={setSettingsTab}
           />
         )}
-        <SearchPluginsOverlay
-          isOpen={searchPluginsOpen}
-          onClose={() => setSearchPluginsOpen(false)}
-        />
-      </div>
+          <SearchPluginsOverlay
+            isOpen={searchPluginsOpen}
+            onClose={() => setSearchPluginsOpen(false)}
+          />
+        </div>
+      </SearchPluginServiceProvider>
     </EngineManagerProvider>
   )
 

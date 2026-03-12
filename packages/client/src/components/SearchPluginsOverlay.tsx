@@ -1,6 +1,6 @@
 import { formatBytes } from '@jstorrent/ui'
-import { useEffect, useRef, useState } from 'react'
-import { useEngineManager } from '../context/EngineManagerContext'
+import { useEffect, useState } from 'react'
+import { useSearchPluginService } from '../context/SearchPluginServiceContext'
 import { standaloneAlert, standaloneConfirm } from '../utils/dialogs'
 import type {
   InstalledPluginRecord,
@@ -10,8 +10,6 @@ import type {
   SearchPluginSearchInput,
   SearchRunSummary,
 } from '../search/types'
-import { ExtensionSandboxLabHost } from '../search/extension-sandbox-lab-host'
-import { SearchPluginOverlayHost } from '../search/search-plugin-overlay-host'
 
 type SearchPluginsTab = 'search' | 'installed' | 'add' | 'lab'
 
@@ -63,9 +61,7 @@ const RECOMMENDED_PLUGINS: SearchPluginManifest[] = [
 ]
 
 export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayProps) {
-  const engineManager = useEngineManager()
-  const sandboxHostRef = useRef<ExtensionSandboxLabHost | null>(null)
-  const pluginHostRef = useRef<SearchPluginOverlayHost | null>(null)
+  const pluginService = useSearchPluginService()
   const [activeTab, setActiveTab] = useState<SearchPluginsTab>('search')
   const [installedPlugins, setInstalledPlugins] = useState<InstalledPluginRecord[]>([])
   const [selectedPluginIds, setSelectedPluginIds] = useState<string[]>([])
@@ -87,19 +83,10 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
   const [searchResults, setSearchResults] = useState<SearchDisplayResult[]>([])
   const [searchSummaries, setSearchSummaries] = useState<SearchRunSummary[]>([])
 
-  if (!sandboxHostRef.current) {
-    sandboxHostRef.current = new ExtensionSandboxLabHost({
-      fetch: (input) => engineManager.searchPluginFetch(input),
-    })
-  }
-  if (!pluginHostRef.current) {
-    pluginHostRef.current = new SearchPluginOverlayHost(engineManager, sandboxHostRef.current)
-  }
-
   useEffect(() => {
     if (!isOpen) return
 
-    void pluginHostRef.current!
+    void pluginService
       .listInstalledPlugins()
       .then((plugins) => {
         setInstalledPlugins(plugins)
@@ -116,7 +103,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
         console.error('[SearchPluginsOverlay] Failed to load installed plugins', error)
         setInstallStatus(error instanceof Error ? error.message : String(error))
       })
-  }, [isOpen])
+  }, [isOpen, pluginService])
 
   useEffect(() => {
     if (!isOpen) return
@@ -131,18 +118,10 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, onClose])
 
-  useEffect(() => {
-    return () => {
-      sandboxHostRef.current?.dispose()
-      sandboxHostRef.current = null
-      pluginHostRef.current = null
-    }
-  }, [])
-
   if (!isOpen) return null
 
   const installDisabled = sourceUrl.trim().length === 0
-  const runtimeAvailable = pluginHostRef.current.isAvailable()
+  const runtimeAvailable = pluginService.isAvailable()
 
   const handleSourceUrlChange = (value: string) => {
     setSourceUrl(value)
@@ -154,7 +133,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     setInstallBusy(true)
     setInstallStatus('Fetching plugin source...')
     try {
-      const loaded = await pluginHostRef.current!.loadSourceFromUrl(sourceUrl.trim())
+      const loaded = await pluginService.loadSourceFromUrl(sourceUrl.trim())
       setDraftSource(loaded.source)
       setInstallPreview(loaded.manifest)
       setActiveTab('lab')
@@ -174,7 +153,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     setInstallStatus('Fetching plugin source...')
     try {
       const normalizedUrl = sourceUrl.trim()
-      const prepared = await pluginHostRef.current!.prepareInstallFromUrl(normalizedUrl)
+      const prepared = await pluginService.prepareInstallFromUrl(normalizedUrl)
 
       const confirmed = standaloneConfirm(
         `Install plugin "${prepared.plugin.manifest.name}"?\n\nDeclared hosts:\n${prepared.plugin.manifest.hosts
@@ -186,9 +165,9 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
         return
       }
 
-      await pluginHostRef.current!.saveInstalledPlugin(prepared.plugin)
+      await pluginService.saveInstalledPlugin(prepared.plugin)
 
-      const refreshed = await pluginHostRef.current!.listInstalledPlugins()
+      const refreshed = await pluginService.listInstalledPlugins()
       setInstalledPlugins(refreshed)
       setSelectedPluginIds((current) =>
         current.includes(prepared.plugin.pluginId)
@@ -214,8 +193,8 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     }
 
     try {
-      await pluginHostRef.current!.removeInstalledPlugin(pluginId)
-      const refreshed = await pluginHostRef.current!.listInstalledPlugins()
+      await pluginService.removeInstalledPlugin(pluginId)
+      const refreshed = await pluginService.listInstalledPlugins()
       setInstalledPlugins(refreshed)
       setSelectedPluginIds((current) => current.filter((id) => id !== pluginId))
     } catch (error) {
@@ -242,7 +221,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     )
 
     try {
-      const result = await pluginHostRef.current!.runDraft(source, searchInput)
+      const result = await pluginService.runDraft(source, searchInput)
       setDraftRunResult(result)
       setLabStatus(
         result.trace.ok
@@ -288,8 +267,8 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
 
   const handleTogglePluginEnabled = async (plugin: InstalledPluginRecord) => {
     try {
-      const updatedPlugin = await pluginHostRef.current!.setPluginEnabled(plugin, !plugin.enabled)
-      const refreshed = await pluginHostRef.current!.listInstalledPlugins()
+      const updatedPlugin = await pluginService.setPluginEnabled(plugin, !plugin.enabled)
+      const refreshed = await pluginService.listInstalledPlugins()
       setInstalledPlugins(refreshed)
       setSelectedPluginIds((current) => {
         if (updatedPlugin.enabled) {
@@ -327,7 +306,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     setSearchSummaries([])
 
     try {
-      const output = await pluginHostRef.current!.runSearch(selectedPlugins, searchInput)
+      const output = await pluginService.runSearch(selectedPlugins, searchInput)
       setSearchSummaries(output.summaries)
       setSearchResults(output.results)
       setSearchStatus(
@@ -343,7 +322,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     setResultActionBusyKey(actionKey)
 
     try {
-      const added = await pluginHostRef.current!.addSearchResult(displayResult)
+      const added = await pluginService.addSearchResult(displayResult)
       setSearchStatus(
         added.isDuplicate
           ? `Torrent already exists: ${displayResult.result.name}`

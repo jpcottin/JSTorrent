@@ -55,6 +55,11 @@ export {
   useFileOperations,
 } from './context/EngineManagerContext'
 export type { FileOperations } from './context/EngineManagerContext'
+export {
+  SearchPluginServiceProvider,
+  useSearchPluginService,
+} from './context/SearchPluginServiceContext'
+export { SearchPluginService } from './search/search-plugin-service'
 
 // Hooks
 export { useEngineState, useTorrentState } from './hooks/useEngineState'
