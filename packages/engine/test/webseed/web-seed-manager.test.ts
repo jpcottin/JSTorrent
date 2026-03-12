@@ -705,4 +705,75 @@ describe('WebSeedManager', () => {
       dateNowSpy.mockRestore()
     }
   })
+
+  it('reuses canonical redirected file URLs on later transfers', async () => {
+    const engine = new MockEngine()
+    const activePieces = new ActivePieceManager(engine, () => BLOCK_SIZE, {
+      standardPieceLength: BLOCK_SIZE,
+    })
+    const completedPieces = new Set<number>()
+    const startedRequests: string[] = []
+
+    const client = {
+      async requestRange(request: { url: string; start: number; endInclusive: number }) {
+        startedRequests.push(request.url)
+
+        return {
+          statusCode: 206,
+          headers: {},
+          finalUrl:
+            startedRequests.length === 1
+              ? 'https://cdn.example.com/file.bin'
+              : request.url,
+          body: new StaticBodyReader([new Uint8Array(BLOCK_SIZE).fill(0x61), null]),
+          start: request.start,
+          endInclusive: request.endInclusive,
+        }
+      },
+    } as unknown as WebSeedHttpClient
+
+    const deps: WebSeedManagerDeps = {
+      isNetworkActive: () => true,
+      isComplete: () => completedPieces.size === 2,
+      hasMetadata: () => true,
+      isDownloadRateLimited: () => false,
+      getWebSeedUrls: () => ['https://seed.example/file.bin'],
+      getFiles: () => [{ path: 'file.bin', length: BLOCK_SIZE * 2, offset: 0 }],
+      isMultiFileTorrent: () => false,
+      getPieceCount: () => 2,
+      getFirstNeededPiece: () => 0,
+      getPieceLength: () => BLOCK_SIZE,
+      getPieceOffset: (index) => index * BLOCK_SIZE,
+      shouldRequestPiece: (index) => !completedPieces.has(index),
+      hasPiece: (index) => completedPieces.has(index),
+      getActivePieces: () => activePieces,
+      initActivePieces: () => activePieces,
+      getMaxConcurrentTransfers: () => 1,
+      getMaxTransferBytes: () => BLOCK_SIZE,
+      tryConsumeDownloadBandwidth: () => true,
+      waitForDownloadBandwidth: async () => {},
+      removePieceFromAllIndices: vi.fn(),
+      reindexPieceForConnectedPeers: vi.fn(),
+      onReceivedBlockFromSource: (sourceId, pieceIndex, blockOffset, data) => {
+        const piece = activePieces.get(pieceIndex)
+        expect(piece).toBeDefined()
+        piece!.addBlock(blockOffset / BLOCK_SIZE, data, sourceId)
+        if (piece!.haveAllBlocks) {
+          completedPieces.add(pieceIndex)
+          activePieces.promoteToFullyResponded(pieceIndex)
+          activePieces.removeFullyResponded(pieceIndex)
+        }
+        return true
+      },
+    }
+
+    const manager = new WebSeedManager(engine, client, deps)
+    manager.tick()
+    await flushMicrotasks(20)
+
+    expect(startedRequests).toEqual([
+      'https://seed.example/file.bin',
+      'https://cdn.example.com/file.bin',
+    ])
+  })
 })

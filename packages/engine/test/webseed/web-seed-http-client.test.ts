@@ -190,4 +190,82 @@ describe('WebSeedHttpClient', () => {
       },
     } satisfies Partial<WebSeedRequestError>)
   })
+
+  it('follows redirects and returns the final URL', async () => {
+    let requestCount = 0
+    const transport = new MockHttpTransport(async () => {
+      requestCount += 1
+      if (requestCount === 1) {
+        return {
+          head: {
+            statusCode: 302,
+            statusMessage: 'Found',
+            headers: {
+              location: '/content/file.bin',
+            },
+            bodyMode: 'none',
+            contentLength: 0,
+          },
+          body: new StaticBodyReader([null]),
+          finalUrl: 'https://seed.example/redirect',
+        }
+      }
+
+      return {
+        head: {
+          statusCode: 206,
+          statusMessage: 'Partial Content',
+          headers: {
+            'content-range': 'bytes 0-63/64',
+            'content-length': '64',
+          },
+          bodyMode: 'content-length',
+          contentLength: 64,
+        },
+        body: new StaticBodyReader([null]),
+        finalUrl: 'https://cdn.example.com/content/file.bin',
+      }
+    })
+
+    const client = new WebSeedHttpClient(transport)
+    const response = await client.requestRange({
+      url: 'https://seed.example/redirect',
+      start: 0,
+      endInclusive: 63,
+    })
+
+    expect(transport.requests.map((request) => request.url)).toEqual([
+      'https://seed.example/redirect',
+      'https://seed.example/content/file.bin',
+    ])
+    expect(response.finalUrl).toBe('https://seed.example/content/file.bin')
+  })
+
+  it('rejects redirect loops', async () => {
+    const transport = new MockHttpTransport(async () => ({
+      head: {
+        statusCode: 302,
+        statusMessage: 'Found',
+        headers: {
+          location: 'https://seed.example/file.bin',
+        },
+        bodyMode: 'none',
+        contentLength: 0,
+      },
+      body: new StaticBodyReader([null]),
+      finalUrl: 'https://seed.example/file.bin',
+    }))
+
+    const client = new WebSeedHttpClient(transport)
+    await expect(
+      client.requestRange({
+        url: 'https://seed.example/file.bin',
+        start: 0,
+        endInclusive: 63,
+      }),
+    ).rejects.toMatchObject({
+      name: 'WebSeedRequestError',
+      kind: 'redirect',
+    } satisfies Partial<WebSeedRequestError>)
+  })
 })

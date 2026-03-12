@@ -42,6 +42,8 @@ export interface WebSeedManagerDeps {
 interface WebSeedSourceState {
   id: string
   url: string
+  canonicalUrl: string | null
+  canonicalFileUrls: Map<string, string>
   consecutiveFailures: number
   failedTransfers: number
   successfulTransfers: number
@@ -53,6 +55,7 @@ interface WebSeedSourceState {
 }
 
 interface WebSeedFileSpan {
+  requestUrl: string
   url: string
   start: number
   endInclusive: number
@@ -158,6 +161,8 @@ export class WebSeedManager extends EngineComponent {
         this.sources.set(id, {
           id,
           url,
+          canonicalUrl: null,
+          canonicalFileUrls: new Map(),
           consecutiveFailures: 0,
           failedTransfers: 0,
           successfulTransfers: 0,
@@ -242,7 +247,7 @@ export class WebSeedManager extends EngineComponent {
         totalLength,
         pieces,
         spans: this.planRangeSpans(
-          source.url,
+          source,
           this.deps.getPieceOffset(pieceIndex),
           totalLength,
         ),
@@ -283,7 +288,11 @@ export class WebSeedManager extends EngineComponent {
     }
   }
 
-  private planRangeSpans(sourceUrl: string, rangeOffset: number, rangeLength: number): WebSeedFileSpan[] {
+  private planRangeSpans(
+    source: WebSeedSourceState,
+    rangeOffset: number,
+    rangeLength: number,
+  ): WebSeedFileSpan[] {
     const rangeEnd = rangeOffset + rangeLength
     const files = this.deps.getFiles()
     const isMultiFile = this.deps.isMultiFileTorrent()
@@ -297,8 +306,10 @@ export class WebSeedManager extends EngineComponent {
       if (overlapEnd <= overlapStart) continue
 
       const length = overlapEnd - overlapStart
+      const requestUrl = buildWebSeedFileUrl(source.url, file.path, isMultiFile)
       spans.push({
-        url: buildWebSeedFileUrl(sourceUrl, file.path, isMultiFile),
+        requestUrl,
+        url: source.canonicalFileUrls.get(requestUrl) ?? requestUrl,
         start: overlapStart - file.offset,
         endInclusive: overlapEnd - file.offset - 1,
         length,
@@ -333,6 +344,7 @@ export class WebSeedManager extends EngineComponent {
           endInclusive: span.endInclusive,
           signal,
         })
+        this.recordCanonicalUrl(source, span.requestUrl, response.finalUrl)
 
         try {
           await this.consumeSpanBody(reservation, response.body, span.length, cursor, signal)
@@ -552,6 +564,16 @@ export class WebSeedManager extends EngineComponent {
         : Math.round(source.averageTransferRateBps * 0.7 + instantRateBps * 0.3)
   }
 
+  private recordCanonicalUrl(
+    source: WebSeedSourceState,
+    requestUrl: string,
+    finalUrl: string,
+  ): void {
+    if (requestUrl === finalUrl) return
+    source.canonicalUrl = finalUrl
+    source.canonicalFileUrls.set(requestUrl, finalUrl)
+  }
+
   private startTransfer(source: WebSeedSourceState, reservation: ReservedRange): void {
     const controller = new AbortController()
     const transferId = `${source.id}:${reservation.startPieceIndex}`
@@ -645,7 +667,7 @@ function classifyWebSeedFailure(
     if (error.kind === 'range-not-satisfiable') {
       return { kind: error.kind, retryDelayMs: RANGE_FAILURE_RETRY_DELAY_MS }
     }
-    if (error.kind === 'protocol') {
+    if (error.kind === 'protocol' || error.kind === 'redirect') {
       return { kind: error.kind, retryDelayMs: PROTOCOL_RETRY_DELAY_MS }
     }
     if (error.options.retryAfterMs !== undefined) {

@@ -8,6 +8,7 @@ export type WebSeedRequestErrorKind =
   | 'range-not-satisfiable'
   | 'transient'
   | 'protocol'
+  | 'redirect'
 
 export interface WebSeedRangeRequest {
   url: string
@@ -66,31 +67,60 @@ export class WebSeedHttpClient {
     }
 
     const expectedLength = endInclusive - start + 1
-    const response = await this.transport.request({
-      method: 'GET',
-      url,
-      signal,
-      keepAlive: true,
-      headers: {
-        Range: `bytes=${start}-${endInclusive}`,
-      },
-    })
+    let currentUrl = url
+    const visitedUrls = new Set<string>([currentUrl])
 
-    validateWebSeedResponse(response.head.statusCode, response.head.headers, {
-      start,
-      endInclusive,
-      expectedLength,
-    })
+    for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
+      const response = await this.transport.request({
+        method: 'GET',
+        url: currentUrl,
+        signal,
+        keepAlive: true,
+        headers: {
+          Range: `bytes=${start}-${endInclusive}`,
+        },
+      })
 
-    return {
-      statusCode: response.head.statusCode,
-      headers: response.head.headers,
-      finalUrl: response.finalUrl,
-      remoteAddress: response.remoteAddress,
-      body: response.body,
-      start,
-      endInclusive,
+      if (isRedirectStatus(response.head.statusCode)) {
+        if (redirectCount === MAX_REDIRECTS) {
+          response.body.cancel('web-seed redirect limit exceeded')
+          throw new WebSeedRequestError('Web seed exceeded redirect limit', 'redirect', {
+            statusCode: response.head.statusCode,
+          })
+        }
+
+        const nextUrl = resolveRedirectTarget(currentUrl, response.head.statusCode, response.head.headers)
+        await discardResponseBody(response.body)
+
+        if (visitedUrls.has(nextUrl)) {
+          throw new WebSeedRequestError('Web seed redirect loop detected', 'redirect', {
+            statusCode: response.head.statusCode,
+          })
+        }
+
+        visitedUrls.add(nextUrl)
+        currentUrl = nextUrl
+        continue
+      }
+
+      validateWebSeedResponse(response.head.statusCode, response.head.headers, {
+        start,
+        endInclusive,
+        expectedLength,
+      })
+
+      return {
+        statusCode: response.head.statusCode,
+        headers: response.head.headers,
+        finalUrl: currentUrl,
+        remoteAddress: response.remoteAddress,
+        body: response.body,
+        start,
+        endInclusive,
+      }
     }
+
+    throw new WebSeedRequestError('Web seed redirect resolution failed', 'redirect')
   }
 
   close(): void {
@@ -101,6 +131,8 @@ export class WebSeedHttpClient {
 function isSocketFactory(value: HttpTransport | ISocketFactory): value is ISocketFactory {
   return 'createTcpSocket' in value
 }
+
+const MAX_REDIRECTS = 5
 
 function validateWebSeedResponse(
   statusCode: number,
@@ -185,6 +217,47 @@ function validateWebSeedResponse(
   })
 }
 
+function isRedirectStatus(statusCode: number): boolean {
+  return statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308
+}
+
+function resolveRedirectTarget(
+  currentUrl: string,
+  statusCode: number,
+  headers: Record<string, string>,
+): string {
+  const location = headers.location
+  if (!location) {
+    throw new WebSeedRequestError(`Web seed redirect ${statusCode} missing Location header`, 'redirect', {
+      statusCode,
+    })
+  }
+
+  let resolved: URL
+  try {
+    resolved = new URL(location, currentUrl)
+  } catch {
+    throw new WebSeedRequestError(`Invalid redirect target: ${location}`, 'redirect', {
+      statusCode,
+    })
+  }
+
+  if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
+    throw new WebSeedRequestError(`Unsupported redirect protocol: ${resolved.protocol}`, 'redirect', {
+      statusCode,
+    })
+  }
+
+  const current = new URL(currentUrl)
+  if (current.protocol === 'https:' && resolved.protocol !== 'https:') {
+    throw new WebSeedRequestError('Web seed redirect attempted HTTPS downgrade', 'redirect', {
+      statusCode,
+    })
+  }
+
+  return resolved.toString()
+}
+
 function parseOptionalContentLength(headers: Record<string, string>): number | null {
   const value = headers['content-length']
   if (value === undefined) return null
@@ -209,4 +282,15 @@ function parseRetryAfter(value: string | undefined): number | undefined {
   }
 
   return undefined
+}
+
+async function discardResponseBody(body: HttpBodyReader): Promise<void> {
+  try {
+    for (;;) {
+      const chunk = await body.read()
+      if (chunk === null) return
+    }
+  } catch {
+    body.cancel('web-seed redirect body discard failed')
+  }
 }
