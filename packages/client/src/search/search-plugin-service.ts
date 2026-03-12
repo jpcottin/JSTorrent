@@ -1,3 +1,4 @@
+import { parseTorrentInput } from '@jstorrent/engine'
 import type { IEngineManager } from '../engine-manager/types'
 import { ExtensionSandboxLabHost } from './extension-sandbox-lab-host'
 import { createInstalledPluginRecord } from './plugin-utils'
@@ -23,6 +24,20 @@ export interface SearchPluginInstallPreview extends SearchPluginSourceLoadResult
 export interface SearchPluginSearchOutput {
   results: SearchDisplayResult[]
   summaries: SearchRunSummary[]
+}
+
+function describeInvalidTorrentPayload(bodyText: string): string {
+  const preview = bodyText.trim().replace(/\s+/g, ' ').slice(0, 120)
+  if (!preview) {
+    return 'Downloaded file was empty instead of a valid .torrent file'
+  }
+  if (preview.startsWith('<')) {
+    return 'Downloaded URL returned HTML instead of a valid .torrent file'
+  }
+  if (preview.startsWith('{') || preview.startsWith('[')) {
+    return 'Downloaded URL returned JSON instead of a valid .torrent file'
+  }
+  return 'Downloaded data is not a valid .torrent file'
 }
 
 export class SearchPluginService {
@@ -180,6 +195,15 @@ export class SearchPluginService {
 
       if (response.statusCode >= 400) {
         throw new Error(`Torrent download failed: HTTP ${response.statusCode}`)
+      }
+
+      try {
+        await parseTorrentInput(response.bodyBytes, engine.hasher)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        throw new Error(
+          `${describeInvalidTorrentPayload(response.bodyText)} (${displayResult.result.name}; ${detail})`,
+        )
       }
 
       const added = await engine.addTorrent(response.bodyBytes)

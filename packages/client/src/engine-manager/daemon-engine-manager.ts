@@ -85,6 +85,14 @@ function concatChunks(chunks: Uint8Array[]): Uint8Array {
   return merged
 }
 
+function isRedirectStatus(statusCode: number): boolean {
+  return statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308
+}
+
+function resolveRedirectUrl(currentUrl: string, locationHeader: string): string {
+  return new URL(locationHeader, currentUrl).toString()
+}
+
 function isTauriContext(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
@@ -853,22 +861,44 @@ export class DaemonEngineManager implements IEngineManager {
       remoteAddress = response.remoteAddress
     } else {
       const transport = new SocketHttpTransport(this.socketFactory, undefined, 'http-tracker')
-      const response = await transport.request({
-        method,
-        url: input.url,
-        headers: input.headers,
-        keepAlive: false,
-      })
+      let currentUrl = input.url
+      let redirectsRemaining = 5
 
-      const chunks: Uint8Array[] = []
       while (true) {
-        const chunk = await response.body.read()
-        if (chunk === null) break
-        chunks.push(chunk)
+        const response = await transport.request({
+          method,
+          url: currentUrl,
+          headers: input.headers,
+          keepAlive: false,
+        })
+
+        if (isRedirectStatus(response.head.statusCode)) {
+          const location = response.head.headers.location
+          response.body.cancel('Following redirect')
+          if (!location) {
+            throw new Error(`Redirect response missing Location header: HTTP ${response.head.statusCode}`)
+          }
+          if (redirectsRemaining <= 0) {
+            throw new Error(`Too many redirects while fetching ${input.url}`)
+          }
+
+          currentUrl = resolveRedirectUrl(currentUrl, location)
+          ensurePluginFetchAllowed(currentUrl, policy)
+          redirectsRemaining -= 1
+          continue
+        }
+
+        const chunks: Uint8Array[] = []
+        while (true) {
+          const chunk = await response.body.read()
+          if (chunk === null) break
+          chunks.push(chunk)
+        }
+        body = concatChunks(chunks)
+        statusCode = response.head.statusCode
+        remoteAddress = response.remoteAddress
+        break
       }
-      body = concatChunks(chunks)
-      statusCode = response.head.statusCode
-      remoteAddress = response.remoteAddress
     }
 
     return {

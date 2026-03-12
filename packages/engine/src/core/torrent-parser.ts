@@ -55,7 +55,10 @@ function parseUrlSeedsField(value: unknown): string[] | undefined {
 
 export class TorrentParser {
   static async parse(buffer: Uint8Array, hasher: IHasher): Promise<ParsedTorrent> {
-    const decoded = Bencode.decode(buffer)
+    const decoded = Bencode.decode(buffer) as Record<string, unknown> | null
+    if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
+      throw new Error('Invalid torrent: top-level value is not a dictionary')
+    }
     const info = decoded.info
     if (!info) {
       throw new Error('Invalid torrent: missing info dictionary')
@@ -68,8 +71,12 @@ export class TorrentParser {
     }
 
     // Extract optional metadata from top-level torrent dict
-    const comment = safeDecodeText(decoded.comment)
-    const createdBy = safeDecodeText(decoded['created by'])
+    const comment = safeDecodeText(
+      decoded.comment instanceof Uint8Array ? decoded.comment : undefined,
+    )
+    const createdBy = safeDecodeText(
+      decoded['created by'] instanceof Uint8Array ? decoded['created by'] : undefined,
+    )
     const creationDate = decoded['creation date'] as number | undefined
     const urlSeeds = parseUrlSeedsField(decoded['url-list'])
 
@@ -77,8 +84,8 @@ export class TorrentParser {
     return this.parseInfoDictionary(
       info,
       infoHash,
-      decoded['announce-list'],
-      decoded.announce,
+      Array.isArray(decoded['announce-list']) ? (decoded['announce-list'] as Uint8Array[][]) : undefined,
+      decoded.announce instanceof Uint8Array ? decoded.announce : undefined,
       urlSeeds,
       infoBuffer,
       comment,
