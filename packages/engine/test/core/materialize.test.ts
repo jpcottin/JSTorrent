@@ -642,6 +642,191 @@ describe('Materialization', () => {
   })
 
   describe('boundary piece regression coverage', () => {
+    it('stress tests one-by-one unskip with mixed file sizes and verifies persisted bytes', async () => {
+      function buildFiles(seed: number, count: number): { path: string; data: Uint8Array }[] {
+        return Array.from({ length: count }, (_, fileIndex) => {
+          const length =
+            17 +
+            (((seed * 97 + fileIndex * 193 + (fileIndex % 5) * 389) % 2100) as number) +
+            ((fileIndex * 11 + seed) % 37)
+          const data = new Uint8Array(length)
+          for (let i = 0; i < length; i++) {
+            data[i] = (seed * 29 + fileIndex * 53 + i * 17 + (i >> 2)) & 0xff
+          }
+          return {
+            path: `file-${fileIndex.toString().padStart(2, '0')}.bin`,
+            data,
+          }
+        })
+      }
+
+      function alternatingOrder(count: number): number[] {
+        const evens: number[] = []
+        const odds: number[] = []
+        for (let i = 0; i < count; i++) {
+          if (i % 2 === 0) evens.push(i)
+          else odds.push(i)
+        }
+        return [...evens, ...odds]
+      }
+
+      function centerOutOrder(count: number): number[] {
+        const order: number[] = []
+        const used = new Set<number>()
+        const center = Math.floor((count - 1) / 2)
+        for (let distance = 0; order.length < count; distance++) {
+          const left = center - distance
+          const right = center + distance + (count % 2 === 0 ? 1 : 0)
+          if (left >= 0 && !used.has(left)) {
+            order.push(left)
+            used.add(left)
+          }
+          if (right < count && !used.has(right)) {
+            order.push(right)
+            used.add(right)
+          }
+        }
+        return order
+      }
+
+      async function runScenario(scenario: {
+        name: string
+        pieceLength: number
+        files: { path: string; data: Uint8Array }[]
+        unskipOrder: number[]
+      }): Promise<void> {
+        const localFileSystem = new InMemoryFileSystem()
+        const localEngine = createEngine(localFileSystem)
+        const torrentBuffer = createMultiFileTorrentWithData({
+          name: scenario.name,
+          files: scenario.files,
+          pieceLength: scenario.pieceLength,
+        })
+
+        const totalSize = scenario.files.reduce((sum, file) => sum + file.data.length, 0)
+        const allData = new Uint8Array(totalSize)
+        let globalOffset = 0
+        for (const file of scenario.files) {
+          allData.set(file.data, globalOffset)
+          globalOffset += file.data.length
+        }
+
+        await localFileSystem.mkdir(scenario.name)
+
+        const { torrent } = await localEngine.addTorrent(torrentBuffer)
+        if (!torrent) throw new Error(`Torrent is null for scenario ${scenario.name}`)
+
+        const allSkipped = new Map<number, number>()
+        scenario.files.forEach((_, index) => allSkipped.set(index, 1))
+        await torrent.setFilePrioritiesAsync(allSkipped)
+
+        async function writeVerifiedPieceForCurrentPriorities(pieceIndex: number): Promise<void> {
+          if (torrent.hasPiece(pieceIndex)) return
+          const start = pieceIndex * scenario.pieceLength
+          const end = Math.min(start + torrent.getPieceLength(pieceIndex), allData.length)
+          const pieceData = allData.slice(start, end)
+          const classification = torrent.pieceClassification[pieceIndex]
+
+          if (classification === 'boundary') {
+            // @ts-expect-error - accessing private member for targeted boundary-piece test coverage
+            const result = await torrent.verifyAndWriteBoundaryPiece(
+              pieceIndex,
+              pieceData,
+              torrent.getPieceHash(pieceIndex),
+              [],
+            )
+            expect(result).toEqual({ success: true, bytesWritten: pieceData.length })
+          } else if (classification === 'wanted') {
+            if (!torrent.contentStorage) throw new Error('contentStorage is undefined')
+            await torrent.contentStorage.writePiece(pieceIndex, pieceData)
+          } else {
+            throw new Error(
+              `Scenario ${scenario.name}: piece ${pieceIndex} unexpectedly blacklisted while downloading file`,
+            )
+          }
+
+          torrent.markPieceVerified(pieceIndex)
+        }
+
+        function getFilePieceRange(fileIndex: number): { startPiece: number; endPiece: number } {
+          const file = torrent.files[fileIndex]
+          if (!file) throw new Error(`Missing file ${fileIndex} in scenario ${scenario.name}`)
+          const startPiece = Math.floor(file.offset / scenario.pieceLength)
+          const endPiece = Math.floor((file.offset + file.length - 1) / scenario.pieceLength)
+          return { startPiece, endPiece }
+        }
+
+        const completedFiles = new Set<number>()
+
+        for (const fileIndex of scenario.unskipOrder) {
+          await torrent.setFilePriorityAsync(fileIndex, 0)
+
+          const { startPiece, endPiece } = getFilePieceRange(fileIndex)
+          for (let pieceIndex = startPiece; pieceIndex <= endPiece; pieceIndex++) {
+            await writeVerifiedPieceForCurrentPriorities(pieceIndex)
+          }
+
+          completedFiles.add(fileIndex)
+          expect(torrent.isFileComplete(fileIndex)).toBe(true)
+
+          for (const completedFileIndex of completedFiles) {
+            const expected = scenario.files[completedFileIndex].data
+            const persisted = await localFileSystem.readFile(
+              `${scenario.name}/${scenario.files[completedFileIndex].path}`,
+            )
+            expect(persisted).toEqual(expected)
+          }
+        }
+
+        expect(torrent.partsFilePieces.size).toBe(0)
+        expect(await localFileSystem.exists(`${torrent.infoHashStr}.parts`)).toBe(false)
+
+        await torrent.recheckData()
+        expect(torrent.completedPiecesCount).toBe(torrent.piecesCount)
+
+        for (const file of scenario.files) {
+          const persisted = await localFileSystem.readFile(`${scenario.name}/${file.path}`)
+          expect(persisted).toEqual(file.data)
+        }
+      }
+
+      const scenarioAFileCount = 30
+      const scenarioBFileCount = 26
+      const scenarioCFileCount = 34
+      const scenarioDFileCount = 22
+
+      const scenarios = [
+        {
+          name: 'StressBoundarySeq257',
+          pieceLength: 257,
+          files: buildFiles(11, scenarioAFileCount),
+          unskipOrder: Array.from({ length: scenarioAFileCount }, (_, index) => index),
+        },
+        {
+          name: 'StressBoundaryReverse97',
+          pieceLength: 97,
+          files: buildFiles(23, scenarioBFileCount),
+          unskipOrder: Array.from({ length: scenarioBFileCount }, (_, index) => scenarioBFileCount - 1 - index),
+        },
+        {
+          name: 'StressBoundaryAlt509',
+          pieceLength: 509,
+          files: buildFiles(37, scenarioCFileCount),
+          unskipOrder: alternatingOrder(scenarioCFileCount),
+        },
+        {
+          name: 'StressBoundaryCenter1021',
+          pieceLength: 1021,
+          files: buildFiles(41, scenarioDFileCount),
+          unskipOrder: centerOutOrder(scenarioDFileCount),
+        },
+      ]
+
+      for (const scenario of scenarios) {
+        await runScenario(scenario)
+      }
+    })
+
     it('exports newly unskipped file spans while piece remains in .parts', async () => {
       const fileAData = new Uint8Array(100)
       const skippedData = new Uint8Array(10)

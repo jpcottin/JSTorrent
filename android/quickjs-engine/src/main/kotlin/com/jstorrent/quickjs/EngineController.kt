@@ -618,7 +618,7 @@ class EngineController(
     suspend fun setFilePrioritiesAsync(infoHash: String, priorities: Map<Int, Int>) {
         val eng = requireEngine()
         val prioritiesJson = json.encodeToString(priorities.mapKeys { it.key.toString() })
-        eng.callGlobalFunctionAsync(
+        eng.callGlobalFunctionAwaitPromise(
             "__jstorrent_cmd_set_file_priorities",
             infoHash,
             prioritiesJson

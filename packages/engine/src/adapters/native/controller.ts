@@ -547,40 +547,59 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
 
   /**
    * Set file priorities for a torrent.
+   * Returns a Promise that resolves when any required .parts export/materialization
+   * has completed.
+   *
    * @param infoHash - The torrent's info hash
    * @param prioritiesJson - JSON object mapping file index (string) to priority (0=Normal, 1=Skip, 2=High)
    */
-  ;(globalThis as Record<string, unknown>).__jstorrent_cmd_set_file_priorities = (
+  ;(globalThis as Record<string, unknown>).__jstorrent_cmd_set_file_priorities = async (
     infoHash: string,
     prioritiesJson: string,
-  ): void => {
+  ): Promise<{ ok: boolean; applied?: number; queued?: boolean; error?: string }> => {
+    if (!isReady()) {
+      console.log(`[controller] set_file_priorities: Engine not ready, queueing command for ${infoHash}`)
+      commandQueue.push(() => {
+        const fn = (globalThis as Record<string, unknown>).__jstorrent_cmd_set_file_priorities as (
+          h: string,
+          p: string,
+        ) => Promise<unknown>
+        void fn(infoHash, prioritiesJson)
+      })
+      return { ok: true, queued: true }
+    }
+
     const engine = requireEngine('set_file_priorities')
-    if (!engine) return
+    if (!engine) {
+      return { ok: false, error: 'Engine not ready' }
+    }
+
     const torrent = engine.getTorrent(infoHash)
     if (!torrent) {
       console.warn(`[controller] set_file_priorities: Torrent not found: ${infoHash}`)
-      return
+      return { ok: false, error: `Torrent not found: ${infoHash}` }
     }
 
-    void (async () => {
-      try {
-        const prioritiesRecord = JSON.parse(prioritiesJson) as Record<string, number>
-        const priorities = new Map<number, number>()
-        for (const [indexStr, priority] of Object.entries(prioritiesRecord)) {
-          const fileIndex = parseInt(indexStr, 10)
-          if (!isNaN(fileIndex)) {
-            priorities.set(fileIndex, priority)
-          }
+    try {
+      const prioritiesRecord = JSON.parse(prioritiesJson) as Record<string, number>
+      const priorities = new Map<number, number>()
+      for (const [indexStr, priority] of Object.entries(prioritiesRecord)) {
+        const fileIndex = parseInt(indexStr, 10)
+        if (!isNaN(fileIndex)) {
+          priorities.set(fileIndex, priority)
         }
-
-        const applied = await torrent.setFilePrioritiesAsync(priorities)
-        console.log(
-          `[controller] set_file_priorities: Applied ${applied}/${priorities.size} priorities for ${infoHash}`,
-        )
-      } catch (e) {
-        console.error('[controller] set_file_priorities error:', e)
       }
-    })()
+
+      const applied = await torrent.setFilePrioritiesAsync(priorities)
+      console.log(
+        `[controller] set_file_priorities: Applied ${applied}/${priorities.size} priorities for ${infoHash}`,
+      )
+      return { ok: true, applied }
+    } catch (e) {
+      console.error('[controller] set_file_priorities error:', e)
+      __jstorrent_on_error(JSON.stringify({ error: String(e) }))
+      return { ok: false, error: String(e) }
+    }
   }
 
   // ============================================================
