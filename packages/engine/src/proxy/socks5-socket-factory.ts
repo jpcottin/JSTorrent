@@ -33,6 +33,7 @@ export interface Socks5RoutingConfig {
  * Routing is based on the `purpose` option passed to createTcpSocket/createUdpSocket:
  * - 'peer' -> proxied if proxyPeerConnections is true
  * - 'http-tracker' -> proxied if proxyHttpTrackers is true
+ * - 'web-seed' -> proxied if proxyHttpTrackers is true
  * - 'udp-tracker' -> proxied if proxyUdpTrackers is true (requires UDP ASSOCIATE)
  * - 'dht', 'upnp', 'lpd' -> never proxied (local network / not applicable)
  *
@@ -70,7 +71,8 @@ export class Socks5SocketFactory implements ISocketFactory {
     // Only explicitly marked traffic is proxied - undefined purpose = direct connection
     const shouldProxy =
       (purpose === 'peer' && this.routingConfig.proxyPeerConnections) ||
-      (purpose === 'http-tracker' && this.routingConfig.proxyHttpTrackers)
+      ((purpose === 'http-tracker' || purpose === 'web-seed') &&
+        this.routingConfig.proxyHttpTrackers)
 
     if (!shouldProxy) {
       // Direct connection

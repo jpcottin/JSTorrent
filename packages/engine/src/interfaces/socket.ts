@@ -128,6 +128,7 @@ export interface IUdpSocket {
 export type SocketPurpose =
   | 'peer' // Peer connections (TCP)
   | 'http-tracker' // HTTP/HTTPS tracker requests (TCP)
+  | 'web-seed' // HTTP/HTTPS web-seed payload requests (TCP)
   | 'udp-tracker' // UDP tracker requests (UDP)
   | 'dht' // DHT KRPC (UDP) - not proxied
   | 'upnp' // UPnP SSDP discovery (UDP multicast) - not proxied
