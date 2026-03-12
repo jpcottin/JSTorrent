@@ -75,3 +75,4 @@ memory-magnet2.txt
 # Local Android investigation artifacts
 android/tmp/
 docs/investigations/android-memory-results/
+docs/design_docs/media-ecosystem.md
