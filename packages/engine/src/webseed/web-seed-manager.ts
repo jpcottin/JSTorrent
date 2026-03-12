@@ -117,6 +117,7 @@ export class WebSeedManager extends EngineComponent {
     for (const transfer of this.activeTransfers.values()) {
       transfer.controller.abort()
     }
+    this.client.close()
   }
 
   private syncSources(): void {

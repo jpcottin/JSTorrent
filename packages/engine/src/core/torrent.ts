@@ -3833,6 +3833,7 @@ export class Torrent extends EngineComponent {
     // Stop periodic maintenance (request processing is handled by BtEngine.engineTick())
     this._tickLoop.stopMaintenance()
     this.logger.info(`stopMaintenance done at ${Date.now() - t0}ms`)
+    this._webSeedManager?.stop()
 
     // Cancel any pending connection attempts
     this._connectionManager.destroy()

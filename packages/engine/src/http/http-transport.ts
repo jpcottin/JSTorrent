@@ -5,6 +5,7 @@ export interface HttpRequest {
   url: string
   headers?: Record<string, string>
   signal?: AbortSignal
+  keepAlive?: boolean
 }
 
 export interface HttpBodyReader {
@@ -21,5 +22,5 @@ export interface HttpTransportResponse {
 
 export interface HttpTransport {
   request(request: HttpRequest): Promise<HttpTransportResponse>
+  close?(): void
 }
-

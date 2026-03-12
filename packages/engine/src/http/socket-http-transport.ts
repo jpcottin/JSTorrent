@@ -1,11 +1,11 @@
-import type { AddressFamilyPreference, ISocketFactory, SocketPurpose } from '../interfaces/socket'
+import type { AddressFamilyPreference, ISocketFactory, ITcpSocket, SocketPurpose } from '../interfaces/socket'
 import { PREFERRED_ADDRESS_FAMILY } from '../interfaces/socket'
 import { Logger } from '../logging/logger'
 import { fromString } from '../utils/buffer'
 import { HttpResponseParser } from './http-parser'
 import type { HttpBodyReader, HttpRequest, HttpTransport, HttpTransportResponse } from './http-transport'
+import type { HttpParserEvent, HttpResponseHead, ParsedHttpUrl } from './http-types'
 import { parseHttpUrl } from './url-utils'
-import type { HttpParserEvent } from './http-types'
 
 class AsyncChunkQueue implements HttpBodyReader {
   private chunks: Array<Uint8Array | null> = []
@@ -62,7 +62,35 @@ class AsyncChunkQueue implements HttpBodyReader {
   }
 }
 
+interface SocketEntry {
+  key: string
+  socket: ITcpSocket
+  closed: boolean
+  inUse: boolean
+}
+
+function getPoolKey(parsedUrl: ParsedHttpUrl): string {
+  return `${parsedUrl.protocol}//${parsedUrl.hostname}:${parsedUrl.port}`
+}
+
+function shouldKeepConnectionOpen(
+  request: HttpRequest,
+  head: HttpResponseHead,
+  socketClosed: boolean,
+): boolean {
+  if (!request.keepAlive) return false
+  if (socketClosed) return false
+  if (head.bodyMode === 'close-delimited') return false
+
+  const connection = head.headers.connection?.toLowerCase()
+  if (connection === 'close') return false
+  return true
+}
+
 export class SocketHttpTransport implements HttpTransport {
+  private readonly idleEntries = new Map<string, SocketEntry[]>()
+  private readonly allEntries = new Set<SocketEntry>()
+
   constructor(
     private socketFactory: ISocketFactory,
     _logger?: Logger,
@@ -72,6 +100,35 @@ export class SocketHttpTransport implements HttpTransport {
 
   async request(request: HttpRequest): Promise<HttpTransportResponse> {
     const parsedUrl = parseHttpUrl(request.url)
+    const entry = await this.reserveEntry(parsedUrl, request.keepAlive === true)
+    return this.performRequest(entry, request, parsedUrl)
+  }
+
+  close(): void {
+    for (const entry of this.allEntries) {
+      this.destroyEntry(entry)
+    }
+    this.idleEntries.clear()
+    this.allEntries.clear()
+  }
+
+  private async reserveEntry(parsedUrl: ParsedHttpUrl, allowReuse: boolean): Promise<SocketEntry> {
+    const key = getPoolKey(parsedUrl)
+
+    if (allowReuse) {
+      const pooled = this.idleEntries.get(key)
+      while (pooled && pooled.length > 0) {
+        const entry = pooled.pop()!
+        if (!entry.closed) {
+          this.armIdleListeners(entry)
+          return entry
+        }
+      }
+      if (pooled && pooled.length === 0) {
+        this.idleEntries.delete(key)
+      }
+    }
+
     const socket = await this.socketFactory.createTcpSocket({
       host: parsedUrl.hostname,
       port: parsedUrl.port,
@@ -87,31 +144,74 @@ export class SocketHttpTransport implements HttpTransport {
       await socket.secure(parsedUrl.hostname)
     }
 
+    const entry: SocketEntry = {
+      key,
+      socket,
+      closed: false,
+      inUse: false,
+    }
+    this.allEntries.add(entry)
+    this.armIdleListeners(entry)
+    return entry
+  }
+
+  private performRequest(
+    entry: SocketEntry,
+    request: HttpRequest,
+    parsedUrl: ParsedHttpUrl,
+  ): Promise<HttpTransportResponse> {
+    if (entry.closed) {
+      throw new Error('HTTP socket is closed')
+    }
+
+    this.removeIdleEntry(entry)
+    entry.inUse = true
+
     return new Promise<HttpTransportResponse>((resolve, reject) => {
       const parser = new HttpResponseParser()
       const body = new AsyncChunkQueue()
-      let settled = false
       let responseResolved = false
-      let cleanedUp = false
+      let socketClosed = false
+      let head: HttpResponseHead | null = null
+      let abortCleanup: (() => void) | null = null
+
+      const bodyReader: HttpBodyReader = {
+        read: async () => {
+          const chunk = await body.read()
+          if (chunk === null) {
+            if (head && shouldKeepConnectionOpen(request, head, socketClosed) && !entry.closed) {
+              this.releaseEntry(entry)
+            }
+          }
+          return chunk
+        },
+        cancel: (reason?: string) => {
+          body.cancel(reason)
+          this.destroyEntry(entry)
+        },
+      }
 
       const cleanup = () => {
-        if (cleanedUp) return
-        cleanedUp = true
+        abortCleanup?.()
+        abortCleanup = null
+        entry.inUse = false
       }
 
       const fail = (error: Error) => {
-        if (!settled) {
-          settled = true
-          cleanup()
-          body.fail(error)
-          socket.close()
-          reject(error)
-          return
-        }
-
-        if (!cleanedUp) cleanup()
+        cleanup()
         body.fail(error)
-        socket.close()
+        this.destroyEntry(entry)
+        if (!responseResolved) {
+          reject(error)
+        }
+      }
+
+      const finalizeResponse = () => {
+        cleanup()
+        body.finish()
+        if (!head || !shouldKeepConnectionOpen(request, head, socketClosed)) {
+          this.destroyEntry(entry)
+        }
       }
 
       const processEvents = (events: HttpParserEvent[]) => {
@@ -121,30 +221,24 @@ export class SocketHttpTransport implements HttpTransport {
               fail(new Error('Received duplicate HTTP response head'))
               return
             }
+
+            head = event.head
             responseResolved = true
-            settled = true
             resolve({
               head: event.head,
-              body: {
-                read: () => body.read(),
-                cancel: (reason?: string) => {
-                  body.cancel(reason)
-                  socket.close()
-                },
-              },
-              remoteAddress: socket.remoteAddress,
+              body: bodyReader,
+              remoteAddress: entry.socket.remoteAddress,
               finalUrl: request.url,
             })
           } else if (event.type === 'body') {
             body.push(event.chunk)
           } else if (event.type === 'end') {
-            cleanup()
-            body.finish()
+            finalizeResponse()
           }
         }
       }
 
-      socket.onData((data) => {
+      entry.socket.onData((data) => {
         try {
           processEvents(parser.push(data))
         } catch (error) {
@@ -152,45 +246,102 @@ export class SocketHttpTransport implements HttpTransport {
         }
       })
 
-      socket.onError((error) => {
+      entry.socket.onError((error) => {
         fail(error)
       })
 
-      socket.onClose(() => {
+      entry.socket.onClose(() => {
+        socketClosed = true
+
         try {
           if (!parser.isComplete) {
             processEvents(parser.close())
           }
           if (!parser.isComplete) {
             fail(new Error('HTTP socket closed before response completed'))
+            return
           }
         } catch (error) {
           fail(error instanceof Error ? error : new Error(String(error)))
+          return
         }
+
+        entry.closed = true
+        this.removeIdleEntry(entry)
+        this.allEntries.delete(entry)
       })
 
       try {
-        socket.send(
+        entry.socket.send(
           fromString(
             buildHttpRequestText({
               method: request.method,
               host: parsedUrl.hostname,
               path: parsedUrl.path,
               headers: request.headers,
+              keepAlive: request.keepAlive === true,
             }),
           ),
         )
       } catch (error) {
         fail(error instanceof Error ? error : new Error(String(error)))
+        return
       }
 
-      request.signal?.addEventListener(
-        'abort',
-        () => {
+      if (request.signal) {
+        const onAbort = () => {
           fail(new Error('HTTP request aborted'))
-        },
-        { once: true },
-      )
+        }
+        request.signal.addEventListener('abort', onAbort, { once: true })
+        abortCleanup = () => {
+          request.signal?.removeEventListener('abort', onAbort)
+        }
+      }
+    })
+  }
+
+  private releaseEntry(entry: SocketEntry): void {
+    if (entry.closed || entry.inUse) return
+    this.armIdleListeners(entry)
+    const pooled = this.idleEntries.get(entry.key) ?? []
+    if (!pooled.includes(entry)) {
+      pooled.push(entry)
+      this.idleEntries.set(entry.key, pooled)
+    }
+  }
+
+  private destroyEntry(entry: SocketEntry): void {
+    this.removeIdleEntry(entry)
+    this.allEntries.delete(entry)
+    entry.inUse = false
+    if (entry.closed) return
+    entry.closed = true
+    entry.socket.close()
+  }
+
+  private removeIdleEntry(entry: SocketEntry): void {
+    const pooled = this.idleEntries.get(entry.key)
+    if (!pooled) return
+    const index = pooled.indexOf(entry)
+    if (index !== -1) {
+      pooled.splice(index, 1)
+    }
+    if (pooled.length === 0) {
+      this.idleEntries.delete(entry.key)
+    }
+  }
+
+  private armIdleListeners(entry: SocketEntry): void {
+    entry.socket.onData(() => {})
+    entry.socket.onError(() => {
+      entry.closed = true
+      this.removeIdleEntry(entry)
+      this.allEntries.delete(entry)
+    })
+    entry.socket.onClose(() => {
+      entry.closed = true
+      this.removeIdleEntry(entry)
+      this.allEntries.delete(entry)
     })
   }
 }
@@ -200,11 +351,12 @@ function buildHttpRequestText(options: {
   host: string
   path: string
   headers?: Record<string, string>
+  keepAlive?: boolean
 }): string {
   const requestLines = [
     `${options.method} ${options.path} HTTP/1.1`,
     `Host: ${options.host}`,
-    'Connection: close',
+    options.keepAlive ? 'Connection: keep-alive' : 'Connection: close',
     'User-Agent: JSTorrent/0.0.1',
     'Accept-Encoding: identity',
   ]

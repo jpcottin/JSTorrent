@@ -50,6 +50,7 @@ export class WebSeedHttpClient {
       method: 'GET',
       url,
       signal,
+      keepAlive: true,
       headers: {
         Range: `bytes=${start}-${endInclusive}`,
       },
@@ -70,6 +71,10 @@ export class WebSeedHttpClient {
       start,
       endInclusive,
     }
+  }
+
+  close(): void {
+    this.transport.close?.()
   }
 }
 
