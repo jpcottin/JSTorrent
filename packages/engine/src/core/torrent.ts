@@ -64,7 +64,10 @@ import { WriteError, classifyError, getRetryDelay } from './write-error'
 import { VerifyChunkResult } from '../interfaces/filesystem'
 import type { VerifyChunksRequest, IFileSystem } from '../interfaces/filesystem'
 import { WebSeedHttpClient } from '../webseed/web-seed-http-client'
-import { WebSeedManager } from '../webseed/web-seed-manager'
+import {
+  DEFAULT_MAX_WEB_SEED_REQUEST_BYTES,
+  WebSeedManager,
+} from '../webseed/web-seed-manager'
 
 /**
  * Maximum ratio of peer slots that incoming connections can occupy.
@@ -3054,6 +3057,7 @@ export class Torrent extends EngineComponent {
         initActivePieces: () => this.initActivePieceManager(),
         getMaxConcurrentTransfers: () =>
           this.btEngine.config?.maxWebSeedConnections.get() ?? DEFAULT_MAX_WEB_SEED_CONNECTIONS,
+        getMaxTransferBytes: () => DEFAULT_MAX_WEB_SEED_REQUEST_BYTES,
         removePieceFromAllIndices: (index) => this.removePieceFromAllIndices(index),
         reindexPieceForConnectedPeers: (index) => this.reindexPieceForConnectedPeers(index),
         onReceivedBlockFromSource: (sourceId, pieceIndex, blockOffset, data) =>

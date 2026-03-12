@@ -25,6 +25,7 @@ export interface WebSeedManagerDeps {
   getActivePieces(): ActivePieceManager | undefined
   initActivePieces(): ActivePieceManager
   getMaxConcurrentTransfers(): number
+  getMaxTransferBytes(): number
   removePieceFromAllIndices(index: number): void
   reindexPieceForConnectedPeers(index: number): void
   onReceivedBlockFromSource(
@@ -50,10 +51,18 @@ interface WebSeedFileSpan {
 }
 
 interface ReservedPiece {
+  rangeStart: number
   sourceId: string
   piece: ActivePiece
   pieceIndex: number
   pieceLength: number
+}
+
+interface ReservedRange {
+  sourceId: string
+  startPieceIndex: number
+  totalLength: number
+  pieces: ReservedPiece[]
   spans: WebSeedFileSpan[]
 }
 
@@ -64,6 +73,7 @@ interface ActiveTransfer {
 }
 
 interface PartialBlockState {
+  pieceIndex: number
   blockIndex: number
   data: Uint8Array
   written: number
@@ -72,6 +82,7 @@ interface PartialBlockState {
 const WEB_SEED_SOURCE_PREFIX = 'webseed:'
 const INITIAL_RETRY_DELAY_MS = 1_000
 const MAX_RETRY_DELAY_MS = 30_000
+export const DEFAULT_MAX_WEB_SEED_REQUEST_BYTES = 16 * 1024 * 1024
 
 export class WebSeedManager extends EngineComponent {
   static logName = 'web-seed-manager'
@@ -106,7 +117,7 @@ export class WebSeedManager extends EngineComponent {
       const source = this.pickReadySource(now)
       if (!source) return
 
-      const reservation = this.reserveNextPiece(source)
+      const reservation = this.reserveNextRange(source)
       if (!reservation) return
 
       this.startTransfer(source, reservation)
@@ -165,47 +176,93 @@ export class WebSeedManager extends EngineComponent {
     return false
   }
 
-  private reserveNextPiece(source: WebSeedSourceState): ReservedPiece | null {
+  private reserveNextRange(source: WebSeedSourceState): ReservedRange | null {
     const activePieces = this.deps.getActivePieces() ?? this.deps.initActivePieces()
     const pieceCount = this.deps.getPieceCount()
     const startIndex = Math.min(this.deps.getFirstNeededPiece(), Math.max(pieceCount - 1, 0))
+    const maxTransferBytes = Math.max(BLOCK_SIZE, this.deps.getMaxTransferBytes())
 
     for (const pieceIndex of iteratePieceIndices(pieceCount, startIndex)) {
-      if (!this.deps.shouldRequestPiece(pieceIndex)) continue
-      if (this.deps.hasPiece(pieceIndex)) continue
-      if (activePieces.has(pieceIndex)) continue
+      const firstPiece = this.tryReservePiece(activePieces, pieceIndex, source.id)
+      if (!firstPiece) continue
 
-      const piece = activePieces.getOrCreate(pieceIndex)
-      if (!piece) return null
+      const pieces: ReservedPiece[] = [
+        {
+          ...firstPiece,
+          rangeStart: 0,
+          sourceId: source.id,
+        },
+      ]
+      let totalLength = firstPiece.pieceLength
 
-      const neededBlocks = piece.getNeededBlocks(piece.blocksNeeded)
-      if (neededBlocks.length !== piece.blocksNeeded) {
-        activePieces.remove(pieceIndex)
-        continue
+      for (
+        let nextPieceIndex = pieceIndex + 1;
+        nextPieceIndex < pieceCount && totalLength < maxTransferBytes;
+        nextPieceIndex++
+      ) {
+        const nextPieceLength = this.deps.getPieceLength(nextPieceIndex)
+        if (totalLength + nextPieceLength > maxTransferBytes) break
+
+        const nextPiece = this.tryReservePiece(activePieces, nextPieceIndex, source.id)
+        if (!nextPiece) break
+
+        pieces.push({
+          ...nextPiece,
+          rangeStart: totalLength,
+          sourceId: source.id,
+        })
+        totalLength += nextPiece.pieceLength
       }
-
-      for (let blockIndex = 0; blockIndex < piece.blocksNeeded; blockIndex++) {
-        piece.addRequestFromSource(blockIndex, source.id)
-      }
-      activePieces.promoteToFullyRequested(pieceIndex)
-      this.deps.removePieceFromAllIndices(pieceIndex)
 
       return {
         sourceId: source.id,
-        piece,
-        pieceIndex,
-        pieceLength: this.deps.getPieceLength(pieceIndex),
-        spans: this.planPieceSpans(source.url, pieceIndex),
+        startPieceIndex: pieceIndex,
+        totalLength,
+        pieces,
+        spans: this.planRangeSpans(
+          source.url,
+          this.deps.getPieceOffset(pieceIndex),
+          totalLength,
+        ),
       }
     }
 
     return null
   }
 
-  private planPieceSpans(sourceUrl: string, pieceIndex: number): WebSeedFileSpan[] {
-    const pieceOffset = this.deps.getPieceOffset(pieceIndex)
-    const pieceLength = this.deps.getPieceLength(pieceIndex)
-    const pieceEnd = pieceOffset + pieceLength
+  private tryReservePiece(
+    activePieces: ActivePieceManager,
+    pieceIndex: number,
+    sourceId: string,
+  ): Omit<ReservedPiece, 'rangeStart' | 'sourceId'> | null {
+    if (!this.deps.shouldRequestPiece(pieceIndex)) return null
+    if (this.deps.hasPiece(pieceIndex)) return null
+    if (activePieces.has(pieceIndex)) return null
+
+    const piece = activePieces.getOrCreate(pieceIndex)
+    if (!piece) return null
+
+    const neededBlocks = piece.getNeededBlocks(piece.blocksNeeded)
+    if (neededBlocks.length !== piece.blocksNeeded) {
+      activePieces.remove(pieceIndex)
+      return null
+    }
+
+    for (let blockIndex = 0; blockIndex < piece.blocksNeeded; blockIndex++) {
+      piece.addRequestFromSource(blockIndex, sourceId)
+    }
+    activePieces.promoteToFullyRequested(pieceIndex)
+    this.deps.removePieceFromAllIndices(pieceIndex)
+
+    return {
+      piece,
+      pieceIndex,
+      pieceLength: this.deps.getPieceLength(pieceIndex),
+    }
+  }
+
+  private planRangeSpans(sourceUrl: string, rangeOffset: number, rangeLength: number): WebSeedFileSpan[] {
+    const rangeEnd = rangeOffset + rangeLength
     const files = this.deps.getFiles()
     const isMultiFile = this.deps.isMultiFileTorrent()
     const spans: WebSeedFileSpan[] = []
@@ -213,8 +270,8 @@ export class WebSeedManager extends EngineComponent {
 
     for (const file of files) {
       const fileEnd = file.offset + file.length
-      const overlapStart = Math.max(pieceOffset, file.offset)
-      const overlapEnd = Math.min(pieceEnd, fileEnd)
+      const overlapStart = Math.max(rangeOffset, file.offset)
+      const overlapEnd = Math.min(rangeEnd, fileEnd)
       if (overlapEnd <= overlapStart) continue
 
       const length = overlapEnd - overlapStart
@@ -227,10 +284,8 @@ export class WebSeedManager extends EngineComponent {
       totalLength += length
     }
 
-    if (totalLength !== pieceLength) {
-      throw new Error(
-        `Web seed piece planning mismatch for piece ${pieceIndex}: planned ${totalLength}, expected ${pieceLength}`,
-      )
+    if (totalLength !== rangeLength) {
+      throw new Error(`Web seed range planning mismatch: planned ${totalLength}, expected ${rangeLength}`)
     }
 
     return spans
@@ -238,11 +293,12 @@ export class WebSeedManager extends EngineComponent {
 
   private async runTransfer(
     source: WebSeedSourceState,
-    reservation: ReservedPiece,
+    reservation: ReservedRange,
     signal: AbortSignal,
   ): Promise<void> {
     const cursor = {
-      pieceBytesRead: 0,
+      reservationBytesRead: 0,
+      pieceCursorIndex: 0,
       partialBlock: null as PartialBlockState | null,
     }
 
@@ -265,13 +321,13 @@ export class WebSeedManager extends EngineComponent {
 
       if (cursor.partialBlock !== null) {
         throw new Error(
-          `Web seed ended mid-block for piece ${reservation.pieceIndex} at block ${cursor.partialBlock.blockIndex}`,
+          `Web seed ended mid-block for piece ${cursor.partialBlock.pieceIndex} at block ${cursor.partialBlock.blockIndex}`,
         )
       }
 
-      if (cursor.pieceBytesRead !== reservation.pieceLength) {
+      if (cursor.reservationBytesRead !== reservation.totalLength) {
         throw new Error(
-          `Web seed piece length mismatch for piece ${reservation.pieceIndex}: received ${cursor.pieceBytesRead}, expected ${reservation.pieceLength}`,
+          `Web seed transfer length mismatch for piece ${reservation.startPieceIndex}: received ${cursor.reservationBytesRead}, expected ${reservation.totalLength}`,
         )
       }
 
@@ -284,11 +340,12 @@ export class WebSeedManager extends EngineComponent {
   }
 
   private async consumeSpanBody(
-    reservation: ReservedPiece,
+    reservation: ReservedRange,
     body: { read(): Promise<Uint8Array | null> },
     expectedLength: number,
     cursor: {
-      pieceBytesRead: number
+      reservationBytesRead: number
+      pieceCursorIndex: number
       partialBlock: PartialBlockState | null
     },
   ): Promise<void> {
@@ -299,24 +356,32 @@ export class WebSeedManager extends EngineComponent {
       if (chunk === null) break
 
       if (spanBytesRead >= expectedLength) {
-        throw new Error(`Web seed returned extra bytes for piece ${reservation.pieceIndex}`)
+        throw new Error(
+          `Web seed returned extra bytes for transfer starting at piece ${reservation.startPieceIndex}`,
+        )
       }
 
       let offset = 0
       while (offset < chunk.length) {
         const remainingInSpan = expectedLength - spanBytesRead
         if (remainingInSpan <= 0) {
-          throw new Error(`Web seed returned extra bytes for piece ${reservation.pieceIndex}`)
+          throw new Error(
+            `Web seed returned extra bytes for transfer starting at piece ${reservation.startPieceIndex}`,
+          )
         }
 
-        const blockIndex = Math.floor(cursor.pieceBytesRead / BLOCK_SIZE)
+        const reservedPiece = getReservedPieceForOffset(reservation, cursor)
+        const pieceOffset = cursor.reservationBytesRead - reservedPiece.rangeStart
+        const blockIndex = Math.floor(pieceOffset / BLOCK_SIZE)
         const blockOffset = blockIndex * BLOCK_SIZE
-        const blockLength = Math.min(BLOCK_SIZE, reservation.pieceLength - blockOffset)
-        const offsetInBlock = cursor.pieceBytesRead - blockOffset
+        const blockLength = Math.min(BLOCK_SIZE, reservedPiece.pieceLength - blockOffset)
+        const offsetInBlock = pieceOffset - blockOffset
         const bytesToCopy = Math.min(blockLength - offsetInBlock, chunk.length - offset)
 
         if (bytesToCopy > remainingInSpan) {
-          throw new Error(`Web seed returned extra bytes for piece ${reservation.pieceIndex}`)
+          throw new Error(
+            `Web seed returned extra bytes for transfer starting at piece ${reservation.startPieceIndex}`,
+          )
         }
 
         if (offsetInBlock === 0 && bytesToCopy === blockLength && cursor.partialBlock === null) {
@@ -324,19 +389,24 @@ export class WebSeedManager extends EngineComponent {
           if (
             !this.deps.onReceivedBlockFromSource(
               reservation.sourceId,
-              reservation.pieceIndex,
+              reservedPiece.pieceIndex,
               blockOffset,
               block,
             )
           ) {
             throw new Error(
-              `Torrent rejected web-seed block ${reservation.pieceIndex}:${blockOffset}`,
+              `Torrent rejected web-seed block ${reservedPiece.pieceIndex}:${blockOffset}`,
             )
           }
         } else {
           let partialBlock = cursor.partialBlock
-          if (!partialBlock || partialBlock.blockIndex !== blockIndex) {
+          if (
+            !partialBlock ||
+            partialBlock.pieceIndex !== reservedPiece.pieceIndex ||
+            partialBlock.blockIndex !== blockIndex
+          ) {
             partialBlock = {
+              pieceIndex: reservedPiece.pieceIndex,
               blockIndex,
               data: new Uint8Array(blockLength),
               written: 0,
@@ -351,13 +421,13 @@ export class WebSeedManager extends EngineComponent {
             if (
               !this.deps.onReceivedBlockFromSource(
                 reservation.sourceId,
-                reservation.pieceIndex,
+                reservedPiece.pieceIndex,
                 blockOffset,
                 partialBlock.data,
               )
             ) {
               throw new Error(
-                `Torrent rejected web-seed block ${reservation.pieceIndex}:${blockOffset}`,
+                `Torrent rejected web-seed block ${reservedPiece.pieceIndex}:${blockOffset}`,
               )
             }
             cursor.partialBlock = null
@@ -366,37 +436,39 @@ export class WebSeedManager extends EngineComponent {
 
         offset += bytesToCopy
         spanBytesRead += bytesToCopy
-        cursor.pieceBytesRead += bytesToCopy
+        cursor.reservationBytesRead += bytesToCopy
       }
     }
 
     if (spanBytesRead !== expectedLength) {
       throw new Error(
-        `Web seed truncated response for piece ${reservation.pieceIndex}: received ${spanBytesRead}, expected ${expectedLength}`,
+        `Web seed truncated response for transfer starting at piece ${reservation.startPieceIndex}: received ${spanBytesRead}, expected ${expectedLength}`,
       )
     }
   }
 
-  private releaseReservation(reservation: ReservedPiece): void {
+  private releaseReservation(reservation: ReservedRange): void {
     const activePieces = this.deps.getActivePieces()
     if (!activePieces) return
 
-    const piece = activePieces.get(reservation.pieceIndex)
-    if (!piece) return
+    for (const reservedPiece of reservation.pieces) {
+      const piece = activePieces.get(reservedPiece.pieceIndex)
+      if (!piece) continue
 
-    const cleared = piece.clearRequestsForSource(reservation.sourceId)
-    if (cleared === 0) return
+      const cleared = piece.clearRequestsForSource(reservation.sourceId)
+      if (cleared === 0) continue
 
-    if (piece.haveAllBlocks) return
+      if (piece.haveAllBlocks) continue
 
-    if (piece.blocksReceived === 0 && piece.outstandingRequests === 0) {
-      activePieces.remove(reservation.pieceIndex)
-      this.deps.reindexPieceForConnectedPeers(reservation.pieceIndex)
-      return
-    }
+      if (piece.blocksReceived === 0 && piece.outstandingRequests === 0) {
+        activePieces.remove(reservedPiece.pieceIndex)
+        this.deps.reindexPieceForConnectedPeers(reservedPiece.pieceIndex)
+        continue
+      }
 
-    if (piece.hasUnrequestedBlocks) {
-      activePieces.demoteToPartial(reservation.pieceIndex)
+      if (piece.hasUnrequestedBlocks) {
+        activePieces.demoteToPartial(reservedPiece.pieceIndex)
+      }
     }
   }
 
@@ -414,12 +486,12 @@ export class WebSeedManager extends EngineComponent {
     )
   }
 
-  private startTransfer(source: WebSeedSourceState, reservation: ReservedPiece): void {
+  private startTransfer(source: WebSeedSourceState, reservation: ReservedRange): void {
     const controller = new AbortController()
-    const transferId = `${source.id}:${reservation.pieceIndex}`
+    const transferId = `${source.id}:${reservation.startPieceIndex}`
     this.activeTransfers.set(transferId, {
       sourceId: source.id,
-      pieceIndex: reservation.pieceIndex,
+      pieceIndex: reservation.startPieceIndex,
       controller,
     })
 
@@ -427,7 +499,7 @@ export class WebSeedManager extends EngineComponent {
       .catch((error) => {
         if (controller.signal.aborted) {
           this.logger.debug(
-            `Web-seed transfer aborted for piece ${reservation.pieceIndex} from ${source.url}`,
+            `Web-seed transfer aborted for piece ${reservation.startPieceIndex} from ${source.url}`,
           )
           return
         }
@@ -453,6 +525,23 @@ function* iteratePieceIndices(pieceCount: number, startIndex: number): Iterable<
   for (let index = 0; index < startIndex; index++) {
     yield index
   }
+}
+
+function getReservedPieceForOffset(
+  reservation: ReservedRange,
+  cursor: { reservationBytesRead: number; pieceCursorIndex: number },
+): ReservedPiece {
+  while (cursor.pieceCursorIndex < reservation.pieces.length) {
+    const piece = reservation.pieces[cursor.pieceCursorIndex]
+    if (cursor.reservationBytesRead < piece.rangeStart + piece.pieceLength) {
+      return piece
+    }
+    cursor.pieceCursorIndex += 1
+  }
+
+  throw new Error(
+    `Web seed cursor exceeded reserved range starting at piece ${reservation.startPieceIndex}`,
+  )
 }
 
 function getWebSeedSourceId(url: string): string {
