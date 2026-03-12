@@ -119,8 +119,16 @@
         statusDiv.className = 'status ' + type
       }
 
+      function normalizeLaunchParams(params) {
+        const normalized = { ...params }
+        if (!normalized.magnet && normalized.magnet_uri) {
+          normalized.magnet = normalized.magnet_uri
+        }
+        return normalized
+      }
+
       function getDesktopLaunchUrl() {
-        const params = parseHashParams()
+        const params = normalizeLaunchParams(parseHashParams())
         if (params.magnet) {
           return 'jstorrent://launch?magnet=' + encodeURIComponent(params.magnet)
         }
@@ -232,7 +240,7 @@
         updateStatus('Redirecting to JSTorrent desktop app...', 'success')
         window.location.href = getDesktopLaunchUrl()
       } else if (window.chrome && window.chrome.runtime) {
-        const params = parseHashParams()
+        const params = normalizeLaunchParams(parseHashParams())
         const hasMagnet = !!params.magnet
         const hasTorrent = !!params.torrent
         const hasToken = !!params.token
