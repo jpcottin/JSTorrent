@@ -81,7 +81,7 @@ function determineBodyMode(
 }
 
 export class HttpResponseParser {
-  private buffer = new Uint8Array(0)
+  private buffer: Uint8Array<ArrayBufferLike> = new Uint8Array(0)
   private head: HttpResponseHead | null = null
   private complete = false
   private contentLengthRemaining = 0
@@ -102,7 +102,8 @@ export class HttpResponseParser {
     }
     if (data.length === 0) return []
 
-    this.buffer = this.buffer.length === 0 ? new Uint8Array(data) : concat([this.buffer, data])
+    this.buffer =
+      this.buffer.length === 0 ? new Uint8Array(Array.from(data)) : concat([this.buffer, data])
     return this.drain()
   }
 
@@ -254,4 +255,3 @@ export class HttpResponseParser {
     return events
   }
 }
-

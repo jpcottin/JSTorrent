@@ -1,4 +1,4 @@
-import type { AddressFamilyPreference, ISocketFactory, ITcpSocket, SocketPurpose } from '../interfaces/socket'
+import type { AddressFamilyPreference, ISocketFactory, SocketPurpose } from '../interfaces/socket'
 import { PREFERRED_ADDRESS_FAMILY } from '../interfaces/socket'
 import { Logger } from '../logging/logger'
 import { fromString } from '../utils/buffer'
@@ -65,7 +65,7 @@ class AsyncChunkQueue implements HttpBodyReader {
 export class SocketHttpTransport implements HttpTransport {
   constructor(
     private socketFactory: ISocketFactory,
-    private logger?: Logger,
+    _logger?: Logger,
     private purpose?: SocketPurpose,
     private addressFamily: AddressFamilyPreference = PREFERRED_ADDRESS_FAMILY,
   ) {}
@@ -216,4 +216,3 @@ function buildHttpRequestText(options: {
   requestLines.push('', '')
   return requestLines.join('\r\n')
 }
-

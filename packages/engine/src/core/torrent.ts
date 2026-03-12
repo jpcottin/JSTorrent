@@ -60,6 +60,8 @@ import {
 import { WriteError, classifyError, getRetryDelay } from './write-error'
 import { VerifyChunkResult } from '../interfaces/filesystem'
 import type { VerifyChunksRequest, IFileSystem } from '../interfaces/filesystem'
+import { WebSeedHttpClient } from '../webseed/web-seed-http-client'
+import { WebSeedManager } from '../webseed/web-seed-manager'
 
 /**
  * Maximum ratio of peer slots that incoming connections can occupy.
@@ -218,6 +220,9 @@ export class Torrent extends EngineComponent {
 
   // Piece requester (handles piece selection and requesting)
   private _pieceRequester?: TorrentPieceRequester
+
+  // Web-seed manager (BEP 19 url-list / magnet ws)
+  private _webSeedManager?: WebSeedManager
 
   // Peer event handler (handles wire protocol events)
   private _peerHandler!: TorrentPeerHandler
@@ -759,6 +764,9 @@ export class Torrent extends EngineComponent {
 
     this.logger.debug('Starting network')
     this._networkActive = true
+    if (this.webSeedUrls.length > 0) {
+      this.ensureWebSeedManager().tick()
+    }
 
     // Reset backoff state so we immediately try reconnecting to known peers
     this._swarm.resetBackoffState()
@@ -2267,6 +2275,7 @@ export class Torrent extends EngineComponent {
 
     this.logger.debug('Suspending network')
     this._networkActive = false
+    this._webSeedManager?.stop()
 
     // Stop periodic maintenance
     // Note: Request processing is now handled by BtEngine.engineTick()
@@ -2390,6 +2399,9 @@ export class Torrent extends EngineComponent {
    */
   tick(): TickResult | null {
     const result = this._tickLoop.tick()
+    if (this.webSeedUrls.length > 0) {
+      this.ensureWebSeedManager().tick()
+    }
     if (this._gracefulStopping) {
       this._checkGracefulStopComplete()
     }
@@ -2994,6 +3006,59 @@ export class Torrent extends EngineComponent {
     this._pieceRequester.request(peer, now)
   }
 
+  private initActivePieceManager(): ActivePieceManager {
+    if (this.activePieces) {
+      return this.activePieces
+    }
+
+    this.activePieces = new ActivePieceManager(
+      this.engineInstance,
+      (index) => this.getPieceLength(index),
+      {
+        platformType: this.btEngine.config?.platformType.get(),
+        standardPieceLength: this.pieceLength,
+      },
+    )
+    return this.activePieces
+  }
+
+  private createWebSeedHttpClient(): WebSeedHttpClient {
+    return new WebSeedHttpClient(this.socketFactory, this.logger)
+  }
+
+  private ensureWebSeedManager(): WebSeedManager {
+    if (this._webSeedManager) {
+      return this._webSeedManager
+    }
+
+    this._webSeedManager = new WebSeedManager(
+      this.engineInstance,
+      this.createWebSeedHttpClient(),
+      {
+        isNetworkActive: () => this._networkActive,
+        isComplete: () => this.isComplete,
+        hasMetadata: () => this.hasMetadata,
+        getWebSeedUrls: () => this.webSeedUrls,
+        getFiles: () => this.contentStorage?.filesList ?? [],
+        isMultiFileTorrent: () => Array.isArray(this.infoDict?.files),
+        getPieceCount: () => this.piecesCount,
+        getFirstNeededPiece: () => this._firstNeededPiece,
+        getPieceLength: (index) => this.getPieceLength(index),
+        getPieceOffset: (index) => index * this.pieceLength,
+        shouldRequestPiece: (index) => this.shouldRequestPiece(index),
+        hasPiece: (index) => this.hasPiece(index),
+        getActivePieces: () => this.activePieces,
+        initActivePieces: () => this.initActivePieceManager(),
+        removePieceFromAllIndices: (index) => this.removePieceFromAllIndices(index),
+        reindexPieceForConnectedPeers: (index) => this.reindexPieceForConnectedPeers(index),
+        onReceivedBlockFromSource: (sourceId, pieceIndex, blockOffset, data) =>
+          this.handleBlockFromSource(sourceId, pieceIndex, blockOffset, data),
+      },
+    )
+
+    return this._webSeedManager
+  }
+
   /**
    * Create the piece requester with all necessary dependencies.
    */
@@ -3015,17 +3080,7 @@ export class Torrent extends EngineComponent {
 
       // Managers
       getActivePieces: () => this.activePieces,
-      initActivePieces: () => {
-        this.activePieces = new ActivePieceManager(
-          this.engineInstance,
-          (index) => this.getPieceLength(index),
-          {
-            platformType: this.btEngine.config?.platformType.get(),
-            standardPieceLength: this.pieceLength,
-          },
-        )
-        return this.activePieces
-      },
+      initActivePieces: () => this.initActivePieceManager(),
       getAvailability: () => this._availability,
       getEndgameManager: () => this._endgameManager,
 
@@ -3119,14 +3174,7 @@ export class Torrent extends EngineComponent {
 
     // Initialize activePieces if needed (lazy init after metadata is available)
     if (!this.activePieces && this.hasMetadata) {
-      this.activePieces = new ActivePieceManager(
-        this.engineInstance,
-        (index) => this.getPieceLength(index),
-        {
-          platformType: this.btEngine.config?.platformType.get(),
-          standardPieceLength: this.pieceLength,
-        },
-      )
+      this.initActivePieceManager()
     }
 
     if (!this.activePieces) {
@@ -3211,6 +3259,63 @@ export class Torrent extends EngineComponent {
         this.logger.error(`Error finalizing piece ${pieceIndex}:`, err)
       })
     }
+  }
+
+  private handleBlockFromSource(
+    sourceId: string,
+    pieceIndex: number,
+    blockOffset: number,
+    data: Uint8Array,
+  ): boolean {
+    if (!this.activePieces && this.hasMetadata) {
+      this.initActivePieceManager()
+    }
+
+    if (!this.activePieces) {
+      this.logger.warn(
+        `Received web-seed block ${pieceIndex}:${blockOffset} but activePieces not initialized`,
+      )
+      return false
+    }
+
+    if (this._bitfield?.get(pieceIndex)) {
+      this.logger.debug(`Ignoring web-seed block ${pieceIndex}:${blockOffset} - piece complete`)
+      return false
+    }
+
+    const piece = this.activePieces.get(pieceIndex)
+    if (!piece) {
+      this.logger.debug(
+        `Ignoring web-seed block ${pieceIndex}:${blockOffset} - piece not active`,
+      )
+      return false
+    }
+
+    const blockIndex = Math.floor(blockOffset / BLOCK_SIZE)
+    if (!piece.hasRequestForBlockFromSource(blockIndex, sourceId)) {
+      this.logger.debug(
+        `Ignoring unsolicited web-seed block ${pieceIndex}:${blockOffset} from ${sourceId}`,
+      )
+      return false
+    }
+
+    const isNew = piece.addBlock(blockIndex, data, sourceId)
+    if (!isNew) {
+      this.logger.debug(`Duplicate web-seed block ${pieceIndex}:${blockOffset}`)
+      return false
+    }
+
+    this.totalDownloaded += data.length
+    this.emit('download', data.length)
+
+    if (piece.haveAllBlocks) {
+      this.activePieces.promoteToFullyResponded(pieceIndex)
+      this.finalizePiece(pieceIndex, piece).catch((err) => {
+        this.logger.error(`Error finalizing web-seed piece ${pieceIndex}:`, err)
+      })
+    }
+
+    return true
   }
 
   /**
