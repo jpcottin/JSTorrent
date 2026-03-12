@@ -18,6 +18,8 @@ interface SearchPluginsOverlayProps {
   onClose: () => void
 }
 
+const SEARCH_PLUGINS_OVERLAY_STATE_KEY = 'jstorrent:searchPluginsOverlayState'
+
 const EMPTY_DRAFT_RUN_RESULT: SearchPluginDraftRunResult = {
   trace: {
     ok: false,
@@ -60,18 +62,63 @@ const RECOMMENDED_PLUGINS: SearchPluginManifest[] = [
   },
 ]
 
+function loadSavedOverlayState(): {
+  searchInput: SearchPluginSearchInput
+  selectedPluginIds: string[]
+} {
+  const fallback = {
+    searchInput: {
+      query: 'night of the living dead',
+      category: 'movies',
+    },
+    selectedPluginIds: [],
+  }
+
+  try {
+    const raw = globalThis.localStorage?.getItem(SEARCH_PLUGINS_OVERLAY_STATE_KEY)
+    if (!raw) return fallback
+
+    const parsed = JSON.parse(raw) as {
+      searchInput?: Partial<SearchPluginSearchInput>
+      selectedPluginIds?: string[]
+    }
+
+    const query =
+      typeof parsed.searchInput?.query === 'string' && parsed.searchInput.query.trim().length > 0
+        ? parsed.searchInput.query
+        : fallback.searchInput.query
+    const category =
+      typeof parsed.searchInput?.category === 'string' && parsed.searchInput.category.trim().length > 0
+        ? parsed.searchInput.category
+        : fallback.searchInput.category
+
+    return {
+      searchInput: {
+        query,
+        category,
+      },
+      selectedPluginIds: Array.isArray(parsed.selectedPluginIds)
+        ? parsed.selectedPluginIds.filter((entry): entry is string => typeof entry === 'string')
+        : fallback.selectedPluginIds,
+    }
+  } catch {
+    return fallback
+  }
+}
+
 export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayProps) {
   const pluginService = useSearchPluginService()
   const [activeTab, setActiveTab] = useState<SearchPluginsTab>('search')
   const [installedPlugins, setInstalledPlugins] = useState<InstalledPluginRecord[]>([])
-  const [selectedPluginIds, setSelectedPluginIds] = useState<string[]>([])
+  const [selectedPluginIds, setSelectedPluginIds] = useState<string[]>(
+    () => loadSavedOverlayState().selectedPluginIds,
+  )
   const [installPreview, setInstallPreview] = useState<SearchPluginManifest | null>(null)
   const [sourceUrl, setSourceUrl] = useState('')
   const [draftSource, setDraftSource] = useState(INITIAL_SAMPLE_SOURCE)
-  const [searchInput, setSearchInput] = useState<SearchPluginSearchInput>({
-    query: 'night of the living dead',
-    category: 'movies',
-  })
+  const [searchInput, setSearchInput] = useState<SearchPluginSearchInput>(
+    () => loadSavedOverlayState().searchInput,
+  )
   const [draftRunResult, setDraftRunResult] = useState<SearchPluginDraftRunResult | null>(null)
   const [labBusy, setLabBusy] = useState(false)
   const [labStatus, setLabStatus] = useState<string | null>(null)
@@ -104,6 +151,20 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
         setInstallStatus(error instanceof Error ? error.message : String(error))
       })
   }, [isOpen, pluginService])
+
+  useEffect(() => {
+    try {
+      globalThis.localStorage?.setItem(
+        SEARCH_PLUGINS_OVERLAY_STATE_KEY,
+        JSON.stringify({
+          searchInput,
+          selectedPluginIds,
+        }),
+      )
+    } catch {
+      // Ignore storage failures; the overlay still functions without persistence.
+    }
+  }, [searchInput, selectedPluginIds])
 
   useEffect(() => {
     if (!isOpen) return
