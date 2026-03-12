@@ -5,12 +5,13 @@ import type {
   InstalledPluginRecord,
   SearchPluginDraftRunResult,
   SearchPluginManifest,
+  SearchResult,
   SearchPluginSearchInput,
 } from '../search/types'
 import { ExtensionSandboxLabHost } from '../search/extension-sandbox-lab-host'
 import { createInstalledPluginRecord } from '../search/plugin-utils'
 
-type SearchPluginsTab = 'installed' | 'add' | 'lab'
+type SearchPluginsTab = 'search' | 'installed' | 'add' | 'lab'
 
 interface SearchPluginsOverlayProps {
   isOpen: boolean
@@ -33,10 +34,20 @@ const EMPTY_DRAFT_RUN_RESULT: SearchPluginDraftRunResult = {
 }
 
 const TABS: { id: SearchPluginsTab; label: string }[] = [
+  { id: 'search', label: 'Search' },
   { id: 'installed', label: 'Installed' },
   { id: 'add', label: 'Add from URL' },
   { id: 'lab', label: 'Plugin Lab' },
 ]
+
+interface SearchRunSummary {
+  pluginId: string
+  pluginName: string
+  ok: boolean
+  durationMs: number
+  resultCount: number
+  errorMessage?: string
+}
 
 const INITIAL_SAMPLE_SOURCE = `export const manifest = {
   name: 'Internet Archive',
@@ -61,8 +72,9 @@ const RECOMMENDED_PLUGINS: SearchPluginManifest[] = [
 export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayProps) {
   const engineManager = useEngineManager()
   const hostRef = useRef<ExtensionSandboxLabHost | null>(null)
-  const [activeTab, setActiveTab] = useState<SearchPluginsTab>('installed')
+  const [activeTab, setActiveTab] = useState<SearchPluginsTab>('search')
   const [installedPlugins, setInstalledPlugins] = useState<InstalledPluginRecord[]>([])
+  const [selectedPluginIds, setSelectedPluginIds] = useState<string[]>([])
   const [installPreview, setInstallPreview] = useState<SearchPluginManifest | null>(null)
   const [sourceUrl, setSourceUrl] = useState('')
   const [draftSource, setDraftSource] = useState(INITIAL_SAMPLE_SOURCE)
@@ -75,6 +87,10 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
   const [labStatus, setLabStatus] = useState<string | null>(null)
   const [installBusy, setInstallBusy] = useState(false)
   const [installStatus, setInstallStatus] = useState<string | null>(null)
+  const [searchBusy, setSearchBusy] = useState(false)
+  const [searchStatus, setSearchStatus] = useState<string | null>(null)
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [searchSummaries, setSearchSummaries] = useState<SearchRunSummary[]>([])
 
   if (!hostRef.current) {
     hostRef.current = new ExtensionSandboxLabHost({
@@ -85,10 +101,23 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
   useEffect(() => {
     if (!isOpen) return
 
-    void engineManager.listInstalledSearchPlugins().then(setInstalledPlugins).catch((error) => {
-      console.error('[SearchPluginsOverlay] Failed to load installed plugins', error)
-      setInstallStatus(error instanceof Error ? error.message : String(error))
-    })
+    void engineManager
+      .listInstalledSearchPlugins()
+      .then((plugins) => {
+        setInstalledPlugins(plugins)
+        setSelectedPluginIds((current) => {
+          const available = new Set(plugins.filter((plugin) => plugin.enabled).map((p) => p.pluginId))
+          if (current.length === 0) {
+            return Array.from(available)
+          }
+          const next = current.filter((pluginId) => available.has(pluginId))
+          return next.length > 0 ? next : Array.from(available)
+        })
+      })
+      .catch((error) => {
+        console.error('[SearchPluginsOverlay] Failed to load installed plugins', error)
+        setInstallStatus(error instanceof Error ? error.message : String(error))
+      })
   }, [engineManager, isOpen])
 
   useEffect(() => {
@@ -168,6 +197,9 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
       await engineManager.saveInstalledSearchPlugin(plugin)
       const refreshed = await engineManager.listInstalledSearchPlugins()
       setInstalledPlugins(refreshed)
+      setSelectedPluginIds((current) =>
+        current.includes(plugin.pluginId) ? current : [...current, plugin.pluginId],
+      )
       setInstallPreview(plugin.manifest)
       setDraftSource(source)
       setInstallStatus(`Installed ${plugin.manifest.name}.`)
@@ -190,6 +222,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
       await engineManager.removeInstalledSearchPlugin(pluginId)
       const refreshed = await engineManager.listInstalledSearchPlugins()
       setInstalledPlugins(refreshed)
+      setSelectedPluginIds((current) => current.filter((id) => id !== pluginId))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       standaloneAlert(message)
@@ -258,6 +291,99 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     })
   }
 
+  const handleTogglePluginEnabled = async (plugin: InstalledPluginRecord) => {
+    try {
+      const updatedPlugin: InstalledPluginRecord = {
+        ...plugin,
+        enabled: !plugin.enabled,
+        updatedAt: Date.now(),
+      }
+      await engineManager.saveInstalledSearchPlugin(updatedPlugin)
+      const refreshed = await engineManager.listInstalledSearchPlugins()
+      setInstalledPlugins(refreshed)
+      setSelectedPluginIds((current) => {
+        if (updatedPlugin.enabled) {
+          return current.includes(plugin.pluginId) ? current : [...current, plugin.pluginId]
+        }
+        return current.filter((id) => id !== plugin.pluginId)
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      standaloneAlert(message)
+    }
+  }
+
+  const handleToggleSearchPlugin = (pluginId: string) => {
+    setSelectedPluginIds((current) =>
+      current.includes(pluginId)
+        ? current.filter((id) => id !== pluginId)
+        : [...current, pluginId],
+    )
+  }
+
+  const handleRunSearch = async () => {
+    const selectedPlugins = installedPlugins.filter(
+      (plugin) => plugin.enabled && selectedPluginIds.includes(plugin.pluginId),
+    )
+
+    if (selectedPlugins.length === 0) {
+      setSearchStatus('Select at least one enabled plugin to run a search.')
+      return
+    }
+
+    setSearchBusy(true)
+    setSearchStatus(`Running ${selectedPlugins.length} plugin${selectedPlugins.length === 1 ? '' : 's'}...`)
+    setSearchResults([])
+    setSearchSummaries([])
+
+    try {
+      const summaries: SearchRunSummary[] = []
+      const aggregateResults: SearchResult[] = []
+
+      for (const plugin of selectedPlugins) {
+        try {
+          const result = await hostRef.current!.runDraft(plugin.code, searchInput)
+          aggregateResults.push(...result.trace.results)
+          summaries.push({
+            pluginId: plugin.pluginId,
+            pluginName: plugin.manifest.name,
+            ok: result.trace.ok,
+            durationMs: result.trace.durationMs,
+            resultCount: result.trace.results.length,
+            errorMessage: result.trace.error?.message,
+          })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          summaries.push({
+            pluginId: plugin.pluginId,
+            pluginName: plugin.manifest.name,
+            ok: false,
+            durationMs: 0,
+            resultCount: 0,
+            errorMessage: message,
+          })
+        }
+      }
+
+      aggregateResults.sort((left, right) => {
+        const leftSeeds = left.seeds ?? -1
+        const rightSeeds = right.seeds ?? -1
+        if (leftSeeds !== rightSeeds) {
+          return rightSeeds - leftSeeds
+        }
+        return left.name.localeCompare(right.name)
+      })
+
+      setSearchSummaries(summaries)
+      setSearchResults(aggregateResults)
+      setSearchStatus(
+        `Search finished: ${aggregateResults.length} results from ${selectedPlugins.length} plugin${selectedPlugins.length === 1 ? '' : 's'}.`,
+      )
+    } finally {
+      setSearchBusy(false)
+    }
+  }
+
   return (
     <div style={styles.backdrop} onClick={onClose}>
       <div style={styles.modal} onClick={(event) => event.stopPropagation()}>
@@ -295,15 +421,30 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
                 Search plugin execution is currently available only inside the Chrome extension UI.
               </div>
             )}
+            {activeTab === 'search' && (
+              <SearchTab
+                installedPlugins={installedPlugins}
+                searchBusy={searchBusy}
+                searchInput={searchInput}
+                searchResults={searchResults}
+                searchStatus={searchStatus}
+                searchSummaries={searchSummaries}
+                selectedPluginIds={selectedPluginIds}
+                onSearchInputChange={setSearchInput}
+                onRunSearch={handleRunSearch}
+                onToggleSearchPlugin={handleToggleSearchPlugin}
+              />
+            )}
             {activeTab === 'installed' && (
               <InstalledTab
                 installedPlugins={installedPlugins}
                 recommendedPlugins={RECOMMENDED_PLUGINS}
-                actionsDisabled={labBusy}
+                actionsDisabled={labBusy || searchBusy}
                 onOpenAddTab={() => setActiveTab('add')}
                 onLoadPlugin={handleLoadInstalledPlugin}
                 onRemovePlugin={handleRemovePlugin}
                 onRunPlugin={handleRunInstalledPlugin}
+                onTogglePluginEnabled={handleTogglePluginEnabled}
               />
             )}
             {activeTab === 'add' && (
@@ -347,6 +488,7 @@ interface InstalledTabProps {
   onLoadPlugin: (plugin: InstalledPluginRecord) => void
   onRemovePlugin: (pluginId: string) => void
   onRunPlugin: (plugin: InstalledPluginRecord) => void
+  onTogglePluginEnabled: (plugin: InstalledPluginRecord) => void
 }
 
 function InstalledTab({
@@ -357,6 +499,7 @@ function InstalledTab({
   onLoadPlugin,
   onRemovePlugin,
   onRunPlugin,
+  onTogglePluginEnabled,
 }: InstalledTabProps) {
   return (
     <div style={styles.tabPanel}>
@@ -381,6 +524,13 @@ function InstalledTab({
                 <strong>{plugin.manifest.name}</strong>
                 <div style={styles.inlineActions}>
                   <span style={styles.badge}>{plugin.enabled ? 'Enabled' : 'Disabled'}</span>
+                  <button
+                    style={styles.linkButton}
+                    onClick={() => onTogglePluginEnabled(plugin)}
+                    disabled={actionsDisabled}
+                  >
+                    {plugin.enabled ? 'Disable' : 'Enable'}
+                  </button>
                   <button
                     style={styles.linkButton}
                     onClick={() => onLoadPlugin(plugin)}
@@ -429,6 +579,187 @@ function InstalledTab({
             <div style={styles.metaText}>Hosts: {plugin.hosts.join(', ')}</div>
           </div>
         ))}
+      </Section>
+    </div>
+  )
+}
+
+interface SearchTabProps {
+  installedPlugins: InstalledPluginRecord[]
+  searchBusy: boolean
+  searchInput: SearchPluginSearchInput
+  searchResults: SearchResult[]
+  searchStatus: string | null
+  searchSummaries: SearchRunSummary[]
+  selectedPluginIds: string[]
+  onSearchInputChange: (value: SearchPluginSearchInput) => void
+  onRunSearch: () => void
+  onToggleSearchPlugin: (pluginId: string) => void
+}
+
+function SearchTab({
+  installedPlugins,
+  searchBusy,
+  searchInput,
+  searchResults,
+  searchStatus,
+  searchSummaries,
+  selectedPluginIds,
+  onSearchInputChange,
+  onRunSearch,
+  onToggleSearchPlugin,
+}: SearchTabProps) {
+  const enabledPlugins = installedPlugins.filter((plugin) => plugin.enabled)
+
+  return (
+    <div style={styles.tabPanel}>
+      <Section
+        title="Search Providers"
+        description="Run one or more installed plugins and view normalized results in a single list."
+      >
+        <label style={styles.fieldLabel}>
+          Search Query
+          <input
+            type="text"
+            value={searchInput.query}
+            onChange={(event) =>
+              onSearchInputChange({
+                ...searchInput,
+                query: event.target.value,
+              })
+            }
+            style={styles.input}
+          />
+        </label>
+
+        <label style={styles.fieldLabel}>
+          Category
+          <input
+            type="text"
+            value={searchInput.category ?? ''}
+            onChange={(event) =>
+              onSearchInputChange({
+                ...searchInput,
+                category: event.target.value || undefined,
+              })
+            }
+            style={styles.input}
+          />
+        </label>
+
+        {enabledPlugins.length === 0 ? (
+          <div style={styles.emptyState}>
+            <strong>No enabled plugins available.</strong>
+            <p style={styles.emptyStateText}>
+              Install a plugin first, or re-enable one from the Installed tab.
+            </p>
+          </div>
+        ) : (
+          <div style={styles.checkboxList}>
+            {enabledPlugins.map((plugin) => {
+              const checked = selectedPluginIds.includes(plugin.pluginId)
+              return (
+                <label key={plugin.pluginId} style={styles.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => onToggleSearchPlugin(plugin.pluginId)}
+                  />
+                  <span style={styles.checkboxLabel}>
+                    <strong>{plugin.manifest.name}</strong>
+                    <span style={styles.checkboxMeta}>{plugin.manifest.hosts.join(', ')}</span>
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+        )}
+
+        <div style={styles.actionRow}>
+          <button
+            style={styles.primaryButton}
+            onClick={onRunSearch}
+            disabled={searchBusy || enabledPlugins.length === 0}
+          >
+            {searchBusy ? 'Running Search...' : 'Run Search'}
+          </button>
+        </div>
+        {searchStatus && <div style={styles.statusText}>{searchStatus}</div>}
+      </Section>
+
+      <Section
+        title="Provider Runs"
+        description="Per-plugin status for the most recent search."
+      >
+        {searchSummaries.length > 0 ? (
+          <div style={styles.summaryList}>
+            {searchSummaries.map((summary) => (
+              <div key={summary.pluginId} style={styles.summaryCard}>
+                <div style={styles.pluginCardHeader}>
+                  <strong>{summary.pluginName}</strong>
+                  <span style={summary.ok ? styles.badge : styles.badgeError}>
+                    {summary.ok ? 'OK' : 'Failed'}
+                  </span>
+                </div>
+                <div style={styles.metaText}>
+                  {summary.resultCount} results in {summary.durationMs}ms
+                </div>
+                {summary.errorMessage && (
+                  <div style={styles.errorText}>{summary.errorMessage}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={styles.metaText}>No search has been run yet.</div>
+        )}
+      </Section>
+
+      <Section
+        title="Results"
+        description="Normalized results sorted by seeds, then by name."
+      >
+        {searchResults.length > 0 ? (
+          <div style={styles.resultsList}>
+            {searchResults.map((result, index) => (
+              <div key={`${result.source}-${result.name}-${index}`} style={styles.resultCard}>
+                <div style={styles.resultHeader}>
+                  <strong>{result.name}</strong>
+                  <span style={styles.badgeMuted}>{result.source}</span>
+                </div>
+                <div style={styles.resultMetaRow}>
+                  <span>Seeds: {result.seeds ?? 'n/a'}</span>
+                  <span>Leeches: {result.leeches ?? 'n/a'}</span>
+                  <span>Size: {formatResultSize(result.size)}</span>
+                </div>
+                <div style={styles.resultLinkRow}>
+                  {result.magnetUrl && (
+                    <a href={result.magnetUrl} style={styles.resultLink}>
+                      Magnet
+                    </a>
+                  )}
+                  {result.torrentUrl && (
+                    <a href={result.torrentUrl} style={styles.resultLink}>
+                      Torrent
+                    </a>
+                  )}
+                  {result.detailsUrl && (
+                    <a
+                      href={result.detailsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={styles.resultLink}
+                    >
+                      Details
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={styles.metaText}>No aggregated results yet.</div>
+        )}
       </Section>
     </div>
   )
@@ -684,6 +1015,13 @@ function Section({ title, description, children }: SectionProps) {
   )
 }
 
+function formatResultSize(size?: number): string {
+  if (typeof size !== 'number' || !Number.isFinite(size) || size <= 0) {
+    return 'n/a'
+  }
+  return formatBytes(size)
+}
+
 const styles: Record<string, React.CSSProperties> = {
   backdrop: {
     position: 'fixed',
@@ -805,6 +1143,31 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-secondary)',
     lineHeight: 1.5,
   },
+  checkboxList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+    marginBottom: '16px',
+  },
+  checkboxRow: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '10px',
+    padding: '12px',
+    border: '1px solid var(--border-color)',
+    borderRadius: '8px',
+    background: 'var(--bg-primary)',
+  },
+  checkboxLabel: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    fontSize: '13px',
+  },
+  checkboxMeta: {
+    color: 'var(--text-secondary)',
+    fontSize: '12px',
+  },
   primaryButton: {
     background: 'var(--button-bg)',
     border: '1px solid var(--border-color)',
@@ -901,8 +1264,20 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-secondary)',
     opacity: 0.8,
   },
+  badgeError: {
+    border: '1px solid var(--accent-error, #ef4444)',
+    borderRadius: '999px',
+    padding: '2px 8px',
+    fontSize: '11px',
+    color: 'var(--accent-error, #ef4444)',
+  },
   metaText: {
     color: 'var(--text-secondary)',
+    fontSize: '12px',
+    lineHeight: 1.5,
+  },
+  errorText: {
+    color: 'var(--accent-error, #ef4444)',
     fontSize: '12px',
     lineHeight: 1.5,
   },
@@ -913,6 +1288,57 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     fontSize: '12px',
     padding: 0,
+  },
+  summaryList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+  },
+  summaryCard: {
+    border: '1px solid var(--border-color)',
+    borderRadius: '8px',
+    padding: '12px',
+    background: 'var(--bg-primary)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+  },
+  resultsList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  resultCard: {
+    border: '1px solid var(--border-color)',
+    borderRadius: '8px',
+    padding: '14px',
+    background: 'var(--bg-primary)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  resultHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '12px',
+  },
+  resultMetaRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '12px',
+    color: 'var(--text-secondary)',
+    fontSize: '12px',
+  },
+  resultLinkRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '12px',
+  },
+  resultLink: {
+    color: 'var(--accent-primary, #2563eb)',
+    fontSize: '12px',
+    textDecoration: 'none',
   },
   featureList: {
     margin: 0,
