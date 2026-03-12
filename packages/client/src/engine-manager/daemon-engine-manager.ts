@@ -87,6 +87,16 @@ function guessMimeType(filePath: string): string | null {
   return MIME_TYPES_BY_EXTENSION[lowerPath.slice(lastDot)] ?? null
 }
 
+function toBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize)
+    binary += String.fromCharCode(...chunk)
+  }
+  return btoa(binary)
+}
+
 // Augment Window interface for debug exports
 declare global {
   interface Window {
@@ -840,6 +850,7 @@ export class DaemonEngineManager implements IEngineManager {
 
     return {
       bodyText: new TextDecoder().decode(response.body),
+      bodyBase64: toBase64(response.body),
       bytes: response.body.byteLength,
       statusCode: response.statusCode,
       remoteAddress: response.remoteAddress,

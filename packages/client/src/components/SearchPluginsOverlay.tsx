@@ -1,3 +1,4 @@
+import { formatBytes } from '@jstorrent/ui'
 import { useEffect, useRef, useState } from 'react'
 import { useEngineManager } from '../context/EngineManagerContext'
 import { standaloneAlert, standaloneConfirm } from '../utils/dialogs'
@@ -49,6 +50,13 @@ interface SearchRunSummary {
   errorMessage?: string
 }
 
+interface SearchDisplayResult {
+  pluginId: string
+  pluginName: string
+  allowedHosts: string[]
+  result: SearchResult
+}
+
 const INITIAL_SAMPLE_SOURCE = `export const manifest = {
   name: 'Internet Archive',
   hosts: ['archive.org'],
@@ -88,8 +96,9 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
   const [installBusy, setInstallBusy] = useState(false)
   const [installStatus, setInstallStatus] = useState<string | null>(null)
   const [searchBusy, setSearchBusy] = useState(false)
+  const [resultActionBusyKey, setResultActionBusyKey] = useState<string | null>(null)
   const [searchStatus, setSearchStatus] = useState<string | null>(null)
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [searchResults, setSearchResults] = useState<SearchDisplayResult[]>([])
   const [searchSummaries, setSearchSummaries] = useState<SearchRunSummary[]>([])
 
   if (!hostRef.current) {
@@ -338,12 +347,19 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
 
     try {
       const summaries: SearchRunSummary[] = []
-      const aggregateResults: SearchResult[] = []
+      const aggregateResults: SearchDisplayResult[] = []
 
       for (const plugin of selectedPlugins) {
         try {
           const result = await hostRef.current!.runDraft(plugin.code, searchInput)
-          aggregateResults.push(...result.trace.results)
+          aggregateResults.push(
+            ...result.trace.results.map((entry) => ({
+              pluginId: plugin.pluginId,
+              pluginName: plugin.manifest.name,
+              allowedHosts: plugin.manifest.hosts,
+              result: entry,
+            })),
+          )
           summaries.push({
             pluginId: plugin.pluginId,
             pluginName: plugin.manifest.name,
@@ -366,12 +382,12 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
       }
 
       aggregateResults.sort((left, right) => {
-        const leftSeeds = left.seeds ?? -1
-        const rightSeeds = right.seeds ?? -1
+        const leftSeeds = left.result.seeds ?? -1
+        const rightSeeds = right.result.seeds ?? -1
         if (leftSeeds !== rightSeeds) {
           return rightSeeds - leftSeeds
         }
-        return left.name.localeCompare(right.name)
+        return left.result.name.localeCompare(right.result.name)
       })
 
       setSearchSummaries(summaries)
@@ -381,6 +397,54 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
       )
     } finally {
       setSearchBusy(false)
+    }
+  }
+
+  const handleAddSearchResult = async (displayResult: SearchDisplayResult) => {
+    const actionKey = `${displayResult.pluginId}:${displayResult.result.name}`
+    setResultActionBusyKey(actionKey)
+
+    try {
+      const engine = await engineManager.init()
+      if (displayResult.result.magnetUrl) {
+        const added = await engine.addTorrent(displayResult.result.magnetUrl)
+        setSearchStatus(
+          added.isDuplicate
+            ? `Torrent already exists: ${displayResult.result.name}`
+            : `Added torrent from magnet: ${displayResult.result.name}`,
+        )
+        return
+      }
+
+      if (displayResult.result.torrentUrl) {
+        const response = await engineManager.searchPluginFetch(
+          {
+            url: displayResult.result.torrentUrl,
+            method: 'GET',
+          },
+          { allowedHosts: displayResult.allowedHosts },
+        )
+
+        if (response.statusCode >= 400) {
+          throw new Error(`Torrent download failed: HTTP ${response.statusCode}`)
+        }
+
+        const bytes = Uint8Array.from(atob(response.bodyBase64), (char) => char.charCodeAt(0))
+        const added = await engine.addTorrent(bytes)
+        setSearchStatus(
+          added.isDuplicate
+            ? `Torrent already exists: ${displayResult.result.name}`
+            : `Added torrent file: ${displayResult.result.name}`,
+        )
+        return
+      }
+
+      throw new Error('Result does not include a magnet or torrent URL')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      standaloneAlert(message)
+    } finally {
+      setResultActionBusyKey(null)
     }
   }
 
@@ -430,7 +494,9 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
                 searchStatus={searchStatus}
                 searchSummaries={searchSummaries}
                 selectedPluginIds={selectedPluginIds}
+                resultActionBusyKey={resultActionBusyKey}
                 onSearchInputChange={setSearchInput}
+                onAddResult={handleAddSearchResult}
                 onRunSearch={handleRunSearch}
                 onToggleSearchPlugin={handleToggleSearchPlugin}
               />
@@ -588,10 +654,12 @@ interface SearchTabProps {
   installedPlugins: InstalledPluginRecord[]
   searchBusy: boolean
   searchInput: SearchPluginSearchInput
-  searchResults: SearchResult[]
+  searchResults: SearchDisplayResult[]
   searchStatus: string | null
   searchSummaries: SearchRunSummary[]
   selectedPluginIds: string[]
+  resultActionBusyKey: string | null
+  onAddResult: (result: SearchDisplayResult) => Promise<void>
   onSearchInputChange: (value: SearchPluginSearchInput) => void
   onRunSearch: () => void
   onToggleSearchPlugin: (pluginId: string) => void
@@ -605,6 +673,8 @@ function SearchTab({
   searchStatus,
   searchSummaries,
   selectedPluginIds,
+  resultActionBusyKey,
+  onAddResult,
   onSearchInputChange,
   onRunSearch,
   onToggleSearchPlugin,
@@ -721,41 +791,52 @@ function SearchTab({
       >
         {searchResults.length > 0 ? (
           <div style={styles.resultsList}>
-            {searchResults.map((result, index) => (
-              <div key={`${result.source}-${result.name}-${index}`} style={styles.resultCard}>
-                <div style={styles.resultHeader}>
-                  <strong>{result.name}</strong>
-                  <span style={styles.badgeMuted}>{result.source}</span>
-                </div>
-                <div style={styles.resultMetaRow}>
-                  <span>Seeds: {result.seeds ?? 'n/a'}</span>
-                  <span>Leeches: {result.leeches ?? 'n/a'}</span>
-                  <span>Size: {formatResultSize(result.size)}</span>
-                </div>
-                <div style={styles.resultLinkRow}>
-                  {result.magnetUrl && (
-                    <a href={result.magnetUrl} style={styles.resultLink}>
-                      Magnet
-                    </a>
-                  )}
-                  {result.torrentUrl && (
-                    <a href={result.torrentUrl} style={styles.resultLink}>
-                      Torrent
-                    </a>
-                  )}
-                  {result.detailsUrl && (
-                    <a
-                      href={result.detailsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={styles.resultLink}
+            {searchResults.map((displayResult, index) => {
+              const result = displayResult.result
+              const actionKey = `${displayResult.pluginId}:${result.name}`
+              const actionBusy = resultActionBusyKey === actionKey
+              const canAdd = Boolean(result.magnetUrl || result.torrentUrl)
+
+              return (
+                <div
+                  key={`${displayResult.pluginId}-${result.source}-${result.name}-${index}`}
+                  style={styles.resultCard}
+                >
+                  <div style={styles.resultHeader}>
+                    <strong>{result.name}</strong>
+                    <span style={styles.badgeMuted}>{result.source}</span>
+                  </div>
+                  <div style={styles.resultMetaRow}>
+                    <span>Seeds: {result.seeds ?? 'n/a'}</span>
+                    <span>Leeches: {result.leeches ?? 'n/a'}</span>
+                    <span>Size: {formatResultSize(result.size)}</span>
+                  </div>
+                  <div style={styles.resultLinkRow}>
+                    <button
+                      style={styles.secondaryButton}
+                      onClick={() => void onAddResult(displayResult)}
+                      disabled={!canAdd || actionBusy || searchBusy}
                     >
-                      Details
-                    </a>
-                  )}
+                      {actionBusy
+                        ? 'Adding...'
+                        : result.magnetUrl
+                          ? 'Add Magnet'
+                          : 'Add Torrent'}
+                    </button>
+                    {result.detailsUrl && (
+                      <a
+                        href={result.detailsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={styles.resultLink}
+                      >
+                        Details
+                      </a>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ) : (
           <div style={styles.metaText}>No aggregated results yet.</div>
