@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { HttpBodyReader, HttpTransport, HttpTransportResponse } from '../../src/http/http-transport'
+import type {
+  HttpBodyReader,
+  HttpTransport,
+  HttpTransportResponse,
+} from '../../src/http/http-transport'
 import { WebSeedHttpClient, WebSeedRequestError } from '../../src/webseed/web-seed-http-client'
 
 class StaticBodyReader implements HttpBodyReader {

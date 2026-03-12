@@ -806,7 +806,10 @@ describe('Materialization', () => {
           name: 'StressBoundaryReverse97',
           pieceLength: 97,
           files: buildFiles(23, scenarioBFileCount),
-          unskipOrder: Array.from({ length: scenarioBFileCount }, (_, index) => scenarioBFileCount - 1 - index),
+          unskipOrder: Array.from(
+            { length: scenarioBFileCount },
+            (_, index) => scenarioBFileCount - 1 - index,
+          ),
         },
         {
           name: 'StressBoundaryAlt509',

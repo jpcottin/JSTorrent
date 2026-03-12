@@ -558,7 +558,9 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
     prioritiesJson: string,
   ): Promise<{ ok: boolean; applied?: number; queued?: boolean; error?: string }> => {
     if (!isReady()) {
-      console.log(`[controller] set_file_priorities: Engine not ready, queueing command for ${infoHash}`)
+      console.log(
+        `[controller] set_file_priorities: Engine not ready, queueing command for ${infoHash}`,
+      )
       commandQueue.push(() => {
         const fn = (globalThis as Record<string, unknown>).__jstorrent_cmd_set_file_priorities as (
           h: string,

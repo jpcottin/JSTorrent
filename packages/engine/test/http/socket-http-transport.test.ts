@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { ISocketFactory, ITcpServer, ITcpSocket, IUdpSocket, TcpSocketOptions } from '../../src/interfaces/socket'
+import type {
+  ISocketFactory,
+  ITcpServer,
+  ITcpSocket,
+  IUdpSocket,
+  TcpSocketOptions,
+} from '../../src/interfaces/socket'
 import { SocketHttpTransport } from '../../src/http/socket-http-transport'
 import { fromString, toString } from '../../src/utils/buffer'
 

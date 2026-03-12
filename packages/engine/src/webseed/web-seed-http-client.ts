@@ -89,7 +89,11 @@ export class WebSeedHttpClient {
           })
         }
 
-        const nextUrl = resolveRedirectTarget(currentUrl, response.head.statusCode, response.head.headers)
+        const nextUrl = resolveRedirectTarget(
+          currentUrl,
+          response.head.statusCode,
+          response.head.headers,
+        )
         await discardResponseBody(response.body)
 
         if (visitedUrls.has(nextUrl)) {
@@ -151,7 +155,13 @@ function validateWebSeedResponse(
     })
   }
 
-  if (statusCode === 429 || statusCode === 503 || statusCode === 500 || statusCode === 502 || statusCode === 504) {
+  if (
+    statusCode === 429 ||
+    statusCode === 503 ||
+    statusCode === 500 ||
+    statusCode === 502 ||
+    statusCode === 504
+  ) {
     throw new WebSeedRequestError(`Web seed returned HTTP ${statusCode}`, 'transient', {
       statusCode,
       retryAfterMs: parseRetryAfter(headers['retry-after']),
@@ -196,9 +206,13 @@ function validateWebSeedResponse(
 
   if (statusCode === 200) {
     if (range.start !== 0) {
-      throw new WebSeedRequestError('Web seed ignored Range request with 200 response', 'protocol', {
-        statusCode,
-      })
+      throw new WebSeedRequestError(
+        'Web seed ignored Range request with 200 response',
+        'protocol',
+        {
+          statusCode,
+        },
+      )
     }
 
     const contentLength = parseOptionalContentLength(headers)
@@ -218,7 +232,13 @@ function validateWebSeedResponse(
 }
 
 function isRedirectStatus(statusCode: number): boolean {
-  return statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308
+  return (
+    statusCode === 301 ||
+    statusCode === 302 ||
+    statusCode === 303 ||
+    statusCode === 307 ||
+    statusCode === 308
+  )
 }
 
 function resolveRedirectTarget(
@@ -228,9 +248,13 @@ function resolveRedirectTarget(
 ): string {
   const location = headers.location
   if (!location) {
-    throw new WebSeedRequestError(`Web seed redirect ${statusCode} missing Location header`, 'redirect', {
-      statusCode,
-    })
+    throw new WebSeedRequestError(
+      `Web seed redirect ${statusCode} missing Location header`,
+      'redirect',
+      {
+        statusCode,
+      },
+    )
   }
 
   let resolved: URL
@@ -243,9 +267,13 @@ function resolveRedirectTarget(
   }
 
   if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
-    throw new WebSeedRequestError(`Unsupported redirect protocol: ${resolved.protocol}`, 'redirect', {
-      statusCode,
-    })
+    throw new WebSeedRequestError(
+      `Unsupported redirect protocol: ${resolved.protocol}`,
+      'redirect',
+      {
+        statusCode,
+      },
+    )
   }
 
   const current = new URL(currentUrl)

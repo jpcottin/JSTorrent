@@ -127,10 +127,7 @@ export interface SearchPluginContext {
 
 export interface SearchPluginModule {
   manifest: SearchPluginManifest
-  search(
-    ctx: SearchPluginContext,
-    input: SearchPluginSearchInput,
-  ): Promise<void> | void
+  search(ctx: SearchPluginContext, input: SearchPluginSearchInput): Promise<void> | void
 }
 
 export interface InstalledPluginRecord {

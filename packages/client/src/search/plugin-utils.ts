@@ -1,8 +1,4 @@
-import type {
-  InstalledPluginRecord,
-  SearchPluginFetchPolicy,
-  SearchPluginManifest,
-} from './types'
+import type { InstalledPluginRecord, SearchPluginFetchPolicy, SearchPluginManifest } from './types'
 
 export const SEARCH_PLUGIN_STORAGE_PREFIX = 'searchPlugin:'
 

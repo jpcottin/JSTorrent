@@ -721,10 +721,7 @@ describe('WebSeedManager', () => {
         return {
           statusCode: 206,
           headers: {},
-          finalUrl:
-            startedRequests.length === 1
-              ? 'https://cdn.example.com/file.bin'
-              : request.url,
+          finalUrl: startedRequests.length === 1 ? 'https://cdn.example.com/file.bin' : request.url,
           body: new StaticBodyReader([new Uint8Array(BLOCK_SIZE).fill(0x61), null]),
           start: request.start,
           endInclusive: request.endInclusive,

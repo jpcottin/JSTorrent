@@ -4,7 +4,9 @@ import { concat, fromString, toString } from '../../src/utils/buffer'
 import type { HttpParserEvent } from '../../src/http/http-types'
 
 function collectBody(events: HttpParserEvent[]): string {
-  const chunks = events.filter((event): event is Extract<HttpParserEvent, { type: 'body' }> => event.type === 'body')
+  const chunks = events.filter(
+    (event): event is Extract<HttpParserEvent, { type: 'body' }> => event.type === 'body',
+  )
   return toString(concat(chunks.map((event) => event.chunk)))
 }
 

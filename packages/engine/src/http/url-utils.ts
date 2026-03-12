@@ -30,4 +30,3 @@ export function parseHttpUrl(url: string): ParsedHttpUrl {
     isHttps,
   }
 }
-

@@ -31,4 +31,3 @@ describe('parseHttpUrl', () => {
     expect(() => parseHttpUrl('https://example.com:99999/file')).toThrow('Invalid URL port')
   })
 })
-

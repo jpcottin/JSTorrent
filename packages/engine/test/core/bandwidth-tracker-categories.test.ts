@@ -161,11 +161,12 @@ describe('BandwidthTracker with categories', () => {
   it('ALL_TRAFFIC_CATEGORIES contains all expected categories', () => {
     expect(ALL_TRAFFIC_CATEGORIES).toContain('peer:protocol')
     expect(ALL_TRAFFIC_CATEGORIES).toContain('peer:payload')
+    expect(ALL_TRAFFIC_CATEGORIES).toContain('web-seed:payload')
     expect(ALL_TRAFFIC_CATEGORIES).toContain('tracker:http')
     expect(ALL_TRAFFIC_CATEGORIES).toContain('tracker:udp')
     expect(ALL_TRAFFIC_CATEGORIES).toContain('dht')
     expect(ALL_TRAFFIC_CATEGORIES).toContain('disk')
-    expect(ALL_TRAFFIC_CATEGORIES.length).toBe(6)
+    expect(ALL_TRAFFIC_CATEGORIES.length).toBe(7)
   })
 
   it('getRate with all categories sums correctly', () => {

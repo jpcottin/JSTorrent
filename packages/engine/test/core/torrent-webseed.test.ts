@@ -89,7 +89,9 @@ describe('Torrent web-seed block ingestion', () => {
       ),
     ).toBe(true)
 
-    await pollUntil(() => writePieceVerified.mock.calls.length === 1 && torrent.completedPiecesCount === 1)
+    await pollUntil(
+      () => writePieceVerified.mock.calls.length === 1 && torrent.completedPiecesCount === 1,
+    )
 
     expect(writePieceVerified).toHaveBeenCalledWith(0, pieceData, pieceHash)
     expect(recordSpy).toHaveBeenCalledWith('web-seed:payload', BLOCK_SIZE, 'down')

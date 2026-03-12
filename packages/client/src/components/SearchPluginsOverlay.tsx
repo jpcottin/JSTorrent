@@ -90,7 +90,8 @@ function loadSavedOverlayState(): {
         ? parsed.searchInput.query
         : fallback.searchInput.query
     const category =
-      typeof parsed.searchInput?.category === 'string' && parsed.searchInput.category.trim().length > 0
+      typeof parsed.searchInput?.category === 'string' &&
+      parsed.searchInput.category.trim().length > 0
         ? parsed.searchInput.category
         : fallback.searchInput.category
 
@@ -140,7 +141,9 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
       .then((plugins) => {
         setInstalledPlugins(plugins)
         setSelectedPluginIds((current) => {
-          const available = new Set(plugins.filter((plugin) => plugin.enabled).map((p) => p.pluginId))
+          const available = new Set(
+            plugins.filter((plugin) => plugin.enabled).map((p) => p.pluginId),
+          )
           if (current.length === 0) {
             return Array.from(available)
           }
@@ -366,9 +369,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
 
   const handleToggleSearchPlugin = (pluginId: string) => {
     setSelectedPluginIds((current) =>
-      current.includes(pluginId)
-        ? current.filter((id) => id !== pluginId)
-        : [...current, pluginId],
+      current.includes(pluginId) ? current.filter((id) => id !== pluginId) : [...current, pluginId],
     )
   }
 
@@ -383,7 +384,9 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     }
 
     setSearchBusy(true)
-    setSearchStatus(`Running ${selectedPlugins.length} plugin${selectedPlugins.length === 1 ? '' : 's'}...`)
+    setSearchStatus(
+      `Running ${selectedPlugins.length} plugin${selectedPlugins.length === 1 ? '' : 's'}...`,
+    )
     setSearchResults([])
     setSearchSummaries([])
 
@@ -756,10 +759,7 @@ function SearchTab({
         {searchStatus && <div style={styles.statusText}>{searchStatus}</div>}
       </Section>
 
-      <Section
-        title="Provider Runs"
-        description="Per-plugin status for the most recent search."
-      >
+      <Section title="Provider Runs" description="Per-plugin status for the most recent search.">
         {searchSummaries.length > 0 ? (
           <div style={styles.summaryList}>
             {searchSummaries.map((summary) => (
@@ -773,9 +773,7 @@ function SearchTab({
                 <div style={styles.metaText}>
                   {summary.resultCount} results in {summary.durationMs}ms
                 </div>
-                {summary.errorMessage && (
-                  <div style={styles.errorText}>{summary.errorMessage}</div>
-                )}
+                {summary.errorMessage && <div style={styles.errorText}>{summary.errorMessage}</div>}
               </div>
             ))}
           </div>
@@ -784,10 +782,7 @@ function SearchTab({
         )}
       </Section>
 
-      <Section
-        title="Results"
-        description="Normalized results sorted by seeds, then by name."
-      >
+      <Section title="Results" description="Normalized results sorted by seeds, then by name.">
         {searchResults.length > 0 ? (
           <div style={styles.resultsList}>
             {searchResults.map((displayResult, index) => {
@@ -816,11 +811,7 @@ function SearchTab({
                       onClick={() => void onAddResult(displayResult)}
                       disabled={!canAdd || actionBusy || searchBusy}
                     >
-                      {actionBusy
-                        ? 'Adding...'
-                        : result.magnetUrl
-                          ? 'Add Magnet'
-                          : 'Add Torrent'}
+                      {actionBusy ? 'Adding...' : result.magnetUrl ? 'Add Magnet' : 'Add Torrent'}
                     </button>
                     {result.detailsUrl && (
                       <a
@@ -911,7 +902,9 @@ function AddFromUrlTab({
               <strong>{installPreview.name}</strong>
               <span style={styles.badgeMuted}>{installPreview.version ?? 'Preview'}</span>
             </div>
-            {installPreview.description && <div style={styles.metaText}>{installPreview.description}</div>}
+            {installPreview.description && (
+              <div style={styles.metaText}>{installPreview.description}</div>
+            )}
             <div style={styles.metaText}>Hosts: {installPreview.hosts.join(', ')}</div>
           </div>
         )}
@@ -1024,9 +1017,7 @@ function PluginLabTab({
         description="Resolved from the current draft source after a successful sandbox load."
       >
         {draftRunResult?.manifest ? (
-          <pre style={styles.outputBlock}>
-            {JSON.stringify(draftRunResult.manifest, null, 2)}
-          </pre>
+          <pre style={styles.outputBlock}>{JSON.stringify(draftRunResult.manifest, null, 2)}</pre>
         ) : (
           <div style={styles.metaText}>Run the draft to inspect the manifest.</div>
         )}
@@ -1045,7 +1036,10 @@ function PluginLabTab({
         )}
       </Section>
 
-      <Section title="Console" description="Captured plugin log output and uncaught runtime errors.">
+      <Section
+        title="Console"
+        description="Captured plugin log output and uncaught runtime errors."
+      >
         {draftRunResult?.trace.logs.length ? (
           <pre style={styles.outputBlock}>
             {draftRunResult.trace.logs

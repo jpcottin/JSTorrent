@@ -240,10 +240,7 @@ export class HttpResponseParser {
       if (chunkSize === null) continue
 
       if (this.buffer.length < chunkSize + CRLF.length) return events
-      if (
-        this.buffer[chunkSize] !== CRLF[0] ||
-        this.buffer[chunkSize + 1] !== CRLF[1]
-      ) {
+      if (this.buffer[chunkSize] !== CRLF[0] || this.buffer[chunkSize + 1] !== CRLF[1]) {
         throw new Error('Invalid chunk framing')
       }
 

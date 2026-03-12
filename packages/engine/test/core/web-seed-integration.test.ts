@@ -6,7 +6,12 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { BtEngine } from '../../src/core/bt-engine'
 import { TorrentCreator } from '../../src/core/torrent-creator'
-import { ScopedNodeFileSystem, NodeSocketFactory, NodeStorageHandle, NodeHasher } from '../../src/adapters/node'
+import {
+  ScopedNodeFileSystem,
+  NodeSocketFactory,
+  NodeStorageHandle,
+  NodeHasher,
+} from '../../src/adapters/node'
 import { MemoryConfigHub } from '../../src/config/memory-config-hub'
 
 describe('node web-seed integration', () => {

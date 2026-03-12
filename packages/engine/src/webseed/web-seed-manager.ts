@@ -246,11 +246,7 @@ export class WebSeedManager extends EngineComponent {
         startPieceIndex: pieceIndex,
         totalLength,
         pieces,
-        spans: this.planRangeSpans(
-          source,
-          this.deps.getPieceOffset(pieceIndex),
-          totalLength,
-        ),
+        spans: this.planRangeSpans(source, this.deps.getPieceOffset(pieceIndex), totalLength),
       }
     }
 
@@ -318,7 +314,9 @@ export class WebSeedManager extends EngineComponent {
     }
 
     if (totalLength !== rangeLength) {
-      throw new Error(`Web seed range planning mismatch: planned ${totalLength}, expected ${rangeLength}`)
+      throw new Error(
+        `Web seed range planning mismatch: planned ${totalLength}, expected ${rangeLength}`,
+      )
     }
 
     return spans
@@ -483,7 +481,10 @@ export class WebSeedManager extends EngineComponent {
     }
   }
 
-  private async consumeDownloadBandwidth(bytesWanted: number, signal: AbortSignal): Promise<number> {
+  private async consumeDownloadBandwidth(
+    bytesWanted: number,
+    signal: AbortSignal,
+  ): Promise<number> {
     if (!this.deps.isDownloadRateLimited()) {
       return bytesWanted
     }

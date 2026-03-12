@@ -317,284 +317,284 @@ function App() {
             fontFamily: 'sans-serif',
           }}
         >
-        {/* Header with System Bridge indicator */}
-        <div
-          style={{
-            padding: '8px 16px',
-            borderBottom: '1px solid var(--border-color)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '16px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <img src={jsIcon} alt="JSTorrent" style={{ width: '24px', height: '24px' }} />
-            <h1 style={{ margin: 0, fontSize: '18px' }}>JSTorrent</h1>
-          </div>
+          {/* Header with System Bridge indicator */}
+          <div
+            style={{
+              padding: '8px 16px',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <img src={jsIcon} alt="JSTorrent" style={{ width: '24px', height: '24px' }} />
+              <h1 style={{ margin: 0, fontSize: '18px' }}>JSTorrent</h1>
+            </div>
 
-          {/* System Bridge indicator */}
-          <div style={{ position: 'relative' }}>
-            <SystemIndicator
-              ref={indicatorRef}
-              label={systemBridge.readiness.indicator.label}
-              color={systemBridge.readiness.indicator.color}
-              pulse={systemBridge.readiness.pulse}
-              onClick={systemBridge.togglePanel}
-            />
-            {systemBridge.panelOpen &&
-              (ioBridgeState.platform === 'chromeos' && chromeosBootstrapState ? (
-                <SystemBridgePanelChromeos
-                  state={chromeosBootstrapState}
-                  daemonVersion={systemBridge.daemonVersion}
-                  versionStatus={systemBridge.versionStatus}
-                  appVersion={channel.getVersion()}
-                  roots={roots}
-                  defaultRootKey={effectiveDefaultRootKey}
-                  hasEverConnected={chromeosHasEverConnected}
-                  onClose={systemBridge.closePanel}
-                  onLaunch={chromeosBootstrap.openIntent}
-                  onResetPairing={chromeosBootstrap.resetPairing}
-                  onAddFolder={async () => {
-                    const existingRoots = engineManager.getRoots().length
-                    const root = await engineManager.pickDownloadFolder()
-                    if (root) {
-                      if (existingRoots === 0) {
-                        setDefaultRootKey(root.key)
-                        await engineManager.setDefaultRoot(root.key)
-                      }
-                    }
-                  }}
-                  onOpenSettings={() => setSettingsOpen(true)}
-                  anchorRef={indicatorRef}
-                  onFetchStats={getStats}
-                  backendType={systemBridge.backendType}
-                  ioBridgeConnected={ioBridgeState.status === 'connected'}
-                  daemonHost={ioBridgeState.daemonInfo?.host ?? undefined}
-                  daemonPort={ioBridgeState.daemonInfo?.port}
-                />
-              ) : (
-                <SystemBridgePanel
-                  state={ioBridgeState as Parameters<typeof SystemBridgePanel>[0]['state']}
-                  versionStatus={systemBridge.versionStatus}
-                  backendType={systemBridge.backendType}
-                  daemonVersion={systemBridge.daemonVersion}
-                  appVersion={channel.getVersion()}
-                  roots={roots}
-                  defaultRootKey={effectiveDefaultRootKey}
-                  hasEverConnected={hasEverConnected}
-                  rootsManageable={engineManager.rootsManageable}
-                  onRetry={retry}
-                  onLaunch={launch}
-                  onCancel={cancel}
-                  onTakeOver={takeOver}
-                  onAddFolder={async () => {
-                    const existingRoots = engineManager.getRoots().length
-                    const root = await engineManager.pickDownloadFolder()
-                    if (root) {
-                      if (existingRoots === 0) {
-                        setDefaultRootKey(root.key)
-                        await engineManager.setDefaultRoot(root.key)
-                      }
-                    }
-                  }}
-                  onSetDefaultRoot={(key) => {
-                    setDefaultRootKey(key)
-                    engineManager.setDefaultRoot(key)
-                  }}
-                  onClose={systemBridge.closePanel}
-                  onOpenSettings={() => setSettingsOpen(true)}
-                  onFetchStats={getStats}
-                  anchorRef={indicatorRef}
-                />
-              ))}
-          </div>
-
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-              {engine ? (
-                <>
-                  {engine.torrents.length} torrents | {engine.numConnections} peers | ↓{' '}
-                  {formatBytes(engine.torrents.reduce((sum, t) => sum + t.downloadSpeed, 0))}/s | ↑{' '}
-                  {formatBytes(engine.torrents.reduce((sum, t) => sum + t.uploadSpeed, 0))}/s
-                </>
-              ) : isConnected ? (
-                'Initializing...'
-              ) : (
-                'Not connected'
-              )}
-            </span>
-            <button
-              onClick={async () => openExternalUrl(await systemBridge.getBugReportUrl())}
-              style={{
-                background: 'var(--button-bg)',
-                border: '1px solid var(--border-color)',
-                cursor: 'pointer',
-                padding: '6px 12px',
-                fontSize: '13px',
-                color: 'var(--text-primary)',
-                borderRadius: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-              title="Report a bug or send feedback"
-            >
-              <span style={{ fontSize: '14px' }}>&#x1F41B;</span>
-              Report Bug
-            </button>
-            <button
-              onClick={() => setSearchPluginsOpen(true)}
-              style={{
-                background: 'var(--button-bg)',
-                border: '1px solid var(--border-color)',
-                cursor: 'pointer',
-                padding: '6px 12px',
-                fontSize: '13px',
-                color: 'var(--text-primary)',
-                borderRadius: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-              title="Manage search plugins"
-            >
-              <span style={{ fontSize: '14px' }}>⌕</span>
-              Plugins
-            </button>
-            <button
-              onClick={() => setSettingsOpen(true)}
-              style={{
-                background: 'var(--button-bg)',
-                border: '1px solid var(--border-color)',
-                cursor: 'pointer',
-                padding: '6px 12px',
-                fontSize: '13px',
-                color: 'var(--text-primary)',
-                borderRadius: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <span style={{ fontSize: '16px' }}>⚙</span>
-              Settings
-            </button>
-          </div>
-        </div>
-
-        {/* Main content */}
-        <div style={{ flex: 1, overflow: 'hidden' }}>
-          {engine ? (
-            <EngineProvider engine={engine}>
-              <ChromeAppContent
-                onOpenLoggingSettings={handleOpenLoggingSettings}
-                supportsVideoPopup={supportsVideoPopup}
-                supportsLanShare={supportsLanShare}
+            {/* System Bridge indicator */}
+            <div style={{ position: 'relative' }}>
+              <SystemIndicator
+                ref={indicatorRef}
+                label={systemBridge.readiness.indicator.label}
+                color={systemBridge.readiness.indicator.color}
+                pulse={systemBridge.readiness.pulse}
+                onClick={systemBridge.togglePanel}
               />
-            </EngineProvider>
-          ) : initError ? (
-            <div style={{ padding: '40px', textAlign: 'center' }}>
-              <div style={{ color: 'var(--accent-error)', marginBottom: '16px' }}>
-                Failed to initialize: {initError}
-              </div>
+              {systemBridge.panelOpen &&
+                (ioBridgeState.platform === 'chromeos' && chromeosBootstrapState ? (
+                  <SystemBridgePanelChromeos
+                    state={chromeosBootstrapState}
+                    daemonVersion={systemBridge.daemonVersion}
+                    versionStatus={systemBridge.versionStatus}
+                    appVersion={channel.getVersion()}
+                    roots={roots}
+                    defaultRootKey={effectiveDefaultRootKey}
+                    hasEverConnected={chromeosHasEverConnected}
+                    onClose={systemBridge.closePanel}
+                    onLaunch={chromeosBootstrap.openIntent}
+                    onResetPairing={chromeosBootstrap.resetPairing}
+                    onAddFolder={async () => {
+                      const existingRoots = engineManager.getRoots().length
+                      const root = await engineManager.pickDownloadFolder()
+                      if (root) {
+                        if (existingRoots === 0) {
+                          setDefaultRootKey(root.key)
+                          await engineManager.setDefaultRoot(root.key)
+                        }
+                      }
+                    }}
+                    onOpenSettings={() => setSettingsOpen(true)}
+                    anchorRef={indicatorRef}
+                    onFetchStats={getStats}
+                    backendType={systemBridge.backendType}
+                    ioBridgeConnected={ioBridgeState.status === 'connected'}
+                    daemonHost={ioBridgeState.daemonInfo?.host ?? undefined}
+                    daemonPort={ioBridgeState.daemonInfo?.port}
+                  />
+                ) : (
+                  <SystemBridgePanel
+                    state={ioBridgeState as Parameters<typeof SystemBridgePanel>[0]['state']}
+                    versionStatus={systemBridge.versionStatus}
+                    backendType={systemBridge.backendType}
+                    daemonVersion={systemBridge.daemonVersion}
+                    appVersion={channel.getVersion()}
+                    roots={roots}
+                    defaultRootKey={effectiveDefaultRootKey}
+                    hasEverConnected={hasEverConnected}
+                    rootsManageable={engineManager.rootsManageable}
+                    onRetry={retry}
+                    onLaunch={launch}
+                    onCancel={cancel}
+                    onTakeOver={takeOver}
+                    onAddFolder={async () => {
+                      const existingRoots = engineManager.getRoots().length
+                      const root = await engineManager.pickDownloadFolder()
+                      if (root) {
+                        if (existingRoots === 0) {
+                          setDefaultRootKey(root.key)
+                          await engineManager.setDefaultRoot(root.key)
+                        }
+                      }
+                    }}
+                    onSetDefaultRoot={(key) => {
+                      setDefaultRootKey(key)
+                      engineManager.setDefaultRoot(key)
+                    }}
+                    onClose={systemBridge.closePanel}
+                    onOpenSettings={() => setSettingsOpen(true)}
+                    onFetchStats={getStats}
+                    anchorRef={indicatorRef}
+                  />
+                ))}
+            </div>
+
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
+                {engine ? (
+                  <>
+                    {engine.torrents.length} torrents | {engine.numConnections} peers | ↓{' '}
+                    {formatBytes(engine.torrents.reduce((sum, t) => sum + t.downloadSpeed, 0))}/s |
+                    ↑ {formatBytes(engine.torrents.reduce((sum, t) => sum + t.uploadSpeed, 0))}/s
+                  </>
+                ) : isConnected ? (
+                  'Initializing...'
+                ) : (
+                  'Not connected'
+                )}
+              </span>
               <button
-                onClick={() => {
-                  setInitError(null)
-                  retry()
+                onClick={async () => openExternalUrl(await systemBridge.getBugReportUrl())}
+                style={{
+                  background: 'var(--button-bg)',
+                  border: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  padding: '6px 12px',
+                  fontSize: '13px',
+                  color: 'var(--text-primary)',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+                title="Report a bug or send feedback"
+              >
+                <span style={{ fontSize: '14px' }}>&#x1F41B;</span>
+                Report Bug
+              </button>
+              <button
+                onClick={() => setSearchPluginsOpen(true)}
+                style={{
+                  background: 'var(--button-bg)',
+                  border: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  padding: '6px 12px',
+                  fontSize: '13px',
+                  color: 'var(--text-primary)',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+                title="Manage search plugins"
+              >
+                <span style={{ fontSize: '14px' }}>⌕</span>
+                Plugins
+              </button>
+              <button
+                onClick={() => setSettingsOpen(true)}
+                style={{
+                  background: 'var(--button-bg)',
+                  border: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  padding: '6px 12px',
+                  fontSize: '13px',
+                  color: 'var(--text-primary)',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
                 }}
               >
-                Retry
+                <span style={{ fontSize: '16px' }}>⚙</span>
+                Settings
               </button>
             </div>
-          ) : (
-            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-              {ioBridgeState.status === 'connecting' && 'Connecting to daemon...'}
-              {ioBridgeState.status === 'disconnected' &&
-                (ioBridgeState.platform === 'chromeos'
-                  ? 'Click the indicator above to launch the companion app.'
-                  : 'Click the indicator above to set up JSTorrent.')}
-              {ioBridgeState.status === 'connected' && !engine && 'Initializing engine...'}
-            </div>
-          )}
-        </div>
+          </div>
 
-        {/* Profile in use overlay */}
-        {ioBridgeState.status === 'disconnected' &&
-          ioBridgeState.lastError === 'profile_in_use' && (
-            <div
-              style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'rgba(0, 0, 0, 0.5)',
-                backdropFilter: 'blur(4px)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 1000,
-              }}
-            >
+          {/* Main content */}
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            {engine ? (
+              <EngineProvider engine={engine}>
+                <ChromeAppContent
+                  onOpenLoggingSettings={handleOpenLoggingSettings}
+                  supportsVideoPopup={supportsVideoPopup}
+                  supportsLanShare={supportsLanShare}
+                />
+              </EngineProvider>
+            ) : initError ? (
+              <div style={{ padding: '40px', textAlign: 'center' }}>
+                <div style={{ color: 'var(--accent-error)', marginBottom: '16px' }}>
+                  Failed to initialize: {initError}
+                </div>
+                <button
+                  onClick={() => {
+                    setInitError(null)
+                    retry()
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                {ioBridgeState.status === 'connecting' && 'Connecting to daemon...'}
+                {ioBridgeState.status === 'disconnected' &&
+                  (ioBridgeState.platform === 'chromeos'
+                    ? 'Click the indicator above to launch the companion app.'
+                    : 'Click the indicator above to set up JSTorrent.')}
+                {ioBridgeState.status === 'connected' && !engine && 'Initializing engine...'}
+              </div>
+            )}
+          </div>
+
+          {/* Profile in use overlay */}
+          {ioBridgeState.status === 'disconnected' &&
+            ioBridgeState.lastError === 'profile_in_use' && (
               <div
                 style={{
-                  background: 'var(--bg-primary)',
-                  borderRadius: '8px',
-                  padding: '32px',
-                  maxWidth: '400px',
-                  textAlign: 'center',
-                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'rgba(0, 0, 0, 0.5)',
+                  backdropFilter: 'blur(4px)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 1000,
                 }}
               >
                 <div
                   style={{
-                    fontSize: '18px',
-                    fontWeight: 600,
-                    color: 'var(--text-primary)',
-                    marginBottom: '12px',
+                    background: 'var(--bg-primary)',
+                    borderRadius: '8px',
+                    padding: '32px',
+                    maxWidth: '400px',
+                    textAlign: 'center',
+                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
                   }}
                 >
-                  Profile In Use
+                  <div
+                    style={{
+                      fontSize: '18px',
+                      fontWeight: 600,
+                      color: 'var(--text-primary)',
+                      marginBottom: '12px',
+                    }}
+                  >
+                    Profile In Use
+                  </div>
+                  <div
+                    style={{
+                      color: 'var(--text-secondary)',
+                      marginBottom: '24px',
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {ioBridgeState.profileInUseInfo?.clientType
+                      ? `This profile is in use by ${ioBridgeState.profileInUseInfo.clientType}${ioBridgeState.profileInUseInfo.clientVersion ? ` v${ioBridgeState.profileInUseInfo.clientVersion}` : ''}.`
+                      : 'This profile is currently in use by another client.'}
+                  </div>
+                  <button
+                    onClick={takeOver}
+                    style={{
+                      padding: '10px 20px',
+                      background: 'var(--accent-primary)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                    }}
+                  >
+                    Take Over Profile
+                  </button>
                 </div>
-                <div
-                  style={{
-                    color: 'var(--text-secondary)',
-                    marginBottom: '24px',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {ioBridgeState.profileInUseInfo?.clientType
-                    ? `This profile is in use by ${ioBridgeState.profileInUseInfo.clientType}${ioBridgeState.profileInUseInfo.clientVersion ? ` v${ioBridgeState.profileInUseInfo.clientVersion}` : ''}.`
-                    : 'This profile is currently in use by another client.'}
-                </div>
-                <button
-                  onClick={takeOver}
-                  style={{
-                    padding: '10px 20px',
-                    background: 'var(--accent-primary)',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  Take Over Profile
-                </button>
               </div>
-            </div>
-          )}
+            )}
 
-        {/* Settings overlay - only render when config is available */}
-        {configHub && (
-          <SettingsOverlay
-            isOpen={settingsOpen}
-            onClose={() => setSettingsOpen(false)}
-            activeTab={settingsTab}
-            setActiveTab={setSettingsTab}
-          />
-        )}
+          {/* Settings overlay - only render when config is available */}
+          {configHub && (
+            <SettingsOverlay
+              isOpen={settingsOpen}
+              onClose={() => setSettingsOpen(false)}
+              activeTab={settingsTab}
+              setActiveTab={setSettingsTab}
+            />
+          )}
           <SearchPluginsOverlay
             isOpen={searchPluginsOpen}
             onClose={() => setSearchPluginsOpen(false)}

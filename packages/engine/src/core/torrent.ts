@@ -64,10 +64,7 @@ import { WriteError, classifyError, getRetryDelay } from './write-error'
 import { VerifyChunkResult } from '../interfaces/filesystem'
 import type { VerifyChunksRequest, IFileSystem } from '../interfaces/filesystem'
 import { WebSeedHttpClient } from '../webseed/web-seed-http-client'
-import {
-  DEFAULT_MAX_WEB_SEED_REQUEST_BYTES,
-  WebSeedManager,
-} from '../webseed/web-seed-manager'
+import { DEFAULT_MAX_WEB_SEED_REQUEST_BYTES, WebSeedManager } from '../webseed/web-seed-manager'
 
 /**
  * Maximum ratio of peer slots that incoming connections can occupy.
@@ -3062,38 +3059,33 @@ export class Torrent extends EngineComponent {
       return this._webSeedManager
     }
 
-    this._webSeedManager = new WebSeedManager(
-      this.engineInstance,
-      this.createWebSeedHttpClient(),
-      {
-        isNetworkActive: () => this._networkActive,
-        isComplete: () => this.isComplete,
-        hasMetadata: () => this.hasMetadata,
-        isDownloadRateLimited: () => this.btEngine.bandwidthTracker.downloadBucket.isLimited,
-        getWebSeedUrls: () => this.webSeedUrls,
-        getFiles: () => this.contentStorage?.filesList ?? [],
-        isMultiFileTorrent: () => Array.isArray(this.infoDict?.files),
-        getPieceCount: () => this.piecesCount,
-        getFirstNeededPiece: () => this._firstNeededPiece,
-        getPieceLength: (index) => this.getPieceLength(index),
-        getPieceOffset: (index) => index * this.pieceLength,
-        shouldRequestPiece: (index) => this.shouldRequestPiece(index),
-        hasPiece: (index) => this.hasPiece(index),
-        getActivePieces: () => this.activePieces,
-        initActivePieces: () => this.initActivePieceManager(),
-        getMaxConcurrentTransfers: () =>
-          this.btEngine.config?.maxWebSeedConnections.get() ?? DEFAULT_MAX_WEB_SEED_CONNECTIONS,
-        getMaxTransferBytes: () => DEFAULT_MAX_WEB_SEED_REQUEST_BYTES,
-        tryConsumeDownloadBandwidth: (bytes) =>
-          this.btEngine.bandwidthTracker.downloadBucket.tryConsume(bytes),
-        waitForDownloadBandwidth: (bytes, signal) =>
-          this.waitForDownloadBandwidth(bytes, signal),
-        removePieceFromAllIndices: (index) => this.removePieceFromAllIndices(index),
-        reindexPieceForConnectedPeers: (index) => this.reindexPieceForConnectedPeers(index),
-        onReceivedBlockFromSource: (sourceId, pieceIndex, blockOffset, data) =>
-          this.handleBlockFromSource(sourceId, pieceIndex, blockOffset, data),
-      },
-    )
+    this._webSeedManager = new WebSeedManager(this.engineInstance, this.createWebSeedHttpClient(), {
+      isNetworkActive: () => this._networkActive,
+      isComplete: () => this.isComplete,
+      hasMetadata: () => this.hasMetadata,
+      isDownloadRateLimited: () => this.btEngine.bandwidthTracker.downloadBucket.isLimited,
+      getWebSeedUrls: () => this.webSeedUrls,
+      getFiles: () => this.contentStorage?.filesList ?? [],
+      isMultiFileTorrent: () => Array.isArray(this.infoDict?.files),
+      getPieceCount: () => this.piecesCount,
+      getFirstNeededPiece: () => this._firstNeededPiece,
+      getPieceLength: (index) => this.getPieceLength(index),
+      getPieceOffset: (index) => index * this.pieceLength,
+      shouldRequestPiece: (index) => this.shouldRequestPiece(index),
+      hasPiece: (index) => this.hasPiece(index),
+      getActivePieces: () => this.activePieces,
+      initActivePieces: () => this.initActivePieceManager(),
+      getMaxConcurrentTransfers: () =>
+        this.btEngine.config?.maxWebSeedConnections.get() ?? DEFAULT_MAX_WEB_SEED_CONNECTIONS,
+      getMaxTransferBytes: () => DEFAULT_MAX_WEB_SEED_REQUEST_BYTES,
+      tryConsumeDownloadBandwidth: (bytes) =>
+        this.btEngine.bandwidthTracker.downloadBucket.tryConsume(bytes),
+      waitForDownloadBandwidth: (bytes, signal) => this.waitForDownloadBandwidth(bytes, signal),
+      removePieceFromAllIndices: (index) => this.removePieceFromAllIndices(index),
+      reindexPieceForConnectedPeers: (index) => this.reindexPieceForConnectedPeers(index),
+      onReceivedBlockFromSource: (sourceId, pieceIndex, blockOffset, data) =>
+        this.handleBlockFromSource(sourceId, pieceIndex, blockOffset, data),
+    })
 
     return this._webSeedManager
   }
@@ -3324,9 +3316,7 @@ export class Torrent extends EngineComponent {
 
     const piece = this.activePieces.get(pieceIndex)
     if (!piece) {
-      this.logger.debug(
-        `Ignoring web-seed block ${pieceIndex}:${blockOffset} - piece not active`,
-      )
+      this.logger.debug(`Ignoring web-seed block ${pieceIndex}:${blockOffset} - piece not active`)
       return false
     }
 

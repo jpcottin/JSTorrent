@@ -1,4 +1,4 @@
-(function () {
+;(function () {
   const CHANNEL_FLAG = '__jstSearchPluginSandbox'
   let nextFetchRequestId = 1
   const pendingFetches = new Map()

@@ -1,9 +1,19 @@
-import type { AddressFamilyPreference, ISocketFactory, ITcpSocket, SocketPurpose } from '../interfaces/socket'
+import type {
+  AddressFamilyPreference,
+  ISocketFactory,
+  ITcpSocket,
+  SocketPurpose,
+} from '../interfaces/socket'
 import { PREFERRED_ADDRESS_FAMILY } from '../interfaces/socket'
 import { Logger } from '../logging/logger'
 import { fromString } from '../utils/buffer'
 import { HttpResponseParser } from './http-parser'
-import type { HttpBodyReader, HttpRequest, HttpTransport, HttpTransportResponse } from './http-transport'
+import type {
+  HttpBodyReader,
+  HttpRequest,
+  HttpTransport,
+  HttpTransportResponse,
+} from './http-transport'
 import type { HttpParserEvent, HttpResponseHead, ParsedHttpUrl } from './http-types'
 import { parseHttpUrl } from './url-utils'
 

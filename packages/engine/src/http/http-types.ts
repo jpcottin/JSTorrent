@@ -22,4 +22,3 @@ export type HttpParserEvent =
   | { type: 'head'; head: HttpResponseHead }
   | { type: 'body'; chunk: Uint8Array }
   | { type: 'end' }
-

@@ -39,10 +39,7 @@ import type {
   SearchPluginFetchPolicy,
   SearchPluginFetchResponse,
 } from '../search/types'
-import {
-  ensurePluginFetchAllowed,
-  SEARCH_PLUGIN_STORAGE_PREFIX,
-} from '../search/plugin-utils'
+import { ensurePluginFetchAllowed, SEARCH_PLUGIN_STORAGE_PREFIX } from '../search/plugin-utils'
 import type { DaemonInfo, DownloadRoot } from '../types'
 import type { IEngineManager, StorageRoot, FileOperationResult, LanShareResult } from './types'
 

@@ -31,7 +31,10 @@ describe('native controller set_file_priorities', () => {
       getTorrent: vi.fn((hash: string) => (hash === infoHash ? torrent : undefined)),
     } as unknown as BtEngine
 
-    setupController(() => engine, () => true)
+    setupController(
+      () => engine,
+      () => true,
+    )
 
     const command = (globalThis as Record<string, unknown>).__jstorrent_cmd_set_file_priorities as (
       hash: string,

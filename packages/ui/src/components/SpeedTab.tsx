@@ -80,6 +80,7 @@ const breakdownStyle: React.CSSProperties = {
 const CATEGORY_LABELS: Record<TrafficCategory, string> = {
   'peer:protocol': 'Peer',
   'peer:payload': 'Payload',
+  'web-seed:payload': 'Web Seed',
   'tracker:http': 'HTTP Tracker',
   'tracker:udp': 'UDP Tracker',
   dht: 'DHT',
