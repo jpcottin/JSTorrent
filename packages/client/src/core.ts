@@ -60,6 +60,7 @@ export {
   useSearchPluginService,
 } from './context/SearchPluginServiceContext'
 export { SearchPluginService } from './search/search-plugin-service'
+export { INTERNET_ARCHIVE_SAMPLE_PLUGIN_SOURCE } from './search/samples/internet-archive-plugin-source'
 
 // Hooks
 export { useEngineState, useTorrentState } from './hooks/useEngineState'

@@ -10,6 +10,7 @@ import type {
   SearchPluginSearchInput,
   SearchRunSummary,
 } from '../search/types'
+import { INTERNET_ARCHIVE_SAMPLE_PLUGIN_SOURCE } from '../search/samples/internet-archive-plugin-source'
 
 type SearchPluginsTab = 'search' | 'installed' | 'add' | 'lab'
 
@@ -42,16 +43,7 @@ const TABS: { id: SearchPluginsTab; label: string }[] = [
   { id: 'lab', label: 'Plugin Lab' },
 ]
 
-const INITIAL_SAMPLE_SOURCE = `export const manifest = {
-  name: 'Internet Archive',
-  hosts: ['archive.org'],
-  categories: ['all', 'books', 'movies', 'music'],
-}
-
-export async function search(ctx, input) {
-  ctx.log('info', 'Sample plugin loaded')
-  ctx.log('info', \`Try fetching against archive.org for: \${input.query}\`)
-}`
+const INITIAL_SAMPLE_SOURCE = INTERNET_ARCHIVE_SAMPLE_PLUGIN_SOURCE
 
 const RECOMMENDED_PLUGINS: SearchPluginManifest[] = [
   {
