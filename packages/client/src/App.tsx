@@ -16,6 +16,7 @@ import { SystemBridgePanel } from './components/SystemBridgePanel'
 import { openExternalUrl } from './utils/external-links'
 import { SystemBridgePanelChromeos } from './components/SystemBridgePanelChromeos'
 import { SettingsOverlay } from './components/SettingsOverlay'
+import { SearchPluginsOverlay } from './components/SearchPluginsOverlay'
 import { useChromeOSBootstrap } from './hooks/useChromeOSBootstrap'
 import { AppContent } from './AppContent'
 import { copyTextToClipboard } from './utils/clipboard'
@@ -123,6 +124,7 @@ function App() {
   const indicatorRef = useRef<HTMLButtonElement>(null)
   const [defaultRootKey, setDefaultRootKey] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [searchPluginsOpen, setSearchPluginsOpen] = useState(false)
   // Force re-render for stats updates (engine object is mutable)
   const [statsRevision, forceUpdate] = useState(0)
 
@@ -439,6 +441,25 @@ function App() {
               Report Bug
             </button>
             <button
+              onClick={() => setSearchPluginsOpen(true)}
+              style={{
+                background: 'var(--button-bg)',
+                border: '1px solid var(--border-color)',
+                cursor: 'pointer',
+                padding: '6px 12px',
+                fontSize: '13px',
+                color: 'var(--text-primary)',
+                borderRadius: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+              title="Manage search plugins"
+            >
+              <span style={{ fontSize: '14px' }}>⌕</span>
+              Plugins
+            </button>
+            <button
               onClick={() => setSettingsOpen(true)}
               style={{
                 background: 'var(--button-bg)',
@@ -572,6 +593,10 @@ function App() {
             setActiveTab={setSettingsTab}
           />
         )}
+        <SearchPluginsOverlay
+          isOpen={searchPluginsOpen}
+          onClose={() => setSearchPluginsOpen(false)}
+        />
       </div>
     </EngineManagerProvider>
   )

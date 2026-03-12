@@ -11,6 +11,24 @@ export type { EngineAdapter } from './adapters/types'
 
 // Types (Chrome-free)
 export type { DaemonInfo, DownloadRoot } from './types'
+export type {
+  SearchPluginCategory,
+  SearchPluginManifest,
+  SearchPluginSearchInput,
+  SearchPluginFetchInput,
+  SearchResult,
+  SearchPluginLogLevel,
+  SearchPluginLogEntry,
+  SearchPluginRequestTrace,
+  SearchPluginRunError,
+  SearchPluginRunTrace,
+  SearchPluginHtmlNode,
+  SearchPluginHtmlDocument,
+  SearchPluginContext,
+  SearchPluginModule,
+  InstalledPluginRecord,
+  SearchPluginHost,
+} from './search/types'
 
 // Engine Manager types (implementations are platform-specific)
 export type { IEngineManager, StorageRoot, FileOperationResult } from './engine-manager/types'
@@ -47,6 +65,7 @@ export type { AppContentProps, FileInfo } from './AppContent'
 
 // Settings overlay (platform-agnostic, uses EngineManagerContext)
 export { SettingsOverlay } from './components/SettingsOverlay'
+export { SearchPluginsOverlay } from './components/SearchPluginsOverlay'
 
 // Video popup session helpers
 export {

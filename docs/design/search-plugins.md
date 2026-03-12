@@ -288,6 +288,16 @@ Even if plugin execution starts in an extension sandbox, the system should not b
 
 Use community pages or wiki pages as discovery, but do not execute directly from live URLs on every search.
 
+### Discovery Model
+
+Preferred discovery model for v1:
+
+- community-maintained wiki or repository page
+- raw GitHub URLs as the common install transport
+- no requirement for JSTorrent to host a curated central catalog on day one
+
+This matches the desired "paste a URL and install" workflow while keeping JSTorrent's first-party involvement modest.
+
 ### Install
 
 1. User pastes a raw plugin URL.
@@ -307,6 +317,28 @@ Use community pages or wiki pages as discovery, but do not execute directly from
 3. Compare content hash or version.
 4. Re-validate manifest and permissions.
 5. Prompt or auto-update according to policy.
+
+### URL Handler
+
+If feasible in the hosting environment, support a one-click install URL format:
+
+```text
+jstorrent://plugin?url=https://raw.githubusercontent.com/example/repo/main/plugin.js
+```
+
+This should be treated as a convenience wrapper around the same install flow, not a separate plugin format.
+
+### Pinning
+
+Optional install pinning is useful for development and for trust-sensitive installs.
+
+Examples:
+
+- install from a specific commit URL
+- preserve a content hash when storing the install record
+- optionally disable auto-update for pinned installs
+
+This is not required for the first prototype, but the storage model should not prevent it.
 
 This model keeps URL-based installation simple while keeping runtime behavior stable and inspectable.
 
@@ -379,6 +411,20 @@ type PluginRunTrace = {
 
 This is the equivalent of "show stderr and interpreter errors" without depending on real POSIX stderr semantics.
 
+## Initial Built-In Plugin
+
+The initial implementation should strongly consider shipping one first-party plugin for legal public-domain or openly licensed content.
+
+The strongest candidate is an Internet Archive plugin because it:
+
+- proves the plugin system with a real source
+- is independently defensible
+- makes the feature useful even before any community plugins are installed
+
+### Implication for Torrent Engine
+
+An Internet Archive plugin may depend on good web seed support for a solid experience. That should be treated as an adjacent dependency rather than part of the plugin runtime itself.
+
 ## UI Plan
 
 ### User-Facing Entry Points
@@ -399,6 +445,19 @@ This is the equivalent of "show stderr and interpreter errors" without depending
 - update
 - remove
 - test
+
+### No-Plugins-Installed Flow
+
+If the user attempts to search with no plugins installed:
+
+- show a clear empty state
+- explain that search providers are user-installed
+- offer:
+  - install from URL
+  - browse community plugin list
+  - install first-party Internet Archive plugin if available
+
+This should be a productized empty state, not a generic failure.
 
 ### Search Results UI
 
@@ -500,6 +559,22 @@ The design should stay understandable and bounded:
 
 Even if the first runtime is extension-hosted, the system should be designed as a constrained provider framework, not as general remote code execution.
 
+## Community Directory Model
+
+There are three viable levels of involvement:
+
+1. fully hands-off: users bring arbitrary URLs from anywhere
+2. community-maintained JSTorrent wiki or repository page
+3. fully curated JSTorrent-managed directory
+
+Recommendation for initial implementation:
+
+- support arbitrary URL install technically
+- point users toward a community-maintained wiki/repository page
+- avoid making a fully curated catalog part of v1 scope
+
+This keeps the install flow simple without forcing JSTorrent to become the central publisher for every provider.
+
 ## Rollout Plan
 
 ### Phase 0: Design
@@ -513,11 +588,13 @@ Even if the first runtime is extension-hosted, the system should be designed as 
 - brokered `fetchText`, `fetchJson`, `parseHtml`, `emitResult`, `log`
 - plugin lab
 - one or two sample plugins
+- strong preference for including a first-party Internet Archive plugin
 
 ### Phase 2: Plugin Manager
 
 - install from URL
 - local storage
+- optional `jstorrent://plugin` handling if platform support is straightforward
 - enable/disable
 - update checks
 
@@ -525,6 +602,7 @@ Even if the first runtime is extension-hosted, the system should be designed as 
 
 - end-user search UI
 - result add-to-torrent flow
+- explicit no-plugins-installed empty state
 
 ### Phase 4: Native Host Evaluation
 
