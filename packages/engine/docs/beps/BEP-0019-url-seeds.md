@@ -225,6 +225,7 @@ BEP 19 pushes us toward:
 - Piece-to-file mapping for multi-file torrents
 - A purpose-built web-seed scheduler that prefers contiguous reads
 - Reuse of existing piece verification and disk write paths
+- Eventual integration with the engine's existing download rate limiting, even if the first milestone lands before that enforcement is wired up
 
 ## References
 

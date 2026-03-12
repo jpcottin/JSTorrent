@@ -48,6 +48,16 @@ describe('ActivePiece', () => {
       expect(piece.lastDataActivity).toBe(initialDataActivity)
       vi.useRealTimers()
     })
+
+    it('should support source-aware request aliases for non-peer sources', () => {
+      piece.addRequestFromSource(0, 'webseed:primary')
+
+      expect(piece.hasRequestsFromSource('webseed:primary')).toBe(true)
+      expect(piece.hasRequestForBlockFromSource(0, 'webseed:primary')).toBe(true)
+      expect(piece.getSourceRequestEntries()).toEqual([
+        { blockIndex: 0, sourceId: 'webseed:primary' },
+      ])
+    })
   })
 
   describe('addBlock', () => {
@@ -118,6 +128,18 @@ describe('ActivePiece', () => {
 
       expect(cleared).toBe(0)
       expect(piece.outstandingRequests).toBe(1)
+    })
+
+    it('should clear requests for a non-peer source via source-aware alias', () => {
+      piece.addRequestFromSource(0, 'webseed:primary')
+      piece.addRequestFromSource(1, 'webseed:primary')
+      piece.addRequestFromSource(2, 'peer1')
+
+      const cleared = piece.clearRequestsForSource('webseed:primary')
+
+      expect(cleared).toBe(2)
+      expect(piece.outstandingRequests).toBe(1)
+      expect(piece.hasRequestsFromSource('webseed:primary')).toBe(false)
     })
   })
 

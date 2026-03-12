@@ -170,6 +170,21 @@ Important point:
 
 That keeps torrent-specific validation local to the web-seed layer.
 
+## Download Rate Limiting
+
+Web-seed traffic must eventually respect the same download budgeting used for peer traffic.
+
+Required end-state:
+
+- Web-seed payload bytes consume the existing download token bucket / rate limit budget
+- Download statistics continue to represent total download traffic across peers and web seeds
+- Optional per-source accounting may be added for observability, but not as a separate primary limiter
+
+Important rollout note:
+
+- Initial web-seed integration does not have to block on rate-limit enforcement
+- However, the torrent integration should be structured so shared rate limiting can be added cleanly without redesigning the web-seed scheduler
+
 ## Torrent Integration Model
 
 Web seeds should not be implemented by teaching `PeerConnection` to speak HTTP.
@@ -330,6 +345,7 @@ Useful signals:
 - Hash failures
 - Whether the source supports keep-alive reliably
 - Redirect churn
+- Future interaction with shared download rate limiting
 
 Initial implementation can keep this simple:
 
@@ -386,12 +402,14 @@ That means we are sharing infrastructure, not prematurely merging all behaviors.
 - Add `WebSeedManager`
 - Generalize active-piece reservations from peer-centric to source-centric
 - Add source-agnostic block insertion path
+- Keep the scheduling path ready for shared download-bandwidth enforcement
 
 ### Phase 5: Scheduling And Limits
 
 - Add contiguous-span scheduler
 - Add per-torrent and global web-seed connection limits
 - Add telemetry and debug state
+- Wire web-seed payload bytes into the existing download rate limiter / token bucket
 
 ### Phase 6: Hardening
 
@@ -431,6 +449,7 @@ Web-seed integration tests:
 - Whether per-file redirect tracking is needed in the first milestone
 - Whether web-seed reservations should reuse existing request timestamp tracking or maintain separate timing
 - Whether initial scheduling should pull only from already-active pieces or also activate new pieces directly
+- Whether rate limiting should pause socket reads, scheduler dispatch, or both in the first enforcement pass
 
 ## Current Recommendation
 

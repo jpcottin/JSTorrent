@@ -7,9 +7,19 @@ export interface RequestInfo {
   timestamp: number
 }
 
+export interface SourceRequestInfo {
+  sourceId: string
+  timestamp: number
+}
+
 export interface RequestEntry {
   blockIndex: number
   peerId: string
+}
+
+export interface SourceRequestEntry {
+  blockIndex: number
+  sourceId: string
 }
 
 export interface BlockInfo {
@@ -144,9 +154,17 @@ export class ActivePiece {
    * already has blocks in-flight (contiguity preference, like libtorrent's requested_from()).
    */
   hasRequestsFromPeer(peerId: string): boolean {
+    return this.hasRequestsFromSource(peerId)
+  }
+
+  /**
+   * Check if a specific source has any in-flight requests on this piece.
+   * Sources may be BitTorrent peers or future web-seed source IDs.
+   */
+  hasRequestsFromSource(sourceId: string): boolean {
     for (const requests of this.blockRequests.values()) {
       for (const req of requests) {
-        if (req.peerId === peerId) return true
+        if (req.peerId === sourceId) return true
       }
     }
     return false
@@ -157,9 +175,16 @@ export class ActivePiece {
    * This is the authoritative receive-path guard for accepting inbound blocks.
    */
   hasRequestForBlockFromPeer(blockIndex: number, peerId: string): boolean {
+    return this.hasRequestForBlockFromSource(blockIndex, peerId)
+  }
+
+  /**
+   * Check whether a specific block is currently requested from a specific source.
+   */
+  hasRequestForBlockFromSource(blockIndex: number, sourceId: string): boolean {
     const requests = this.blockRequests.get(blockIndex)
     if (!requests) return false
-    return requests.some((req) => req.peerId === peerId)
+    return requests.some((req) => req.peerId === sourceId)
   }
 
   /**
@@ -214,6 +239,14 @@ export class ActivePiece {
    * @param now - Optional cached timestamp (avoids repeated Date.now() calls in hot paths)
    */
   addRequest(blockIndex: number, peerId: string, now?: number): void {
+    this.addRequestFromSource(blockIndex, peerId, now)
+  }
+
+  /**
+   * Record that a request was sent to a source for this block.
+   * Sources may be peers or future web-seed source IDs.
+   */
+  addRequestFromSource(blockIndex: number, sourceId: string, now?: number): void {
     // Phase 7: Check if this block was unrequested before adding request
     const wasUnrequested =
       !this.blockReceived[blockIndex] &&
@@ -225,7 +258,7 @@ export class ActivePiece {
       this.blockRequests.set(blockIndex, requests)
     }
     const timestamp = now ?? Date.now()
-    requests.push({ peerId, timestamp })
+    requests.push({ peerId: sourceId, timestamp })
     this._lastActivity = timestamp
 
     // Phase 7: Decrement unrequested count if this was the first request
@@ -318,9 +351,16 @@ export class ActivePiece {
    * Returns the timestamp, or undefined if no matching request is found.
    */
   getRequestTimestamp(blockIndex: number, peerId: string): number | undefined {
+    return this.getRequestTimestampForSource(blockIndex, peerId)
+  }
+
+  /**
+   * Get the request timestamp for a specific block from a specific source.
+   */
+  getRequestTimestampForSource(blockIndex: number, sourceId: string): number | undefined {
     const requests = this.blockRequests.get(blockIndex)
     if (!requests) return undefined
-    const req = requests.find((r) => r.peerId === peerId)
+    const req = requests.find((r) => r.peerId === sourceId)
     return req?.timestamp
   }
 
@@ -384,10 +424,17 @@ export class ActivePiece {
    * @param peerId - The peer ID to cancel from
    */
   cancelRequest(blockIndex: number, peerId: string): void {
+    this.cancelRequestFromSource(blockIndex, peerId)
+  }
+
+  /**
+   * Cancel a specific request from a source.
+   */
+  cancelRequestFromSource(blockIndex: number, sourceId: string): void {
     const requests = this.blockRequests.get(blockIndex)
     if (!requests) return
 
-    const idx = requests.findIndex((r) => r.peerId === peerId)
+    const idx = requests.findIndex((r) => r.peerId === sourceId)
     if (idx !== -1) {
       requests.splice(idx, 1)
       if (requests.length === 0) {
@@ -408,9 +455,17 @@ export class ActivePiece {
    * Returns the number of requests cleared.
    */
   clearRequestsForPeer(peerId: string): number {
+    return this.clearRequestsForSource(peerId)
+  }
+
+  /**
+   * Clear all requests made by a specific source.
+   * This is the source-agnostic form used by future web-seed integration.
+   */
+  clearRequestsForSource(sourceId: string): number {
     let cleared = 0
     for (const [blockIndex, requests] of this.blockRequests) {
-      const filtered = requests.filter((r) => r.peerId !== peerId)
+      const filtered = requests.filter((r) => r.peerId !== sourceId)
       if (filtered.length !== requests.length) {
         cleared += requests.length - filtered.length
         if (filtered.length === 0) {
@@ -532,16 +587,64 @@ export class ActivePiece {
    * Used by streaming preemption to cancel non-critical work.
    */
   getRequestEntries(): RequestEntry[] {
-    const entries: RequestEntry[] = []
+    return this.getSourceRequestEntries().map((entry) => ({
+      blockIndex: entry.blockIndex,
+      peerId: entry.sourceId,
+    }))
+  }
+
+  /**
+   * Snapshot all outstanding requests on this piece keyed by source ID.
+   */
+  getSourceRequestEntries(): SourceRequestEntry[] {
+    const entries: SourceRequestEntry[] = []
     for (const [blockIndex, requests] of this.blockRequests) {
       for (const request of requests) {
-        entries.push({ blockIndex, peerId: request.peerId })
+        entries.push({ blockIndex, sourceId: request.peerId })
       }
     }
     return entries
   }
 
   // --- Assembly ---
+
+  /**
+   * Get direct access to all requesting sources on this piece.
+   * BitTorrent peers are a subset of sources.
+   */
+  getRequestingSources(): Set<string> {
+    const sources = new Set<string>()
+    for (const requests of this.blockRequests.values()) {
+      for (const req of requests) {
+        sources.add(req.peerId)
+      }
+    }
+    return sources
+  }
+
+  /**
+   * Get all peers with outstanding requests on this piece.
+   * Used for piece-level no-data timeout: if no data arrives for a piece
+   * for PIECE_NO_DATA_TIMEOUT_MS, all requesting peers are snubbed.
+   */
+  getRequestingPeers(): Set<string> {
+    return this.getRequestingSources()
+  }
+
+  /**
+   * Get peers that contributed blocks to this piece.
+   * Used for suspicious peer tracking on hash verification failure.
+   */
+  getContributingPeers(): Set<string> {
+    return this.getContributingSources()
+  }
+
+  /**
+   * Get sources that contributed blocks to this piece.
+   */
+  getContributingSources(): Set<string> {
+    return new Set(this.blockSenders.values())
+  }
 
   /**
    * Get the assembled piece buffer.
@@ -564,29 +667,6 @@ export class ActivePiece {
    */
   getBuffer(): Uint8Array {
     return this.buffer
-  }
-
-  /**
-   * Get all peers with outstanding requests on this piece.
-   * Used for piece-level no-data timeout: if no data arrives for a piece
-   * for PIECE_NO_DATA_TIMEOUT_MS, all requesting peers are snubbed.
-   */
-  getRequestingPeers(): Set<string> {
-    const peers = new Set<string>()
-    for (const requests of this.blockRequests.values()) {
-      for (const req of requests) {
-        peers.add(req.peerId)
-      }
-    }
-    return peers
-  }
-
-  /**
-   * Get peers that contributed blocks to this piece.
-   * Used for suspicious peer tracking on hash verification failure.
-   */
-  getContributingPeers(): Set<string> {
-    return new Set(this.blockSenders.values())
   }
 
   // --- Cleanup ---
