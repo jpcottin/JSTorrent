@@ -19,7 +19,14 @@ interface SearchPluginsOverlayProps {
   onClose: () => void
 }
 
+interface RecommendedPlugin {
+  manifest: SearchPluginManifest
+  sourceUrl?: string
+}
+
 const SEARCH_PLUGINS_OVERLAY_STATE_KEY = 'jstorrent:searchPluginsOverlayState'
+const INTERNET_ARCHIVE_PLUGIN_RAW_URL =
+  'https://raw.githubusercontent.com/kzahel/jstorrent/main/search-plugins/internet-archive.js'
 
 const EMPTY_DRAFT_RUN_RESULT: SearchPluginDraftRunResult = {
   trace: {
@@ -45,12 +52,15 @@ const TABS: { id: SearchPluginsTab; label: string }[] = [
 
 const INITIAL_SAMPLE_SOURCE = INTERNET_ARCHIVE_SAMPLE_PLUGIN_SOURCE
 
-const RECOMMENDED_PLUGINS: SearchPluginManifest[] = [
+const RECOMMENDED_PLUGINS: RecommendedPlugin[] = [
   {
-    name: 'Internet Archive',
-    description: 'Planned first-party plugin for public-domain and openly licensed media.',
-    hosts: ['archive.org'],
-    homepage: 'https://archive.org',
+    manifest: {
+      name: 'Internet Archive',
+      description: 'First-party provider for public-domain and openly licensed media.',
+      hosts: ['archive.org'],
+      homepage: 'https://archive.org',
+    },
+    sourceUrl: INTERNET_ARCHIVE_PLUGIN_RAW_URL,
   },
 ]
 
@@ -183,10 +193,14 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
   }
 
   const handleLoadSourceFromUrl = async () => {
+    await loadSourceFromUrl(sourceUrl.trim())
+  }
+
+  const loadSourceFromUrl = async (url: string) => {
     setInstallBusy(true)
     setInstallStatus('Fetching plugin source...')
     try {
-      const loaded = await pluginService.loadSourceFromUrl(sourceUrl.trim())
+      const loaded = await pluginService.loadSourceFromUrl(url)
       setDraftSource(loaded.source)
       setInstallPreview(loaded.manifest)
       setActiveTab('lab')
@@ -202,10 +216,14 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
   }
 
   const handleInstallFromUrl = async () => {
+    await installFromUrl(sourceUrl.trim())
+  }
+
+  const installFromUrl = async (url: string) => {
     setInstallBusy(true)
     setInstallStatus('Fetching plugin source...')
     try {
-      const normalizedUrl = sourceUrl.trim()
+      const normalizedUrl = url
       const prepared = await pluginService.prepareInstallFromUrl(normalizedUrl)
 
       const confirmed = standaloneConfirm(
@@ -238,6 +256,17 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     } finally {
       setInstallBusy(false)
     }
+  }
+
+  const handleUseRecommendedUrl = (url: string) => {
+    handleSourceUrlChange(url)
+    setInstallStatus('Loaded recommended GitHub raw URL.')
+    setActiveTab('add')
+  }
+
+  const handleInstallRecommendedPlugin = async (url: string) => {
+    handleSourceUrlChange(url)
+    await installFromUrl(url)
   }
 
   const handleRemovePlugin = async (pluginId: string) => {
@@ -447,8 +476,11 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
                 installedPlugins={installedPlugins}
                 recommendedPlugins={RECOMMENDED_PLUGINS}
                 actionsDisabled={labBusy || searchBusy}
+                runtimeAvailable={runtimeAvailable}
                 onOpenAddTab={() => setActiveTab('add')}
+                onInstallRecommendedPlugin={handleInstallRecommendedPlugin}
                 onLoadPlugin={handleLoadInstalledPlugin}
+                onUseRecommendedUrl={handleUseRecommendedUrl}
                 onRemovePlugin={handleRemovePlugin}
                 onRunPlugin={handleRunInstalledPlugin}
                 onTogglePluginEnabled={handleTogglePluginEnabled}
@@ -489,10 +521,13 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
 
 interface InstalledTabProps {
   installedPlugins: InstalledPluginRecord[]
-  recommendedPlugins: SearchPluginManifest[]
+  recommendedPlugins: RecommendedPlugin[]
   actionsDisabled: boolean
+  runtimeAvailable: boolean
   onOpenAddTab: () => void
+  onInstallRecommendedPlugin: (url: string) => Promise<void>
   onLoadPlugin: (plugin: InstalledPluginRecord) => void
+  onUseRecommendedUrl: (url: string) => void
   onRemovePlugin: (pluginId: string) => void
   onRunPlugin: (plugin: InstalledPluginRecord) => void
   onTogglePluginEnabled: (plugin: InstalledPluginRecord) => void
@@ -502,8 +537,11 @@ function InstalledTab({
   installedPlugins,
   recommendedPlugins,
   actionsDisabled,
+  runtimeAvailable,
   onOpenAddTab,
+  onInstallRecommendedPlugin,
   onLoadPlugin,
+  onUseRecommendedUrl,
   onRemovePlugin,
   onRunPlugin,
   onTogglePluginEnabled,
@@ -577,13 +615,33 @@ function InstalledTab({
         description="A legal first-party provider keeps the feature useful before any community plugins are installed."
       >
         {recommendedPlugins.map((plugin) => (
-          <div key={plugin.name} style={styles.pluginCard}>
+          <div key={plugin.manifest.name} style={styles.pluginCard}>
             <div style={styles.pluginCardHeader}>
-              <strong>{plugin.name}</strong>
-              <span style={styles.badgeMuted}>Planned</span>
+              <strong>{plugin.manifest.name}</strong>
+              <span style={styles.badgeMuted}>{plugin.sourceUrl ? 'Ready' : 'Planned'}</span>
             </div>
-            {plugin.description && <div style={styles.metaText}>{plugin.description}</div>}
-            <div style={styles.metaText}>Hosts: {plugin.hosts.join(', ')}</div>
+            {plugin.manifest.description && (
+              <div style={styles.metaText}>{plugin.manifest.description}</div>
+            )}
+            <div style={styles.metaText}>Hosts: {plugin.manifest.hosts.join(', ')}</div>
+            {plugin.sourceUrl && <div style={styles.metaText}>Source: {plugin.sourceUrl}</div>}
+            {plugin.sourceUrl && (
+              <div style={styles.inlineActions}>
+                <button
+                  style={styles.secondaryButton}
+                  onClick={() => onUseRecommendedUrl(plugin.sourceUrl!)}
+                >
+                  Use Raw URL
+                </button>
+                <button
+                  style={styles.primaryButton}
+                  onClick={() => void onInstallRecommendedPlugin(plugin.sourceUrl!)}
+                  disabled={actionsDisabled || !runtimeAvailable}
+                >
+                  Install
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </Section>
