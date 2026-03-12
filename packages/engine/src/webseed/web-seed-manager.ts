@@ -436,7 +436,7 @@ function getWebSeedSourceId(url: string): string {
 }
 
 function buildWebSeedFileUrl(baseUrl: string, filePath: string, isMultiFile: boolean): string {
-  if (!isMultiFile) {
+  if (!isMultiFile && !baseUrl.endsWith('/')) {
     return baseUrl
   }
 
