@@ -17,6 +17,21 @@ interface SearchPluginsOverlayProps {
   onClose: () => void
 }
 
+const EMPTY_DRAFT_RUN_RESULT: SearchPluginDraftRunResult = {
+  trace: {
+    ok: false,
+    durationMs: 0,
+    results: [],
+    logs: [],
+    requests: [],
+    error: {
+      phase: 'load',
+      name: 'HostError',
+      message: '',
+    },
+  },
+}
+
 const TABS: { id: SearchPluginsTab; label: string }[] = [
   { id: 'installed', label: 'Installed' },
   { id: 'add', label: 'Add from URL' },
@@ -181,11 +196,25 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     }
   }
 
-  const handleRunDraft = async () => {
+  const runSourceInLab = async (
+    source: string,
+    options?: { sourceLabel?: string; activateLab?: boolean },
+  ) => {
     setLabBusy(true)
-    setLabStatus('Running plugin in sandbox...')
+    if (options?.activateLab) {
+      setActiveTab('lab')
+    }
+    if (options?.sourceLabel) {
+      setDraftSource(source)
+    }
+    setLabStatus(
+      options?.sourceLabel
+        ? `Running ${options.sourceLabel} in sandbox...`
+        : 'Running plugin in sandbox...',
+    )
+
     try {
-      const result = await hostRef.current!.runDraft(draftSource, searchInput)
+      const result = await hostRef.current!.runDraft(source, searchInput)
       setDraftRunResult(result)
       setLabStatus(
         result.trace.ok
@@ -196,12 +225,9 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
       const message = error instanceof Error ? error.message : String(error)
       setLabStatus(message)
       setDraftRunResult({
+        ...EMPTY_DRAFT_RUN_RESULT,
         trace: {
-          ok: false,
-          durationMs: 0,
-          results: [],
-          logs: [],
-          requests: [],
+          ...EMPTY_DRAFT_RUN_RESULT.trace,
           error: {
             phase: 'load',
             name: 'HostError',
@@ -212,6 +238,24 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     } finally {
       setLabBusy(false)
     }
+  }
+
+  const handleRunDraft = async () => {
+    await runSourceInLab(draftSource)
+  }
+
+  const handleLoadInstalledPlugin = (plugin: InstalledPluginRecord) => {
+    setDraftSource(plugin.code)
+    setDraftRunResult(null)
+    setLabStatus(`Loaded ${plugin.manifest.name} into the plugin lab.`)
+    setActiveTab('lab')
+  }
+
+  const handleRunInstalledPlugin = async (plugin: InstalledPluginRecord) => {
+    await runSourceInLab(plugin.code, {
+      sourceLabel: plugin.manifest.name,
+      activateLab: true,
+    })
   }
 
   return (
@@ -255,8 +299,11 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
               <InstalledTab
                 installedPlugins={installedPlugins}
                 recommendedPlugins={RECOMMENDED_PLUGINS}
+                actionsDisabled={labBusy}
                 onOpenAddTab={() => setActiveTab('add')}
+                onLoadPlugin={handleLoadInstalledPlugin}
                 onRemovePlugin={handleRemovePlugin}
+                onRunPlugin={handleRunInstalledPlugin}
               />
             )}
             {activeTab === 'add' && (
@@ -295,15 +342,21 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
 interface InstalledTabProps {
   installedPlugins: InstalledPluginRecord[]
   recommendedPlugins: SearchPluginManifest[]
+  actionsDisabled: boolean
   onOpenAddTab: () => void
+  onLoadPlugin: (plugin: InstalledPluginRecord) => void
   onRemovePlugin: (pluginId: string) => void
+  onRunPlugin: (plugin: InstalledPluginRecord) => void
 }
 
 function InstalledTab({
   installedPlugins,
   recommendedPlugins,
+  actionsDisabled,
   onOpenAddTab,
+  onLoadPlugin,
   onRemovePlugin,
+  onRunPlugin,
 }: InstalledTabProps) {
   return (
     <div style={styles.tabPanel}>
@@ -330,7 +383,22 @@ function InstalledTab({
                   <span style={styles.badge}>{plugin.enabled ? 'Enabled' : 'Disabled'}</span>
                   <button
                     style={styles.linkButton}
+                    onClick={() => onLoadPlugin(plugin)}
+                    disabled={actionsDisabled}
+                  >
+                    Load In Lab
+                  </button>
+                  <button
+                    style={styles.linkButton}
+                    onClick={() => onRunPlugin(plugin)}
+                    disabled={actionsDisabled}
+                  >
+                    Run
+                  </button>
+                  <button
+                    style={styles.linkButton}
                     onClick={() => onRemovePlugin(plugin.pluginId)}
+                    disabled={actionsDisabled}
                   >
                     Remove
                   </button>
