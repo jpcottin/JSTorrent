@@ -52,7 +52,7 @@ class DeferredBodyReader implements HttpBodyReader {
   }
 }
 
-async function flushMicrotasks(rounds = 6): Promise<void> {
+async function flushMicrotasks(rounds = 12): Promise<void> {
   for (let i = 0; i < rounds; i++) {
     await Promise.resolve()
   }
@@ -102,6 +102,7 @@ describe('WebSeedManager', () => {
       isNetworkActive: () => true,
       isComplete: () => false,
       hasMetadata: () => true,
+      isDownloadRateLimited: () => false,
       getWebSeedUrls: () => ['https://seed.example/content/'],
       getFiles: () => [
         { path: 'root/alpha.bin', length: 10_000, offset: 0 },
@@ -118,6 +119,8 @@ describe('WebSeedManager', () => {
       initActivePieces: () => activePieces,
       getMaxConcurrentTransfers: () => 1,
       getMaxTransferBytes: () => BLOCK_SIZE,
+      tryConsumeDownloadBandwidth: () => true,
+      waitForDownloadBandwidth: async () => {},
       removePieceFromAllIndices: vi.fn(),
       reindexPieceForConnectedPeers: (index) => {
         reindexed.push(index)
@@ -187,6 +190,7 @@ describe('WebSeedManager', () => {
       isNetworkActive: () => true,
       isComplete: () => false,
       hasMetadata: () => true,
+      isDownloadRateLimited: () => false,
       getWebSeedUrls: () => ['https://seed.example/file.bin'],
       getFiles: () => [{ path: 'file.bin', length: BLOCK_SIZE, offset: 0 }],
       isMultiFileTorrent: () => false,
@@ -200,6 +204,8 @@ describe('WebSeedManager', () => {
       initActivePieces: () => activePieces,
       getMaxConcurrentTransfers: () => 1,
       getMaxTransferBytes: () => BLOCK_SIZE,
+      tryConsumeDownloadBandwidth: () => true,
+      waitForDownloadBandwidth: async () => {},
       removePieceFromAllIndices: vi.fn(),
       reindexPieceForConnectedPeers: (index) => {
         reindexed.push(index)
@@ -249,6 +255,7 @@ describe('WebSeedManager', () => {
       isNetworkActive: () => true,
       isComplete: () => completedPieces.size === 2,
       hasMetadata: () => true,
+      isDownloadRateLimited: () => false,
       getWebSeedUrls: () => ['https://seed.example/file.bin'],
       getFiles: () => [{ path: 'file.bin', length: BLOCK_SIZE * 2, offset: 0 }],
       isMultiFileTorrent: () => false,
@@ -262,6 +269,8 @@ describe('WebSeedManager', () => {
       initActivePieces: () => activePieces,
       getMaxConcurrentTransfers: () => 1,
       getMaxTransferBytes: () => BLOCK_SIZE * 2,
+      tryConsumeDownloadBandwidth: () => true,
+      waitForDownloadBandwidth: async () => {},
       removePieceFromAllIndices: vi.fn(),
       reindexPieceForConnectedPeers: vi.fn(),
       onReceivedBlockFromSource: (sourceId, pieceIndex, blockOffset, data) => {
@@ -343,6 +352,7 @@ describe('WebSeedManager', () => {
       isNetworkActive: () => true,
       isComplete: () => completedPieces.size === 4,
       hasMetadata: () => true,
+      isDownloadRateLimited: () => false,
       getWebSeedUrls: () => ['https://seed-a.example/a.bin', 'https://seed-b.example/b.bin'],
       getFiles: () => [{ path: 'file.bin', length: BLOCK_SIZE * 4, offset: 0 }],
       isMultiFileTorrent: () => false,
@@ -356,6 +366,8 @@ describe('WebSeedManager', () => {
       initActivePieces: () => activePieces,
       getMaxConcurrentTransfers: () => 2,
       getMaxTransferBytes: () => BLOCK_SIZE * 2,
+      tryConsumeDownloadBandwidth: () => true,
+      waitForDownloadBandwidth: async () => {},
       removePieceFromAllIndices: vi.fn(),
       reindexPieceForConnectedPeers: vi.fn(),
       onReceivedBlockFromSource: (sourceId, pieceIndex, blockOffset, data) => {
@@ -381,5 +393,82 @@ describe('WebSeedManager', () => {
     expect(startedRequests).toHaveLength(2)
     expect(maxConcurrentRequests).toBe(2)
     expect(completedPieces).toEqual(new Set([0, 1, 2, 3]))
+  })
+
+  it('waits for download bandwidth before delivering web-seed bytes', async () => {
+    const engine = new MockEngine()
+    const activePieces = new ActivePieceManager(engine, () => BLOCK_SIZE, {
+      standardPieceLength: BLOCK_SIZE,
+    })
+    const completedPieces = new Set<number>()
+    const deliveredBlocks: number[] = []
+    let releaseBandwidth: (() => void) | null = null
+    let bandwidthAvailable = false
+
+    const client = {
+      async requestRange(request: { url: string; start: number; endInclusive: number }) {
+        return {
+          statusCode: 206,
+          headers: {},
+          finalUrl: request.url,
+          body: new StaticBodyReader([new Uint8Array(BLOCK_SIZE).fill(0x61), null]),
+          start: request.start,
+          endInclusive: request.endInclusive,
+        }
+      },
+    } as unknown as WebSeedHttpClient
+
+    const deps: WebSeedManagerDeps = {
+      isNetworkActive: () => true,
+      isComplete: () => completedPieces.size === 1,
+      hasMetadata: () => true,
+      isDownloadRateLimited: () => true,
+      getWebSeedUrls: () => ['https://seed.example/file.bin'],
+      getFiles: () => [{ path: 'file.bin', length: BLOCK_SIZE, offset: 0 }],
+      isMultiFileTorrent: () => false,
+      getPieceCount: () => 1,
+      getFirstNeededPiece: () => 0,
+      getPieceLength: () => BLOCK_SIZE,
+      getPieceOffset: () => 0,
+      shouldRequestPiece: (index) => !completedPieces.has(index),
+      hasPiece: (index) => completedPieces.has(index),
+      getActivePieces: () => activePieces,
+      initActivePieces: () => activePieces,
+      getMaxConcurrentTransfers: () => 1,
+      getMaxTransferBytes: () => BLOCK_SIZE,
+      tryConsumeDownloadBandwidth: () => bandwidthAvailable,
+      waitForDownloadBandwidth: async () => {
+        await new Promise<void>((resolve) => {
+          releaseBandwidth = () => {
+            bandwidthAvailable = true
+            resolve()
+          }
+        })
+      },
+      removePieceFromAllIndices: vi.fn(),
+      reindexPieceForConnectedPeers: vi.fn(),
+      onReceivedBlockFromSource: (sourceId, pieceIndex, blockOffset, data) => {
+        const piece = activePieces.get(pieceIndex)
+        expect(piece).toBeDefined()
+        piece!.addBlock(blockOffset / BLOCK_SIZE, data, sourceId)
+        deliveredBlocks.push(data.length)
+        if (piece!.haveAllBlocks) {
+          completedPieces.add(pieceIndex)
+          activePieces.promoteToFullyResponded(pieceIndex)
+          activePieces.removeFullyResponded(pieceIndex)
+        }
+        return true
+      },
+    }
+
+    const manager = new WebSeedManager(engine, client, deps)
+    manager.tick()
+    await flushMicrotasks()
+
+    expect(deliveredBlocks).toEqual([])
+    releaseBandwidth?.()
+    await flushMicrotasks()
+
+    expect(deliveredBlocks).toEqual([BLOCK_SIZE])
   })
 })

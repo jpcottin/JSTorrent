@@ -13,6 +13,7 @@ export interface WebSeedManagerDeps {
   isNetworkActive(): boolean
   isComplete(): boolean
   hasMetadata(): boolean
+  isDownloadRateLimited(): boolean
   getWebSeedUrls(): string[]
   getFiles(): readonly WebSeedSourceFile[]
   isMultiFileTorrent(): boolean
@@ -26,6 +27,8 @@ export interface WebSeedManagerDeps {
   initActivePieces(): ActivePieceManager
   getMaxConcurrentTransfers(): number
   getMaxTransferBytes(): number
+  tryConsumeDownloadBandwidth(bytes: number): boolean
+  waitForDownloadBandwidth(bytes: number, signal: AbortSignal): Promise<void>
   removePieceFromAllIndices(index: number): void
   reindexPieceForConnectedPeers(index: number): void
   onReceivedBlockFromSource(
@@ -83,6 +86,7 @@ const WEB_SEED_SOURCE_PREFIX = 'webseed:'
 const INITIAL_RETRY_DELAY_MS = 1_000
 const MAX_RETRY_DELAY_MS = 30_000
 export const DEFAULT_MAX_WEB_SEED_REQUEST_BYTES = 16 * 1024 * 1024
+const MAX_RATE_LIMIT_SLICE_BYTES = BLOCK_SIZE
 
 export class WebSeedManager extends EngineComponent {
   static logName = 'web-seed-manager'
@@ -312,7 +316,7 @@ export class WebSeedManager extends EngineComponent {
         })
 
         try {
-          await this.consumeSpanBody(reservation, response.body, span.length, cursor)
+          await this.consumeSpanBody(reservation, response.body, span.length, cursor, signal)
         } catch (error) {
           response.body.cancel('web-seed span failed')
           throw error
@@ -348,6 +352,7 @@ export class WebSeedManager extends EngineComponent {
       pieceCursorIndex: number
       partialBlock: PartialBlockState | null
     },
+    signal: AbortSignal,
   ): Promise<void> {
     let spanBytesRead = 0
 
@@ -376,7 +381,8 @@ export class WebSeedManager extends EngineComponent {
         const blockOffset = blockIndex * BLOCK_SIZE
         const blockLength = Math.min(BLOCK_SIZE, reservedPiece.pieceLength - blockOffset)
         const offsetInBlock = pieceOffset - blockOffset
-        const bytesToCopy = Math.min(blockLength - offsetInBlock, chunk.length - offset)
+        const bytesAvailable = Math.min(blockLength - offsetInBlock, chunk.length - offset)
+        const bytesToCopy = await this.consumeDownloadBandwidth(bytesAvailable, signal)
 
         if (bytesToCopy > remainingInSpan) {
           throw new Error(
@@ -444,6 +450,29 @@ export class WebSeedManager extends EngineComponent {
       throw new Error(
         `Web seed truncated response for transfer starting at piece ${reservation.startPieceIndex}: received ${spanBytesRead}, expected ${expectedLength}`,
       )
+    }
+  }
+
+  private async consumeDownloadBandwidth(bytesWanted: number, signal: AbortSignal): Promise<number> {
+    if (!this.deps.isDownloadRateLimited()) {
+      return bytesWanted
+    }
+
+    const boundedBytes = Math.min(bytesWanted, MAX_RATE_LIMIT_SLICE_BYTES)
+    let attempt = boundedBytes
+
+    for (;;) {
+      if (this.deps.tryConsumeDownloadBandwidth(attempt)) {
+        return attempt
+      }
+
+      if (attempt > 1) {
+        attempt = Math.max(1, Math.floor(attempt / 2))
+        continue
+      }
+
+      await this.deps.waitForDownloadBandwidth(1, signal)
+      attempt = boundedBytes
     }
   }
 

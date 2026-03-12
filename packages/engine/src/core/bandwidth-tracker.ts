@@ -14,6 +14,7 @@ import { TokenBucket } from '../utils/token-bucket'
 export type TrafficCategory =
   | 'peer:protocol' // all peer TCP bytes (handshake, messages, piece data)
   | 'peer:payload' // piece block data only (subset of peer:protocol)
+  | 'web-seed:payload' // HTTP web-seed payload bytes only
   | 'tracker:http' // HTTP tracker requests/responses
   | 'tracker:udp' // UDP tracker packets
   | 'dht' // DHT UDP packets
@@ -25,6 +26,7 @@ export type TrafficCategory =
 export const ALL_TRAFFIC_CATEGORIES: TrafficCategory[] = [
   'peer:protocol',
   'peer:payload',
+  'web-seed:payload',
   'tracker:http',
   'tracker:udp',
   'dht',

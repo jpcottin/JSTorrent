@@ -70,6 +70,7 @@ describe('Torrent web-seed block ingestion', () => {
         ) => boolean
       }
     ).handleBlockFromSource.bind(torrent)
+    const recordSpy = vi.spyOn(engine.bandwidthTracker, 'record')
 
     expect(
       handleBlockFromSource(
@@ -91,6 +92,8 @@ describe('Torrent web-seed block ingestion', () => {
     await pollUntil(() => writePieceVerified.mock.calls.length === 1 && torrent.completedPiecesCount === 1)
 
     expect(writePieceVerified).toHaveBeenCalledWith(0, pieceData, pieceHash)
+    expect(recordSpy).toHaveBeenCalledWith('web-seed:payload', BLOCK_SIZE, 'down')
+    expect(recordSpy).toHaveBeenCalledWith('web-seed:payload', BLOCK_SIZE, 'down')
     expect(torrent.hasPiece(0)).toBe(true)
     expect(activePieces.get(0)).toBeUndefined()
     expect(torrent.totalDownloaded).toBe(pieceData.length)

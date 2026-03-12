@@ -2866,6 +2866,31 @@ export class Torrent extends EngineComponent {
     )
   }
 
+  private waitForDownloadBandwidth(bytes: number, signal: AbortSignal): Promise<void> {
+    const downloadBucket = this.btEngine.bandwidthTracker.downloadBucket
+    const delayMs = Math.max(downloadBucket.msUntilAvailable(Math.max(1, bytes)), 10)
+
+    return new Promise<void>((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new Error('Download bandwidth wait aborted'))
+        return
+      }
+
+      const onAbort = () => {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', onAbort)
+        reject(new Error('Download bandwidth wait aborted'))
+      }
+
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort)
+        resolve()
+      }, delayMs)
+
+      signal.addEventListener('abort', onAbort, { once: true })
+    })
+  }
+
   /**
    * Fill peer slots from the swarm.
    * Delegates to runMaintenance() for single codepath.
@@ -3044,6 +3069,7 @@ export class Torrent extends EngineComponent {
         isNetworkActive: () => this._networkActive,
         isComplete: () => this.isComplete,
         hasMetadata: () => this.hasMetadata,
+        isDownloadRateLimited: () => this.btEngine.bandwidthTracker.downloadBucket.isLimited,
         getWebSeedUrls: () => this.webSeedUrls,
         getFiles: () => this.contentStorage?.filesList ?? [],
         isMultiFileTorrent: () => Array.isArray(this.infoDict?.files),
@@ -3058,6 +3084,10 @@ export class Torrent extends EngineComponent {
         getMaxConcurrentTransfers: () =>
           this.btEngine.config?.maxWebSeedConnections.get() ?? DEFAULT_MAX_WEB_SEED_CONNECTIONS,
         getMaxTransferBytes: () => DEFAULT_MAX_WEB_SEED_REQUEST_BYTES,
+        tryConsumeDownloadBandwidth: (bytes) =>
+          this.btEngine.bandwidthTracker.downloadBucket.tryConsume(bytes),
+        waitForDownloadBandwidth: (bytes, signal) =>
+          this.waitForDownloadBandwidth(bytes, signal),
         removePieceFromAllIndices: (index) => this.removePieceFromAllIndices(index),
         reindexPieceForConnectedPeers: (index) => this.reindexPieceForConnectedPeers(index),
         onReceivedBlockFromSource: (sourceId, pieceIndex, blockOffset, data) =>
@@ -3314,6 +3344,7 @@ export class Torrent extends EngineComponent {
       return false
     }
 
+    ;(this.engine as BtEngine).bandwidthTracker.record('web-seed:payload', data.length, 'down')
     this.totalDownloaded += data.length
     this.emit('download', data.length)
 
