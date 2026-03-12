@@ -106,6 +106,9 @@ export { SleepWakeDetector } from './utils/sleep-wake-detector'
 export type { SleepWakeDetectorOptions, WakeEvent } from './utils/sleep-wake-detector'
 export { MinimalHttpClient } from './utils/minimal-http-client'
 export type { HttpResponse } from './utils/minimal-http-client'
+export { SocketHttpTransport } from './http/socket-http-transport'
+export type { HttpTransport, HttpTransportResponse, HttpBodyReader } from './http/http-transport'
+export type { HttpResponseHead, HttpResponseBodyMode } from './http/http-types'
 
 // Torrent factory and initialization
 export { parseTorrentInput } from './core/torrent-factory'

@@ -11,6 +11,7 @@ import {
   DaemonBackedEngine,
   DaemonControlStreamService,
   MinimalHttpClient,
+  SocketHttpTransport,
   globalLogStore,
   LogStore,
   ISessionStore,
@@ -71,6 +72,17 @@ const MIME_TYPES_BY_EXTENSION: Record<string, string> = {
   '.flac': 'audio/flac',
   '.wav': 'audio/wav',
   '.ogg': 'audio/ogg',
+}
+
+function concatChunks(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+  const merged = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    merged.set(chunk, offset)
+    offset += chunk.length
+  }
+  return merged
 }
 
 function isTauriContext(): boolean {
@@ -829,18 +841,42 @@ export class DaemonEngineManager implements IEngineManager {
       throw new Error(`Unsupported plugin fetch method: ${method}`)
     }
 
-    const client = new MinimalHttpClient(this.socketFactory, undefined, 'http-tracker')
-    const response =
-      method === 'POST'
-        ? await client.post(input.url, input.body ?? '', input.headers ?? {})
-        : await client.get(input.url, input.headers ?? {})
+    let body: Uint8Array
+    let statusCode: number
+    let remoteAddress: string | undefined
+
+    if (method === 'POST') {
+      const client = new MinimalHttpClient(this.socketFactory, undefined, 'http-tracker')
+      const response = await client.post(input.url, input.body ?? '', input.headers ?? {})
+      body = response.body
+      statusCode = response.statusCode
+      remoteAddress = response.remoteAddress
+    } else {
+      const transport = new SocketHttpTransport(this.socketFactory, undefined, 'http-tracker')
+      const response = await transport.request({
+        method,
+        url: input.url,
+        headers: input.headers,
+        keepAlive: false,
+      })
+
+      const chunks: Uint8Array[] = []
+      while (true) {
+        const chunk = await response.body.read()
+        if (chunk === null) break
+        chunks.push(chunk)
+      }
+      body = concatChunks(chunks)
+      statusCode = response.head.statusCode
+      remoteAddress = response.remoteAddress
+    }
 
     return {
-      bodyText: new TextDecoder().decode(response.body),
-      bodyBytes: response.body,
-      bytes: response.body.byteLength,
-      statusCode: response.statusCode,
-      remoteAddress: response.remoteAddress,
+      bodyText: new TextDecoder().decode(body),
+      bodyBytes: body,
+      bytes: body.byteLength,
+      statusCode,
+      remoteAddress,
     }
   }
 
