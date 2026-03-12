@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HttpBodyReader, HttpTransport, HttpTransportResponse } from '../../src/http/http-transport'
-import { WebSeedHttpClient } from '../../src/webseed/web-seed-http-client'
+import { WebSeedHttpClient, WebSeedRequestError } from '../../src/webseed/web-seed-http-client'
 
 class StaticBodyReader implements HttpBodyReader {
   constructor(private chunks: Array<Uint8Array | null>) {}
@@ -130,5 +130,64 @@ describe('WebSeedHttpClient', () => {
     })
 
     expect(response.statusCode).toBe(200)
+  })
+
+  it('classifies 404 responses as not-found failures', async () => {
+    const transport = new MockHttpTransport(async () => ({
+      head: {
+        statusCode: 404,
+        statusMessage: 'Not Found',
+        headers: {},
+        bodyMode: 'none',
+        contentLength: 0,
+      },
+      body: new StaticBodyReader([null]),
+      finalUrl: 'https://cdn.example.com/file.bin',
+    }))
+
+    const client = new WebSeedHttpClient(transport)
+    await expect(
+      client.requestRange({
+        url: 'https://cdn.example.com/file.bin',
+        start: 0,
+        endInclusive: 63,
+      }),
+    ).rejects.toMatchObject({
+      name: 'WebSeedRequestError',
+      kind: 'not-found',
+      options: { statusCode: 404 },
+    } satisfies Partial<WebSeedRequestError>)
+  })
+
+  it('parses Retry-After on transient HTTP failures', async () => {
+    const transport = new MockHttpTransport(async () => ({
+      head: {
+        statusCode: 503,
+        statusMessage: 'Service Unavailable',
+        headers: {
+          'retry-after': '7',
+        },
+        bodyMode: 'none',
+        contentLength: 0,
+      },
+      body: new StaticBodyReader([null]),
+      finalUrl: 'https://cdn.example.com/file.bin',
+    }))
+
+    const client = new WebSeedHttpClient(transport)
+    await expect(
+      client.requestRange({
+        url: 'https://cdn.example.com/file.bin',
+        start: 0,
+        endInclusive: 63,
+      }),
+    ).rejects.toMatchObject({
+      name: 'WebSeedRequestError',
+      kind: 'transient',
+      options: {
+        statusCode: 503,
+        retryAfterMs: 7000,
+      },
+    } satisfies Partial<WebSeedRequestError>)
   })
 })

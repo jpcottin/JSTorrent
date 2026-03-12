@@ -1,7 +1,7 @@
 import { BLOCK_SIZE, type ActivePiece } from '../core/active-piece'
 import type { ActivePieceManager } from '../core/active-piece-manager'
 import { EngineComponent, type ILoggingEngine } from '../logging/logger'
-import { WebSeedHttpClient } from './web-seed-http-client'
+import { WebSeedHttpClient, WebSeedRequestError } from './web-seed-http-client'
 
 export interface WebSeedSourceFile {
   path: string
@@ -91,6 +91,9 @@ interface PartialBlockState {
 const WEB_SEED_SOURCE_PREFIX = 'webseed:'
 const INITIAL_RETRY_DELAY_MS = 1_000
 const MAX_RETRY_DELAY_MS = 30_000
+const PROTOCOL_RETRY_DELAY_MS = 5 * 60_000
+const RANGE_FAILURE_RETRY_DELAY_MS = 10 * 60_000
+const HARD_FAILURE_RETRY_DELAY_MS = 30 * 60_000
 export const DEFAULT_MAX_WEB_SEED_REQUEST_BYTES = 16 * 1024 * 1024
 const MAX_RATE_LIMIT_SLICE_BYTES = BLOCK_SIZE
 
@@ -520,14 +523,12 @@ export class WebSeedManager extends EngineComponent {
     source.consecutiveFailures += 1
     source.failedTransfers += 1
     source.lastFailureAt = Date.now()
-    const delayMs = Math.min(
-      MAX_RETRY_DELAY_MS,
-      INITIAL_RETRY_DELAY_MS * 2 ** (source.consecutiveFailures - 1),
-    )
+    const classification = classifyWebSeedFailure(error, source.consecutiveFailures)
+    const delayMs = classification.retryDelayMs
     source.retryAt = Date.now() + delayMs
 
     this.logger.warn(
-      `Web-seed request failed for ${source.url}; retrying in ${delayMs}ms`,
+      `Web-seed request failed for ${source.url}; retrying in ${delayMs}ms (${classification.kind})`,
       error,
     )
   }
@@ -631,6 +632,37 @@ function compareWebSeedSources(left: WebSeedSourceState, right: WebSeedSourceSta
   }
 
   return left.url.localeCompare(right.url)
+}
+
+function classifyWebSeedFailure(
+  error: unknown,
+  consecutiveFailures: number,
+): { kind: string; retryDelayMs: number } {
+  if (error instanceof WebSeedRequestError) {
+    if (error.kind === 'not-found') {
+      return { kind: error.kind, retryDelayMs: HARD_FAILURE_RETRY_DELAY_MS }
+    }
+    if (error.kind === 'range-not-satisfiable') {
+      return { kind: error.kind, retryDelayMs: RANGE_FAILURE_RETRY_DELAY_MS }
+    }
+    if (error.kind === 'protocol') {
+      return { kind: error.kind, retryDelayMs: PROTOCOL_RETRY_DELAY_MS }
+    }
+    if (error.options.retryAfterMs !== undefined) {
+      return {
+        kind: `${error.kind}:${error.options.statusCode ?? 'unknown'}`,
+        retryDelayMs: Math.max(error.options.retryAfterMs, INITIAL_RETRY_DELAY_MS),
+      }
+    }
+  }
+
+  return {
+    kind: error instanceof WebSeedRequestError ? error.kind : 'transient',
+    retryDelayMs: Math.min(
+      MAX_RETRY_DELAY_MS,
+      INITIAL_RETRY_DELAY_MS * 2 ** (consecutiveFailures - 1),
+    ),
+  }
 }
 
 function getWebSeedSourceId(url: string): string {

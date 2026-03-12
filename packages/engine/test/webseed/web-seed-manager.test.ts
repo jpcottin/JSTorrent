@@ -3,7 +3,7 @@ import { ActivePieceManager } from '../../src/core/active-piece-manager'
 import { BLOCK_SIZE } from '../../src/core/active-piece'
 import type { HttpBodyReader } from '../../src/http/http-transport'
 import { WebSeedManager, type WebSeedManagerDeps } from '../../src/webseed/web-seed-manager'
-import type { WebSeedHttpClient } from '../../src/webseed/web-seed-http-client'
+import { WebSeedRequestError, type WebSeedHttpClient } from '../../src/webseed/web-seed-http-client'
 import { MockEngine } from '../utils/mock-engine'
 
 class StaticBodyReader implements HttpBodyReader {
@@ -556,6 +556,150 @@ describe('WebSeedManager', () => {
         'https://seed-a.example/a.bin',
         'https://seed-b.example/b.bin',
         'https://seed-b.example/b.bin',
+      ])
+    } finally {
+      dateNowSpy.mockRestore()
+    }
+  })
+
+  it('suppresses hard 404 failures longer than transient backoff', async () => {
+    const engine = new MockEngine()
+    const activePieces = new ActivePieceManager(engine, () => BLOCK_SIZE, {
+      standardPieceLength: BLOCK_SIZE,
+    })
+    const startedRequests: string[] = []
+    let now = 1_000
+    const dateNowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
+
+    try {
+      const client = {
+        async requestRange(request: { url: string; start: number; endInclusive: number }) {
+          startedRequests.push(request.url)
+          throw new WebSeedRequestError('missing', 'not-found', { statusCode: 404 })
+        },
+      } as unknown as WebSeedHttpClient
+
+      const deps: WebSeedManagerDeps = {
+        isNetworkActive: () => true,
+        isComplete: () => false,
+        hasMetadata: () => true,
+        isDownloadRateLimited: () => false,
+        getWebSeedUrls: () => ['https://seed.example/file.bin'],
+        getFiles: () => [{ path: 'file.bin', length: BLOCK_SIZE, offset: 0 }],
+        isMultiFileTorrent: () => false,
+        getPieceCount: () => 1,
+        getFirstNeededPiece: () => 0,
+        getPieceLength: () => BLOCK_SIZE,
+        getPieceOffset: () => 0,
+        shouldRequestPiece: () => true,
+        hasPiece: () => false,
+        getActivePieces: () => activePieces,
+        initActivePieces: () => activePieces,
+        getMaxConcurrentTransfers: () => 1,
+        getMaxTransferBytes: () => BLOCK_SIZE,
+        tryConsumeDownloadBandwidth: () => true,
+        waitForDownloadBandwidth: async () => {},
+        removePieceFromAllIndices: vi.fn(),
+        reindexPieceForConnectedPeers: vi.fn(),
+        onReceivedBlockFromSource: vi.fn(() => true),
+      }
+
+      const manager = new WebSeedManager(engine, client, deps)
+      manager.tick()
+      await flushMicrotasks(20)
+
+      now += 2_000
+      manager.tick()
+      await flushMicrotasks(10)
+
+      expect(startedRequests).toEqual(['https://seed.example/file.bin'])
+    } finally {
+      dateNowSpy.mockRestore()
+    }
+  })
+
+  it('honors Retry-After before retrying transient HTTP failures', async () => {
+    const engine = new MockEngine()
+    const activePieces = new ActivePieceManager(engine, () => BLOCK_SIZE, {
+      standardPieceLength: BLOCK_SIZE,
+    })
+    const startedRequests: string[] = []
+    let now = 1_000
+    const dateNowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
+
+    try {
+      const client = {
+        async requestRange(request: { url: string; start: number; endInclusive: number }) {
+          startedRequests.push(request.url)
+          if (startedRequests.length === 1) {
+            throw new WebSeedRequestError('busy', 'transient', {
+              statusCode: 503,
+              retryAfterMs: 5_000,
+            })
+          }
+
+          return {
+            statusCode: 206,
+            headers: {},
+            finalUrl: request.url,
+            body: new StaticBodyReader([new Uint8Array(BLOCK_SIZE).fill(0x61), null]),
+            start: request.start,
+            endInclusive: request.endInclusive,
+          }
+        },
+      } as unknown as WebSeedHttpClient
+
+      const completedPieces = new Set<number>()
+      const deps: WebSeedManagerDeps = {
+        isNetworkActive: () => true,
+        isComplete: () => completedPieces.size === 1,
+        hasMetadata: () => true,
+        isDownloadRateLimited: () => false,
+        getWebSeedUrls: () => ['https://seed.example/file.bin'],
+        getFiles: () => [{ path: 'file.bin', length: BLOCK_SIZE, offset: 0 }],
+        isMultiFileTorrent: () => false,
+        getPieceCount: () => 1,
+        getFirstNeededPiece: () => 0,
+        getPieceLength: () => BLOCK_SIZE,
+        getPieceOffset: () => 0,
+        shouldRequestPiece: () => completedPieces.size === 0,
+        hasPiece: () => completedPieces.size > 0,
+        getActivePieces: () => activePieces,
+        initActivePieces: () => activePieces,
+        getMaxConcurrentTransfers: () => 1,
+        getMaxTransferBytes: () => BLOCK_SIZE,
+        tryConsumeDownloadBandwidth: () => true,
+        waitForDownloadBandwidth: async () => {},
+        removePieceFromAllIndices: vi.fn(),
+        reindexPieceForConnectedPeers: vi.fn(),
+        onReceivedBlockFromSource: (sourceId, pieceIndex, blockOffset, data) => {
+          const piece = activePieces.get(pieceIndex)
+          expect(piece).toBeDefined()
+          piece!.addBlock(blockOffset / BLOCK_SIZE, data, sourceId)
+          if (piece!.haveAllBlocks) {
+            completedPieces.add(pieceIndex)
+            activePieces.promoteToFullyResponded(pieceIndex)
+            activePieces.removeFullyResponded(pieceIndex)
+          }
+          return true
+        },
+      }
+
+      const manager = new WebSeedManager(engine, client, deps)
+      manager.tick()
+      await flushMicrotasks(20)
+
+      now += 4_000
+      manager.tick()
+      await flushMicrotasks(10)
+
+      now += 2_000
+      manager.tick()
+      await flushMicrotasks(20)
+
+      expect(startedRequests).toEqual([
+        'https://seed.example/file.bin',
+        'https://seed.example/file.bin',
       ])
     } finally {
       dateNowSpy.mockRestore()
