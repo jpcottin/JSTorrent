@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { useEngineManager } from './EngineManagerContext'
 import { SearchPluginService } from '../search/search-plugin-service'
 
@@ -10,21 +10,16 @@ interface SearchPluginServiceProviderProps {
 
 export function SearchPluginServiceProvider({ children }: SearchPluginServiceProviderProps) {
   const engineManager = useEngineManager()
-  const serviceRef = useRef<SearchPluginService | null>(null)
-
-  if (!serviceRef.current) {
-    serviceRef.current = new SearchPluginService(engineManager)
-  }
+  const [service] = useState(() => new SearchPluginService(engineManager))
 
   useEffect(() => {
     return () => {
-      serviceRef.current?.dispose()
-      serviceRef.current = null
+      service.dispose()
     }
-  }, [])
+  }, [service])
 
   return (
-    <SearchPluginServiceContext.Provider value={serviceRef.current}>
+    <SearchPluginServiceContext.Provider value={service}>
       {children}
     </SearchPluginServiceContext.Provider>
   )
