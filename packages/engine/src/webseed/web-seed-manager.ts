@@ -24,6 +24,7 @@ export interface WebSeedManagerDeps {
   hasPiece(index: number): boolean
   getActivePieces(): ActivePieceManager | undefined
   initActivePieces(): ActivePieceManager
+  getMaxConcurrentTransfers(): number
   removePieceFromAllIndices(index: number): void
   reindexPieceForConnectedPeers(index: number): void
   onReceivedBlockFromSource(
@@ -76,8 +77,8 @@ export class WebSeedManager extends EngineComponent {
   static logName = 'web-seed-manager'
 
   private readonly sources = new Map<string, WebSeedSourceState>()
-  private activeTransfer: ActiveTransfer | null = null
-  private transferPromise: Promise<void> | null = null
+  private readonly activeTransfers = new Map<string, ActiveTransfer>()
+  private readonly transferPromises = new Map<string, Promise<void>>()
 
   constructor(
     engine: ILoggingEngine,
@@ -90,7 +91,6 @@ export class WebSeedManager extends EngineComponent {
   tick(): void {
     this.syncSources()
 
-    if (this.transferPromise) return
     if (!this.deps.isNetworkActive()) return
     if (!this.deps.hasMetadata()) return
     if (this.deps.isComplete()) return
@@ -98,41 +98,25 @@ export class WebSeedManager extends EngineComponent {
     const files = this.deps.getFiles()
     if (files.length === 0) return
 
-    const source = this.pickReadySource(Date.now())
-    if (!source) return
+    const capacity = Math.max(1, this.deps.getMaxConcurrentTransfers())
+    if (this.transferPromises.size >= capacity) return
 
-    const reservation = this.reserveNextPiece(source)
-    if (!reservation) return
+    const now = Date.now()
+    while (this.transferPromises.size < capacity) {
+      const source = this.pickReadySource(now)
+      if (!source) return
 
-    const controller = new AbortController()
-    this.activeTransfer = {
-      sourceId: source.id,
-      pieceIndex: reservation.pieceIndex,
-      controller,
+      const reservation = this.reserveNextPiece(source)
+      if (!reservation) return
+
+      this.startTransfer(source, reservation)
     }
-
-    this.transferPromise = this.runTransfer(source, reservation, controller.signal)
-      .catch((error) => {
-        if (controller.signal.aborted) {
-          this.logger.debug(
-            `Web-seed transfer aborted for piece ${reservation.pieceIndex} from ${source.url}`,
-          )
-          return
-        }
-
-        this.recordFailure(source, error)
-      })
-      .finally(() => {
-        if (this.activeTransfer?.controller === controller) {
-          this.activeTransfer = null
-        }
-        this.transferPromise = null
-        this.tick()
-      })
   }
 
   stop(): void {
-    this.activeTransfer?.controller.abort()
+    for (const transfer of this.activeTransfers.values()) {
+      transfer.controller.abort()
+    }
   }
 
   private syncSources(): void {
@@ -165,9 +149,19 @@ export class WebSeedManager extends EngineComponent {
   private pickReadySource(now: number): WebSeedSourceState | null {
     for (const source of this.sources.values()) {
       if (source.retryAt > now) continue
+      if (this.hasActiveTransferForSource(source.id)) continue
       return source
     }
     return null
+  }
+
+  private hasActiveTransferForSource(sourceId: string): boolean {
+    for (const transfer of this.activeTransfers.values()) {
+      if (transfer.sourceId === sourceId) {
+        return true
+      }
+    }
+    return false
   }
 
   private reserveNextPiece(source: WebSeedSourceState): ReservedPiece | null {
@@ -417,6 +411,35 @@ export class WebSeedManager extends EngineComponent {
       `Web-seed request failed for ${source.url}; retrying in ${delayMs}ms`,
       error,
     )
+  }
+
+  private startTransfer(source: WebSeedSourceState, reservation: ReservedPiece): void {
+    const controller = new AbortController()
+    const transferId = `${source.id}:${reservation.pieceIndex}`
+    this.activeTransfers.set(transferId, {
+      sourceId: source.id,
+      pieceIndex: reservation.pieceIndex,
+      controller,
+    })
+
+    const transferPromise = this.runTransfer(source, reservation, controller.signal)
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          this.logger.debug(
+            `Web-seed transfer aborted for piece ${reservation.pieceIndex} from ${source.url}`,
+          )
+          return
+        }
+
+        this.recordFailure(source, error)
+      })
+      .finally(() => {
+        this.activeTransfers.delete(transferId)
+        this.transferPromises.delete(transferId)
+        this.tick()
+      })
+
+    this.transferPromises.set(transferId, transferPromise)
   }
 }
 

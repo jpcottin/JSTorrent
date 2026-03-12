@@ -80,6 +80,9 @@ export interface ConfigHub extends ConfigValueMap {
   /** Maximum outstanding block requests per peer (pipeline depth). */
   readonly maxPipelineDepth: ConfigValue<number>
 
+  /** Maximum simultaneous BEP 19 web-seed transfers per torrent. */
+  readonly maxWebSeedConnections: ConfigValue<number>
+
   /** Max bytes in send buffer + in-flight reads per peer before pausing uploads. */
   readonly sendBufferWatermark: ConfigValue<number>
 

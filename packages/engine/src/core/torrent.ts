@@ -1,4 +1,7 @@
-import { DEFAULT_MAX_PIPELINE_DEPTH } from '../config/config-schema'
+import {
+  DEFAULT_MAX_PIPELINE_DEPTH,
+  DEFAULT_MAX_WEB_SEED_CONNECTIONS,
+} from '../config/config-schema'
 import { PeerConnection } from './peer-connection'
 import { ActivePiece, BLOCK_SIZE } from './active-piece'
 import type { ChunkedBuffer } from './chunked-buffer'
@@ -3049,6 +3052,8 @@ export class Torrent extends EngineComponent {
         hasPiece: (index) => this.hasPiece(index),
         getActivePieces: () => this.activePieces,
         initActivePieces: () => this.initActivePieceManager(),
+        getMaxConcurrentTransfers: () =>
+          this.btEngine.config?.maxWebSeedConnections.get() ?? DEFAULT_MAX_WEB_SEED_CONNECTIONS,
         removePieceFromAllIndices: (index) => this.removePieceFromAllIndices(index),
         reindexPieceForConnectedPeers: (index) => this.reindexPieceForConnectedPeers(index),
         onReceivedBlockFromSource: (sourceId, pieceIndex, blockOffset, data) =>

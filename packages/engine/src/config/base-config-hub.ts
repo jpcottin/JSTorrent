@@ -79,6 +79,7 @@ export abstract class BaseConfigHub implements ConfigHub {
   readonly maxGlobalPeers = createConfigValue(this, 'maxGlobalPeers')
   readonly maxUploadSlots = createConfigValue(this, 'maxUploadSlots')
   readonly maxPipelineDepth = createConfigValue(this, 'maxPipelineDepth')
+  readonly maxWebSeedConnections = createConfigValue(this, 'maxWebSeedConnections')
   readonly sendBufferWatermark = createConfigValue(this, 'sendBufferWatermark')
 
   // Settings: Queue

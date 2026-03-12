@@ -37,6 +37,8 @@ export type WindowMode = 'popup' | 'tab'
 
 /** Default max pipeline depth (outstanding block requests per peer) */
 export const DEFAULT_MAX_PIPELINE_DEPTH = 500
+/** Default max simultaneous web-seed transfers per torrent */
+export const DEFAULT_MAX_WEB_SEED_CONNECTIONS = 3
 
 /** Platform type */
 export type PlatformType = 'desktop' | 'chromeos' | 'android-standalone'
@@ -195,6 +197,16 @@ export const configSchema = {
     default: DEFAULT_MAX_PIPELINE_DEPTH,
     min: 10,
     max: 2000,
+  },
+
+  /** Maximum simultaneous BEP 19 web-seed transfers per torrent. */
+  maxWebSeedConnections: {
+    type: 'number',
+    category: 'setting',
+    storage: 'local',
+    default: DEFAULT_MAX_WEB_SEED_CONNECTIONS,
+    min: 1,
+    max: 20,
   },
 
   /** Max bytes in send buffer + in-flight reads per peer before pausing uploads (send buffer watermark). */
