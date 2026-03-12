@@ -74,8 +74,13 @@ export interface PeerInfo {
   ip: string
   port: number
   state: string
+  kind: 'peer' | 'webseed'
+  source: string
   downloadSpeed: number
   uploadSpeed: number
+  downloaded: number
+  uploaded: number
+  requestsPending: number
   progress: number
   isEncrypted: boolean
   isIncoming: boolean
@@ -84,6 +89,8 @@ export interface PeerInfo {
   peerChoking: boolean
   peerInterested: boolean
   amChoking: boolean
+  webSeedUrl: string | null
+  webSeedRetryAt: number | null
 }
 
 export interface FileInfo {
@@ -487,19 +494,23 @@ export class SubscriptionManager {
       ip: p.ip,
       port: p.port,
       state: p.state,
-      downloadSpeed: p.connection?.downloadSpeed ?? 0,
-      uploadSpeed: p.connection?.uploadSpeed ?? 0,
-      progress:
-        p.connection?.bitfield && torrent.piecesCount > 0
-          ? p.connection.bitfield.count() / torrent.piecesCount
-          : 0,
-      isEncrypted: p.connection?.isEncrypted ?? false,
-      isIncoming: p.connection?.isIncoming ?? false,
-      clientName: p.swarmPeer?.clientName ?? null,
-      amInterested: p.connection?.amInterested ?? false,
-      peerChoking: p.connection?.peerChoking ?? true,
-      peerInterested: p.connection?.peerInterested ?? false,
-      amChoking: p.connection?.amChoking ?? true,
+      kind: p.kind,
+      source: p.source,
+      downloadSpeed: p.downloadSpeed,
+      uploadSpeed: p.uploadSpeed,
+      downloaded: p.downloaded,
+      uploaded: p.uploaded,
+      requestsPending: p.requestsPending,
+      progress: p.progress ?? 0,
+      isEncrypted: p.isEncrypted,
+      isIncoming: p.isIncoming,
+      clientName: p.clientName,
+      amInterested: p.amInterested,
+      peerChoking: p.peerChoking,
+      peerInterested: p.peerInterested,
+      amChoking: p.amChoking,
+      webSeedUrl: p.webSeedUrl,
+      webSeedRetryAt: p.webSeedRetryAt,
     }))
   }
 

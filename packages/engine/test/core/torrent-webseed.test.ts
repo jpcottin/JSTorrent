@@ -100,6 +100,26 @@ describe('Torrent web-seed block ingestion', () => {
     expect(activePieces.get(0)).toBeUndefined()
     expect(torrent.totalDownloaded).toBe(pieceData.length)
   })
+
+  it('exposes web seeds as synthetic peers for UI visibility', () => {
+    torrent.metadataUrlSeeds = ['https://cdn.example.com/content/']
+
+    const peers = torrent.getDisplayPeers()
+    expect(peers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'webseed:https://cdn.example.com/content/',
+          kind: 'webseed',
+          state: 'webseed-idle',
+          ip: 'cdn.example.com',
+          port: 443,
+          clientName: 'Web Seed',
+          source: 'webseed',
+          webSeedUrl: 'https://cdn.example.com/content/',
+        }),
+      ]),
+    )
+  })
 })
 
 async function pollUntil(predicate: () => boolean, attempts = 20): Promise<void> {

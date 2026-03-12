@@ -9,6 +9,22 @@ export interface WebSeedSourceFile {
   offset: number
 }
 
+export interface WebSeedSourceSnapshot {
+  id: string
+  url: string
+  displayUrl: string
+  host: string
+  port: number
+  protocol: 'http:' | 'https:'
+  state: 'idle' | 'active' | 'backoff'
+  downloadedBytes: number
+  downloadSpeed: number
+  requestsPending: number
+  retryAt: number
+  pieceIndex: number | null
+  remoteAddress: string | null
+}
+
 export interface WebSeedManagerDeps {
   isNetworkActive(): boolean
   isComplete(): boolean
@@ -82,6 +98,11 @@ interface ActiveTransfer {
   sourceId: string
   pieceIndex: number
   controller: AbortController
+  startedAt: number
+  bytesRead: number
+  totalLength: number
+  currentUrl: string | null
+  remoteAddress: string | null
 }
 
 interface PartialBlockState {
@@ -147,6 +168,33 @@ export class WebSeedManager extends EngineComponent {
     this.client.close()
   }
 
+  getSourceSnapshots(now = Date.now()): WebSeedSourceSnapshot[] {
+    return Array.from(this.sources.values()).map((source) => {
+      const activeTransfer = this.getActiveTransferForSource(source.id)
+      const displayUrl = activeTransfer?.currentUrl ?? source.canonicalUrl ?? source.url
+      const endpoint = parseWebSeedEndpoint(displayUrl)
+      const downloadSpeed = activeTransfer
+        ? Math.round((activeTransfer.bytesRead * 1000) / Math.max(1, now - activeTransfer.startedAt))
+        : source.averageTransferRateBps
+
+      return {
+        id: source.id,
+        url: source.url,
+        displayUrl,
+        host: endpoint.host,
+        port: endpoint.port,
+        protocol: endpoint.protocol,
+        state: activeTransfer ? 'active' : source.retryAt > now ? 'backoff' : 'idle',
+        downloadedBytes: source.downloadedBytes + (activeTransfer?.bytesRead ?? 0),
+        downloadSpeed,
+        requestsPending: activeTransfer ? 1 : 0,
+        retryAt: source.retryAt,
+        pieceIndex: activeTransfer?.pieceIndex ?? null,
+        remoteAddress: activeTransfer?.remoteAddress ?? null,
+      }
+    })
+  }
+
   private syncSources(): void {
     const nextUrls = new Set(
       this.deps
@@ -195,12 +243,16 @@ export class WebSeedManager extends EngineComponent {
   }
 
   private hasActiveTransferForSource(sourceId: string): boolean {
+    return this.getActiveTransferForSource(sourceId) !== null
+  }
+
+  private getActiveTransferForSource(sourceId: string): ActiveTransfer | null {
     for (const transfer of this.activeTransfers.values()) {
       if (transfer.sourceId === sourceId) {
-        return true
+        return transfer
       }
     }
-    return false
+    return null
   }
 
   private reserveNextRange(source: WebSeedSourceState): ReservedRange | null {
@@ -325,6 +377,7 @@ export class WebSeedManager extends EngineComponent {
   private async runTransfer(
     source: WebSeedSourceState,
     reservation: ReservedRange,
+    transfer: ActiveTransfer,
     signal: AbortSignal,
   ): Promise<void> {
     const startedAt = Date.now()
@@ -336,16 +389,19 @@ export class WebSeedManager extends EngineComponent {
 
     try {
       for (const span of reservation.spans) {
+        transfer.currentUrl = span.url
         const response = await this.client.requestRange({
           url: span.url,
           start: span.start,
           endInclusive: span.endInclusive,
           signal,
         })
+        transfer.currentUrl = response.finalUrl
+        transfer.remoteAddress = response.remoteAddress ?? null
         this.recordCanonicalUrl(source, span.requestUrl, response.finalUrl)
 
         try {
-          await this.consumeSpanBody(reservation, response.body, span.length, cursor, signal)
+          await this.consumeSpanBody(reservation, response.body, span.length, cursor, transfer, signal)
         } catch (error) {
           response.body.cancel('web-seed span failed')
           throw error
@@ -365,6 +421,7 @@ export class WebSeedManager extends EngineComponent {
       }
 
       this.recordSuccess(source, cursor.reservationBytesRead, Date.now() - startedAt)
+      transfer.bytesRead = cursor.reservationBytesRead
     } catch (error) {
       this.releaseReservation(reservation)
       throw error
@@ -380,6 +437,7 @@ export class WebSeedManager extends EngineComponent {
       pieceCursorIndex: number
       partialBlock: PartialBlockState | null
     },
+    transfer: ActiveTransfer,
     signal: AbortSignal,
   ): Promise<void> {
     let spanBytesRead = 0
@@ -471,6 +529,7 @@ export class WebSeedManager extends EngineComponent {
         offset += bytesToCopy
         spanBytesRead += bytesToCopy
         cursor.reservationBytesRead += bytesToCopy
+        transfer.bytesRead = cursor.reservationBytesRead
       }
     }
 
@@ -578,13 +637,19 @@ export class WebSeedManager extends EngineComponent {
   private startTransfer(source: WebSeedSourceState, reservation: ReservedRange): void {
     const controller = new AbortController()
     const transferId = `${source.id}:${reservation.startPieceIndex}`
-    this.activeTransfers.set(transferId, {
+    const transfer: ActiveTransfer = {
       sourceId: source.id,
       pieceIndex: reservation.startPieceIndex,
       controller,
-    })
+      startedAt: Date.now(),
+      bytesRead: 0,
+      totalLength: reservation.totalLength,
+      currentUrl: null,
+      remoteAddress: null,
+    }
+    this.activeTransfers.set(transferId, transfer)
 
-    const transferPromise = this.runTransfer(source, reservation, controller.signal)
+    const transferPromise = this.runTransfer(source, reservation, transfer, controller.signal)
       .catch((error) => {
         if (controller.signal.aborted) {
           this.logger.debug(
@@ -690,6 +755,17 @@ function classifyWebSeedFailure(
 
 function getWebSeedSourceId(url: string): string {
   return `${WEB_SEED_SOURCE_PREFIX}${url}`
+}
+
+function parseWebSeedEndpoint(url: string): { host: string; port: number; protocol: 'http:' | 'https:' } {
+  const parsed = new URL(url)
+  const protocol = parsed.protocol === 'https:' ? 'https:' : 'http:'
+  const port = parsed.port.length > 0 ? Number.parseInt(parsed.port, 10) : protocol === 'https:' ? 443 : 80
+  return {
+    host: parsed.hostname,
+    port: Number.isFinite(port) ? port : protocol === 'https:' ? 443 : 80,
+    protocol,
+  }
 }
 
 function buildWebSeedFileUrl(baseUrl: string, filePath: string, isMultiFile: boolean): string {

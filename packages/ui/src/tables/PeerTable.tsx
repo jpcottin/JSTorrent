@@ -11,7 +11,7 @@ import { countryCodeToFlag, countryCodeToName } from '../utils/country-flag'
  * Returns empty string for connecting peers (no connection yet)
  */
 function formatFlags(peer: DisplayPeer): string {
-  if (!peer.connection) return ''
+  if (peer.kind === 'webseed' || !peer.connection) return ''
 
   const flags: string[] = []
 
@@ -43,6 +43,7 @@ function formatFlags(peer: DisplayPeer): string {
  * Returns 0 for connecting peers
  */
 function getPeerProgress(peer: DisplayPeer, torrent: Torrent): number {
+  if (peer.progress !== null) return peer.progress
   if (!peer.connection?.bitfield || torrent.piecesCount === 0) return 0
   const have = peer.connection.bitfield.count()
   return have / torrent.piecesCount
@@ -52,7 +53,20 @@ function getPeerProgress(peer: DisplayPeer, torrent: Torrent): number {
  * Format connection state for display
  */
 function formatState(peer: DisplayPeer): string {
-  return peer.state === 'connecting' ? 'Connecting...' : 'Connected'
+  switch (peer.state) {
+    case 'connecting':
+      return 'Connecting...'
+    case 'connected':
+      return 'Connected'
+    case 'webseed-active':
+      return 'Web Seed'
+    case 'webseed-backoff':
+      return 'Web Seed (Retry)'
+    case 'webseed-idle':
+      return 'Web Seed (Idle)'
+  }
+
+  return peer.state
 }
 
 /** Column definitions for DisplayPeer */
@@ -69,6 +83,7 @@ function createPeerColumns(getTorrent: () => Torrent | null): ColumnDef<DisplayP
       header: 'Address',
       getValue: (p) => `${p.ip}:${p.port}`,
       width: 180,
+      getCellTitle: (p) => p.webSeedUrl ?? undefined,
     },
     {
       id: 'country',
@@ -81,13 +96,14 @@ function createPeerColumns(getTorrent: () => Torrent | null): ColumnDef<DisplayP
     {
       id: 'client',
       header: 'Client',
-      getValue: (p) => parseClientName(p.connection?.peerId ?? p.swarmPeer?.peerId ?? null),
+      getValue: (p) =>
+        p.clientName ?? parseClientName(p.connection?.peerId ?? p.swarmPeer?.peerId ?? null),
       width: 140,
     },
     {
       id: 'source',
       header: 'Source',
-      getValue: (p) => p.swarmPeer?.source ?? '',
+      getValue: (p) => p.source,
       width: 70,
     },
     {
@@ -95,7 +111,7 @@ function createPeerColumns(getTorrent: () => Torrent | null): ColumnDef<DisplayP
       header: '%',
       getValue: (p) => {
         const t = getTorrent()
-        if (!t || !p.connection) return ''
+        if (!t || p.progress === null) return ''
         const pct = getPeerProgress(p, t) * 100
         return pct >= 100 ? '100' : pct.toFixed(1)
       },
@@ -106,7 +122,7 @@ function createPeerColumns(getTorrent: () => Torrent | null): ColumnDef<DisplayP
       id: 'downSpeed',
       header: 'Down',
       getValue: (p) => {
-        const speed = p.connection?.downloadSpeed ?? 0
+        const speed = p.downloadSpeed
         return speed > 0 ? formatBytes(speed) + '/s' : ''
       },
       width: 90,
@@ -116,7 +132,7 @@ function createPeerColumns(getTorrent: () => Torrent | null): ColumnDef<DisplayP
       id: 'upSpeed',
       header: 'Up',
       getValue: (p) => {
-        const speed = p.connection?.uploadSpeed ?? 0
+        const speed = p.uploadSpeed
         return speed > 0 ? formatBytes(speed) + '/s' : ''
       },
       width: 90,
@@ -126,7 +142,7 @@ function createPeerColumns(getTorrent: () => Torrent | null): ColumnDef<DisplayP
       id: 'downloaded',
       header: 'Downloaded',
       getValue: (p) => {
-        const dl = p.connection?.downloaded ?? 0
+        const dl = p.downloaded
         return dl > 0 ? formatBytes(dl) : ''
       },
       width: 90,
@@ -136,7 +152,7 @@ function createPeerColumns(getTorrent: () => Torrent | null): ColumnDef<DisplayP
       id: 'uploaded',
       header: 'Uploaded',
       getValue: (p) => {
-        const up = p.connection?.uploaded ?? 0
+        const up = p.uploaded
         return up > 0 ? formatBytes(up) : ''
       },
       width: 90,
@@ -152,7 +168,7 @@ function createPeerColumns(getTorrent: () => Torrent | null): ColumnDef<DisplayP
     {
       id: 'requests',
       header: 'Reqs',
-      getValue: (p) => p.connection?.requestsPending || '',
+      getValue: (p) => p.requestsPending || '',
       width: 50,
       align: 'right',
     },
@@ -190,7 +206,11 @@ export function PeerTable(props: PeerTableProps) {
       storageKey="peers"
       getSelectedKeys={props.getSelectedKeys}
       onSelectionChange={props.onSelectionChange}
-      getRowStyle={(p) => (p.state === 'connecting' ? { opacity: '0.5' } : undefined)}
+      getRowStyle={(p) =>
+        p.state === 'connecting' || p.state === 'webseed-idle' || p.state === 'webseed-backoff'
+          ? { opacity: '0.6' }
+          : undefined
+      }
       refreshKey={props.torrentHash}
     />
   )

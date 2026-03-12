@@ -64,7 +64,11 @@ import { WriteError, classifyError, getRetryDelay } from './write-error'
 import { VerifyChunkResult } from '../interfaces/filesystem'
 import type { VerifyChunksRequest, IFileSystem } from '../interfaces/filesystem'
 import { WebSeedHttpClient } from '../webseed/web-seed-http-client'
-import { DEFAULT_MAX_WEB_SEED_REQUEST_BYTES, WebSeedManager } from '../webseed/web-seed-manager'
+import {
+  DEFAULT_MAX_WEB_SEED_REQUEST_BYTES,
+  WebSeedManager,
+  type WebSeedSourceSnapshot,
+} from '../webseed/web-seed-manager'
 
 /**
  * Maximum ratio of peer slots that incoming connections can occupy.
@@ -125,12 +129,32 @@ export interface DisplayPeer {
   ip: string
   /** Remote port */
   port: number
+  /** Row kind */
+  kind: 'peer' | 'webseed'
   /** Connection state */
-  state: 'connecting' | 'connected'
+  state: 'connecting' | 'connected' | 'webseed-idle' | 'webseed-active' | 'webseed-backoff'
   /** Full connection (only for connected peers) */
   connection: PeerConnection | null
   /** Swarm peer data (available for both states) */
   swarmPeer: SwarmPeer | null
+  /** Normalized values for UI and RPC consumers */
+  clientName: string | null
+  source: string
+  progress: number | null
+  downloadSpeed: number
+  uploadSpeed: number
+  downloaded: number
+  uploaded: number
+  requestsPending: number
+  isEncrypted: boolean
+  isIncoming: boolean
+  amInterested: boolean
+  peerChoking: boolean
+  peerInterested: boolean
+  amChoking: boolean
+  webSeedUrl: string | null
+  webSeedRetryAt: number | null
+  webSeedRemoteAddress: string | null
 }
 
 interface PieceFileSpan {
@@ -2574,22 +2598,36 @@ export class Torrent extends EngineComponent {
    * - amInterested: We want to download from peer
    */
   getPeerInfo() {
-    return this.connectedPeers.map((peer) => ({
-      ip: peer.remoteAddress,
-      port: peer.remotePort,
-      client: peer.peerId ? toString(peer.peerId) : 'unknown',
-      peerId: peer.peerId ? toHex(peer.peerId) : null,
+    return this.getDisplayPeers().map((peer) => ({
+      ip: peer.ip,
+      port: peer.port,
+      client:
+        peer.kind === 'peer'
+          ? peer.connection?.peerId
+            ? toString(peer.connection.peerId)
+            : 'unknown'
+          : 'web-seed',
+      peerId: peer.kind === 'peer' && peer.connection?.peerId ? toHex(peer.connection.peerId) : null,
       downloaded: peer.downloaded,
       uploaded: peer.uploaded,
       downloadSpeed: peer.downloadSpeed,
       uploadSpeed: peer.uploadSpeed,
-      percent: peer.bitfield && this.piecesCount > 0 ? peer.bitfield.count() / this.piecesCount : 0,
+      percent: peer.progress ?? 0,
       peerChoking: peer.peerChoking,
       peerInterested: peer.peerInterested,
       amChoking: peer.amChoking,
       amInterested: peer.amInterested,
-      piecesHave: peer.bitfield?.count() ?? 0,
-      connectionType: peer.isIncoming ? ('incoming' as const) : ('outgoing' as const),
+      piecesHave: peer.kind === 'peer' ? peer.connection?.bitfield?.count() ?? 0 : 0,
+      connectionType:
+        peer.kind === 'webseed'
+          ? ('web-seed' as const)
+          : peer.isIncoming
+            ? ('incoming' as const)
+            : ('outgoing' as const),
+      source: peer.source,
+      state: peer.state,
+      webSeedUrl: peer.webSeedUrl,
+      retryAt: peer.webSeedRetryAt,
     }))
   }
 
@@ -2608,9 +2646,27 @@ export class Torrent extends EngineComponent {
         key,
         ip: conn.remoteAddress ?? '',
         port: conn.remotePort ?? 0,
+        kind: 'peer',
         state: 'connected',
         connection: conn,
         swarmPeer,
+        clientName: swarmPeer?.clientName ?? null,
+        source: swarmPeer?.source ?? '',
+        progress: conn.bitfield && this.piecesCount > 0 ? conn.bitfield.count() / this.piecesCount : 0,
+        downloadSpeed: conn.downloadSpeed,
+        uploadSpeed: conn.uploadSpeed,
+        downloaded: conn.downloaded,
+        uploaded: conn.uploaded,
+        requestsPending: conn.requestsPending,
+        isEncrypted: conn.isEncrypted,
+        isIncoming: conn.isIncoming,
+        amInterested: conn.amInterested,
+        peerChoking: conn.peerChoking,
+        peerInterested: conn.peerInterested,
+        amChoking: conn.amChoking,
+        webSeedUrl: null,
+        webSeedRetryAt: null,
+        webSeedRemoteAddress: null,
       })
     }
 
@@ -2622,11 +2678,35 @@ export class Torrent extends EngineComponent {
           key,
           ip: swarmPeer.ip,
           port: swarmPeer.port,
+          kind: 'peer',
           state: 'connecting',
           connection: null,
           swarmPeer,
+          clientName: swarmPeer.clientName ?? null,
+          source: swarmPeer.source ?? '',
+          progress: null,
+          downloadSpeed: 0,
+          uploadSpeed: 0,
+          downloaded: 0,
+          uploaded: 0,
+          requestsPending: 0,
+          isEncrypted: false,
+          isIncoming: false,
+          amInterested: false,
+          peerChoking: true,
+          peerInterested: false,
+          amChoking: true,
+          webSeedUrl: null,
+          webSeedRetryAt: null,
+          webSeedRemoteAddress: null,
         })
       }
+    }
+
+    const webSeedSnapshots =
+      this._webSeedManager?.getSourceSnapshots() ?? this.webSeedUrls.map((url) => buildIdleWebSeedSnapshot(url))
+    for (const snapshot of webSeedSnapshots) {
+      result.push(createDisplayPeerFromWebSeedSnapshot(snapshot))
     }
 
     return result
@@ -4603,5 +4683,70 @@ export class Torrent extends EngineComponent {
 
     // Trigger peer slot filling to connect to hints immediately
     this.fillPeerSlots()
+  }
+}
+
+function buildIdleWebSeedSnapshot(url: string): WebSeedSourceSnapshot {
+  const endpoint = parseWebSeedDisplayUrl(url)
+  return {
+    id: `webseed:${url}`,
+    url,
+    displayUrl: url,
+    host: endpoint.host,
+    port: endpoint.port,
+    protocol: endpoint.protocol,
+    state: 'idle',
+    downloadedBytes: 0,
+    downloadSpeed: 0,
+    requestsPending: 0,
+    retryAt: 0,
+    pieceIndex: null,
+    remoteAddress: null,
+  }
+}
+
+function createDisplayPeerFromWebSeedSnapshot(snapshot: WebSeedSourceSnapshot): DisplayPeer {
+  return {
+    key: snapshot.id,
+    ip: snapshot.host,
+    port: snapshot.port,
+    kind: 'webseed',
+    state:
+      snapshot.state === 'active'
+        ? 'webseed-active'
+        : snapshot.state === 'backoff'
+          ? 'webseed-backoff'
+          : 'webseed-idle',
+    connection: null,
+    swarmPeer: null,
+    clientName: 'Web Seed',
+    source: 'webseed',
+    progress: null,
+    downloadSpeed: snapshot.downloadSpeed,
+    uploadSpeed: 0,
+    downloaded: snapshot.downloadedBytes,
+    uploaded: 0,
+    requestsPending: snapshot.requestsPending,
+    isEncrypted: snapshot.protocol === 'https:',
+    isIncoming: false,
+    amInterested: false,
+    peerChoking: true,
+    peerInterested: false,
+    amChoking: true,
+    webSeedUrl: snapshot.displayUrl,
+    webSeedRetryAt: snapshot.retryAt > 0 ? snapshot.retryAt : null,
+    webSeedRemoteAddress: snapshot.remoteAddress,
+  }
+}
+
+function parseWebSeedDisplayUrl(url: string): { host: string; port: number; protocol: 'http:' | 'https:' } {
+  const parsed = new URL(url)
+  const protocol = parsed.protocol === 'https:' ? 'https:' : 'http:'
+  const fallbackPort = protocol === 'https:' ? 443 : 80
+  const port = parsed.port.length > 0 ? Number.parseInt(parsed.port, 10) : fallbackPort
+  return {
+    host: parsed.hostname,
+    port: Number.isFinite(port) ? port : fallbackPort,
+    protocol,
   }
 }
