@@ -12,13 +12,14 @@ Draft design for a lightweight search plugin system that can start in the extens
 - Preserve a clean path to a native QuickJS host later for desktop and Android.
 - Keep plugin permissions narrow and reviewable.
 - Support a built-in plugin lab for iterative development and debugging.
+- Keep plugin code linear and easy to author, even if the transport stays asynchronous.
 
 ## Non-Goals
 
 - Full runtime compatibility with arbitrary qBittorrent Python plugins.
 - A general-purpose remote code platform.
 - Arbitrary socket access, file access, or process execution from plugin code.
-- Promise-heavy or event-loop-heavy plugin APIs in v1.
+- Timer-heavy or event-loop-heavy plugin APIs in v1.
 
 ## Context
 
@@ -38,7 +39,7 @@ The main product goal is convenience: easier than dismissing ads and pop-ups man
 Define a JSTorrent search plugin contract that is:
 
 - JavaScript-based
-- synchronous from plugin code's perspective
+- async/await-friendly from plugin code's perspective
 - permissioned by a lightweight manifest
 - host-agnostic at the API boundary
 
@@ -137,10 +138,10 @@ export const manifest = {
   hosts: ['apibay.org', 'thepiratebay.org'],
 }
 
-export function search(ctx, input) {
-  const results = ctx.fetchJson(
-    `https://apibay.org/q.php?q=${ctx.encode(input.query)}&cat=0`
-  )
+export async function search(ctx, input) {
+  const results = await ctx.fetchJson({
+    url: `https://apibay.org/q.php?q=${ctx.encode(input.query)}&cat=0`,
+  })
 
   for (const item of results) {
     ctx.emitResult({
@@ -168,7 +169,7 @@ type SearchInput = {
 ```ts
 type SearchPluginModule = {
   manifest: SearchPluginManifest
-  search(ctx: SearchPluginContext, input: SearchInput): void
+  search(ctx: SearchPluginContext, input: SearchInput): Promise<void> | void
 }
 ```
 
@@ -181,13 +182,13 @@ Not needed in v1, but plausible later:
 
 ## Search Plugin Context
 
-The host API should remain synchronous from the plugin's perspective.
+The host API should remain small and linear from the plugin's perspective.
 
 ```ts
 type SearchPluginContext = {
   encode(value: string): string
-  fetchText(input: FetchInput): string
-  fetchJson<T = unknown>(input: FetchInput): T
+  fetchText(input: FetchInput): Promise<string>
+  fetchJson<T = unknown>(input: FetchInput): Promise<T>
   parseHtml(html: string): HtmlDocument
   emitResult(result: SearchResult): void
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string): void
@@ -200,28 +201,34 @@ type FetchInput = {
   method?: 'GET' | 'POST'
   headers?: Record<string, string>
   body?: string
-  responseType?: 'text' | 'json'
 }
 ```
 
-### Why Synchronous
+### Why Async
 
-The qBittorrent-style workload is batch-oriented:
+The original intent behind "synchronous" was to keep plugin development simple, not to insist on truly blocking I/O. Once the first implementation is extension-hosted, the natural boundaries are already asynchronous:
+
+- sandbox page to parent host via `postMessage`
+- parent host to daemon-backed networking
+- HTTP itself
+
+Trying to preserve synchronous fetch semantics inside the extension would push the design toward awkward browser-only behavior and away from the daemon-routed model we actually want.
+
+The qBittorrent-style workload is still batch-oriented:
 
 - fetch page
 - parse page
 - emit results
 - maybe fetch another page
 
-Synchronous plugin APIs avoid:
+So the v1 plugin contract should prefer `async/await` while still avoiding broader event-loop complexity:
 
-- promise plumbing
-- event-loop pumping
-- timer semantics
-- QuickJS pending-job complexity
-- awkward cancellation behavior across platforms
+- plugin code stays linear and sequential
+- no timers or background tasks in v1
+- no callback-heavy APIs
+- no need for plugin authors to manage concurrency
 
-The host may still perform asynchronous work internally and block the plugin call until it returns.
+This tradeoff may remain even for a future QuickJS host. QuickJS can support async execution, and keeping one shared plugin contract across extension, desktop, and Android is likely more valuable than preserving sync semantics in a single runtime.
 
 ## Result Shape
 

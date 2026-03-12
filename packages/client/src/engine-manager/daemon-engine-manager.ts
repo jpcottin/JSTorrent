@@ -10,6 +10,7 @@ import {
   Socks5SocketFactory,
   DaemonBackedEngine,
   DaemonControlStreamService,
+  MinimalHttpClient,
   globalLogStore,
   LogStore,
   ISessionStore,
@@ -32,6 +33,7 @@ import { HostChannelConfigHub } from '../host/host-channel-config-hub'
 import { createNotificationBridge, type NotificationBridge } from '../chrome/notification-bridge'
 import { BackgroundAudioManager } from '../chrome/background-audio'
 import { BackgroundWebRTCManager } from '../chrome/background-webrtc'
+import type { SearchPluginFetchInput, SearchPluginFetchResponse } from '../search/types'
 import type { DaemonInfo, DownloadRoot } from '../types'
 import type { IEngineManager, StorageRoot, FileOperationResult, LanShareResult } from './types'
 
@@ -137,6 +139,7 @@ export class DaemonEngineManager implements IEngineManager {
   private notificationProgressInterval: ReturnType<typeof setInterval> | null = null
   private pendingNativeEvents: Array<{ event: string; payload: unknown }> = []
   private daemonBackedEngine: DaemonBackedEngine | null = null
+  private socketFactory: ISocketFactory | null = null
   private backgroundKeepAlive = USE_WEBRTC_KEEP_ALIVE
     ? new BackgroundWebRTCManager()
     : new BackgroundAudioManager()
@@ -319,6 +322,7 @@ export class DaemonEngineManager implements IEngineManager {
       })
       console.log(`[DaemonEngineManager] SOCKS5 proxy enabled: ${proxyHost}:${proxyPort}`)
     }
+    this.socketFactory = socketFactory
 
     this.engine = new BtEngine({
       socketFactory,
@@ -414,6 +418,7 @@ export class DaemonEngineManager implements IEngineManager {
     this.pendingNativeEvents = []
     this.daemonBackedEngine?.closeControlStream()
     this.daemonBackedEngine = null
+    this.socketFactory = null
 
     // Note: Don't close daemonConnection here. The engine.destroy() is async but
     // beforeunload can't wait for it, so closing the connection immediately would
@@ -457,6 +462,7 @@ export class DaemonEngineManager implements IEngineManager {
     this.pendingNativeEvents = []
     this.daemonBackedEngine?.closeControlStream()
     this.daemonBackedEngine = null
+    this.socketFactory = null
     this.initPromise = null
   }
 
@@ -798,6 +804,32 @@ export class DaemonEngineManager implements IEngineManager {
     }
     this.engine.setLoggingConfig(config)
     console.log(`[DaemonEngineManager] Logging config updated: level=${config.level}`)
+  }
+
+  async searchPluginFetch(input: SearchPluginFetchInput): Promise<SearchPluginFetchResponse> {
+    await this.init()
+
+    if (!this.socketFactory) {
+      throw new Error('Socket factory not initialized')
+    }
+
+    const method = input.method ?? 'GET'
+    if (method !== 'GET' && method !== 'POST') {
+      throw new Error(`Unsupported plugin fetch method: ${method}`)
+    }
+
+    const client = new MinimalHttpClient(this.socketFactory, undefined, 'http-tracker')
+    const response =
+      method === 'POST'
+        ? await client.post(input.url, input.body ?? '', input.headers ?? {})
+        : await client.get(input.url, input.headers ?? {})
+
+    return {
+      bodyText: new TextDecoder().decode(response.body),
+      bytes: response.body.byteLength,
+      statusCode: response.statusCode,
+      remoteAddress: response.remoteAddress,
+    }
   }
 
   private setupNotifications(): void {

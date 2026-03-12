@@ -1,4 +1,5 @@
 import type { BtEngine, LogStore, EngineLoggingConfig, ConfigHub } from '@jstorrent/engine'
+import type { SearchPluginFetchInput, SearchPluginFetchResponse } from '../search/types'
 
 /**
  * Storage root representing a download location.
@@ -62,6 +63,7 @@ export interface IEngineManager {
 
   // Settings application (ConfigHub handles most settings reactively)
   setLoggingConfig(config: EngineLoggingConfig): void
+  searchPluginFetch(input: SearchPluginFetchInput): Promise<SearchPluginFetchResponse>
 
   // Storage roots
   getRoots(): StorageRoot[]

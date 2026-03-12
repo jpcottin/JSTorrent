@@ -104,6 +104,8 @@ export type { InfoHashHex } from './utils/infohash'
 export { infoHashFromHex, infoHashFromBytes } from './utils/infohash'
 export { SleepWakeDetector } from './utils/sleep-wake-detector'
 export type { SleepWakeDetectorOptions, WakeEvent } from './utils/sleep-wake-detector'
+export { MinimalHttpClient } from './utils/minimal-http-client'
+export type { HttpResponse } from './utils/minimal-http-client'
 
 // Torrent factory and initialization
 export { parseTorrentInput } from './core/torrent-factory'

@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useEngineManager } from '../context/EngineManagerContext'
 import { standaloneAlert } from '../utils/dialogs'
 import type {
   InstalledPluginRecord,
+  SearchPluginDraftRunResult,
   SearchPluginManifest,
   SearchPluginSearchInput,
 } from '../search/types'
+import { ExtensionSandboxLabHost } from '../search/extension-sandbox-lab-host'
 
 type SearchPluginsTab = 'installed' | 'add' | 'lab'
 
@@ -25,9 +28,9 @@ const INITIAL_SAMPLE_SOURCE = `export const manifest = {
   categories: ['all', 'books', 'movies', 'music'],
 }
 
-export function search(ctx, input) {
+export async function search(ctx, input) {
   ctx.log('info', 'Sample plugin loaded')
-  ctx.log('info', 'Search runtime not wired yet')
+  ctx.log('info', \`Try fetching against archive.org for: \${input.query}\`)
 }`
 
 const RECOMMENDED_PLUGINS: SearchPluginManifest[] = [
@@ -42,6 +45,8 @@ const RECOMMENDED_PLUGINS: SearchPluginManifest[] = [
 const INSTALLED_PLUGINS: InstalledPluginRecord[] = []
 
 export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayProps) {
+  const engineManager = useEngineManager()
+  const hostRef = useRef<ExtensionSandboxLabHost | null>(null)
   const [activeTab, setActiveTab] = useState<SearchPluginsTab>('installed')
   const [sourceUrl, setSourceUrl] = useState('')
   const [draftSource, setDraftSource] = useState(INITIAL_SAMPLE_SOURCE)
@@ -49,6 +54,15 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     query: 'night of the living dead',
     category: 'movies',
   })
+  const [draftRunResult, setDraftRunResult] = useState<SearchPluginDraftRunResult | null>(null)
+  const [labBusy, setLabBusy] = useState(false)
+  const [labStatus, setLabStatus] = useState<string | null>(null)
+
+  if (!hostRef.current) {
+    hostRef.current = new ExtensionSandboxLabHost({
+      fetch: (input) => engineManager.searchPluginFetch(input),
+    })
+  }
 
   useEffect(() => {
     if (!isOpen) return
@@ -63,9 +77,67 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, onClose])
 
+  useEffect(() => {
+    return () => {
+      hostRef.current?.dispose()
+      hostRef.current = null
+    }
+  }, [])
+
   if (!isOpen) return null
 
   const installDisabled = sourceUrl.trim().length === 0
+  const runtimeAvailable = hostRef.current.isAvailable()
+
+  const handleLoadSourceFromUrl = async () => {
+    setLabBusy(true)
+    setLabStatus('Fetching plugin source...')
+    try {
+      const source = await hostRef.current!.fetchSource(sourceUrl.trim())
+      setDraftSource(source)
+      setActiveTab('lab')
+      setLabStatus('Fetched source into the plugin lab.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setLabStatus(message)
+      standaloneAlert(message)
+    } finally {
+      setLabBusy(false)
+    }
+  }
+
+  const handleRunDraft = async () => {
+    setLabBusy(true)
+    setLabStatus('Running plugin in sandbox...')
+    try {
+      const result = await hostRef.current!.runDraft(draftSource, searchInput)
+      setDraftRunResult(result)
+      setLabStatus(
+        result.trace.ok
+          ? `Run finished in ${result.trace.durationMs}ms`
+          : `Run failed during ${result.trace.error?.phase ?? 'search'}`,
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setLabStatus(message)
+      setDraftRunResult({
+        trace: {
+          ok: false,
+          durationMs: 0,
+          results: [],
+          logs: [],
+          requests: [],
+          error: {
+            phase: 'load',
+            name: 'HostError',
+            message,
+          },
+        },
+      })
+    } finally {
+      setLabBusy(false)
+    }
+  }
 
   return (
     <div style={styles.backdrop} onClick={onClose}>
@@ -99,6 +171,11 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
           </div>
 
           <div style={styles.tabContent}>
+            {!runtimeAvailable && (
+              <div style={styles.warningBox}>
+                Search plugin execution is currently available only inside the Chrome extension UI.
+              </div>
+            )}
             {activeTab === 'installed' && (
               <InstalledTab
                 installedPlugins={INSTALLED_PLUGINS}
@@ -110,15 +187,22 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
               <AddFromUrlTab
                 sourceUrl={sourceUrl}
                 installDisabled={installDisabled}
+                labBusy={labBusy}
                 onSourceUrlChange={setSourceUrl}
+                onLoadSourceFromUrl={handleLoadSourceFromUrl}
               />
             )}
             {activeTab === 'lab' && (
               <PluginLabTab
                 draftSource={draftSource}
+                draftRunResult={draftRunResult}
+                labBusy={labBusy}
+                labStatus={labStatus}
+                runtimeAvailable={runtimeAvailable}
                 searchInput={searchInput}
                 onDraftSourceChange={setDraftSource}
                 onSearchInputChange={setSearchInput}
+                onRunDraft={handleRunDraft}
               />
             )}
           </div>
@@ -194,10 +278,18 @@ function InstalledTab({
 interface AddFromUrlTabProps {
   sourceUrl: string
   installDisabled: boolean
+  labBusy: boolean
   onSourceUrlChange: (value: string) => void
+  onLoadSourceFromUrl: () => void
 }
 
-function AddFromUrlTab({ sourceUrl, installDisabled, onSourceUrlChange }: AddFromUrlTabProps) {
+function AddFromUrlTab({
+  sourceUrl,
+  installDisabled,
+  labBusy,
+  onSourceUrlChange,
+  onLoadSourceFromUrl,
+}: AddFromUrlTabProps) {
   const handleInstall = () => {
     standaloneAlert(
       'Plugin installation is not wired yet.\n\nNext step: fetch the source URL, extract the manifest, confirm hosts, and store a frozen local copy.',
@@ -208,7 +300,7 @@ function AddFromUrlTab({ sourceUrl, installDisabled, onSourceUrlChange }: AddFro
     <div style={styles.tabPanel}>
       <Section
         title="Install from URL"
-        description="The initial install path targets raw GitHub URLs and other direct source files."
+        description="The initial install path targets raw GitHub URLs and other direct source files via the daemon-backed HTTP bridge."
       >
         <label style={styles.fieldLabel}>
           Plugin Source URL
@@ -225,6 +317,13 @@ function AddFromUrlTab({ sourceUrl, installDisabled, onSourceUrlChange }: AddFro
           store a local frozen copy.
         </div>
         <div style={styles.actionRow}>
+          <button
+            style={styles.secondaryButton}
+            onClick={onLoadSourceFromUrl}
+            disabled={installDisabled || labBusy}
+          >
+            {labBusy ? 'Loading...' : 'Load Into Lab'}
+          </button>
           <button style={styles.primaryButton} onClick={handleInstall} disabled={installDisabled}>
             Install Plugin
           </button>
@@ -247,23 +346,27 @@ function AddFromUrlTab({ sourceUrl, installDisabled, onSourceUrlChange }: AddFro
 
 interface PluginLabTabProps {
   draftSource: string
+  draftRunResult: SearchPluginDraftRunResult | null
+  labBusy: boolean
+  labStatus: string | null
+  runtimeAvailable: boolean
   searchInput: SearchPluginSearchInput
   onDraftSourceChange: (value: string) => void
   onSearchInputChange: (value: SearchPluginSearchInput) => void
+  onRunDraft: () => void
 }
 
 function PluginLabTab({
   draftSource,
+  draftRunResult,
+  labBusy,
+  labStatus,
+  runtimeAvailable,
   searchInput,
   onDraftSourceChange,
   onSearchInputChange,
+  onRunDraft,
 }: PluginLabTabProps) {
-  const handleRunDraft = () => {
-    standaloneAlert(
-      'Plugin lab execution is not wired yet.\n\nNext step: run draft source inside a sandbox host and surface results, logs, requests, and interpreter errors.',
-    )
-  }
-
   const handleResetSample = () => {
     onDraftSourceChange(INITIAL_SAMPLE_SOURCE)
   }
@@ -318,22 +421,70 @@ function PluginLabTab({
           <button style={styles.secondaryButton} onClick={handleResetSample}>
             Load Sample
           </button>
-          <button style={styles.primaryButton} onClick={handleRunDraft}>
-            Run Draft
+          <button
+            style={styles.primaryButton}
+            onClick={onRunDraft}
+            disabled={labBusy || !runtimeAvailable}
+          >
+            {labBusy ? 'Running...' : 'Run Draft'}
           </button>
         </div>
+        {labStatus && <div style={styles.statusText}>{labStatus}</div>}
       </Section>
 
       <Section
-        title="Planned Output Panes"
-        description="The runtime should capture the same information you would want from stderr plus network tracing."
+        title="Manifest"
+        description="Resolved from the current draft source after a successful sandbox load."
       >
-        <ul style={styles.featureList}>
-          <li>Results table with normalized torrent fields</li>
-          <li>Console logs and uncaught runtime errors</li>
-          <li>Network trace with URL, status, bytes, and timing</li>
-          <li>Manifest preview with resolved plugin ID and host permissions</li>
-        </ul>
+        {draftRunResult?.manifest ? (
+          <pre style={styles.outputBlock}>
+            {JSON.stringify(draftRunResult.manifest, null, 2)}
+          </pre>
+        ) : (
+          <div style={styles.metaText}>Run the draft to inspect the manifest.</div>
+        )}
+      </Section>
+
+      <Section
+        title="Results"
+        description="Normalized search output emitted by the plugin runtime."
+      >
+        {draftRunResult?.trace.results.length ? (
+          <pre style={styles.outputBlock}>
+            {JSON.stringify(draftRunResult.trace.results, null, 2)}
+          </pre>
+        ) : (
+          <div style={styles.metaText}>No results emitted yet.</div>
+        )}
+      </Section>
+
+      <Section title="Console" description="Captured plugin log output and uncaught runtime errors.">
+        {draftRunResult?.trace.logs.length ? (
+          <pre style={styles.outputBlock}>
+            {draftRunResult.trace.logs
+              .map((entry) => `[${entry.level}] ${entry.message}`)
+              .join('\n')}
+          </pre>
+        ) : (
+          <div style={styles.metaText}>No console output yet.</div>
+        )}
+        {draftRunResult?.trace.error && (
+          <pre style={{ ...styles.outputBlock, borderColor: 'var(--accent-error, #ef4444)' }}>
+            {JSON.stringify(draftRunResult.trace.error, null, 2)}
+          </pre>
+        )}
+      </Section>
+
+      <Section title="Network" description="Captured request metadata from sandbox fetch helpers.">
+        {draftRunResult?.trace.requests.length ? (
+          <pre style={styles.outputBlock}>
+            {JSON.stringify(draftRunResult.trace.requests, null, 2)}
+          </pre>
+        ) : (
+          <div style={styles.metaText}>
+            No network activity yet. Draft fetches are routed through the daemon-backed HTTP bridge.
+          </div>
+        )}
       </Section>
     </div>
   )
@@ -579,5 +730,32 @@ const styles: Record<string, React.CSSProperties> = {
     paddingLeft: '20px',
     color: 'var(--text-secondary)',
     lineHeight: 1.7,
+  },
+  outputBlock: {
+    margin: 0,
+    padding: '12px',
+    border: '1px solid var(--border-color)',
+    borderRadius: '8px',
+    background: 'var(--bg-primary)',
+    color: 'var(--text-primary)',
+    fontSize: '12px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    lineHeight: 1.5,
+    whiteSpace: 'pre-wrap',
+    overflowX: 'auto',
+  },
+  statusText: {
+    color: 'var(--text-secondary)',
+    fontSize: '12px',
+    lineHeight: 1.5,
+  },
+  warningBox: {
+    marginBottom: '20px',
+    padding: '12px 14px',
+    border: '1px solid var(--border-color)',
+    borderRadius: '8px',
+    background: 'var(--bg-secondary)',
+    color: 'var(--text-secondary)',
+    fontSize: '13px',
   },
 }

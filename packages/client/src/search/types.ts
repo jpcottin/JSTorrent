@@ -23,6 +23,13 @@ export interface SearchPluginFetchInput {
   body?: string
 }
 
+export interface SearchPluginFetchResponse {
+  bodyText: string
+  bytes: number
+  statusCode: number
+  remoteAddress?: string
+}
+
 export interface SearchResult {
   name: string
   source: string
@@ -49,6 +56,7 @@ export interface SearchPluginRequestTrace {
   status?: number
   durationMs?: number
   bytes?: number
+  remoteAddress?: string
   error?: string
 }
 
@@ -68,6 +76,11 @@ export interface SearchPluginRunTrace {
   error?: SearchPluginRunError
 }
 
+export interface SearchPluginDraftRunResult {
+  manifest?: SearchPluginManifest
+  trace: SearchPluginRunTrace
+}
+
 export interface SearchPluginHtmlNode {
   text(): string
   html(): string
@@ -80,8 +93,8 @@ export interface SearchPluginHtmlDocument extends SearchPluginHtmlNode {}
 
 export interface SearchPluginContext {
   encode(value: string): string
-  fetchText(input: SearchPluginFetchInput): string
-  fetchJson<T = unknown>(input: SearchPluginFetchInput): T
+  fetchText(input: SearchPluginFetchInput): Promise<string>
+  fetchJson<T = unknown>(input: SearchPluginFetchInput): Promise<T>
   parseHtml(html: string): SearchPluginHtmlDocument
   emitResult(result: SearchResult): void
   log(level: SearchPluginLogLevel, message: string): void
@@ -89,7 +102,10 @@ export interface SearchPluginContext {
 
 export interface SearchPluginModule {
   manifest: SearchPluginManifest
-  search(ctx: SearchPluginContext, input: SearchPluginSearchInput): void
+  search(
+    ctx: SearchPluginContext,
+    input: SearchPluginSearchInput,
+  ): Promise<void> | void
 }
 
 export interface InstalledPluginRecord {

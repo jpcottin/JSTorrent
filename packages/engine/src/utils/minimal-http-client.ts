@@ -11,6 +11,7 @@ import { PREFERRED_ADDRESS_FAMILY } from '../interfaces/socket'
  */
 export interface HttpResponse {
   body: Uint8Array
+  statusCode: number
   /** Remote IP address of the connection (if available) */
   remoteAddress?: string
 }
@@ -137,6 +138,7 @@ export class MinimalHttpClient {
       let bodyStart = 0
       const MAX_RESPONSE_SIZE = 1024 * 1024 // 1MB cap
       let resolved = false
+      let statusCode = 0
 
       const cleanup = () => {
         this.activeSocket = null
@@ -159,7 +161,7 @@ export class MinimalHttpClient {
             `MinimalHttpClient: Response received, ${body.length} bytes from ${remoteAddress ?? 'unknown'}`,
           )
           cleanup()
-          resolve({ body, remoteAddress })
+          resolve({ body, statusCode, remoteAddress })
         }
       }
 
@@ -175,7 +177,7 @@ export class MinimalHttpClient {
             const lines = headerString.split('\r\n')
             const statusLine = lines[0]
             const [_, statusCodeStr] = statusLine.split(' ')
-            const statusCode = parseInt(statusCodeStr, 10)
+            statusCode = parseInt(statusCodeStr, 10)
 
             // Parse Headers
             const resHeaders: Record<string, string> = {}
@@ -358,6 +360,7 @@ export class MinimalHttpClient {
       let bodyStart = 0
       const MAX_RESPONSE_SIZE = 1024 * 1024 // 1MB cap
       let resolved = false
+      let statusCode = 0
 
       const cleanup = () => {
         this.activeSocket = null
@@ -380,7 +383,7 @@ export class MinimalHttpClient {
             `MinimalHttpClient: Response received, ${responseBody.length} bytes from ${remoteAddress ?? 'unknown'}`,
           )
           cleanup()
-          resolve({ body: responseBody, remoteAddress })
+          resolve({ body: responseBody, statusCode, remoteAddress })
         }
       }
 
@@ -396,7 +399,7 @@ export class MinimalHttpClient {
             const lines = headerString.split('\r\n')
             const statusLine = lines[0]
             const [_, statusCodeStr] = statusLine.split(' ')
-            const statusCode = parseInt(statusCodeStr, 10)
+            statusCode = parseInt(statusCodeStr, 10)
 
             // Parse Headers
             const resHeaders: Record<string, string> = {}
