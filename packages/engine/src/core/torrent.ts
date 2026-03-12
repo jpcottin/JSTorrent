@@ -294,6 +294,29 @@ export class Torrent extends EngineComponent {
    */
   public magnetPeerHints: PeerAddress[] = []
 
+  /**
+   * Web seeds from magnet `ws` parameters.
+   * Stored even before metadata is available so they can be activated later.
+   */
+  public magnetUrlSeeds: string[] = []
+
+  /**
+   * Web seeds from `.torrent` top-level `url-list`.
+   * Only available when the torrent originated from a `.torrent` file.
+   */
+  public metadataUrlSeeds: string[] = []
+
+  /**
+   * All known web-seed URLs for this torrent, deduplicated with `.torrent`
+   * metadata sources preferred before magnet hints.
+   */
+  get webSeedUrls(): string[] {
+    const merged = new Set<string>()
+    for (const url of this.metadataUrlSeeds) merged.add(url)
+    for (const url of this.magnetUrlSeeds) merged.add(url)
+    return Array.from(merged)
+  }
+
   // === Centralized persisted state ===
   private _persisted: TorrentPersistedState = createDefaultPersistedState()
 

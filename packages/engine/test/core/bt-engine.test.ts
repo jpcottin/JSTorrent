@@ -82,6 +82,50 @@ describe('BtEngine', () => {
     expect(torrent.contentStorage).toBeUndefined()
   }, 10000)
 
+  it('should retain web seeds from a torrent file', async () => {
+    const info = {
+      name: 'test-web-seeds',
+      'piece length': 16384,
+      pieces: new Uint8Array(20),
+      length: 1000,
+    }
+
+    const buffer = Bencode.encode({
+      announce: 'http://tracker.example.com/announce',
+      'url-list': ['https://cdn.example.com/test-web-seeds', 'https://mirror.example.com/test'],
+      info,
+    })
+
+    const { torrent } = await client.addTorrent(buffer)
+    if (!torrent) throw new Error('Torrent is null')
+
+    expect(torrent.metadataUrlSeeds).toEqual([
+      'https://cdn.example.com/test-web-seeds',
+      'https://mirror.example.com/test',
+    ])
+    expect(torrent.webSeedUrls).toEqual([
+      'https://cdn.example.com/test-web-seeds',
+      'https://mirror.example.com/test',
+    ])
+  })
+
+  it('should retain web seeds from a magnet link', async () => {
+    const magnetLink =
+      'magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=Test+Torrent&ws=https%3A%2F%2Fcdn.example.com%2Ffile.bin&ws=https%3A%2F%2Fmirror.example.com%2Ffile.bin'
+
+    const { torrent } = await client.addTorrent(magnetLink)
+    if (!torrent) throw new Error('Torrent is null')
+
+    expect(torrent.magnetUrlSeeds).toEqual([
+      'https://cdn.example.com/file.bin',
+      'https://mirror.example.com/file.bin',
+    ])
+    expect(torrent.webSeedUrls).toEqual([
+      'https://cdn.example.com/file.bin',
+      'https://mirror.example.com/file.bin',
+    ])
+  })
+
   it('should get a torrent by infoHash', async () => {
     const info = {
       name: 'test-torrent-2',

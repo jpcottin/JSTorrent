@@ -835,6 +835,10 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       torrent.magnetPeerHints = input.magnetPeerHints
     }
 
+    if (input.magnetUrlSeeds && input.magnetUrlSeeds.length > 0) {
+      torrent.magnetUrlSeeds = [...input.magnetUrlSeeds]
+    }
+
     // Store origin info for persistence
     if (input.magnetLink) {
       torrent.initFromMagnet(input.magnetLink)

@@ -66,6 +66,8 @@ export async function initializeTorrentMetadata(
     torrent.isPrivate = true
   }
 
+  torrent.metadataUrlSeeds = parsedTorrent.urlSeeds ? [...parsedTorrent.urlSeeds] : []
+
   // Set optional metadata fields (only available from .torrent files, not magnets)
   if (parsedTorrent.comment) torrent.comment = parsedTorrent.comment
   if (parsedTorrent.createdBy) torrent.createdBy = parsedTorrent.createdBy

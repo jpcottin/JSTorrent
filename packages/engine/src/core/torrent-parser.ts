@@ -10,6 +10,7 @@ export interface ParsedTorrent {
   files: TorrentFile[]
   length: number
   announce: string[]
+  urlSeeds?: string[]
   infoBuffer?: Uint8Array
   isPrivate?: boolean
   // Optional metadata from top-level torrent dict
@@ -26,6 +27,30 @@ function safeDecodeText(bytes: Uint8Array | undefined): string | undefined {
   } catch {
     return undefined
   }
+}
+
+function parseUrlSeedsField(value: unknown): string[] | undefined {
+  const decoded: string[] = []
+  const seen = new Set<string>()
+
+  const add = (entry: Uint8Array | undefined) => {
+    const url = safeDecodeText(entry)?.trim()
+    if (!url || seen.has(url)) return
+    seen.add(url)
+    decoded.push(url)
+  }
+
+  if (value instanceof Uint8Array) {
+    add(value)
+  } else if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (entry instanceof Uint8Array) {
+        add(entry)
+      }
+    }
+  }
+
+  return decoded.length > 0 ? decoded : undefined
 }
 
 export class TorrentParser {
@@ -46,6 +71,7 @@ export class TorrentParser {
     const comment = safeDecodeText(decoded.comment)
     const createdBy = safeDecodeText(decoded['created by'])
     const creationDate = decoded['creation date'] as number | undefined
+    const urlSeeds = parseUrlSeedsField(decoded['url-list'])
 
     const infoHash = await hasher.sha1(infoBuffer, 'info-hash')
     return this.parseInfoDictionary(
@@ -53,6 +79,7 @@ export class TorrentParser {
       infoHash,
       decoded['announce-list'],
       decoded.announce,
+      urlSeeds,
       infoBuffer,
       comment,
       createdBy,
@@ -63,7 +90,7 @@ export class TorrentParser {
   static async parseInfoBuffer(infoBuffer: Uint8Array, hasher: IHasher): Promise<ParsedTorrent> {
     const info = Bencode.decode(infoBuffer)
     const infoHash = await hasher.sha1(infoBuffer, 'info-hash')
-    return this.parseInfoDictionary(info, infoHash, undefined, undefined, infoBuffer)
+    return this.parseInfoDictionary(info, infoHash, undefined, undefined, undefined, infoBuffer)
   }
 
   static parseInfoDictionary(
@@ -72,6 +99,7 @@ export class TorrentParser {
     infoHash: Uint8Array,
     announceList?: Uint8Array[][],
     announceUrl?: Uint8Array,
+    urlSeeds?: string[],
     infoBuffer?: Uint8Array,
     comment?: string,
     createdBy?: string,
@@ -138,6 +166,7 @@ export class TorrentParser {
       files,
       length: totalLength,
       announce,
+      urlSeeds,
       infoBuffer,
       isPrivate: info.private === 1,
       comment,
