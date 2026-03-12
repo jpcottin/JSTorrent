@@ -93,6 +93,7 @@ describe('DaemonBackedEngine', () => {
       defaultContentRoot: 'root-a',
       sessionStore: new MemorySessionStore(),
       startSuspended: true,
+      port: 0,
     })
 
     return { harness }
@@ -241,6 +242,34 @@ describe('DaemonBackedEngine', () => {
     await harness.destroy()
   }
 
+  async function waitForDaemonFileContent(
+    harness: DaemonBackedEngine,
+    relativePath: string,
+    expected: Uint8Array,
+    timeoutMs = 5_000,
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+
+    while (Date.now() < deadline) {
+      try {
+        const daemonRead = await harness.connection.requestBinaryWithHeaders('GET', '/read/root-a', {
+          'X-Path-Base64': Buffer.from(relativePath, 'utf8').toString('base64'),
+          'X-Offset': '0',
+          'X-Length': String(expected.length),
+        })
+        if (Buffer.from(daemonRead).equals(expected)) {
+          return
+        }
+      } catch {
+        // Ignore transient read errors while writes are still becoming visible.
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+
+    throw new Error(`Timed out waiting for daemon-visible file content: ${relativePath}`)
+  }
+
   it('initializes a daemon-backed engine harness', async () => {
     const { harness } = await createHarness()
 
@@ -316,6 +345,8 @@ describe('DaemonBackedEngine', () => {
         })
       })
 
+      await waitForDaemonFileContent(harness, fileName, fileContent)
+
       const downloadedPath = path.join(downloadDir, fileName)
       const downloadedContent = fs.readFileSync(downloadedPath)
       expect(downloadedContent.equals(fileContent)).toBe(true)
@@ -354,6 +385,8 @@ describe('DaemonBackedEngine', () => {
           reject(error)
         })
       })
+
+      await waitForDaemonFileContent(harness, fileName, fileContent)
 
       const { mediaPort } = await harness.registerHttpStream(
         {
