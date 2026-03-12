@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEngineManager } from '../context/EngineManagerContext'
-import { standaloneAlert } from '../utils/dialogs'
+import { standaloneAlert, standaloneConfirm } from '../utils/dialogs'
 import type {
   InstalledPluginRecord,
   SearchPluginDraftRunResult,
@@ -8,6 +8,7 @@ import type {
   SearchPluginSearchInput,
 } from '../search/types'
 import { ExtensionSandboxLabHost } from '../search/extension-sandbox-lab-host'
+import { createInstalledPluginRecord } from '../search/plugin-utils'
 
 type SearchPluginsTab = 'installed' | 'add' | 'lab'
 
@@ -42,12 +43,12 @@ const RECOMMENDED_PLUGINS: SearchPluginManifest[] = [
   },
 ]
 
-const INSTALLED_PLUGINS: InstalledPluginRecord[] = []
-
 export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayProps) {
   const engineManager = useEngineManager()
   const hostRef = useRef<ExtensionSandboxLabHost | null>(null)
   const [activeTab, setActiveTab] = useState<SearchPluginsTab>('installed')
+  const [installedPlugins, setInstalledPlugins] = useState<InstalledPluginRecord[]>([])
+  const [installPreview, setInstallPreview] = useState<SearchPluginManifest | null>(null)
   const [sourceUrl, setSourceUrl] = useState('')
   const [draftSource, setDraftSource] = useState(INITIAL_SAMPLE_SOURCE)
   const [searchInput, setSearchInput] = useState<SearchPluginSearchInput>({
@@ -57,12 +58,23 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
   const [draftRunResult, setDraftRunResult] = useState<SearchPluginDraftRunResult | null>(null)
   const [labBusy, setLabBusy] = useState(false)
   const [labStatus, setLabStatus] = useState<string | null>(null)
+  const [installBusy, setInstallBusy] = useState(false)
+  const [installStatus, setInstallStatus] = useState<string | null>(null)
 
   if (!hostRef.current) {
     hostRef.current = new ExtensionSandboxLabHost({
       fetch: (input) => engineManager.searchPluginFetch(input),
     })
   }
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    void engineManager.listInstalledSearchPlugins().then(setInstalledPlugins).catch((error) => {
+      console.error('[SearchPluginsOverlay] Failed to load installed plugins', error)
+      setInstallStatus(error instanceof Error ? error.message : String(error))
+    })
+  }, [engineManager, isOpen])
 
   useEffect(() => {
     if (!isOpen) return
@@ -89,20 +101,83 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
   const installDisabled = sourceUrl.trim().length === 0
   const runtimeAvailable = hostRef.current.isAvailable()
 
+  const handleSourceUrlChange = (value: string) => {
+    setSourceUrl(value)
+    setInstallPreview(null)
+    setInstallStatus(null)
+  }
+
   const handleLoadSourceFromUrl = async () => {
-    setLabBusy(true)
-    setLabStatus('Fetching plugin source...')
+    setInstallBusy(true)
+    setInstallStatus('Fetching plugin source...')
     try {
       const source = await hostRef.current!.fetchSource(sourceUrl.trim())
+      const inspection = await hostRef.current!.inspectSource(source)
       setDraftSource(source)
+      setInstallPreview(inspection.manifest)
       setActiveTab('lab')
       setLabStatus('Fetched source into the plugin lab.')
+      setInstallStatus(`Loaded ${inspection.manifest.name} into the plugin lab.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setLabStatus(message)
+      setInstallStatus(message)
       standaloneAlert(message)
     } finally {
-      setLabBusy(false)
+      setInstallBusy(false)
+    }
+  }
+
+  const handleInstallFromUrl = async () => {
+    setInstallBusy(true)
+    setInstallStatus('Fetching plugin source...')
+    try {
+      const normalizedUrl = sourceUrl.trim()
+      const source = await hostRef.current!.fetchSource(normalizedUrl)
+      const inspection = await hostRef.current!.inspectSource(source)
+      const plugin = await createInstalledPluginRecord({
+        code: source,
+        manifest: inspection.manifest,
+        sourceUrl: normalizedUrl,
+      })
+
+      const confirmed = standaloneConfirm(
+        `Install plugin "${plugin.manifest.name}"?\n\nDeclared hosts:\n${plugin.manifest.hosts
+          .map((host) => `- ${host}`)
+          .join('\n')}`,
+      )
+      if (!confirmed) {
+        setInstallStatus('Install cancelled.')
+        return
+      }
+
+      await engineManager.saveInstalledSearchPlugin(plugin)
+      const refreshed = await engineManager.listInstalledSearchPlugins()
+      setInstalledPlugins(refreshed)
+      setInstallPreview(plugin.manifest)
+      setDraftSource(source)
+      setInstallStatus(`Installed ${plugin.manifest.name}.`)
+      setActiveTab('installed')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setInstallStatus(message)
+      standaloneAlert(message)
+    } finally {
+      setInstallBusy(false)
+    }
+  }
+
+  const handleRemovePlugin = async (pluginId: string) => {
+    if (!standaloneConfirm(`Remove installed plugin "${pluginId}"?`)) {
+      return
+    }
+
+    try {
+      await engineManager.removeInstalledSearchPlugin(pluginId)
+      const refreshed = await engineManager.listInstalledSearchPlugins()
+      setInstalledPlugins(refreshed)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      standaloneAlert(message)
     }
   }
 
@@ -178,18 +253,23 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
             )}
             {activeTab === 'installed' && (
               <InstalledTab
-                installedPlugins={INSTALLED_PLUGINS}
+                installedPlugins={installedPlugins}
                 recommendedPlugins={RECOMMENDED_PLUGINS}
                 onOpenAddTab={() => setActiveTab('add')}
+                onRemovePlugin={handleRemovePlugin}
               />
             )}
             {activeTab === 'add' && (
               <AddFromUrlTab
                 sourceUrl={sourceUrl}
                 installDisabled={installDisabled}
-                labBusy={labBusy}
-                onSourceUrlChange={setSourceUrl}
+                installBusy={installBusy}
+                installPreview={installPreview}
+                installStatus={installStatus}
+                runtimeAvailable={runtimeAvailable}
+                onSourceUrlChange={handleSourceUrlChange}
                 onLoadSourceFromUrl={handleLoadSourceFromUrl}
+                onInstallFromUrl={handleInstallFromUrl}
               />
             )}
             {activeTab === 'lab' && (
@@ -216,18 +296,20 @@ interface InstalledTabProps {
   installedPlugins: InstalledPluginRecord[]
   recommendedPlugins: SearchPluginManifest[]
   onOpenAddTab: () => void
+  onRemovePlugin: (pluginId: string) => void
 }
 
 function InstalledTab({
   installedPlugins,
   recommendedPlugins,
   onOpenAddTab,
+  onRemovePlugin,
 }: InstalledTabProps) {
   return (
     <div style={styles.tabPanel}>
       <Section
         title="Installed Providers"
-        description="Providers will appear here once URL install and local storage are wired."
+        description="Installed providers are stored as frozen local copies through the host KV store."
       >
         {installedPlugins.length === 0 ? (
           <div style={styles.emptyState}>
@@ -244,9 +326,18 @@ function InstalledTab({
             <div key={plugin.pluginId} style={styles.pluginCard}>
               <div style={styles.pluginCardHeader}>
                 <strong>{plugin.manifest.name}</strong>
-                <span style={styles.badge}>{plugin.enabled ? 'Enabled' : 'Disabled'}</span>
+                <div style={styles.inlineActions}>
+                  <span style={styles.badge}>{plugin.enabled ? 'Enabled' : 'Disabled'}</span>
+                  <button
+                    style={styles.linkButton}
+                    onClick={() => onRemovePlugin(plugin.pluginId)}
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
               <div style={styles.metaText}>ID: {plugin.pluginId}</div>
+              <div style={styles.metaText}>Hosts: {plugin.manifest.hosts.join(', ')}</div>
               {plugin.manifest.description && (
                 <div style={styles.metaText}>{plugin.manifest.description}</div>
               )}
@@ -278,24 +369,26 @@ function InstalledTab({
 interface AddFromUrlTabProps {
   sourceUrl: string
   installDisabled: boolean
-  labBusy: boolean
+  installBusy: boolean
+  installPreview: SearchPluginManifest | null
+  installStatus: string | null
+  runtimeAvailable: boolean
   onSourceUrlChange: (value: string) => void
   onLoadSourceFromUrl: () => void
+  onInstallFromUrl: () => void
 }
 
 function AddFromUrlTab({
   sourceUrl,
   installDisabled,
-  labBusy,
+  installBusy,
+  installPreview,
+  installStatus,
+  runtimeAvailable,
   onSourceUrlChange,
   onLoadSourceFromUrl,
+  onInstallFromUrl,
 }: AddFromUrlTabProps) {
-  const handleInstall = () => {
-    standaloneAlert(
-      'Plugin installation is not wired yet.\n\nNext step: fetch the source URL, extract the manifest, confirm hosts, and store a frozen local copy.',
-    )
-  }
-
   return (
     <div style={styles.tabPanel}>
       <Section
@@ -320,14 +413,29 @@ function AddFromUrlTab({
           <button
             style={styles.secondaryButton}
             onClick={onLoadSourceFromUrl}
-            disabled={installDisabled || labBusy}
+            disabled={installDisabled || installBusy || !runtimeAvailable}
           >
-            {labBusy ? 'Loading...' : 'Load Into Lab'}
+            {installBusy ? 'Loading...' : 'Load Into Lab'}
           </button>
-          <button style={styles.primaryButton} onClick={handleInstall} disabled={installDisabled}>
-            Install Plugin
+          <button
+            style={styles.primaryButton}
+            onClick={onInstallFromUrl}
+            disabled={installDisabled || installBusy || !runtimeAvailable}
+          >
+            {installBusy ? 'Installing...' : 'Install Plugin'}
           </button>
         </div>
+        {installStatus && <div style={styles.statusText}>{installStatus}</div>}
+        {installPreview && (
+          <div style={styles.pluginCard}>
+            <div style={styles.pluginCardHeader}>
+              <strong>{installPreview.name}</strong>
+              <span style={styles.badgeMuted}>{installPreview.version ?? 'Preview'}</span>
+            </div>
+            {installPreview.description && <div style={styles.metaText}>{installPreview.description}</div>}
+            <div style={styles.metaText}>Hosts: {installPreview.hosts.join(', ')}</div>
+          </div>
+        )}
       </Section>
 
       <Section
@@ -705,6 +813,11 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     gap: '12px',
   },
+  inlineActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
   badge: {
     border: '1px solid var(--border-color)',
     borderRadius: '999px',
@@ -724,6 +837,14 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-secondary)',
     fontSize: '12px',
     lineHeight: 1.5,
+  },
+  linkButton: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    padding: 0,
   },
   featureList: {
     margin: 0,

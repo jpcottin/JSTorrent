@@ -23,6 +23,10 @@ export interface SearchPluginFetchInput {
   body?: string
 }
 
+export interface SearchPluginFetchPolicy {
+  allowedHosts?: string[]
+}
+
 export interface SearchPluginFetchResponse {
   bodyText: string
   bytes: number
@@ -79,6 +83,10 @@ export interface SearchPluginRunTrace {
 export interface SearchPluginDraftRunResult {
   manifest?: SearchPluginManifest
   trace: SearchPluginRunTrace
+}
+
+export interface SearchPluginSourceInspection {
+  manifest: SearchPluginManifest
 }
 
 export interface SearchPluginHtmlNode {

@@ -95,6 +95,23 @@
     }
   }
 
+  function loadModule(source) {
+    const transformed = transformModuleSource(source)
+    return new Function('exports', transformed)(Object.create(null))
+  }
+
+  function inspectSource(source) {
+    const module = loadModule(source)
+    const manifest = module && typeof module.manifest === 'object' ? module.manifest : undefined
+    if (!manifest || typeof manifest.name !== 'string' || !Array.isArray(manifest.hosts)) {
+      throw new Error('Plugin manifest must export `name` and `hosts`')
+    }
+    if (!module || typeof module.search !== 'function') {
+      throw new Error('Plugin must export a `search(ctx, input)` function')
+    }
+    return { manifest }
+  }
+
   function requestHostFetch(requestId, fetchInput) {
     return new Promise((resolve, reject) => {
       const fetchRequestId = nextFetchRequestId++
@@ -167,8 +184,7 @@
 
     let module
     try {
-      const transformed = transformModuleSource(source)
-      module = new Function('exports', transformed)(Object.create(null))
+      module = loadModule(source)
     } catch (error) {
       return buildFailureResult(
         'load',
@@ -250,6 +266,28 @@
         requestId: data.requestId,
         result,
       })
+      return
+    }
+
+    if (data.type === 'inspect-source') {
+      try {
+        const inspection = inspectSource(data.source)
+        postMessageToParent({
+          type: 'inspect-result',
+          requestId: data.requestId,
+          inspection,
+        })
+      } catch (error) {
+        postMessageToParent({
+          type: 'inspect-result',
+          requestId: data.requestId,
+          error: {
+            name: error && error.name ? error.name : 'Error',
+            message: error && error.message ? error.message : String(error),
+            stack: error && error.stack ? String(error.stack) : undefined,
+          },
+        })
+      }
     }
   })
 

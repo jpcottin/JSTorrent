@@ -1,9 +1,12 @@
 import type {
   SearchPluginDraftRunResult,
   SearchPluginFetchInput,
+  SearchPluginFetchPolicy,
   SearchPluginFetchResponse,
+  SearchPluginSourceInspection,
   SearchPluginSearchInput,
 } from './types'
+import { normalizeSearchPluginManifest } from './plugin-utils'
 
 interface SandboxReadyMessage {
   __jstSearchPluginSandbox: true
@@ -17,6 +20,18 @@ interface SandboxRunResultMessage {
   result: SearchPluginDraftRunResult
 }
 
+interface SandboxInspectResultMessage {
+  __jstSearchPluginSandbox: true
+  type: 'inspect-result'
+  requestId: number
+  inspection?: SearchPluginSourceInspection
+  error?: {
+    name: string
+    message: string
+    stack?: string
+  }
+}
+
 interface SandboxFetchRequestMessage {
   __jstSearchPluginSandbox: true
   type: 'fetch-request'
@@ -25,14 +40,26 @@ interface SandboxFetchRequestMessage {
   input: SearchPluginFetchInput
 }
 
-type SandboxMessage = SandboxReadyMessage | SandboxRunResultMessage | SandboxFetchRequestMessage
+type SandboxMessage =
+  | SandboxReadyMessage
+  | SandboxRunResultMessage
+  | SandboxInspectResultMessage
+  | SandboxFetchRequestMessage
 
 interface Fetcher {
-  fetch(input: SearchPluginFetchInput): Promise<SearchPluginFetchResponse>
+  fetch(
+    input: SearchPluginFetchInput,
+    policy?: SearchPluginFetchPolicy,
+  ): Promise<SearchPluginFetchResponse>
 }
 
 interface PendingRequest {
   resolve: (result: SearchPluginDraftRunResult) => void
+  reject: (error: Error) => void
+}
+
+interface PendingInspection {
+  resolve: (inspection: SearchPluginSourceInspection) => void
   reject: (error: Error) => void
 }
 
@@ -50,6 +77,8 @@ export class ExtensionSandboxLabHost {
   private readyResolve: (() => void) | null = null
   private nextRequestId = 1
   private pending = new Map<number, PendingRequest>()
+  private pendingInspections = new Map<number, PendingInspection>()
+  private requestPolicies = new Map<number, SearchPluginFetchPolicy>()
   private readonly handleMessageBound = this.handleMessage.bind(this)
 
   constructor(private readonly fetcher: Fetcher) {
@@ -77,10 +106,12 @@ export class ExtensionSandboxLabHost {
       throw new Error('Sandbox iframe is not available')
     }
 
+    const inspection = await this.inspectSource(source)
     const requestId = this.nextRequestId++
     const result = new Promise<SearchPluginDraftRunResult>((resolve, reject) => {
       this.pending.set(requestId, { resolve, reject })
     })
+    this.requestPolicies.set(requestId, { allowedHosts: inspection.manifest.hosts })
 
     this.iframe.contentWindow.postMessage(
       {
@@ -96,12 +127,41 @@ export class ExtensionSandboxLabHost {
     return result
   }
 
+  async inspectSource(source: string): Promise<SearchPluginSourceInspection> {
+    await this.ensureReady()
+    if (!this.iframe?.contentWindow) {
+      throw new Error('Sandbox iframe is not available')
+    }
+
+    const requestId = this.nextRequestId++
+    const result = new Promise<SearchPluginSourceInspection>((resolve, reject) => {
+      this.pendingInspections.set(requestId, { resolve, reject })
+    })
+
+    this.iframe.contentWindow.postMessage(
+      {
+        __jstSearchPluginSandbox: true,
+        type: 'inspect-source',
+        requestId,
+        source,
+      },
+      '*',
+    )
+
+    return result
+  }
+
   dispose(): void {
     window.removeEventListener('message', this.handleMessageBound)
     for (const { reject } of this.pending.values()) {
       reject(new Error('Sandbox host disposed'))
     }
     this.pending.clear()
+    for (const { reject } of this.pendingInspections.values()) {
+      reject(new Error('Sandbox host disposed'))
+    }
+    this.pendingInspections.clear()
+    this.requestPolicies.clear()
     this.iframe?.remove()
     this.iframe = null
     this.readyPromise = null
@@ -146,7 +206,26 @@ export class ExtensionSandboxLabHost {
       const pending = this.pending.get(data.requestId)
       if (!pending) return
       this.pending.delete(data.requestId)
+      this.requestPolicies.delete(data.requestId)
       pending.resolve(data.result)
+      return
+    }
+
+    if (data.type === 'inspect-result') {
+      const pending = this.pendingInspections.get(data.requestId)
+      if (!pending) return
+      this.pendingInspections.delete(data.requestId)
+      if (data.error) {
+        pending.reject(new Error(data.error.message))
+        return
+      }
+      if (!data.inspection) {
+        pending.reject(new Error('Sandbox inspection returned no manifest'))
+        return
+      }
+      pending.resolve({
+        manifest: normalizeSearchPluginManifest(data.inspection.manifest),
+      })
       return
     }
 
@@ -161,7 +240,10 @@ export class ExtensionSandboxLabHost {
     }
 
     try {
-      const response = await this.fetcher.fetch(message.input)
+      const response = await this.fetcher.fetch(
+        message.input,
+        this.requestPolicies.get(message.requestId),
+      )
       this.iframe.contentWindow.postMessage(
         {
           __jstSearchPluginSandbox: true,

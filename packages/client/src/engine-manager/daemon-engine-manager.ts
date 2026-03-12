@@ -33,7 +33,16 @@ import { HostChannelConfigHub } from '../host/host-channel-config-hub'
 import { createNotificationBridge, type NotificationBridge } from '../chrome/notification-bridge'
 import { BackgroundAudioManager } from '../chrome/background-audio'
 import { BackgroundWebRTCManager } from '../chrome/background-webrtc'
-import type { SearchPluginFetchInput, SearchPluginFetchResponse } from '../search/types'
+import type {
+  InstalledPluginRecord,
+  SearchPluginFetchInput,
+  SearchPluginFetchPolicy,
+  SearchPluginFetchResponse,
+} from '../search/types'
+import {
+  ensurePluginFetchAllowed,
+  SEARCH_PLUGIN_STORAGE_PREFIX,
+} from '../search/plugin-utils'
 import type { DaemonInfo, DownloadRoot } from '../types'
 import type { IEngineManager, StorageRoot, FileOperationResult, LanShareResult } from './types'
 
@@ -806,12 +815,17 @@ export class DaemonEngineManager implements IEngineManager {
     console.log(`[DaemonEngineManager] Logging config updated: level=${config.level}`)
   }
 
-  async searchPluginFetch(input: SearchPluginFetchInput): Promise<SearchPluginFetchResponse> {
+  async searchPluginFetch(
+    input: SearchPluginFetchInput,
+    policy?: SearchPluginFetchPolicy,
+  ): Promise<SearchPluginFetchResponse> {
     await this.init()
 
     if (!this.socketFactory) {
       throw new Error('Socket factory not initialized')
     }
+
+    ensurePluginFetchAllowed(input.url, policy)
 
     const method = input.method ?? 'GET'
     if (method !== 'GET' && method !== 'POST') {
@@ -830,6 +844,27 @@ export class DaemonEngineManager implements IEngineManager {
       statusCode: response.statusCode,
       remoteAddress: response.remoteAddress,
     }
+  }
+
+  async listInstalledSearchPlugins(): Promise<InstalledPluginRecord[]> {
+    const keys = await this.channel.kvKeys('', { keyPrefix: SEARCH_PLUGIN_STORAGE_PREFIX })
+    if (keys.length === 0) {
+      return []
+    }
+
+    const values = await this.channel.kvGetMulti(keys, { keyPrefix: SEARCH_PLUGIN_STORAGE_PREFIX })
+    return keys
+      .map((key) => values[key] as InstalledPluginRecord | undefined)
+      .filter((plugin): plugin is InstalledPluginRecord => Boolean(plugin?.pluginId))
+      .sort((left, right) => left.manifest.name.localeCompare(right.manifest.name))
+  }
+
+  async saveInstalledSearchPlugin(plugin: InstalledPluginRecord): Promise<void> {
+    await this.channel.kvSet(plugin.pluginId, plugin, { keyPrefix: SEARCH_PLUGIN_STORAGE_PREFIX })
+  }
+
+  async removeInstalledSearchPlugin(pluginId: string): Promise<void> {
+    await this.channel.kvDelete(pluginId, { keyPrefix: SEARCH_PLUGIN_STORAGE_PREFIX })
   }
 
   private setupNotifications(): void {
