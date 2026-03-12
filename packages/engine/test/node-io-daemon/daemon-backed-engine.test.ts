@@ -252,11 +252,15 @@ describe('DaemonBackedEngine', () => {
 
     while (Date.now() < deadline) {
       try {
-        const daemonRead = await harness.connection.requestBinaryWithHeaders('GET', '/read/root-a', {
-          'X-Path-Base64': Buffer.from(relativePath, 'utf8').toString('base64'),
-          'X-Offset': '0',
-          'X-Length': String(expected.length),
-        })
+        const daemonRead = await harness.connection.requestBinaryWithHeaders(
+          'GET',
+          '/read/root-a',
+          {
+            'X-Path-Base64': Buffer.from(relativePath, 'utf8').toString('base64'),
+            'X-Offset': '0',
+            'X-Length': String(expected.length),
+          },
+        )
         if (Buffer.from(daemonRead).equals(expected)) {
           return
         }
