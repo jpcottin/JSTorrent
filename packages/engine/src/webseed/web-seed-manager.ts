@@ -43,6 +43,12 @@ interface WebSeedSourceState {
   id: string
   url: string
   consecutiveFailures: number
+  failedTransfers: number
+  successfulTransfers: number
+  downloadedBytes: number
+  averageTransferRateBps: number
+  lastSuccessAt: number
+  lastFailureAt: number
   retryAt: number
 }
 
@@ -150,6 +156,12 @@ export class WebSeedManager extends EngineComponent {
           id,
           url,
           consecutiveFailures: 0,
+          failedTransfers: 0,
+          successfulTransfers: 0,
+          downloadedBytes: 0,
+          averageTransferRateBps: 0,
+          lastSuccessAt: 0,
+          lastFailureAt: 0,
           retryAt: 0,
         })
       }
@@ -163,12 +175,15 @@ export class WebSeedManager extends EngineComponent {
   }
 
   private pickReadySource(now: number): WebSeedSourceState | null {
+    const readySources: WebSeedSourceState[] = []
     for (const source of this.sources.values()) {
       if (source.retryAt > now) continue
       if (this.hasActiveTransferForSource(source.id)) continue
-      return source
+      readySources.push(source)
     }
-    return null
+
+    readySources.sort(compareWebSeedSources)
+    return readySources[0] ?? null
   }
 
   private hasActiveTransferForSource(sourceId: string): boolean {
@@ -300,6 +315,7 @@ export class WebSeedManager extends EngineComponent {
     reservation: ReservedRange,
     signal: AbortSignal,
   ): Promise<void> {
+    const startedAt = Date.now()
     const cursor = {
       reservationBytesRead: 0,
       pieceCursorIndex: 0,
@@ -335,8 +351,7 @@ export class WebSeedManager extends EngineComponent {
         )
       }
 
-      source.consecutiveFailures = 0
-      source.retryAt = 0
+      this.recordSuccess(source, cursor.reservationBytesRead, Date.now() - startedAt)
     } catch (error) {
       this.releaseReservation(reservation)
       throw error
@@ -503,6 +518,8 @@ export class WebSeedManager extends EngineComponent {
 
   private recordFailure(source: WebSeedSourceState, error: unknown): void {
     source.consecutiveFailures += 1
+    source.failedTransfers += 1
+    source.lastFailureAt = Date.now()
     const delayMs = Math.min(
       MAX_RETRY_DELAY_MS,
       INITIAL_RETRY_DELAY_MS * 2 ** (source.consecutiveFailures - 1),
@@ -513,6 +530,25 @@ export class WebSeedManager extends EngineComponent {
       `Web-seed request failed for ${source.url}; retrying in ${delayMs}ms`,
       error,
     )
+  }
+
+  private recordSuccess(
+    source: WebSeedSourceState,
+    bytesDownloaded: number,
+    transferDurationMs: number,
+  ): void {
+    source.consecutiveFailures = 0
+    source.retryAt = 0
+    source.successfulTransfers += 1
+    source.downloadedBytes += bytesDownloaded
+    source.lastSuccessAt = Date.now()
+
+    const durationMs = Math.max(transferDurationMs, 1)
+    const instantRateBps = Math.round((bytesDownloaded * 1000) / durationMs)
+    source.averageTransferRateBps =
+      source.averageTransferRateBps === 0
+        ? instantRateBps
+        : Math.round(source.averageTransferRateBps * 0.7 + instantRateBps * 0.3)
   }
 
   private startTransfer(source: WebSeedSourceState, reservation: ReservedRange): void {
@@ -571,6 +607,30 @@ function getReservedPieceForOffset(
   throw new Error(
     `Web seed cursor exceeded reserved range starting at piece ${reservation.startPieceIndex}`,
   )
+}
+
+function compareWebSeedSources(left: WebSeedSourceState, right: WebSeedSourceState): number {
+  if (left.consecutiveFailures !== right.consecutiveFailures) {
+    return left.consecutiveFailures - right.consecutiveFailures
+  }
+
+  if (left.averageTransferRateBps !== right.averageTransferRateBps) {
+    return right.averageTransferRateBps - left.averageTransferRateBps
+  }
+
+  if (left.successfulTransfers !== right.successfulTransfers) {
+    return right.successfulTransfers - left.successfulTransfers
+  }
+
+  if (left.lastSuccessAt !== right.lastSuccessAt) {
+    return right.lastSuccessAt - left.lastSuccessAt
+  }
+
+  if (left.downloadedBytes !== right.downloadedBytes) {
+    return right.downloadedBytes - left.downloadedBytes
+  }
+
+  return left.url.localeCompare(right.url)
 }
 
 function getWebSeedSourceId(url: string): string {
