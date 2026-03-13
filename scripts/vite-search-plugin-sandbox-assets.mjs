@@ -15,7 +15,10 @@ function buildSandboxHtml() {
 
   return htmlTemplate
     .replace("script-src 'self' 'unsafe-eval'", "script-src 'unsafe-inline' 'unsafe-eval'")
-    .replace('<script src="./search-plugin-sandbox.js"></script>', `<script>\n${jsSource}\n</script>`)
+    .replace(
+      '<script src="./search-plugin-sandbox.js"></script>',
+      `<script>\n${jsSource}\n</script>`,
+    )
 }
 
 export function sharedSearchPluginSandboxAssets() {
