@@ -122,8 +122,10 @@ public final class EngineController: ObservableObject {
     private var tickTimer: DispatchSourceTimer?
     private let minimumTickDelayMs: Int32 = 1
     private let subscriptionIntervalMs = 100
+    private let torrentListRefreshIntervalNs: UInt64 = 500_000_000
     private var runtime: (any EngineRuntimeHandling)?
     private var pendingTorrentPayloads: [String] = []
+    private var lastTorrentListRefreshUptimeNs: UInt64 = 0
 
     public var isStarted: Bool {
         runtime != nil
@@ -425,6 +427,9 @@ public final class EngineController: ObservableObject {
         if let torrents = decoded.torrents {
             self.torrents = torrents
         }
+        if let torrentUpdates = decoded.torrent {
+            mergeTorrentUpdates(torrentUpdates)
+        }
         if let details = decoded.details {
             torrentDetails.merge(details) { _, new in new }
         }
@@ -573,6 +578,22 @@ public final class EngineController: ObservableObject {
         }
     }
 
+    private func mergeTorrentUpdates(_ updates: [String: TorrentListItem]) {
+        guard !updates.isEmpty else {
+            return
+        }
+
+        var merged = torrents
+        for (infoHash, item) in updates {
+            if let existingIndex = merged.firstIndex(where: { $0.infoHash == infoHash }) {
+                merged[existingIndex] = item
+            } else {
+                merged.append(item)
+            }
+        }
+        torrents = merged
+    }
+
     private func startTickLoop() {
         guard tickTimer == nil else {
             return
@@ -589,6 +610,13 @@ public final class EngineController: ObservableObject {
                 let tick = try self.runtime?.tick()
                 let nextDelayMs = max(self.minimumTickDelayMs, tick?.delayMs ?? 100)
                 timer.schedule(deadline: .now() + .milliseconds(Int(nextDelayMs)))
+                let now = DispatchTime.now().uptimeNanoseconds
+                if now &- self.lastTorrentListRefreshUptimeNs >= self.torrentListRefreshIntervalNs {
+                    self.lastTorrentListRefreshUptimeNs = now
+                    Task { @MainActor in
+                        self.refreshTorrentList()
+                    }
+                }
                 Task { @MainActor in
                     if self.status == .suspended {
                         self.status = .running

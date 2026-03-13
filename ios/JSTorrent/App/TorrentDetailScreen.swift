@@ -1,5 +1,6 @@
 import SwiftUI
 import JSTorrentKit
+import QuickLook
 
 private enum TorrentDetailSection: CaseIterable, Identifiable {
     case status
@@ -43,9 +44,11 @@ private enum TorrentDetailSection: CaseIterable, Identifiable {
 
 struct TorrentDetailScreen: View {
     @ObservedObject var controller: EngineController
+    @ObservedObject var settings: AppSettings
     let infoHash: String
 
     @State private var selectedSection: TorrentDetailSection = .status
+    @State private var previewItem: PreviewItem?
 
     private var torrent: TorrentListItem? {
         controller.torrents.first(where: { $0.infoHash == infoHash })
@@ -108,6 +111,9 @@ struct TorrentDetailScreen: View {
                 .onDisappear {
                     controller.stopObservingTorrentDetail(infoHash)
                 }
+                .sheet(item: $previewItem) { item in
+                    FilePreviewSheet(item: item)
+                }
             } else {
                 VStack(alignment: .center, spacing: 10) {
                     Text(L10n.string("torrent_detail_error_title"))
@@ -136,7 +142,8 @@ struct TorrentDetailScreen: View {
         case .files:
             TorrentFilesSection(
                 filesPayload: filesPayload,
-                details: details
+                details: details,
+                onOpenFile: openFile
             )
         case .trackers:
             TorrentTrackersSection(trackers: trackers)
@@ -145,6 +152,18 @@ struct TorrentDetailScreen: View {
         case .pieces:
             TorrentPiecesSection(pieces: pieces)
         }
+    }
+
+    private func openFile(_ file: TorrentFileItem, rootKey: String?) {
+        guard let fileURL = settings.resolveDownloadedFileURL(rootKey: rootKey, relativePath: file.path) else {
+            return
+        }
+
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+
+        previewItem = PreviewItem(url: fileURL)
     }
 }
 
@@ -314,11 +333,14 @@ private struct TorrentStatusSection: View {
 private struct TorrentFilesSection: View {
     let filesPayload: TorrentFilesPayload?
     let details: TorrentDetailsPayload?
+    let onOpenFile: (TorrentFileItem, String?) -> Void
 
     var body: some View {
         if let filesPayload, !filesPayload.files.isEmpty {
             VStack(alignment: .leading, spacing: 16) {
-                if let rootKey = filesPayload.rootKey ?? details?.rootKey {
+                let resolvedRootKey = filesPayload.rootKey ?? details?.rootKey
+
+                if let rootKey = resolvedRootKey {
                     DetailFactRow(
                         title: L10n.string("tab_files_save_location"),
                         value: rootKey
@@ -326,28 +348,41 @@ private struct TorrentFilesSection: View {
                 }
 
                 ForEach(filesPayload.files) { file in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(file.path)
-                            .font(.subheadline.weight(.medium))
-                            .lineLimit(2)
+                    Button {
+                        onOpenFile(file, resolvedRootKey)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .top, spacing: 12) {
+                                Text(file.path)
+                                    .font(.subheadline.weight(.medium))
+                                    .lineLimit(2)
 
-                        ProgressView(value: min(max(file.progress, 0), 1))
+                                Spacer()
 
-                        HStack {
-                            Text(formattedProgress(file.progress))
-                            Spacer()
-                            Text(formattedByteCount(file.downloaded))
-                            Text("/")
-                            Text(formattedByteCount(file.size))
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+
+                            ProgressView(value: min(max(file.progress, 0), 1))
+
+                            HStack {
+                                Text(formattedProgress(file.progress))
+                                Spacer()
+                                Text(formattedByteCount(file.downloaded))
+                                Text("/")
+                                Text(formattedByteCount(file.size))
+                            }
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
                         }
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .padding(14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color(.secondarySystemGroupedBackground))
+                        )
                     }
-                    .padding(14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color(.secondarySystemGroupedBackground))
-                    )
+                    .buttonStyle(.plain)
                 }
             }
         } else {
@@ -355,6 +390,46 @@ private struct TorrentFilesSection: View {
                 titleKey: "tab_files_empty_title",
                 messageKey: "tab_files_empty_description"
             )
+        }
+    }
+}
+
+private struct PreviewItem: Identifiable {
+    let url: URL
+    var id: String { url.path }
+}
+
+private struct FilePreviewSheet: UIViewControllerRepresentable {
+    let item: PreviewItem
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(item: item)
+    }
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {
+        context.coordinator.item = item
+        uiViewController.reloadData()
+    }
+
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        var item: PreviewItem
+
+        init(item: PreviewItem) {
+            self.item = item
+        }
+
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+            1
+        }
+
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            item.url as NSURL
         }
     }
 }

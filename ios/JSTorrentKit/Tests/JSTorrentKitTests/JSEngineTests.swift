@@ -156,6 +156,22 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(result?.toString(), "[1,2,3]")
     }
 
+    func testAwaitPromiseWaitsForMicrotaskResolution() throws {
+        let engine = try JSEngine()
+
+        let result = try engine.awaitPromise(
+            expression: """
+            (async () => {
+              await Promise.resolve();
+              return "done";
+            })()
+            """,
+            filename: "await-promise-test.js"
+        )
+
+        XCTAssertEqual(result?.toString(), "done")
+    }
+
     func testBundleLoaderReadsSourceFile() throws {
         let temporaryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
             UUID().uuidString + ".js"

@@ -25,7 +25,11 @@ struct ContentView: View {
             .navigationDestination(for: AppRoute.self) { route in
                 switch route {
                 case .torrent(let infoHash):
-                    TorrentDetailScreen(controller: appModel.controller, infoHash: infoHash)
+                    TorrentDetailScreen(
+                        controller: appModel.controller,
+                        settings: appModel.settings,
+                        infoHash: infoHash
+                    )
                 case .settings:
                     SettingsScreen(settings: appModel.settings)
                 }

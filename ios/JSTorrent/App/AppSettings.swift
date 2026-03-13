@@ -84,6 +84,31 @@ final class AppSettings: ObservableObject {
         return false
     }
 
+    func resolveDownloadedFileURL(rootKey: String?, relativePath: String) -> URL? {
+        let normalizedPath = relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedPath.isEmpty else {
+            return nil
+        }
+
+        let resolvedRootKey = rootKey ?? defaultContentRootKey
+        guard
+            let root = persistedRoots.first(where: { $0.key == resolvedRootKey })
+            ?? persistedRoots.first(where: { $0.key == defaultContentRootKey })
+        else {
+            return nil
+        }
+
+        let rootURL = URL(fileURLWithPath: root.path, isDirectory: true).standardizedFileURL
+        let candidateURL = rootURL.appendingPathComponent(normalizedPath, isDirectory: false).standardizedFileURL
+        let rootPath = rootURL.path
+        let candidatePath = candidateURL.path
+        guard candidatePath == rootPath || candidatePath.hasPrefix(rootPath + "/") else {
+            return nil
+        }
+
+        return candidateURL
+    }
+
     func selectDownloadFolder(_ url: URL) {
         do {
             let directory = try validateDirectory(url)

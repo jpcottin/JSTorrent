@@ -7,6 +7,7 @@ public enum JSEngineError: Error, LocalizedError {
     case javaScriptException(String)
     case unsupportedBinaryValue
     case typedArrayConversionFailed(String)
+    case promiseTimedOut(String)
 
     public var errorDescription: String? {
         switch self {
@@ -20,6 +21,8 @@ public enum JSEngineError: Error, LocalizedError {
             return "Expected an ArrayBuffer or TypedArray."
         case .typedArrayConversionFailed(let reason):
             return reason
+        case .promiseTimedOut(let description):
+            return description
         }
     }
 }
@@ -166,6 +169,65 @@ public final class JSEngine {
         return try evaluate(source, filename: url.lastPathComponent)
     }
 
+    public func awaitPromise(
+        expression: String,
+        timeout: TimeInterval = 5.0,
+        pollInterval: TimeInterval = 0.01,
+        filename: String = "await-promise.js"
+    ) throws -> JSValue? {
+        let token = "__jstorrent_promise_await_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
+        let tokenLiteral = try jsonLiteral(token)
+        let setupScript =
+            """
+            (() => {
+              const token = \(tokenLiteral);
+              globalThis[token] = { done: false, value: null, error: null };
+              Promise.resolve(\(expression)).then(
+                (value) => {
+                  globalThis[token] = { done: true, value, error: null };
+                },
+                (error) => {
+                  const message = error instanceof Error
+                    ? (error.stack || error.message || String(error))
+                    : String(error);
+                  globalThis[token] = { done: true, value: null, error: message };
+                }
+              );
+            })();
+            """
+
+        _ = try evaluate(setupScript, filename: filename)
+        defer {
+            _ = try? evaluate("delete globalThis[\(tokenLiteral)];", filename: filename)
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let stateValue = try evaluate(
+                "JSON.stringify(globalThis[\(tokenLiteral)] ?? null);",
+                filename: filename
+            )
+            if
+                let stateText = stateValue?.toString(),
+                let data = stateText.data(using: .utf8),
+                let state = try? JSONDecoder().decode(PromiseState.self, from: data)
+            {
+                if state.done {
+                    if let error = state.error, !error.isEmpty {
+                        throw JSEngineError.javaScriptException(error)
+                    }
+                    return try evaluate("globalThis[\(tokenLiteral)]?.value", filename: filename)
+                }
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+
+        throw JSEngineError.promiseTimedOut(
+            "Timed out waiting for JavaScript promise to settle: \(expression)"
+        )
+    }
+
     public func data(from value: JSValue?) throws -> Data? {
         try performSync {
             guard let value else {
@@ -301,4 +363,14 @@ public final class JSEngine {
 
         jsQueue.sync(execute: work)
     }
+
+    private func jsonLiteral<T: Encodable>(_ value: T) throws -> String {
+        let data = try JSONEncoder().encode(value)
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
+private struct PromiseState: Decodable {
+    let done: Bool
+    let error: String?
 }

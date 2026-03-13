@@ -467,6 +467,148 @@ final class RuntimeE2ETests: XCTestCase {
         XCTAssertEqual(try sha1Hex(for: downloadedURL), expectedSHA1)
     }
 
+    func testCompletedTorrentRestoresWithoutGettingStuckChecking() throws {
+        let sourceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: sourceDirectory)
+        }
+
+        let sourceFileURL = sourceDirectory.appendingPathComponent("runtime-restore.bin")
+        let payload = Data((0..<(256 * 1024)).map { UInt8($0 % 251) })
+        try payload.write(to: sourceFileURL)
+
+        let seeder = try startSeeder(
+            additionalArguments: [
+                "--file", sourceFileURL.path,
+                "--host", "127.0.0.1",
+                "--port", "16882",
+                "--quiet",
+            ]
+        )
+        defer {
+            seeder.stop()
+        }
+
+        try waitUntil(timeout: 10.0, pollInterval: 0.05) {
+            seeder.value(for: "INFOHASH") != nil && seeder.value(for: "MAGNET_LOCALHOST") != nil
+        }
+
+        let infoHash = try XCTUnwrap(seeder.value(for: "INFOHASH"))
+        let magnet = try XCTUnwrap(seeder.value(for: "MAGNET_LOCALHOST"))
+        let bundleURL = repositoryRootURL().appendingPathComponent("packages/engine/dist/engine.native.js")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
+
+        let suiteName = "JSTorrentKitRestore.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            throw XCTSkip("Failed to create isolated UserDefaults suite")
+        }
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let baseDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+        }
+
+        do {
+            let logs = LogCapture()
+            let runtime = try JSTorrentRuntime(
+                userDefaults: userDefaults,
+                fileBaseDirectory: baseDirectory,
+                defaultRootKey: "default",
+                logHandler: { level, message in
+                    logs.append(level: level, message: message)
+                }
+            )
+
+            try runtime.loadBundle(from: bundleURL)
+            try runtime.initialize(
+                with: EngineBootstrapConfig(
+                    contentRoots: [ContentRoot(key: "default", label: "Default")],
+                    defaultContentRoot: "default",
+                    shouldRemainSuspended: false
+                )
+            )
+
+            try waitUntil(timeout: 2.0) {
+                try runtime.isInitialized()
+            }
+
+            try runtime.setTickMode(.host)
+            try runtime.subscribe(type: "torrents", hash: "", intervalMs: 50)
+            try runtime.addTorrent(magnet)
+
+            try waitUntil(timeout: 5.0) {
+                _ = try runtime.tick()
+                let torrents = try runtime.queryTorrentList().torrents ?? []
+                return torrents.contains(where: { $0.infoHash == infoHash })
+            }
+
+            try waitUntil(timeout: 30.0, pollInterval: 0.02) {
+                _ = try runtime.tick()
+                guard let torrent = try runtime.queryTorrentList().torrents?.first(where: { $0.infoHash == infoHash }) else {
+                    return false
+                }
+                return torrent.progress >= 0.99
+            }
+
+            try runtime.shutdown()
+        }
+
+        let restoredLogs = LogCapture()
+        let restoredRuntime = try JSTorrentRuntime(
+            userDefaults: userDefaults,
+            fileBaseDirectory: baseDirectory,
+            defaultRootKey: "default",
+            logHandler: { level, message in
+                restoredLogs.append(level: level, message: message)
+            }
+        )
+        defer {
+            try? restoredRuntime.shutdown()
+        }
+
+        try restoredRuntime.loadBundle(from: bundleURL)
+        try restoredRuntime.initialize(
+            with: EngineBootstrapConfig(
+                contentRoots: [ContentRoot(key: "default", label: "Default")],
+                defaultContentRoot: "default",
+                shouldRemainSuspended: false
+            )
+        )
+
+        try waitUntil(timeout: 2.0) {
+            try restoredRuntime.isInitialized()
+        }
+
+        try restoredRuntime.setTickMode(.host)
+        try restoredRuntime.subscribe(type: "torrents", hash: "", intervalMs: 50)
+
+        try waitUntil(timeout: 5.0, pollInterval: 0.02) {
+            _ = try restoredRuntime.tick()
+            guard let torrent = try restoredRuntime.queryTorrentList().torrents?.first(where: { $0.infoHash == infoHash }) else {
+                return false
+            }
+            return torrent.status != "checking"
+        }
+
+        let restoredTorrent = try XCTUnwrap(
+            try restoredRuntime.queryTorrentList().torrents?.first(where: { $0.infoHash == infoHash })
+        )
+        XCTAssertGreaterThanOrEqual(restoredTorrent.progress, 0.99)
+        XCTAssertNotEqual(
+            restoredTorrent.status,
+            "checking",
+            "Completed torrent restored in checking state.\n\n" +
+                debugSnapshot(runtime: restoredRuntime, infoHash: infoHash, logs: restoredLogs, seeder: seeder)
+        )
+    }
+
     func testRealBigBuckBunnyMagnetDoesNotGetStuckChecking() throws {
         let infoHash = "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c"
         let logs = LogCapture()

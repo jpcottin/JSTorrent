@@ -258,8 +258,8 @@ public final class JSTorrentRuntime {
     }
 
     public func shutdown() throws {
-        _ = try engine.evaluate(
-            "jstorrent.shutdown()",
+        _ = try engine.awaitPromise(
+            expression: "__jstorrent_cmd_shutdown()",
             filename: "runtime-shutdown.js"
         )
     }
