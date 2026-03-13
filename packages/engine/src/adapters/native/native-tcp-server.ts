@@ -13,17 +13,19 @@ export class NativeTcpServer implements ITcpServer {
   private boundPort: number | null = null
   private connectionCallback: ((socket: ITcpSocket) => void) | null = null
   private closed = false
+  private readonly getNextSocketId: () => number
 
   constructor(
     private readonly serverId: number,
-
-    _getNextSocketId: () => number,
+    getNextSocketId: () => number,
   ) {
+    this.getNextSocketId = getNextSocketId
     callbackManager.registerTcpServer(serverId, {
       onAccept: (socketId, remoteAddr, remotePort) => {
         if (this.closed) return
+        const assignedSocketId = socketId > 0 ? socketId : this.getNextSocketId()
         // Create a new NativeTcpSocket for the accepted connection
-        const socket = new NativeTcpSocket(socketId, {
+        const socket = new NativeTcpSocket(assignedSocketId, {
           remoteAddress: remoteAddr,
           remotePort: remotePort,
         })

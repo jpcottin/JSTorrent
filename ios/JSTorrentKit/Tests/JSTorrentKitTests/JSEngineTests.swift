@@ -29,6 +29,29 @@ final class JSEngineTests: XCTestCase {
         return (engine, bindings, baseDirectory, userDefaults, suiteName)
     }
 
+    private func makeSocketEnvironment() throws -> (JSEngine, NativeBindings, SocketBindings, URL, UserDefaults, String) {
+        let engine = try JSEngine()
+        let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            throw XCTSkip("Failed to create isolated UserDefaults suite")
+        }
+
+        let baseDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+
+        let bindings = NativeBindings(
+            engine: engine,
+            userDefaults: userDefaults,
+            fileBaseDirectory: baseDirectory,
+            defaultRootKey: "default"
+        )
+        let sockets = SocketBindings(engine: engine)
+        sockets.register()
+        bindings.registerCoreBindings()
+        return (engine, bindings, sockets, baseDirectory, userDefaults, suiteName)
+    }
+
     private func repositoryRootURL() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -863,6 +886,188 @@ final class JSEngineTests: XCTestCase {
             result?.toString(),
             #"{"singleLength":20,"batchLength":40,"asyncLength":20,"samePrefix":true}"#
         )
+    }
+
+    func testTCPBindingsSupportLoopbackBatchFlush() throws {
+        let (engine, _, _, baseDirectory, userDefaults, suiteName) = try makeSocketEnvironment()
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        _ = try engine.evaluate(
+            """
+            function encodeUtf8(str) {
+              return new Uint8Array(__jstorrent_text_encode(str));
+            }
+
+            function packSends(items) {
+              let total = 4;
+              for (const item of items) {
+                total += 8 + item.data.length;
+              }
+
+              const buffer = new ArrayBuffer(total);
+              const view = new DataView(buffer);
+              const bytes = new Uint8Array(buffer);
+              let offset = 0;
+              view.setUint32(offset, items.length, true);
+              offset += 4;
+
+              for (const item of items) {
+                view.setUint32(offset, item.socketId, true);
+                offset += 4;
+                view.setUint32(offset, item.data.length, true);
+                offset += 4;
+                bytes.set(item.data, offset);
+                offset += item.data.length;
+              }
+
+              return buffer;
+            }
+
+            globalThis.__tcpState = {
+              listening: null,
+              connected: null,
+              accepted: null,
+              received: {},
+              closes: [],
+              errors: []
+            };
+
+            __jstorrent_tcp_on_connected((socketId, success, errorMessage) => {
+              __tcpState.connected = { socketId, success, errorMessage };
+            });
+
+            __jstorrent_tcp_on_listening((serverId, success, port) => {
+              __tcpState.listening = { serverId, success, port };
+            });
+
+            __jstorrent_tcp_on_accept((serverId, socketId, remoteAddr, remotePort) => {
+              __tcpState.accepted = { serverId, socketId, remoteAddr, remotePort };
+            });
+
+            __jstorrent_tcp_on_close((socketId, hadError) => {
+              __tcpState.closes.push({ socketId, hadError });
+            });
+
+            __jstorrent_tcp_on_error((socketId, message) => {
+              __tcpState.errors.push({ socketId, message });
+            });
+
+            globalThis.__jstorrent_tcp_dispatch_batch = (packed) => {
+              const view = new DataView(packed);
+              let offset = 0;
+              const count = view.getUint32(offset, true);
+              offset += 4;
+
+              for (let i = 0; i < count; i++) {
+                const socketId = view.getUint32(offset, true);
+                offset += 4;
+                const len = view.getUint32(offset, true);
+                offset += 4;
+                const data = packed.slice(offset, offset + len);
+                offset += len;
+                const text = __jstorrent_text_decode(data);
+                (__tcpState.received[socketId] ||= []).push(text);
+              }
+            };
+
+            __jstorrent_tcp_listen(501, 0);
+            """,
+            filename: "tcp-loopback-init.js"
+        )
+
+        try waitUntil {
+            let result = try engine.evaluate(
+                "JSON.stringify(__tcpState.listening)",
+                filename: "tcp-listening-check.js"
+            )
+            return result?.toString() != "null"
+        }
+
+        let portValue = try engine.evaluate("__tcpState.listening.port", filename: "tcp-port.js")
+        let port = Int(portValue?.toInt32() ?? 0)
+        XCTAssertGreaterThan(port, 0)
+
+        _ = try engine.evaluate(
+            "__jstorrent_tcp_connect(101, '127.0.0.1', \(port));",
+            filename: "tcp-connect.js"
+        )
+
+        try waitUntil {
+            let result = try engine.evaluate(
+                "__tcpState.connected && __tcpState.connected.success === true && __tcpState.accepted !== null",
+                filename: "tcp-connect-wait.js"
+            )
+            return result?.toBool() ?? false
+        }
+
+        _ = try engine.evaluate(
+            """
+            __jstorrent_tcp_send_batch(packSends([
+              { socketId: 101, data: encodeUtf8("ping") },
+              { socketId: __tcpState.accepted.socketId, data: encodeUtf8("pong") }
+            ]));
+            """,
+            filename: "tcp-batch-send.js"
+        )
+
+        try waitUntil {
+            _ = try engine.evaluate("__jstorrent_tcp_flush()", filename: "tcp-flush.js")
+            let result = try engine.evaluate(
+                """
+                Boolean(
+                  __tcpState.received["101"] &&
+                  __tcpState.received["101"][0] === "pong" &&
+                  __tcpState.received[String(__tcpState.accepted.socketId)] &&
+                  __tcpState.received[String(__tcpState.accepted.socketId)][0] === "ping"
+                )
+                """,
+                filename: "tcp-receive-check.js"
+            )
+            return result?.toBool() ?? false
+        }
+
+        _ = try engine.evaluate("__jstorrent_tcp_close(101)", filename: "tcp-close.js")
+
+        try waitUntil {
+            let result = try engine.evaluate(
+                "__tcpState.closes.length > 0",
+                filename: "tcp-close-check.js"
+            )
+            return result?.toBool() ?? false
+        }
+
+        let result = try engine.evaluate(
+            "JSON.stringify(__tcpState)",
+            filename: "tcp-final-state.js"
+        )
+        let payload = try XCTUnwrap(result?.toString().data(using: .utf8))
+        let decoded = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        )
+        let listening = try XCTUnwrap(decoded["listening"] as? [String: Any])
+        XCTAssertEqual(listening["success"] as? Bool, true)
+
+        let connected = try XCTUnwrap(decoded["connected"] as? [String: Any])
+        XCTAssertEqual(connected["socketId"] as? Int, 101)
+        XCTAssertEqual(connected["success"] as? Bool, true)
+
+        let accepted = try XCTUnwrap(decoded["accepted"] as? [String: Any])
+        XCTAssertNotNil(accepted["socketId"] as? Int)
+        XCTAssertGreaterThan(accepted["remotePort"] as? Int ?? 0, 0)
+
+        let received = try XCTUnwrap(decoded["received"] as? [String: [String]])
+        XCTAssertEqual(received["101"], ["pong"])
+        let acceptedSocketId = try XCTUnwrap(accepted["socketId"] as? Int)
+        XCTAssertEqual(received[String(acceptedSocketId)], ["ping"])
+
+        let closes = try XCTUnwrap(decoded["closes"] as? [[String: Any]])
+        XCTAssertFalse(closes.isEmpty)
+        XCTAssertEqual(decoded["errors"] as? [[String: String]], [])
+
+        _ = try engine.evaluate("__jstorrent_tcp_server_close(501)", filename: "tcp-server-close.js")
     }
 
     func testRuntimeLoadsRealBundleAndInitializesInHostMode() throws {

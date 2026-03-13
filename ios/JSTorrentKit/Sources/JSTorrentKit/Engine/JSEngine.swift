@@ -125,10 +125,23 @@ public final class JSEngine {
         _ name: String,
         arguments: [JSFunctionArgument] = []
     ) throws -> JSValue? {
-        try performSync {
+        let function = try performSync {
             guard let function = context.globalObject.forProperty(name), !function.isUndefined else {
                 throw JSEngineError.globalFunctionNotFound(name)
             }
+            return function
+        }
+
+        return try callFunction(function, arguments: arguments)
+    }
+
+    @discardableResult
+    public func callFunction(
+        _ function: JSValue,
+        arguments: [JSFunctionArgument] = []
+    ) throws -> JSValue? {
+        try performSync {
+            lastExceptionMessage = nil
 
             let jsArguments = try arguments.map { argument in
                 switch argument {
