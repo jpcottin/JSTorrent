@@ -41,7 +41,7 @@ export const DEFAULT_MAX_PIPELINE_DEPTH = 500
 export const DEFAULT_MAX_WEB_SEED_CONNECTIONS = 3
 
 /** Platform type */
-export type PlatformType = 'desktop' | 'chromeos' | 'android-standalone'
+export type PlatformType = 'desktop' | 'chromeos' | 'android-standalone' | 'ios-standalone'
 
 /** Component log level (includes 'default' to inherit from global level) */
 export type ComponentLogLevel = 'default' | 'debug' | 'info' | 'warn' | 'error'
@@ -685,7 +685,7 @@ export const configSchema = {
   platformType: {
     type: 'enum',
     category: 'runtime',
-    values: ['desktop', 'chromeos', 'android-standalone'] as const,
+    values: ['desktop', 'chromeos', 'android-standalone', 'ios-standalone'] as const,
     default: 'desktop' as PlatformType,
   },
 

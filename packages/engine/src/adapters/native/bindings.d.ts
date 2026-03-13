@@ -1,11 +1,22 @@
 /**
  * Native Bindings Type Declarations
  *
- * Declares all __jstorrent_* global functions that must be provided by
- * the native layer (Kotlin for Android, Swift for iOS).
+ * Developer-facing reference for the native runtime surface shared by
+ * the engine and native hosts.
  *
- * These functions enable the TypeScript engine to perform I/O operations
+ * This file intentionally includes:
+ * - native-provided globals that JS calls
+ * - JS-provided globals that native calls
+ * - JS-managed callback stores that batch dispatch relies on
+ *
+ * These globals enable the TypeScript engine to perform I/O operations
  * via QuickJS (Android) or JavaScriptCore (iOS).
+ *
+ * IMPORTANT — transport compatibility vs normalized contract:
+ * The machine-readable native bindings contract defines normalized logical
+ * semantics (for example, mkdir logically returns boolean success/failure).
+ * This TypeScript declaration file may widen some types to preserve
+ * compatibility with host transport quirks.
  *
  * IMPORTANT — QuickJS FFI string coercion:
  * The QuickJS JNI bridge (setGlobalFunction) only supports String return types.
@@ -92,6 +103,12 @@ declare global {
    */
   function __jstorrent_tcp_flush(): void
 
+  /**
+   * JS-provided receiver for packed TCP data batches drained by native.
+   * Format: [count: u32 LE] then for each: [socketId: u32 LE] [len: u32 LE] [data: len bytes]
+   */
+  function __jstorrent_tcp_dispatch_batch(packed: ArrayBuffer): void
+
   // ============================================================
   // TCP Server Functions
   // ============================================================
@@ -170,6 +187,13 @@ declare global {
   function __jstorrent_udp_on_message(
     callback: (socketId: number, addr: string, port: number, data: ArrayBuffer) => void,
   ): void
+
+  /**
+   * JS-provided receiver for packed UDP message batches drained by native.
+   * Format: [count: u32 LE] then for each:
+   * [socketId: u32 LE] [srcPort: u16 LE] [addrLen: u8] [addr: bytes] [dataLen: u32 LE] [data: bytes]
+   */
+  function __jstorrent_udp_dispatch_batch(packed: ArrayBuffer): void
 
   // ============================================================
   // File System Functions (Stateless API)
@@ -324,6 +348,13 @@ declare global {
   >
 
   /**
+   * JS-provided receiver for packed verified-write result batches drained by native.
+   * Format: [count: u32 LE] then for each:
+   * [callbackIdLen: u8] [callbackId: bytes] [bytesWritten: i32 LE] [resultCode: u8]
+   */
+  function __jstorrent_file_dispatch_batch(packed: ArrayBuffer): void
+
+  /**
    * Callback storage for async read results.
    * Managed by native-async-read.ts, called via __jstorrent_file_dispatch_read_batch.
    */
@@ -331,6 +362,13 @@ declare global {
     string,
     (resultCode: number, data: ArrayBuffer) => void
   >
+
+  /**
+   * JS-provided receiver for packed async-read result batches drained by native.
+   * Format: [count: u32 LE] then for each:
+   * [callbackIdLen: u8] [callbackId: bytes] [resultCode: u8] [dataLen: u32 LE] [data: bytes]
+   */
+  function __jstorrent_file_dispatch_read_batch(packed: ArrayBuffer): void
 
   // ============================================================
   // Storage Functions (SharedPreferences / UserDefaults)
@@ -411,6 +449,18 @@ declare global {
    * Managed by native-hasher.ts, called via __jstorrent_hash_dispatch_result.
    */
   var __jstorrent_hash_callbacks: Record<string, (hash: ArrayBuffer) => void>
+
+  /**
+   * JS-provided receiver for packed async-hash result batches drained by native.
+   * Format: [count: u32 LE] then for each:
+   * [callbackIdLen: u8] [callbackId: bytes] [hashLen: u8] [hash: bytes]
+   */
+  function __jstorrent_hash_dispatch_batch(packed: ArrayBuffer): void
+
+  /**
+   * JS-provided receiver for a single async-hash result.
+   */
+  function __jstorrent_hash_dispatch_result(callbackId: string, hash: ArrayBuffer): void
 
   // ============================================================
   // Polyfill Functions (for QuickJS/JSC missing APIs)

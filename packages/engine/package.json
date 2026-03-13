@@ -60,6 +60,7 @@
     "test:daemon": "vitest run --config vitest.daemon.config.ts",
     "validate:io-daemon-control-protocol": "node --import tsx scripts/validate-io-daemon-control-protocol.ts",
     "conformance:daemon": "node --import tsx scripts/validate-io-daemon-control-protocol.ts && node --import tsx scripts/run-daemon-conformance.ts",
+    "validate:native-bindings-contract": "node --import tsx scripts/validate-native-bindings-contract.ts",
     "validate:native-host-protocol": "node --import tsx scripts/validate-native-host-protocol.ts",
     "conformance:native-host": "node --import tsx scripts/validate-native-host-protocol.ts && node --import tsx scripts/run-native-host-conformance.ts",
     "test:streaming": "vitest run --config vitest.streaming.config.ts",

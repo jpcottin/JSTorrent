@@ -38,6 +38,13 @@ const DEFAULT_CONFIG_BY_PLATFORM: Record<
     // A 32MB budget naturally caps 16MB-piece torrents to ~2 active pieces.
     maxBufferedBytes: 32 * 1024 * 1024,
   },
+  'ios-standalone': {
+    requestTimeoutMs: 30000,
+    maxActivePieces: 128,
+    // Start with the same conservative standalone mobile budget as Android
+    // until iOS runtime data justifies a separate profile.
+    maxBufferedBytes: 32 * 1024 * 1024,
+  },
 }
 
 function resolvePlatformType(platformType?: PlatformType): PlatformType {

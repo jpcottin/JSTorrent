@@ -14,6 +14,7 @@ import { setupController, flushCommandQueue } from './controller'
 import { NativeConfigHub } from './native-config-hub'
 import { initSubscriptionManager, setupSubscriptionBindings } from './subscriptions'
 import type { BtEngine } from '../../core/bt-engine'
+import type { PlatformType } from '../../config'
 import type { StorageRoot } from '../../storage/storage-root-manager'
 
 // Global engine instance
@@ -47,6 +48,7 @@ const jstorrentApi = {
     }>
     defaultContentRoot?: string
     port?: number
+    platformType?: PlatformType
     storageMode?: 'native' | 'null'
     /**
      * Whether the engine should remain suspended after initialization.
@@ -82,8 +84,9 @@ const jstorrentApi = {
           configHub.setRuntime('defaultRootKey', config.defaultContentRoot)
         }
 
-        // Set platform type
-        configHub.setRuntime('platformType', 'android-standalone')
+        // Default to Android for existing native hosts, but allow iOS to
+        // declare its own standalone profile explicitly.
+        configHub.setRuntime('platformType', config.platformType ?? 'android-standalone')
 
         const nativeConfig: NativeEngineConfig = {
           contentRoots: storageRoots,

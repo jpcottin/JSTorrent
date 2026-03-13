@@ -1,0 +1,880 @@
+{
+  "contractVersion": 1,
+  "behaviorVersion": 1,
+  "platforms": ["android", "ios"],
+  "availabilityKinds": ["required", "capability_gated"],
+  "directionKinds": [
+    "js_calls_native",
+    "native_calls_js",
+    "js_internal_callback_store"
+  ],
+  "argKinds": [
+    "string",
+    "number",
+    "boolean",
+    "arraybuffer",
+    "json_string",
+    "callback"
+  ],
+  "returnKinds": [
+    "void",
+    "string",
+    "number",
+    "boolean",
+    "arraybuffer",
+    "json_string",
+    "callback_store"
+  ],
+  "deliveryKinds": [
+    "direct_return",
+    "callback_registration",
+    "callback_dispatch"
+  ],
+  "capabilities": [
+    {
+      "id": "udp_multicast",
+      "description": "Host can join and leave UDP multicast groups."
+    },
+    {
+      "id": "network_interfaces",
+      "description": "Host can report local network interfaces to the engine."
+    },
+    {
+      "id": "default_gateway",
+      "description": "Host can report a default gateway for NAT-PMP/PCP."
+    }
+  ],
+  "sharedCodes": {
+    "writeResultCode": {
+      "SUCCESS": 0,
+      "HASH_MISMATCH": 1,
+      "IO_ERROR": 2,
+      "INVALID_ARGS": 3,
+      "DISK_FULL": 4,
+      "PERMISSION_DENIED": 5
+    },
+    "readResultCode": {
+      "SUCCESS": 0,
+      "IO_ERROR": 2,
+      "INVALID_ARGS": 3
+    },
+    "verifyChunkResultByte": {
+      "MATCH": 0,
+      "MISMATCH": 1,
+      "IO_ERROR": 2
+    }
+  },
+  "packedFrames": {
+    "tcpDispatchBatch": {
+      "direction": "native_calls_js",
+      "format": "[count:u32le] then repeated [socketId:u32le] [len:u32le] [data:len bytes]"
+    },
+    "udpDispatchBatch": {
+      "direction": "native_calls_js",
+      "format": "[count:u32le] then repeated [socketId:u32le] [srcPort:u16le] [addrLen:u8] [addr:utf8 bytes] [dataLen:u32le] [data:dataLen bytes]"
+    },
+    "fileWriteVerifiedBatch": {
+      "direction": "js_calls_native",
+      "format": "[count:u32le] then repeated [rootKeyLen:u8] [rootKey:utf8] [pathLen:u16le] [path:utf8] [position:u64le] [dataLen:u32le] [data] [hashHex:40 bytes] [callbackIdLen:u8] [callbackId:utf8]"
+    },
+    "fileWriteResultBatch": {
+      "direction": "native_calls_js",
+      "format": "[count:u32le] then repeated [callbackIdLen:u8] [callbackId:utf8] [bytesWritten:i32le] [resultCode:u8]"
+    },
+    "fileReadBatch": {
+      "direction": "js_calls_native",
+      "format": "[count:u32le] then repeated [rootKeyLen:u8] [rootKey:utf8] [pathLen:u16le] [path:utf8] [position:u64le] [length:u32le] [callbackIdLen:u8] [callbackId:utf8]"
+    },
+    "fileReadResultBatch": {
+      "direction": "native_calls_js",
+      "format": "[count:u32le] then repeated [callbackIdLen:u8] [callbackId:utf8] [resultCode:u8] [dataLen:u32le] [data:dataLen bytes]"
+    },
+    "hashResultBatch": {
+      "direction": "native_calls_js",
+      "format": "[count:u32le] then repeated [callbackIdLen:u8] [callbackId:utf8] [hashLen:u8] [hash:hashLen bytes]"
+    }
+  },
+  "symbols": [
+    {
+      "name": "__jstorrent_tcp_connect",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number", "string", "number"],
+      "returnKind": "void",
+      "delivery": "direct_return",
+      "asyncResultSymbols": ["__jstorrent_tcp_on_connected"]
+    },
+    {
+      "name": "__jstorrent_tcp_send",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number", "arraybuffer"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_tcp_send_batch",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["arraybuffer"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_tcp_close",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_tcp_on_data",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["callback"],
+      "returnKind": "void",
+      "delivery": "callback_registration"
+    },
+    {
+      "name": "__jstorrent_tcp_on_close",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["callback"],
+      "returnKind": "void",
+      "delivery": "callback_registration"
+    },
+    {
+      "name": "__jstorrent_tcp_on_error",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["callback"],
+      "returnKind": "void",
+      "delivery": "callback_registration"
+    },
+    {
+      "name": "__jstorrent_tcp_on_connected",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["callback"],
+      "returnKind": "void",
+      "delivery": "callback_registration"
+    },
+    {
+      "name": "__jstorrent_tcp_secure",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number", "string"],
+      "returnKind": "void",
+      "delivery": "direct_return",
+      "asyncResultSymbols": ["__jstorrent_tcp_on_secured"]
+    },
+    {
+      "name": "__jstorrent_tcp_on_secured",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["callback"],
+      "returnKind": "void",
+      "delivery": "callback_registration"
+    },
+    {
+      "name": "__jstorrent_tcp_set_backpressure",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["boolean"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_tcp_flush",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": [],
+      "returnKind": "void",
+      "delivery": "direct_return",
+      "asyncResultSymbols": ["__jstorrent_tcp_dispatch_batch"]
+    },
+    {
+      "name": "__jstorrent_tcp_dispatch_batch",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "native_calls_js",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["arraybuffer"],
+      "returnKind": "void",
+      "delivery": "callback_dispatch"
+    },
+    {
+      "name": "__jstorrent_tcp_listen",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number", "number"],
+      "returnKind": "void",
+      "delivery": "direct_return",
+      "asyncResultSymbols": ["__jstorrent_tcp_on_listening", "__jstorrent_tcp_on_accept"]
+    },
+    {
+      "name": "__jstorrent_tcp_server_close",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_tcp_on_listening",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["callback"],
+      "returnKind": "void",
+      "delivery": "callback_registration"
+    },
+    {
+      "name": "__jstorrent_tcp_on_accept",
+      "kind": "function",
+      "domain": "tcp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["callback"],
+      "returnKind": "void",
+      "delivery": "callback_registration"
+    },
+    {
+      "name": "__jstorrent_udp_bind",
+      "kind": "function",
+      "domain": "udp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number", "string", "number"],
+      "returnKind": "void",
+      "delivery": "direct_return",
+      "asyncResultSymbols": ["__jstorrent_udp_on_bound"]
+    },
+    {
+      "name": "__jstorrent_udp_send",
+      "kind": "function",
+      "domain": "udp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number", "string", "number", "arraybuffer"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_udp_close",
+      "kind": "function",
+      "domain": "udp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_udp_join_multicast",
+      "kind": "function",
+      "domain": "udp",
+      "direction": "js_calls_native",
+      "availability": "capability_gated",
+      "capability": "udp_multicast",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number", "string"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_udp_leave_multicast",
+      "kind": "function",
+      "domain": "udp",
+      "direction": "js_calls_native",
+      "availability": "capability_gated",
+      "capability": "udp_multicast",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number", "string"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_udp_on_bound",
+      "kind": "function",
+      "domain": "udp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["callback"],
+      "returnKind": "void",
+      "delivery": "callback_registration"
+    },
+    {
+      "name": "__jstorrent_udp_on_message",
+      "kind": "function",
+      "domain": "udp",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["callback"],
+      "returnKind": "void",
+      "delivery": "callback_registration"
+    },
+    {
+      "name": "__jstorrent_udp_dispatch_batch",
+      "kind": "function",
+      "domain": "udp",
+      "direction": "native_calls_js",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["arraybuffer"],
+      "returnKind": "void",
+      "delivery": "callback_dispatch"
+    },
+    {
+      "name": "__jstorrent_file_read",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string", "number", "number"],
+      "returnKind": "arraybuffer",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_file_write",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string", "number", "arraybuffer"],
+      "returnKind": "number",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_file_stat",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string"],
+      "returnKind": "json_string",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_file_mkdir",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string"],
+      "returnKind": "boolean",
+      "delivery": "direct_return",
+      "transportCompat": "QuickJS may widen logical boolean to string."
+    },
+    {
+      "name": "__jstorrent_file_exists",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string"],
+      "returnKind": "boolean",
+      "delivery": "direct_return",
+      "transportCompat": "QuickJS may widen logical boolean to string."
+    },
+    {
+      "name": "__jstorrent_file_readdir",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string"],
+      "returnKind": "json_string",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_file_delete",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string"],
+      "returnKind": "boolean",
+      "delivery": "direct_return",
+      "transportCompat": "QuickJS may widen logical boolean to string."
+    },
+    {
+      "name": "__jstorrent_file_list_tree",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string"],
+      "returnKind": "json_string",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_file_batch_delete",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "json_string"],
+      "returnKind": "json_string",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_file_verify_chunks",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "json_string"],
+      "returnKind": "arraybuffer",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_file_write_verified",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string", "number", "arraybuffer", "string", "string"],
+      "returnKind": "void",
+      "delivery": "direct_return",
+      "asyncResultSymbols": ["__jstorrent_file_write_callbacks"]
+    },
+    {
+      "name": "__jstorrent_file_write_verified_batch",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["arraybuffer"],
+      "returnKind": "void",
+      "delivery": "direct_return",
+      "asyncResultSymbols": [
+        "__jstorrent_file_dispatch_batch",
+        "__jstorrent_file_write_callbacks"
+      ]
+    },
+    {
+      "name": "__jstorrent_file_read_batch",
+      "kind": "function",
+      "domain": "file",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["arraybuffer"],
+      "returnKind": "void",
+      "delivery": "direct_return",
+      "asyncResultSymbols": [
+        "__jstorrent_file_dispatch_read_batch",
+        "__jstorrent_file_read_callbacks"
+      ]
+    },
+    {
+      "name": "__jstorrent_file_write_callbacks",
+      "kind": "callback_store",
+      "domain": "file",
+      "direction": "js_internal_callback_store",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "itemArgKinds": ["number", "number"],
+      "returnKind": "callback_store"
+    },
+    {
+      "name": "__jstorrent_file_dispatch_batch",
+      "kind": "function",
+      "domain": "file",
+      "direction": "native_calls_js",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["arraybuffer"],
+      "returnKind": "void",
+      "delivery": "callback_dispatch"
+    },
+    {
+      "name": "__jstorrent_file_read_callbacks",
+      "kind": "callback_store",
+      "domain": "file",
+      "direction": "js_internal_callback_store",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "itemArgKinds": ["number", "arraybuffer"],
+      "returnKind": "callback_store"
+    },
+    {
+      "name": "__jstorrent_file_dispatch_read_batch",
+      "kind": "function",
+      "domain": "file",
+      "direction": "native_calls_js",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["arraybuffer"],
+      "returnKind": "void",
+      "delivery": "callback_dispatch"
+    },
+    {
+      "name": "__jstorrent_storage_get",
+      "kind": "function",
+      "domain": "storage",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string"],
+      "returnKind": "string",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_storage_set",
+      "kind": "function",
+      "domain": "storage",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_storage_delete",
+      "kind": "function",
+      "domain": "storage",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_storage_keys",
+      "kind": "function",
+      "domain": "storage",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string"],
+      "returnKind": "json_string",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_get_network_interfaces",
+      "kind": "function",
+      "domain": "network",
+      "direction": "js_calls_native",
+      "availability": "capability_gated",
+      "capability": "network_interfaces",
+      "requiredIn": ["android", "ios"],
+      "argKinds": [],
+      "returnKind": "json_string",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_get_default_gateway",
+      "kind": "function",
+      "domain": "network",
+      "direction": "js_calls_native",
+      "availability": "capability_gated",
+      "capability": "default_gateway",
+      "requiredIn": ["android", "ios"],
+      "argKinds": [],
+      "returnKind": "json_string",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_sha1",
+      "kind": "function",
+      "domain": "hash",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["arraybuffer"],
+      "returnKind": "arraybuffer",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_sha1_async",
+      "kind": "function",
+      "domain": "hash",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["arraybuffer", "string"],
+      "returnKind": "void",
+      "delivery": "direct_return",
+      "asyncResultSymbols": [
+        "__jstorrent_hash_dispatch_result",
+        "__jstorrent_hash_callbacks"
+      ]
+    },
+    {
+      "name": "__jstorrent_sha1_batch_sync",
+      "kind": "function",
+      "domain": "hash",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["arraybuffer"],
+      "returnKind": "arraybuffer",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_hash_callbacks",
+      "kind": "callback_store",
+      "domain": "hash",
+      "direction": "js_internal_callback_store",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "itemArgKinds": ["arraybuffer"],
+      "returnKind": "callback_store"
+    },
+    {
+      "name": "__jstorrent_hash_dispatch_batch",
+      "kind": "function",
+      "domain": "hash",
+      "direction": "native_calls_js",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["arraybuffer"],
+      "returnKind": "void",
+      "delivery": "callback_dispatch"
+    },
+    {
+      "name": "__jstorrent_hash_dispatch_result",
+      "kind": "function",
+      "domain": "hash",
+      "direction": "native_calls_js",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "arraybuffer"],
+      "returnKind": "void",
+      "delivery": "callback_dispatch"
+    },
+    {
+      "name": "__jstorrent_text_encode",
+      "kind": "function",
+      "domain": "polyfill",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string"],
+      "returnKind": "arraybuffer",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_text_decode",
+      "kind": "function",
+      "domain": "polyfill",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["arraybuffer"],
+      "returnKind": "string",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_set_timeout",
+      "kind": "function",
+      "domain": "polyfill",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["callback", "number"],
+      "returnKind": "number",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_clear_timeout",
+      "kind": "function",
+      "domain": "polyfill",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_set_interval",
+      "kind": "function",
+      "domain": "polyfill",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["callback", "number"],
+      "returnKind": "number",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_clear_interval",
+      "kind": "function",
+      "domain": "polyfill",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_random_bytes",
+      "kind": "function",
+      "domain": "polyfill",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["number"],
+      "returnKind": "arraybuffer",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_console_log",
+      "kind": "function",
+      "domain": "polyfill",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_on_state_update",
+      "kind": "function",
+      "domain": "controller",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_on_error",
+      "kind": "function",
+      "domain": "controller",
+      "direction": "js_calls_native",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["json_string"],
+      "returnKind": "void",
+      "delivery": "direct_return"
+    },
+    {
+      "name": "__jstorrent_subscribe",
+      "kind": "function",
+      "domain": "controller",
+      "direction": "native_calls_js",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string", "number"],
+      "returnKind": "void",
+      "delivery": "callback_dispatch"
+    },
+    {
+      "name": "__jstorrent_unsubscribe",
+      "kind": "function",
+      "domain": "controller",
+      "direction": "native_calls_js",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string", "string"],
+      "returnKind": "void",
+      "delivery": "callback_dispatch"
+    },
+    {
+      "name": "__jstorrent_unsubscribe_all",
+      "kind": "function",
+      "domain": "controller",
+      "direction": "native_calls_js",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": ["string"],
+      "returnKind": "void",
+      "delivery": "callback_dispatch"
+    },
+    {
+      "name": "__jstorrent_pause_subscriptions",
+      "kind": "function",
+      "domain": "controller",
+      "direction": "native_calls_js",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": [],
+      "returnKind": "void",
+      "delivery": "callback_dispatch"
+    },
+    {
+      "name": "__jstorrent_resume_subscriptions",
+      "kind": "function",
+      "domain": "controller",
+      "direction": "native_calls_js",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "argKinds": [],
+      "returnKind": "void",
+      "delivery": "callback_dispatch"
+    }
+  ]
+}

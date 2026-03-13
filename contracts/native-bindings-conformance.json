@@ -1,0 +1,255 @@
+{
+  "contractVersion": 1,
+  "behaviorVersion": 1,
+  "cases": [
+    {
+      "id": "polyfill.text_roundtrip",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_text_encode", "__jstorrent_text_decode"]
+    },
+    {
+      "id": "polyfill.random_bytes_length_matches",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_random_bytes"]
+    },
+    {
+      "id": "timer.timeout_fires_once",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_set_timeout", "__jstorrent_clear_timeout"]
+    },
+    {
+      "id": "timer.interval_repeats_until_cleared",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_set_interval", "__jstorrent_clear_interval"]
+    },
+    {
+      "id": "storage.get_set_delete_roundtrip",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": [
+        "__jstorrent_storage_get",
+        "__jstorrent_storage_set",
+        "__jstorrent_storage_delete"
+      ]
+    },
+    {
+      "id": "storage.keys_prefix_filters",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_storage_keys"]
+    },
+    {
+      "id": "hash.sha1_known_vector_matches",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_sha1"]
+    },
+    {
+      "id": "hash.batch_packed_format_matches",
+      "kind": "shape",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_sha1_batch_sync"]
+    },
+    {
+      "id": "hash.async_dispatch_resolves_registered_callback",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": [
+        "__jstorrent_sha1_async",
+        "__jstorrent_hash_callbacks",
+        "__jstorrent_hash_dispatch_result",
+        "__jstorrent_hash_dispatch_batch"
+      ]
+    },
+    {
+      "id": "file.stat_reports_metadata",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_file_stat"]
+    },
+    {
+      "id": "file.list_tree_reports_entries",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_file_list_tree"]
+    },
+    {
+      "id": "file.sync_read_write_roundtrip",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_file_read", "__jstorrent_file_write"]
+    },
+    {
+      "id": "file.boolean_ops_follow_normalized_semantics",
+      "kind": "shape",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": [
+        "__jstorrent_file_mkdir",
+        "__jstorrent_file_exists",
+        "__jstorrent_file_delete"
+      ]
+    },
+    {
+      "id": "file.batch_delete_reports_failures",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_file_batch_delete"]
+    },
+    {
+      "id": "file.verify_chunks_match_mismatch_io_error",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_file_verify_chunks"]
+    },
+    {
+      "id": "file.verified_write_result_codes_match_contract",
+      "kind": "shape",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": [
+        "__jstorrent_file_write_verified",
+        "__jstorrent_file_write_verified_batch",
+        "__jstorrent_file_write_callbacks",
+        "__jstorrent_file_dispatch_batch"
+      ]
+    },
+    {
+      "id": "file.async_read_batch_dispatch_matches_contract",
+      "kind": "shape",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": [
+        "__jstorrent_file_read_batch",
+        "__jstorrent_file_read_callbacks",
+        "__jstorrent_file_dispatch_read_batch"
+      ]
+    },
+    {
+      "id": "callbacks.state_update_shape_is_received",
+      "kind": "shape",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_on_state_update", "__jstorrent_on_error"]
+    },
+    {
+      "id": "subscriptions.register_unregister_roundtrip",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": [
+        "__jstorrent_subscribe",
+        "__jstorrent_unsubscribe",
+        "__jstorrent_unsubscribe_all",
+        "__jstorrent_pause_subscriptions",
+        "__jstorrent_resume_subscriptions"
+      ]
+    },
+    {
+      "id": "tcp.batch_dispatch_routes_to_correct_socket",
+      "kind": "shape",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": [
+        "__jstorrent_tcp_on_data",
+        "__jstorrent_tcp_flush",
+        "__jstorrent_tcp_dispatch_batch"
+      ]
+    },
+    {
+      "id": "tcp.connect_callback_shape_is_received",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": [
+        "__jstorrent_tcp_connect",
+        "__jstorrent_tcp_on_connected",
+        "__jstorrent_tcp_on_error",
+        "__jstorrent_tcp_on_close"
+      ]
+    },
+    {
+      "id": "tcp.server_accept_shape_is_received",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": [
+        "__jstorrent_tcp_listen",
+        "__jstorrent_tcp_server_close",
+        "__jstorrent_tcp_on_listening",
+        "__jstorrent_tcp_on_accept"
+      ]
+    },
+    {
+      "id": "tcp.secure_callback_shape_is_received",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_tcp_secure", "__jstorrent_tcp_on_secured"]
+    },
+    {
+      "id": "udp.bind_callback_shape_is_received",
+      "kind": "behavior",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_udp_bind", "__jstorrent_udp_on_bound"]
+    },
+    {
+      "id": "udp.batch_dispatch_routes_to_correct_socket",
+      "kind": "shape",
+      "availability": "required",
+      "requiredIn": ["android", "ios"],
+      "symbols": [
+        "__jstorrent_udp_on_message",
+        "__jstorrent_udp_dispatch_batch",
+        "__jstorrent_udp_send",
+        "__jstorrent_udp_close"
+      ]
+    },
+    {
+      "id": "udp.multicast_capability_is_explicit",
+      "kind": "shape",
+      "availability": "capability_gated",
+      "capability": "udp_multicast",
+      "requiredIn": ["android", "ios"],
+      "symbols": [
+        "__jstorrent_udp_join_multicast",
+        "__jstorrent_udp_leave_multicast"
+      ]
+    },
+    {
+      "id": "network.interfaces_shape_is_reported",
+      "kind": "shape",
+      "availability": "capability_gated",
+      "capability": "network_interfaces",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_get_network_interfaces"]
+    },
+    {
+      "id": "network.default_gateway_shape_is_reported",
+      "kind": "shape",
+      "availability": "capability_gated",
+      "capability": "default_gateway",
+      "requiredIn": ["android", "ios"],
+      "symbols": ["__jstorrent_get_default_gateway"]
+    }
+  ]
+}
