@@ -115,7 +115,7 @@ export interface SearchPluginHtmlNode {
   queryAll(selector: string): SearchPluginHtmlNode[]
 }
 
-export interface SearchPluginHtmlDocument extends SearchPluginHtmlNode {}
+export type SearchPluginHtmlDocument = SearchPluginHtmlNode
 
 export interface SearchPluginContext {
   encode(value: string): string
