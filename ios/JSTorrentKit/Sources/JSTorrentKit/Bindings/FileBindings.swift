@@ -163,6 +163,125 @@ private struct DataReader {
     }
 }
 
+private final class PooledFileDescriptor {
+    let fileDescriptor: Int32
+
+    init(fileDescriptor: Int32) {
+        self.fileDescriptor = fileDescriptor
+    }
+
+    deinit {
+        Darwin.close(fileDescriptor)
+    }
+}
+
+private final class FileDescriptorPool: @unchecked Sendable {
+    private let lock = NSLock()
+    private var readDescriptors: [String: PooledFileDescriptor] = [:]
+    private var writeDescriptors: [String: PooledFileDescriptor] = [:]
+
+    func descriptorForReading(at url: URL) throws -> Int32 {
+        try descriptor(for: url, writable: false)
+    }
+
+    func descriptorForWriting(at url: URL) throws -> Int32 {
+        try descriptor(for: url, writable: true)
+    }
+
+    func invalidate(_ url: URL) {
+        let path = url.standardizedFileURL.path
+
+        lock.lock()
+        let read = readDescriptors.removeValue(forKey: path)
+        let write = writeDescriptors.removeValue(forKey: path)
+        lock.unlock()
+
+        _ = read
+        _ = write
+    }
+
+    func invalidateDescendants(of url: URL) {
+        let rootPath = url.standardizedFileURL.path
+
+        lock.lock()
+        let readKeys = readDescriptors.keys.filter { $0 == rootPath || $0.hasPrefix(rootPath + "/") }
+        let writeKeys = writeDescriptors.keys.filter { $0 == rootPath || $0.hasPrefix(rootPath + "/") }
+        let readValues = readKeys.compactMap { readDescriptors.removeValue(forKey: $0) }
+        let writeValues = writeKeys.compactMap { writeDescriptors.removeValue(forKey: $0) }
+        lock.unlock()
+
+        _ = readValues
+        _ = writeValues
+    }
+
+    func closeAll() {
+        lock.lock()
+        let reads = Array(readDescriptors.values)
+        let writes = Array(writeDescriptors.values)
+        readDescriptors.removeAll(keepingCapacity: false)
+        writeDescriptors.removeAll(keepingCapacity: false)
+        lock.unlock()
+
+        _ = reads
+        _ = writes
+    }
+
+    private func descriptor(for url: URL, writable: Bool) throws -> Int32 {
+        let path = url.standardizedFileURL.path
+
+        lock.lock()
+        if writable, let descriptor = writeDescriptors[path]?.fileDescriptor {
+            lock.unlock()
+            return descriptor
+        }
+        if !writable {
+            if let descriptor = writeDescriptors[path]?.fileDescriptor {
+                lock.unlock()
+                return descriptor
+            }
+            if let descriptor = readDescriptors[path]?.fileDescriptor {
+                lock.unlock()
+                return descriptor
+            }
+        }
+        lock.unlock()
+
+        let flags = writable ? O_RDWR : O_RDONLY
+        let fd = path.withCString { Darwin.open($0, flags) }
+        guard fd >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+
+        let pooled = PooledFileDescriptor(fileDescriptor: fd)
+
+        lock.lock()
+        if writable {
+            if let existing = writeDescriptors[path] {
+                lock.unlock()
+                _ = pooled
+                return existing.fileDescriptor
+            }
+            writeDescriptors[path] = pooled
+            lock.unlock()
+            return fd
+        }
+
+        if let existing = writeDescriptors[path] {
+            lock.unlock()
+            _ = pooled
+            return existing.fileDescriptor
+        }
+        if let existing = readDescriptors[path] {
+            lock.unlock()
+            _ = pooled
+            return existing.fileDescriptor
+        }
+        readDescriptors[path] = pooled
+        lock.unlock()
+        return fd
+    }
+}
+
 public final class FileBindings: @unchecked Sendable {
     private let fileManager: FileManager
     private let baseDirectory: URL
@@ -171,6 +290,7 @@ public final class FileBindings: @unchecked Sendable {
     private let readQueue: DispatchQueue
     private let writeQueue: DispatchQueue
     private let asyncState: FileAsyncState
+    private let descriptorPool: FileDescriptorPool
 
     public init(
         baseDirectory: URL,
@@ -186,9 +306,12 @@ public final class FileBindings: @unchecked Sendable {
         self.readQueue = readQueue
         self.writeQueue = writeQueue
         self.asyncState = FileAsyncState()
+        self.descriptorPool = FileDescriptorPool()
     }
 
     public func configureRoots(_ roots: [ContentRoot], defaultRootKey: String?) {
+        descriptorPool.closeAll()
+
         var configuredRoots: [String: URL] = [:]
         for root in roots {
             let rootURL: URL
@@ -444,6 +567,7 @@ public final class FileBindings: @unchecked Sendable {
             }
 
             do {
+                self.descriptorPool.invalidateDescendants(of: fileURL)
                 try self.fileManager.removeItem(at: fileURL)
                 return .value(true)
             } catch {
@@ -473,6 +597,7 @@ public final class FileBindings: @unchecked Sendable {
                     continue
                 }
                 do {
+                    self.descriptorPool.invalidateDescendants(of: entryURL)
                     try self.fileManager.removeItem(at: entryURL)
                 } catch {
                     failed.append(entry)
@@ -686,13 +811,43 @@ public final class FileBindings: @unchecked Sendable {
         }
 
         guard fileManager.fileExists(atPath: fileURL.path) else {
+            descriptorPool.invalidate(fileURL)
             throw CocoaError(.fileNoSuchFile)
         }
 
-        let handle = try FileHandle(forReadingFrom: fileURL)
-        defer { try? handle.close() }
-        try handle.seek(toOffset: offset)
-        return try handle.read(upToCount: length) ?? Data()
+        let fileDescriptor = try descriptorPool.descriptorForReading(at: fileURL)
+        var output = Data(count: length)
+        let bytesRead = output.withUnsafeMutableBytes { rawBuffer -> Int in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                return 0
+            }
+
+            var totalRead = 0
+            while totalRead < length {
+                let chunkRead = Darwin.pread(
+                    fileDescriptor,
+                    baseAddress.advanced(by: totalRead),
+                    length - totalRead,
+                    off_t(offset) + off_t(totalRead)
+                )
+                if chunkRead < 0 {
+                    return -1
+                }
+                if chunkRead == 0 {
+                    break
+                }
+                totalRead += chunkRead
+            }
+            return totalRead
+        }
+
+        if bytesRead < 0 {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        if bytesRead == length {
+            return output
+        }
+        return output.prefix(bytesRead)
     }
 
     private func writeFile(rootKey: String, path: String, offset: UInt64, data: Data) throws -> Int {
@@ -702,15 +857,36 @@ public final class FileBindings: @unchecked Sendable {
 
         try ensureParentDirectoryExists(for: fileURL)
         if !fileManager.fileExists(atPath: fileURL.path) {
+            descriptorPool.invalidate(fileURL)
             fileManager.createFile(atPath: fileURL.path, contents: nil)
         }
 
-        let handle = try FileHandle(forUpdating: fileURL)
-        defer { try? handle.close() }
-        try handle.seek(toOffset: offset)
-        try handle.write(contentsOf: data)
-        try handle.synchronize()
-        return data.count
+        let fileDescriptor = try descriptorPool.descriptorForWriting(at: fileURL)
+        let bytesWritten = data.withUnsafeBytes { rawBuffer -> Int in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                return 0
+            }
+
+            var totalWritten = 0
+            while totalWritten < rawBuffer.count {
+                let chunkWritten = Darwin.pwrite(
+                    fileDescriptor,
+                    baseAddress.advanced(by: totalWritten),
+                    rawBuffer.count - totalWritten,
+                    off_t(offset) + off_t(totalWritten)
+                )
+                if chunkWritten < 0 {
+                    return -1
+                }
+                totalWritten += chunkWritten
+            }
+            return totalWritten
+        }
+
+        if bytesWritten < 0 {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return bytesWritten
     }
 
     private func mapFileError(_ error: Error) -> FileResultCode {
