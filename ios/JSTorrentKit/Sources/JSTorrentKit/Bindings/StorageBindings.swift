@@ -26,6 +26,7 @@ public final class StorageBindings {
             }
 
             userDefaults.set(value, forKey: key)
+            userDefaults.synchronize()
             return .undefined
         }
 
@@ -35,6 +36,7 @@ public final class StorageBindings {
             }
 
             userDefaults.removeObject(forKey: key)
+            userDefaults.synchronize()
             return .undefined
         }
 

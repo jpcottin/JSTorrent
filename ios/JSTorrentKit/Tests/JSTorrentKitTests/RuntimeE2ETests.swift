@@ -560,6 +560,11 @@ final class RuntimeE2ETests: XCTestCase {
             try runtime.shutdown()
         }
 
+        XCTAssertNotNil(
+            userDefaults.string(forKey: "session:torrent:\(infoHash):state"),
+            "Expected completed torrent state to be persisted before restore"
+        )
+
         let restoredLogs = LogCapture()
         let restoredRuntime = try JSTorrentRuntime(
             userDefaults: userDefaults,
