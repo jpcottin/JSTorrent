@@ -1254,6 +1254,66 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(controller.torrents.first?.numPeers, 12)
     }
 
+    @MainActor
+    func testEngineControllerAppliesDetailPayloads() {
+        let controller = EngineController(
+            bootstrapConfig: EngineBootstrapConfig(contentRoots: [])
+        )
+
+        controller.applyStateUpdate(
+            payload: """
+            {
+              "files": {
+                "abc123": {
+                  "files": [
+                    {
+                      "index": 0,
+                      "path": "ubuntu.iso",
+                      "size": 4096,
+                      "downloaded": 2048,
+                      "progress": 0.5,
+                      "priority": 0
+                    }
+                  ],
+                  "rootKey": "documents"
+                }
+              },
+              "details": {
+                "abc123": {
+                  "infoHash": "abc123",
+                  "addedAt": 1700000000000,
+                  "completedAt": null,
+                  "totalSize": 4096,
+                  "pieceSize": 1024,
+                  "pieceCount": 4,
+                  "magnetUrl": "magnet:?xt=urn:btih:abc123",
+                  "rootKey": "documents",
+                  "comment": null,
+                  "createdBy": null,
+                  "creationDate": null,
+                  "isPrivate": false
+                }
+              },
+              "pieces": {
+                "abc123": {
+                  "piecesTotal": 4,
+                  "piecesCompleted": 2,
+                  "pieceSize": 1024,
+                  "lastPieceSize": 1024,
+                  "bitfield": "0f",
+                  "recentChanges": [1],
+                  "activePieceStates": null
+                }
+              }
+            }
+            """
+        )
+
+        XCTAssertEqual(controller.torrentFiles["abc123"]?.files.first?.path, "ubuntu.iso")
+        XCTAssertEqual(controller.torrentDetails["abc123"]?.rootKey, "documents")
+        XCTAssertEqual(controller.torrentPieces["abc123"]?.piecesCompleted, 2)
+    }
+
     func testTorrentListItemDecodesQueryTorrentListPeerShape() throws {
         let data = Data(
             """
@@ -1383,6 +1443,97 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(payload.torrents?.count, 1)
         XCTAssertEqual(payload.torrents?.first?.name, "Query Torrent")
         XCTAssertEqual(payload.torrents?.first?.numPeers, 3)
+    }
+
+    func testRuntimeQueryFilesDecodesResponse() throws {
+        let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            throw XCTSkip("Failed to create isolated UserDefaults suite")
+        }
+
+        let baseDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let runtime = try JSTorrentRuntime(
+            userDefaults: userDefaults,
+            fileBaseDirectory: baseDirectory
+        )
+
+        try runtime.engine.evaluate(
+            """
+            globalThis.__jstorrent_query_files = function () {
+              return JSON.stringify({
+                files: [{
+                  index: 0,
+                  path: "ubuntu.iso",
+                  size: 4096,
+                  downloaded: 1024,
+                  progress: 0.25,
+                  priority: 2
+                }]
+              });
+            };
+            """,
+            filename: "runtime-query-files-test.js"
+        )
+
+        let payload = try runtime.queryFiles("query-hash")
+        XCTAssertEqual(payload.files.count, 1)
+        XCTAssertEqual(payload.files.first?.path, "ubuntu.iso")
+        XCTAssertEqual(payload.files.first?.priority, 2)
+    }
+
+    func testRuntimeQueryDetailsDecodesResponse() throws {
+        let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            throw XCTSkip("Failed to create isolated UserDefaults suite")
+        }
+
+        let baseDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let runtime = try JSTorrentRuntime(
+            userDefaults: userDefaults,
+            fileBaseDirectory: baseDirectory
+        )
+
+        try runtime.engine.evaluate(
+            """
+            globalThis.__jstorrent_query_details = function () {
+              return JSON.stringify({
+                infoHash: "query-hash",
+                addedAt: 1700000000000,
+                completedAt: null,
+                totalSize: 1048576,
+                pieceSize: 262144,
+                pieceCount: 4,
+                magnetUrl: "magnet:?xt=urn:btih:query-hash",
+                rootKey: "documents",
+                comment: "hello",
+                createdBy: "unit test",
+                creationDate: 1700000000,
+                isPrivate: true
+              });
+            };
+            """,
+            filename: "runtime-query-details-test.js"
+        )
+
+        let payload = try runtime.queryDetails("query-hash")
+        XCTAssertEqual(payload.infoHash, "query-hash")
+        XCTAssertEqual(payload.totalSize, 1_048_576)
+        XCTAssertEqual(payload.rootKey, "documents")
+        XCTAssertTrue(payload.isPrivate)
     }
 
     func testRuntimeRemoveCommandInvokesJSGlobal() throws {

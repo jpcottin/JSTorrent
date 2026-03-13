@@ -5,10 +5,17 @@ protocol EngineRuntimeHandling: AnyObject {
     func prepareDefaultBundle(in bundle: Bundle) throws
     func bootstrap(with config: EngineBootstrapConfig) throws
     func subscribe(type: String, hash: String, intervalMs: Int) throws
+    func unsubscribe(type: String, hash: String) throws
+    func unsubscribeAll(hash: String) throws
     func setTickMode(_ mode: EngineTickMode) throws
     func addTorrent(_ magnetOrBase64: String) throws
     func addTestTorrent() throws
     func queryTorrentList() throws -> EngineStatePayload
+    func queryFiles(_ infoHash: String) throws -> TorrentFilesPayload
+    func queryTrackers(_ infoHash: String) throws -> TorrentTrackersPayload
+    func queryPeers(_ infoHash: String) throws -> TorrentPeersPayload
+    func queryPieces(_ infoHash: String) throws -> TorrentPiecesPayload
+    func queryDetails(_ infoHash: String) throws -> TorrentDetailsPayload
     func pauseTorrent(_ infoHash: String) throws
     func resumeTorrent(_ infoHash: String) throws
     func removeTorrent(_ infoHash: String, deleteFiles: Bool) throws
@@ -63,10 +70,47 @@ public enum EngineControllerStatus: Equatable, Sendable {
     }
 }
 
+public enum TorrentDetailSubscriptionSection: Sendable {
+    case status
+    case files
+    case trackers
+    case peers
+    case pieces
+
+    var intervalMs: Int {
+        switch self {
+        case .pieces:
+            return 500
+        case .status, .files, .trackers, .peers:
+            return 1000
+        }
+    }
+
+    var subscriptionTypes: [String] {
+        switch self {
+        case .status:
+            return ["torrent", "details", "pieces"]
+        case .files:
+            return ["torrent", "files"]
+        case .trackers:
+            return ["torrent", "trackers"]
+        case .peers:
+            return ["torrent", "peers"]
+        case .pieces:
+            return ["torrent", "pieces", "details"]
+        }
+    }
+}
+
 @MainActor
 public final class EngineController: ObservableObject {
     @Published public private(set) var status: EngineControllerStatus = .idle
     @Published public private(set) var torrents: [TorrentListItem] = []
+    @Published public private(set) var torrentDetails: [String: TorrentDetailsPayload] = [:]
+    @Published public private(set) var torrentFiles: [String: TorrentFilesPayload] = [:]
+    @Published public private(set) var torrentTrackers: [String: [TorrentTrackerItem]] = [:]
+    @Published public private(set) var torrentPeers: [String: [TorrentPeerItem]] = [:]
+    @Published public private(set) var torrentPieces: [String: TorrentPiecesPayload] = [:]
     @Published public private(set) var lastError: String?
     @Published public var magnetInput = ""
 
@@ -214,6 +258,38 @@ public final class EngineController: ObservableObject {
         status = .idle
     }
 
+    public func observeTorrentDetail(
+        _ infoHash: String,
+        section: TorrentDetailSubscriptionSection
+    ) {
+        startIfNeeded()
+
+        guard let runtime else {
+            return
+        }
+
+        do {
+            for type in section.subscriptionTypes {
+                try runtime.subscribe(type: type, hash: infoHash, intervalMs: section.intervalMs)
+            }
+            try hydrateTorrentDetail(infoHash, section: section, using: runtime)
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func stopObservingTorrentDetail(_ infoHash: String) {
+        guard let runtime else {
+            return
+        }
+
+        do {
+            try runtime.unsubscribeAll(hash: infoHash)
+        } catch {
+            handle(error)
+        }
+    }
+
     public func addMagnet() {
         let input = magnetInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else {
@@ -325,6 +401,7 @@ public final class EngineController: ObservableObject {
 
         do {
             try runtime.removeTorrent(torrent.infoHash, deleteFiles: false)
+            clearTorrentDetailState(for: torrent.infoHash)
             noteSuccessfulCommand()
             scheduleTorrentRefreshes()
         } catch {
@@ -343,6 +420,21 @@ public final class EngineController: ObservableObject {
 
         if let torrents = decoded.torrents {
             self.torrents = torrents
+        }
+        if let details = decoded.details {
+            torrentDetails.merge(details) { _, new in new }
+        }
+        if let files = decoded.files {
+            torrentFiles.merge(files) { _, new in new }
+        }
+        if let trackers = decoded.trackers {
+            torrentTrackers.merge(trackers) { _, new in new }
+        }
+        if let peers = decoded.peers {
+            torrentPeers.merge(peers) { _, new in new }
+        }
+        if let pieces = decoded.pieces {
+            torrentPieces.merge(pieces) { _, new in new }
         }
     }
 
@@ -369,6 +461,27 @@ public final class EngineController: ObservableObject {
             torrents = payload.torrents ?? []
         } catch {
             handle(error)
+        }
+    }
+
+    private func hydrateTorrentDetail(
+        _ infoHash: String,
+        section: TorrentDetailSubscriptionSection,
+        using runtime: any EngineRuntimeHandling
+    ) throws {
+        switch section {
+        case .status:
+            torrentDetails[infoHash] = try runtime.queryDetails(infoHash)
+            torrentPieces[infoHash] = try runtime.queryPieces(infoHash)
+        case .files:
+            torrentFiles[infoHash] = try runtime.queryFiles(infoHash)
+        case .trackers:
+            torrentTrackers[infoHash] = try runtime.queryTrackers(infoHash).trackers
+        case .peers:
+            torrentPeers[infoHash] = try runtime.queryPeers(infoHash).peers
+        case .pieces:
+            torrentPieces[infoHash] = try runtime.queryPieces(infoHash)
+            torrentDetails[infoHash] = try runtime.queryDetails(infoHash)
         }
     }
 
@@ -430,6 +543,14 @@ public final class EngineController: ObservableObject {
         let message = error.localizedDescription
         lastError = message
         status = .failed(message)
+    }
+
+    private func clearTorrentDetailState(for infoHash: String) {
+        torrentDetails.removeValue(forKey: infoHash)
+        torrentFiles.removeValue(forKey: infoHash)
+        torrentTrackers.removeValue(forKey: infoHash)
+        torrentPeers.removeValue(forKey: infoHash)
+        torrentPieces.removeValue(forKey: infoHash)
     }
 
     private func scheduleTorrentRefreshes() {

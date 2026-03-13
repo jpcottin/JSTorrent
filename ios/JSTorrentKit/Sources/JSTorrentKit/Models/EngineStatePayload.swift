@@ -69,4 +69,28 @@ public struct TorrentListItem: Decodable, Equatable, Identifiable, Sendable {
 
 public struct EngineStatePayload: Decodable, Equatable, Sendable {
     public let torrents: [TorrentListItem]?
+    public let torrent: [String: TorrentListItem]?
+    public let peers: [String: [TorrentPeerItem]]?
+    public let files: [String: TorrentFilesPayload]?
+    public let trackers: [String: [TorrentTrackerItem]]?
+    public let pieces: [String: TorrentPiecesPayload]?
+    public let details: [String: TorrentDetailsPayload]?
+
+    public init(
+        torrents: [TorrentListItem]? = nil,
+        torrent: [String: TorrentListItem]? = nil,
+        peers: [String: [TorrentPeerItem]]? = nil,
+        files: [String: TorrentFilesPayload]? = nil,
+        trackers: [String: [TorrentTrackerItem]]? = nil,
+        pieces: [String: TorrentPiecesPayload]? = nil,
+        details: [String: TorrentDetailsPayload]? = nil
+    ) {
+        self.torrents = torrents
+        self.torrent = torrent
+        self.peers = peers
+        self.files = files
+        self.trackers = trackers
+        self.pieces = pieces
+        self.details = details
+    }
 }

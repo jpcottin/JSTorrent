@@ -21,13 +21,20 @@ public struct EngineTickResult: Equatable, Sendable {
 
 public enum JSTorrentRuntimeError: Error, LocalizedError {
     case invalidTickFrame(Int)
+    case queryFailed(String)
 
     public var errorDescription: String? {
         switch self {
         case .invalidTickFrame(let size):
             return "Expected 40 bytes from __jstorrent_engine_tick(), got \(size)."
+        case .queryFailed(let message):
+            return message
         }
     }
+}
+
+private struct RuntimeQueryErrorPayload: Decodable {
+    let error: String
 }
 
 public final class JSTorrentRuntime {
@@ -103,6 +110,23 @@ public final class JSTorrentRuntime {
         )
     }
 
+    public func unsubscribe(type: String, hash: String) throws {
+        let typeLiteral = try jsonLiteral(type)
+        let hashLiteral = try jsonLiteral(hash)
+        _ = try engine.evaluate(
+            "__jstorrent_unsubscribe(\(typeLiteral), \(hashLiteral));",
+            filename: "runtime-unsubscribe.js"
+        )
+    }
+
+    public func unsubscribeAll(hash: String) throws {
+        let hashLiteral = try jsonLiteral(hash)
+        _ = try engine.evaluate(
+            "__jstorrent_unsubscribe_all(\(hashLiteral));",
+            filename: "runtime-unsubscribe-all.js"
+        )
+    }
+
     public func setTickMode(_ mode: EngineTickMode) throws {
         let modeLiteral = try jsonLiteral(mode.rawValue)
         _ = try engine.evaluate(
@@ -132,8 +156,57 @@ public final class JSTorrentRuntime {
             filename: "runtime-query-torrent-list.js"
         )?.toString() ?? "{\"torrents\":[]}"
 
-        let data = Data(payload.utf8)
-        return try JSONDecoder().decode(EngineStatePayload.self, from: data)
+        return try decodePayload(EngineStatePayload.self, from: payload)
+    }
+
+    public func queryFiles(_ infoHash: String) throws -> TorrentFilesPayload {
+        let infoHashLiteral = try jsonLiteral(infoHash)
+        let payload = try engine.evaluate(
+            "__jstorrent_query_files(\(infoHashLiteral))",
+            filename: "runtime-query-files.js"
+        )?.toString() ?? "{\"files\":[]}"
+
+        return try decodePayload(TorrentFilesPayload.self, from: payload)
+    }
+
+    public func queryTrackers(_ infoHash: String) throws -> TorrentTrackersPayload {
+        let infoHashLiteral = try jsonLiteral(infoHash)
+        let payload = try engine.evaluate(
+            "__jstorrent_query_trackers(\(infoHashLiteral))",
+            filename: "runtime-query-trackers.js"
+        )?.toString() ?? "{\"trackers\":[]}"
+
+        return try decodePayload(TorrentTrackersPayload.self, from: payload)
+    }
+
+    public func queryPeers(_ infoHash: String) throws -> TorrentPeersPayload {
+        let infoHashLiteral = try jsonLiteral(infoHash)
+        let payload = try engine.evaluate(
+            "__jstorrent_query_peers(\(infoHashLiteral))",
+            filename: "runtime-query-peers.js"
+        )?.toString() ?? "{\"peers\":[]}"
+
+        return try decodePayload(TorrentPeersPayload.self, from: payload)
+    }
+
+    public func queryPieces(_ infoHash: String) throws -> TorrentPiecesPayload {
+        let infoHashLiteral = try jsonLiteral(infoHash)
+        let payload = try engine.evaluate(
+            "__jstorrent_query_pieces(\(infoHashLiteral))",
+            filename: "runtime-query-pieces.js"
+        )?.toString() ?? "{\"error\":\"Missing pieces payload\"}"
+
+        return try decodePayload(TorrentPiecesPayload.self, from: payload)
+    }
+
+    public func queryDetails(_ infoHash: String) throws -> TorrentDetailsPayload {
+        let infoHashLiteral = try jsonLiteral(infoHash)
+        let payload = try engine.evaluate(
+            "__jstorrent_query_details(\(infoHashLiteral))",
+            filename: "runtime-query-details.js"
+        )?.toString() ?? "{\"error\":\"Missing details payload\"}"
+
+        return try decodePayload(TorrentDetailsPayload.self, from: payload)
     }
 
     public func pauseTorrent(_ infoHash: String) throws {
@@ -193,6 +266,19 @@ public final class JSTorrentRuntime {
     private func jsonLiteral<T: Encodable>(_ value: T) throws -> String {
         let data = try JSONEncoder().encode(value)
         return String(decoding: data, as: UTF8.self)
+    }
+
+    private func decodePayload<T: Decodable>(_ type: T.Type, from payload: String) throws -> T {
+        let data = Data(payload.utf8)
+
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            if let queryError = try? JSONDecoder().decode(RuntimeQueryErrorPayload.self, from: data) {
+                throw JSTorrentRuntimeError.queryFailed(queryError.error)
+            }
+            throw error
+        }
     }
 }
 
