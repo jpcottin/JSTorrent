@@ -166,7 +166,8 @@ private struct DataReader {
 public final class FileBindings: @unchecked Sendable {
     private let fileManager: FileManager
     private let baseDirectory: URL
-    private let defaultRootKey: String
+    private var defaultRootKey: String
+    private var rootDirectories: [String: URL]
     private let readQueue: DispatchQueue
     private let writeQueue: DispatchQueue
     private let asyncState: FileAsyncState
@@ -180,10 +181,35 @@ public final class FileBindings: @unchecked Sendable {
     ) {
         self.baseDirectory = baseDirectory.standardizedFileURL
         self.defaultRootKey = defaultRootKey
+        self.rootDirectories = [defaultRootKey: self.baseDirectory]
         self.fileManager = fileManager
         self.readQueue = readQueue
         self.writeQueue = writeQueue
         self.asyncState = FileAsyncState()
+    }
+
+    public func configureRoots(_ roots: [ContentRoot], defaultRootKey: String?) {
+        var configuredRoots: [String: URL] = [:]
+        for root in roots {
+            let rootURL: URL
+            if let path = root.path, !path.isEmpty {
+                rootURL = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+            } else if root.key == self.defaultRootKey {
+                rootURL = baseDirectory
+            } else {
+                rootURL = baseDirectory.appendingPathComponent(root.key, isDirectory: true).standardizedFileURL
+            }
+            configuredRoots[root.key] = rootURL
+        }
+
+        let resolvedDefaultRootKey = defaultRootKey ?? roots.first?.key ?? self.defaultRootKey
+        self.defaultRootKey = resolvedDefaultRootKey
+
+        if configuredRoots[resolvedDefaultRootKey] == nil {
+            configuredRoots[resolvedDefaultRootKey] = baseDirectory
+        }
+
+        rootDirectories = configuredRoots
     }
 
     public func register(on engine: JSEngine) {
@@ -880,6 +906,10 @@ public final class FileBindings: @unchecked Sendable {
             resolvedKey = defaultRootKey
         } else {
             resolvedKey = rootKey
+        }
+
+        if let configuredRoot = rootDirectories[resolvedKey] {
+            return configuredRoot
         }
 
         if resolvedKey == defaultRootKey {

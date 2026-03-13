@@ -85,6 +85,7 @@ public final class JSTorrentRuntime {
     }
 
     public func initialize(with config: EngineBootstrapConfig) throws {
+        bindings.configureFileRoots(config.contentRoots, defaultRootKey: config.defaultContentRoot)
         let literal = try jsonLiteral(config)
         _ = try engine.evaluate(
             "jstorrent.init(\(literal));",

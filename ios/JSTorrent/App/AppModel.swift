@@ -15,7 +15,7 @@ final class AppModel: ObservableObject {
 
     init(settings: AppSettings) {
         self.settings = settings
-        self.controller = Self.makeController(downloadBaseDirectory: settings.downloadBaseDirectoryURL)
+        self.controller = Self.makeController(settings: settings)
 
         settings.$locationChangeToken
             .dropFirst()
@@ -32,18 +32,16 @@ final class AppModel: ObservableObject {
 
     private func rebuildController() {
         controller.shutdown()
-        controller = Self.makeController(downloadBaseDirectory: settings.downloadBaseDirectoryURL)
+        controller = Self.makeController(settings: settings)
     }
 
-    private static func makeController(downloadBaseDirectory: URL) -> EngineController {
+    private static func makeController(settings: AppSettings) -> EngineController {
         EngineController(
             bootstrapConfig: EngineBootstrapConfig(
-                contentRoots: [
-                    ContentRoot(key: "documents", label: L10n.string("content_root_documents_label"))
-                ],
-                defaultContentRoot: "documents"
+                contentRoots: settings.contentRoots,
+                defaultContentRoot: settings.defaultContentRootKey
             ),
-            fileBaseDirectory: downloadBaseDirectory
+            fileBaseDirectory: settings.downloadBaseDirectoryURL
         )
     }
 }

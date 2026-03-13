@@ -41,6 +41,10 @@ public final class NativeBindings {
         networkInfo.register(on: engine)
     }
 
+    public func configureFileRoots(_ roots: [ContentRoot], defaultRootKey: String?) {
+        files.configureRoots(roots, defaultRootKey: defaultRootKey)
+    }
+
     private func registerEventCallbacks() {
         engine.setGlobalFunction("__jstorrent_on_state_update") { [eventSink] arguments in
             let payload = arguments.first?.toString() ?? ""

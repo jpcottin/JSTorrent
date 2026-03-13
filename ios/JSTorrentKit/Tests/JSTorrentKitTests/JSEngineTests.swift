@@ -426,6 +426,51 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(tree.first?["size"] as? Int, 4)
     }
 
+    func testFileBindingsHonorConfiguredRootPaths() throws {
+        let (engine, bindings, baseDirectory, userDefaults, suiteName) = try makeBindingsEnvironment()
+        let externalDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: externalDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: externalDirectory)
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        bindings.configureFileRoots(
+            [
+                ContentRoot(key: "documents", label: "Documents", path: baseDirectory.path),
+                ContentRoot(key: "external", label: "External", path: externalDirectory.path),
+            ],
+            defaultRootKey: "external"
+        )
+
+        let result = try engine.evaluate(
+            """
+            const payload = new Uint8Array([9, 8, 7]).buffer;
+            const written = __jstorrent_file_write("default", "picked/test.bin", 0, payload);
+            const readBack = Array.from(new Uint8Array(__jstorrent_file_read("external", "picked/test.bin", 0, 3)));
+            JSON.stringify({ written, readBack });
+            """,
+            filename: "file-root-paths.js"
+        )
+
+        XCTAssertEqual(result?.toString(), #"{"written":3,"readBack":[9,8,7]}"#)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: externalDirectory.appendingPathComponent("picked/test.bin").path
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: baseDirectory
+                    .appendingPathComponent("external", isDirectory: true)
+                    .appendingPathComponent("picked/test.bin")
+                    .path
+            )
+        )
+    }
+
     func testFileBindingsDeleteAndBatchDelete() throws {
         let (engine, _, baseDirectory, userDefaults, suiteName) = try makeBindingsEnvironment()
         defer {

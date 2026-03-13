@@ -5,6 +5,9 @@ import XCTest
 @testable import JSTorrentKit
 
 final class RuntimeE2ETests: XCTestCase {
+    private let bigBuckBunnyMagnet =
+        "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.coppersurfer.tk%3A6969&tr=udp%3A%2F%2Ftracker.empire-js.us%3A1337&tr=udp%3A%2F%2Ftracker.leechers-paradise.org%3A6969&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=wss%3A%2F%2Ftracker.btorrent.xyz&tr=wss%3A%2F%2Ftracker.fastcast.nz&tr=wss%3A%2F%2Ftracker.openwebtorrent.com&ws=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2F&xs=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2Fbig-buck-bunny.torrent"
+
     private final class LogCapture: @unchecked Sendable {
         private let lock = NSLock()
         private var entries: [String] = []
@@ -462,5 +465,100 @@ final class RuntimeE2ETests: XCTestCase {
             "Expected downloaded file at \(downloadedURL.path)"
         )
         XCTAssertEqual(try sha1Hex(for: downloadedURL), expectedSHA1)
+    }
+
+    func testRealBigBuckBunnyMagnetDoesNotGetStuckChecking() throws {
+        let infoHash = "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c"
+        let logs = LogCapture()
+        let (runtime, baseDirectory, userDefaults, suiteName) = try makeRuntimeEnvironment(logCapture: logs)
+        defer {
+            try? runtime.shutdown()
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let bundleURL = repositoryRootURL().appendingPathComponent("packages/engine/dist/engine.native.js")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
+
+        try runtime.loadBundle(from: bundleURL)
+        _ = try runtime.engine.evaluate(
+            """
+            __jstorrent_cmd_set_log_level(
+              "debug",
+              JSON.stringify([
+                "client",
+                "torrent",
+                "peer",
+                "peer-handler",
+                "piece-requester",
+                "tick-loop",
+                "tracker-manager",
+                "udp-tracker",
+                "http-tracker"
+              ])
+            );
+            """,
+            filename: "runtime-real-magnet-log-level.js"
+        )
+        try runtime.initialize(
+            with: EngineBootstrapConfig(
+                contentRoots: [ContentRoot(key: "default", label: "Default")],
+                defaultContentRoot: "default",
+                shouldRemainSuspended: false
+            )
+        )
+
+        try waitUntil(timeout: 2.0) {
+            try runtime.isInitialized()
+        }
+
+        try runtime.setTickMode(.host)
+        try runtime.subscribe(type: "torrents", hash: "", intervalMs: 250)
+        try runtime.addTorrent(bigBuckBunnyMagnet)
+
+        try waitUntil(timeout: 5.0) {
+            _ = try runtime.tick()
+            let torrents = try runtime.queryTorrentList().torrents ?? []
+            return torrents.contains(where: { $0.infoHash == infoHash })
+        }
+
+        let deadline = Date().addingTimeInterval(90.0)
+        var leftChecking = false
+        var madeProgress = false
+        var lastStatus = ""
+
+        while Date() < deadline {
+            _ = try runtime.tick()
+
+            if let torrent = try runtime.queryTorrentList().torrents?.first(where: { $0.infoHash == infoHash }) {
+                lastStatus = torrent.status
+                if torrent.status != "checking" {
+                    leftChecking = true
+                }
+                if torrent.progress > 0 || torrent.numPeers > 0 || torrent.downloadSpeed > 0 {
+                    madeProgress = true
+                }
+            }
+
+            if
+                let details = try? runtime.queryDetails(infoHash),
+                leftChecking,
+                (details.totalSize > 0 || madeProgress || lastStatus == "downloading" || lastStatus == "downloading_metadata")
+            {
+                return
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        XCTFail(
+            "Real Big Buck Bunny magnet never became active after add. status=\(lastStatus)\n\n" +
+            debugSnapshot(
+                runtime: runtime,
+                infoHash: infoHash,
+                logs: logs,
+                seeder: SeederProcess(process: Process(), outputPipe: Pipe())
+            )
+        )
     }
 }
