@@ -34,6 +34,7 @@ import com.jstorrent.app.ui.screens.SpeedConnectionLimitsSettingsScreen
 import com.jstorrent.app.ui.screens.NetworkSettingsScreen
 import com.jstorrent.app.ui.screens.NotificationsSettingsScreen
 import com.jstorrent.app.ui.screens.PowerManagementSettingsScreen
+import com.jstorrent.app.ui.screens.SearchPluginSettingsScreen
 import com.jstorrent.app.ui.screens.SettingsScreen
 import com.jstorrent.app.ui.screens.SpeedHistoryScreen
 import com.jstorrent.app.ui.screens.StorageSettingsScreen
@@ -41,6 +42,7 @@ import com.jstorrent.app.ui.screens.TorrentDetailScreen
 import com.jstorrent.app.ui.screens.TorrentListScreen
 import com.jstorrent.app.viewmodel.DhtViewModel
 import com.jstorrent.app.viewmodel.LogViewerViewModel
+import com.jstorrent.app.viewmodel.SearchPluginSettingsViewModel
 import com.jstorrent.app.viewmodel.SettingsViewModel
 import com.jstorrent.app.viewmodel.SpeedHistoryViewModel
 import com.jstorrent.app.viewmodel.TorrentDetailViewModel
@@ -60,6 +62,7 @@ object Routes {
     const val TORRENT_LIST = "torrent_list"
     const val TORRENT_DETAIL = "torrent_detail/{infoHash}"
     const val SETTINGS = "settings"
+    const val SETTINGS_SEARCH_PLUGINS = "settings/search_plugins"
     const val SETTINGS_STORAGE = "settings/storage"
     const val SETTINGS_SPEED_CONNECTION_LIMITS = "settings/speed_connection_limits"
     const val SETTINGS_NOTIFICATIONS = "settings/notifications"
@@ -166,12 +169,24 @@ fun TorrentNavHost(
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 onNavigateBack = { navController.safePopBackStack() },
+                onNavigateToSearchPlugins = { navController.navigate(Routes.SETTINGS_SEARCH_PLUGINS) },
                 onNavigateToStorage = { navController.navigate(Routes.SETTINGS_STORAGE) },
                 onNavigateToSpeedConnectionLimits = { navController.navigate(Routes.SETTINGS_SPEED_CONNECTION_LIMITS) },
                 onNavigateToNotifications = { navController.navigate(Routes.SETTINGS_NOTIFICATIONS) },
                 onNavigateToNetwork = { navController.navigate(Routes.SETTINGS_NETWORK) },
                 onNavigateToPower = { navController.navigate(Routes.SETTINGS_POWER) },
                 onNavigateToAdvanced = { navController.navigate(Routes.SETTINGS_ADVANCED) }
+            )
+        }
+
+        composable(Routes.SETTINGS_SEARCH_PLUGINS) {
+            val context = LocalContext.current
+            val viewModel: SearchPluginSettingsViewModel = viewModel(
+                factory = SearchPluginSettingsViewModel.Factory(context)
+            )
+            SearchPluginSettingsScreen(
+                viewModel = viewModel,
+                onNavigateBack = { navController.safePopBackStack() }
             )
         }
 

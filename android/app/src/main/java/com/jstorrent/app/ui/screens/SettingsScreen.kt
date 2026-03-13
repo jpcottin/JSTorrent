@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.People
@@ -44,6 +45,7 @@ import com.jstorrent.app.ui.theme.JSTorrentTheme
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToSearchPlugins: () -> Unit,
     onNavigateToStorage: () -> Unit,
     onNavigateToSpeedConnectionLimits: () -> Unit,
     onNavigateToNotifications: () -> Unit,
@@ -73,6 +75,14 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            item {
+                SettingsNavItem(
+                    icon = Icons.Default.Extension,
+                    title = stringResource(R.string.search_plugins_title),
+                    subtitle = stringResource(R.string.search_plugins_settings_description),
+                    onClick = onNavigateToSearchPlugins
+                )
+            }
             item {
                 SettingsNavItem(
                     icon = Icons.Default.Folder,
@@ -172,6 +182,7 @@ private fun SettingsHubPreview() {
     JSTorrentTheme {
         SettingsScreen(
             onNavigateBack = {},
+            onNavigateToSearchPlugins = {},
             onNavigateToStorage = {},
             onNavigateToSpeedConnectionLimits = {},
             onNavigateToNotifications = {},

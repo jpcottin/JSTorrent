@@ -120,6 +120,8 @@
     <!-- SettingsScreen -->
     <string name="settings_title">Settings</string>
     <string name="settings_back_button">Back</string>
+    <string name="search_plugins_title">Search Plugins</string>
+    <string name="search_plugins_settings_description">Manage search providers for in-app torrent search</string>
     <string name="settings_storage_title">Storage</string>
     <string name="settings_storage_description">Download folders</string>
     <string name="settings_speed_limits_title">Speed &amp; Connection Limits</string>
@@ -132,6 +134,17 @@
     <string name="settings_power_description">Background downloads, seeding</string>
     <string name="settings_advanced_title">Advanced</string>
     <string name="settings_advanced_description">Theme, language, feedback, reset settings</string>
+
+    <!-- SearchPluginSettingsScreen -->
+    <string name="search_plugins_recommended_section">Recommended</string>
+    <string name="search_plugins_installed_section">Installed</string>
+    <string name="search_plugins_add_from_url_section">Add from URL</string>
+    <string name="search_plugins_add_from_url_label">Plugin URL</string>
+    <string name="search_plugins_install_button">Install</string>
+    <string name="search_plugins_installed_button">Installed</string>
+    <string name="search_plugins_remove_button">Remove</string>
+    <string name="search_plugins_enabled_label">Enabled</string>
+    <string name="search_plugins_empty_installed">No search plugins installed yet</string>
 
     <!-- Common -->
     <string name="back">Back</string>

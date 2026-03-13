@@ -19,11 +19,19 @@ interface SearchPluginSourceRuntime {
     suspend fun inspectSource(source: String): SearchPluginSourceInspection
 }
 
+interface SearchPluginSettingsStore {
+    fun recommendedPlugins(): List<RecommendedSearchPlugin>
+    suspend fun listInstalledPlugins(): List<InstalledPluginRecord>
+    suspend fun installFromUrl(url: String): InstalledPluginRecord
+    suspend fun setPluginEnabled(pluginId: String, enabled: Boolean): InstalledPluginRecord
+    suspend fun removePlugin(pluginId: String): Boolean
+}
+
 class SearchPluginRepository(
     private val context: Context,
     private val runtime: SearchPluginSourceRuntime,
     private val clock: () -> Long = { System.currentTimeMillis() }
-) {
+) : SearchPluginSettingsStore {
 
     @Serializable
     private data class StoredPlugins(
@@ -35,10 +43,11 @@ class SearchPluginRepository(
     private val storageFile: File
         get() = File(context.filesDir, STORAGE_FILE_NAME)
 
-    fun recommendedPlugins(): List<RecommendedSearchPlugin> {
+    override fun recommendedPlugins(): List<RecommendedSearchPlugin> {
         return listOf(
             RecommendedSearchPlugin(
                 manifest = SearchPluginManifest(
+                    id = "org.archive.search",
                     name = "Internet Archive",
                     description = "First-party provider for public-domain and openly licensed media.",
                     homepage = "https://archive.org",
@@ -49,7 +58,7 @@ class SearchPluginRepository(
         )
     }
 
-    suspend fun listInstalledPlugins(): List<InstalledPluginRecord> = mutex.withLock {
+    override suspend fun listInstalledPlugins(): List<InstalledPluginRecord> = mutex.withLock {
         withContext(Dispatchers.IO) {
             loadStoredPlugins()
                 .plugins
@@ -76,7 +85,7 @@ class SearchPluginRepository(
         return installFromUrl(INTERNET_ARCHIVE_PLUGIN_RAW_URL)
     }
 
-    suspend fun installFromUrl(url: String): InstalledPluginRecord {
+    override suspend fun installFromUrl(url: String): InstalledPluginRecord {
         val source = runtime.fetchSource(url)
         return installFromSource(source = source, sourceUrl = url)
     }
@@ -128,7 +137,7 @@ class SearchPluginRepository(
         }
     }
 
-    suspend fun setPluginEnabled(pluginId: String, enabled: Boolean): InstalledPluginRecord = mutex.withLock {
+    override suspend fun setPluginEnabled(pluginId: String, enabled: Boolean): InstalledPluginRecord = mutex.withLock {
         withContext(Dispatchers.IO) {
             val stored = loadStoredPlugins()
             val existing = stored.plugins.firstOrNull { it.pluginId == pluginId }
@@ -157,7 +166,7 @@ class SearchPluginRepository(
         return saveInstalledPlugin(updated)
     }
 
-    suspend fun removePlugin(pluginId: String): Boolean = mutex.withLock {
+    override suspend fun removePlugin(pluginId: String): Boolean = mutex.withLock {
         withContext(Dispatchers.IO) {
             val stored = loadStoredPlugins()
             val filtered = stored.plugins.filterNot { it.pluginId == pluginId }
