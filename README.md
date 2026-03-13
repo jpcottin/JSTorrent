@@ -11,10 +11,10 @@ A modern, full-featured BitTorrent client built on a shared TypeScript engine th
 | Platform | Status | Notes |
 |----------|--------|-------|
 | **Desktop App** | ✅ Available | Standalone app for macOS, Windows, and Linux ([download](https://jstorrent.com)) |
-| **Chrome Extension** | ✅ Available | Chrome, Edge, Brave, and other Chromium browsers |
+| **Chrome Extension** | ✅ Available | [Chrome Web Store](https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk) — Chrome, Edge, Brave, and other Chromium browsers |
 | **Android** | ✅ Available | [Google Play](https://play.google.com/store/apps/details?id=com.jstorrent.app) — native app with QuickJS engine |
 | **ChromeOS** | ✅ Available | [Extension](https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk) + [Android companion app](https://play.google.com/store/apps/details?id=com.jstorrent.app) |
-| **iOS** | 🚧 Planned | Sideload only — [MVP plan](docs/plans/ios-app-mvp.md) |
+| **iOS** | 🚧 Underway | Sideload only — [MVP plan](docs/plans/ios-app-mvp.md) |
 
 ## Architecture
 
@@ -28,9 +28,8 @@ One TypeScript BitTorrent engine powers all platforms. Platform-specific native 
 
 ### BitTorrent Protocol
 - ✅ Full BitTorrent protocol implementation
-- ✅ Magnet link support
-- ✅ .torrent file support
 - ✅ Protocol encryption (MSE/PE)
+- ✅ Web seeds from `.torrent` `url-list` and magnet `ws` sources (BEP 19)
 - ✅ Seeding and leeching
 - ✅ Tit-for-tat choking algorithm
 - ✅ Optimistic unchoking
@@ -52,6 +51,7 @@ One TypeScript BitTorrent engine powers all platforms. Platform-specific native 
 ### Performance
 - ✅ Native host for fast networking and disk I/O
 - ✅ File skipping and priorities
+- ✅ Streaming-aware piece prioritization for playback
 - ✅ Bandwidth throttling
 - ✅ Connection limits
 
@@ -62,6 +62,7 @@ One TypeScript BitTorrent engine powers all platforms. Platform-specific native 
 - ✅ Dark mode
 - ✅ Drag and drop torrents
 - ✅ Click magnet links to add
+- ✅ Stream media before download completes
 - ✅ Installable search plugins for in-app torrent search
 - ✅ Per-torrent and global statistics
 

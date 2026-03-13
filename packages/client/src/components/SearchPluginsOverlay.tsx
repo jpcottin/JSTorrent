@@ -1,7 +1,8 @@
 import { formatBytes } from '@jstorrent/ui'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type MouseEvent } from 'react'
 import { useSearchPluginService } from '../context/SearchPluginServiceContext'
 import { standaloneAlert, standaloneConfirm } from '../utils/dialogs'
+import { openExternalUrl } from '../utils/external-links'
 import type {
   InstalledPluginRecord,
   SearchDisplayResult,
@@ -682,6 +683,16 @@ function SearchTab({
   onToggleSearchPlugin,
 }: SearchTabProps) {
   const enabledPlugins = installedPlugins.filter((plugin) => plugin.enabled)
+  const handleOpenDetails = async (event: MouseEvent<HTMLAnchorElement>, url: string) => {
+    event.preventDefault()
+
+    try {
+      await openExternalUrl(url)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      standaloneAlert(`Failed to open link: ${message}`)
+    }
+  }
 
   return (
     <div style={styles.tabPanel}>
@@ -819,6 +830,7 @@ function SearchTab({
                         target="_blank"
                         rel="noreferrer"
                         style={styles.resultLink}
+                        onClick={(event) => void handleOpenDetails(event, result.detailsUrl!)}
                       >
                         Details
                       </a>
