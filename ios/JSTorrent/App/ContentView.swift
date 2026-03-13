@@ -68,11 +68,19 @@ struct ContentView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
 
-                                Button(torrent.isStopped ? "Resume" : "Pause") {
-                                    controller.toggleTorrent(torrent)
+                                HStack(spacing: 10) {
+                                    Button(torrent.isStopped ? "Resume" : "Pause") {
+                                        controller.toggleTorrent(torrent)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+
+                                    Button("Remove", role: .destructive) {
+                                        controller.removeTorrent(torrent)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
                                 }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
                             }
                             .padding(.vertical, 4)
                             .swipeActions {
