@@ -1,6 +1,6 @@
 import { Bencode, parseTorrentInput } from '@jstorrent/engine'
 import type { IEngineManager } from '../engine-manager/types'
-import { ExtensionSandboxLabHost } from './extension-sandbox-lab-host'
+import { IframeSearchPluginSandboxHost } from './iframe-search-plugin-sandbox-host'
 import { createInstalledPluginRecord } from './plugin-utils'
 import type {
   InstalledPluginRecord,
@@ -83,10 +83,10 @@ function normalizeRelativeTorrentUrlSeeds(torrentBytes: Uint8Array, finalUrl?: s
 }
 
 export class SearchPluginService {
-  private readonly sandboxHost: ExtensionSandboxLabHost
+  private readonly sandboxHost: IframeSearchPluginSandboxHost
 
   constructor(private readonly engineManager: IEngineManager) {
-    this.sandboxHost = new ExtensionSandboxLabHost({
+    this.sandboxHost = new IframeSearchPluginSandboxHost({
       fetch: (input, policy) => this.engineManager.searchPluginFetch(input, policy),
     })
   }

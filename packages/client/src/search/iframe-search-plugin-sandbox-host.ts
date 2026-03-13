@@ -63,15 +63,39 @@ interface PendingInspection {
   reject: (error: Error) => void
 }
 
-const SANDBOX_PATH = 'search-plugin-sandbox.html'
-
-function getChromeRuntimeUrl(path: string): string | null {
-  const chromeApi = (globalThis as { chrome?: typeof chrome }).chrome
-  if (!chromeApi?.runtime?.id) return null
-  return chromeApi.runtime.getURL(path)
+interface SandboxResolver {
+  resolveUrl(): string | null
+  iframeSandbox?: string
 }
 
-export class ExtensionSandboxLabHost {
+const SANDBOX_PATH = 'search-plugin-sandbox.html'
+
+function isTauriContext(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+function createDefaultSandboxResolver(): SandboxResolver {
+  const chromeApi = (globalThis as { chrome?: typeof chrome }).chrome
+  if (chromeApi?.runtime?.id) {
+    return {
+      resolveUrl: () => chromeApi.runtime.getURL(SANDBOX_PATH),
+      iframeSandbox: 'allow-scripts',
+    }
+  }
+
+  if (isTauriContext()) {
+    return {
+      resolveUrl: () => new URL(`/${SANDBOX_PATH}`, window.location.href).toString(),
+      iframeSandbox: 'allow-scripts',
+    }
+  }
+
+  return {
+    resolveUrl: () => null,
+  }
+}
+
+export class IframeSearchPluginSandboxHost {
   private iframe: HTMLIFrameElement | null = null
   private readyPromise: Promise<void> | null = null
   private readyResolve: (() => void) | null = null
@@ -81,12 +105,15 @@ export class ExtensionSandboxLabHost {
   private requestPolicies = new Map<number, SearchPluginFetchPolicy>()
   private readonly handleMessageBound = this.handleMessage.bind(this)
 
-  constructor(private readonly fetcher: Fetcher) {
+  constructor(
+    private readonly fetcher: Fetcher,
+    private readonly resolver: SandboxResolver = createDefaultSandboxResolver(),
+  ) {
     window.addEventListener('message', this.handleMessageBound)
   }
 
   isAvailable(): boolean {
-    return getChromeRuntimeUrl(SANDBOX_PATH) !== null
+    return this.resolver.resolveUrl() !== null
   }
 
   async fetchSource(url: string): Promise<string> {
@@ -169,8 +196,9 @@ export class ExtensionSandboxLabHost {
   }
 
   private async ensureReady(): Promise<void> {
-    if (!this.isAvailable()) {
-      throw new Error('Search plugin lab is only available in the Chrome extension context')
+    const sandboxUrl = this.resolver.resolveUrl()
+    if (!sandboxUrl) {
+      throw new Error('Search plugin sandbox is not available in this runtime')
     }
 
     if (this.readyPromise) {
@@ -182,7 +210,10 @@ export class ExtensionSandboxLabHost {
     })
 
     const iframe = document.createElement('iframe')
-    iframe.src = getChromeRuntimeUrl(SANDBOX_PATH)!
+    iframe.src = sandboxUrl
+    if (this.resolver.iframeSandbox) {
+      iframe.setAttribute('sandbox', this.resolver.iframeSandbox)
+    }
     iframe.style.display = 'none'
     iframe.setAttribute('aria-hidden', 'true')
     document.body.appendChild(iframe)
@@ -263,7 +294,6 @@ export class ExtensionSandboxLabHost {
           requestId: message.requestId,
           fetchRequestId: message.fetchRequestId,
           error: {
-            name: error instanceof Error ? error.name : 'Error',
             message: messageText,
           },
         },

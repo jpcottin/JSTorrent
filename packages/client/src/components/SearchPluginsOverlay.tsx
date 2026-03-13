@@ -455,7 +455,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
           <div style={styles.tabContent}>
             {!runtimeAvailable && (
               <div style={styles.warningBox}>
-                Search plugin execution is currently available only inside the Chrome extension UI.
+                Search plugin execution is not available in this runtime.
               </div>
             )}
             {activeTab === 'search' && (

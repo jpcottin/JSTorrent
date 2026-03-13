@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import solid from 'vite-plugin-solid'
 import { resolve } from 'path'
 import fs from 'fs'
+import { sharedSearchPluginSandboxAssets } from '../../scripts/vite-search-plugin-sandbox-assets.mjs'
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST
@@ -31,6 +32,7 @@ export default defineConfig(async () => ({
     react({
       exclude: ['**/*.solid.tsx'],
     }),
+    sharedSearchPluginSandboxAssets(),
   ],
   resolve: {
     alias: {

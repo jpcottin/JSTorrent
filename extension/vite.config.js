@@ -6,6 +6,7 @@ import dns from 'dns'
 import { createRequire } from 'module'
 
 import fs from 'fs'
+import { sharedSearchPluginSandboxAssets } from '../scripts/vite-search-plugin-sandbox-assets.mjs'
 
 // Read engine version from package.json
 const require = createRequire(import.meta.url)
@@ -152,6 +153,7 @@ export default defineConfig({
       exclude: ['**/*.solid.tsx'],
     }),
     printDevUrls(),
+    sharedSearchPluginSandboxAssets(),
     // Skip public key injection for CWS builds (set SKIP_INJECT_KEY=1)
     !process.env.SKIP_INJECT_KEY && injectPublicKey(),
     sourcemapIgnoreLogger(),
