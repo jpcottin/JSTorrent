@@ -158,6 +158,9 @@
     <string name="search_no_plugins_enabled_description">Install a provider or enable an installed plugin to search for torrents.</string>
     <string name="search_no_results">No search results</string>
     <string name="search_results_title">Search results</string>
+    <string name="search_sources_title">Sources</string>
+    <string name="search_source_success">%1$d results in %2$d ms</string>
+    <string name="search_source_failed">Search failed</string>
     <string name="search_add_result">Add</string>
 
     <!-- Common -->

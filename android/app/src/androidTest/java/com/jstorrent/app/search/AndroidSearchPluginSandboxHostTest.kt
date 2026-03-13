@@ -5,6 +5,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -44,6 +45,42 @@ class AndroidSearchPluginSandboxHostTest {
         assertEquals("info", result.trace.logs.first().level)
     }
 
+    @Test
+    fun inspectSource_recoversAfterMalformedManifest() = runBlocking {
+        val failure = runCatching {
+            host.inspectSource(INVALID_MANIFEST_PLUGIN_SOURCE)
+        }
+
+        assertTrue(failure.isFailure)
+        assertEquals(
+            "Plugin manifest must include at least one declared host",
+            failure.exceptionOrNull()?.message
+        )
+
+        val inspection = host.inspectSource(TEST_PLUGIN_SOURCE)
+        assertEquals("Test Sandbox Plugin", inspection.manifest.name)
+    }
+
+    @Test
+    fun repeatedRequests_reuseSingleWebViewInstance() = runBlocking {
+        assertEquals(null, host.currentWebViewInstanceId())
+
+        host.inspectSource(TEST_PLUGIN_SOURCE)
+        val firstWebViewId = host.currentWebViewInstanceId()
+        assertNotNull(firstWebViewId)
+
+        host.runDraft(
+            source = TEST_PLUGIN_SOURCE,
+            input = SearchPluginSearchInput(query = "debian")
+        )
+        val secondWebViewId = host.currentWebViewInstanceId()
+
+        host.inspectSource(TEST_PLUGIN_SOURCE)
+
+        assertEquals(firstWebViewId, secondWebViewId)
+        assertEquals(firstWebViewId, host.currentWebViewInstanceId())
+    }
+
     companion object {
         private const val TEST_PLUGIN_SOURCE = """
             export const manifest = {
@@ -60,6 +97,16 @@ class AndroidSearchPluginSandboxHostTest {
                 magnetUrl: 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567'
               })
             }
+        """
+
+        private const val INVALID_MANIFEST_PLUGIN_SOURCE = """
+            export const manifest = {
+              id: 'broken.plugin',
+              name: 'Broken Sandbox Plugin',
+              hosts: []
+            }
+
+            export async function search() {}
         """
     }
 }

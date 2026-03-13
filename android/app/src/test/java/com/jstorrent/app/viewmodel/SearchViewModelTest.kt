@@ -24,6 +24,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -72,6 +74,64 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `search survives malformed plugin output`() = runTest {
+        runtime.resultFactory = {
+            SearchPluginDraftRunResult(
+                manifest = SearchPluginManifest(
+                    id = "broken",
+                    name = "Broken Plugin",
+                    hosts = emptyList()
+                ),
+                trace = SearchPluginRunTrace(
+                    ok = true,
+                    durationMs = 5,
+                    results = emptyList(),
+                    logs = emptyList(),
+                    requests = emptyList()
+                )
+            )
+        }
+        viewModel.onQueryChanged("ubuntu")
+
+        viewModel.search()
+
+        val state = viewModel.uiState.value
+        assertTrue(state.searchedOnce)
+        assertFalse(state.isSearching)
+        assertTrue(state.results.isEmpty())
+        assertEquals(1, state.runSummaries.size)
+        assertFalse(state.runSummaries.first().ok)
+        assertEquals("Plugin manifest must include at least one declared host", state.errorMessage)
+    }
+
+    @Test
+    fun `search survives plugin returning no results`() = runTest {
+        runtime.resultFactory = {
+            SearchPluginDraftRunResult(
+                manifest = pluginManifest(),
+                trace = SearchPluginRunTrace(
+                    ok = true,
+                    durationMs = 7,
+                    results = emptyList(),
+                    logs = emptyList(),
+                    requests = emptyList()
+                )
+            )
+        }
+        viewModel.onQueryChanged("ubuntu")
+
+        viewModel.search()
+
+        val state = viewModel.uiState.value
+        assertTrue(state.searchedOnce)
+        assertFalse(state.isSearching)
+        assertTrue(state.results.isEmpty())
+        assertEquals(1, state.runSummaries.size)
+        assertTrue(state.runSummaries.first().ok)
+        assertNull(state.errorMessage)
+    }
+
+    @Test
     fun `add result uses magnet directly`() = runTest {
         val result = SearchDisplayResult(
             pluginId = "plugin",
@@ -108,6 +168,34 @@ class SearchViewModelTest {
         assertEquals("https://example.com/file.torrent", fetcher.lastUrl)
     }
 
+    @Test
+    fun `add result clears pending state when torrent fetch fails`() = runTest {
+        fetcher.fetchError = IllegalStateException("Plugin fetch failed")
+        val result = SearchDisplayResult(
+            pluginId = "plugin",
+            pluginName = "Plugin",
+            allowedHosts = listOf("example.com"),
+            result = SearchResult(
+                name = "Torrent",
+                source = "Plugin",
+                torrentUrl = "https://example.com/file.torrent"
+            )
+        )
+
+        viewModel.addResult(result)
+
+        val state = viewModel.uiState.value
+        assertTrue(addedTorrents.isEmpty())
+        assertTrue(state.addingResultIds.isEmpty())
+        assertEquals("Plugin fetch failed", state.errorMessage)
+    }
+
+    private fun pluginManifest() = SearchPluginManifest(
+        id = "plugin",
+        name = "Plugin",
+        hosts = listOf("example.com")
+    )
+
     private class FakeSearchStore : SearchPluginSettingsStore {
         private val plugins = listOf(
             InstalledPluginRecord(
@@ -140,23 +228,8 @@ class SearchViewModelTest {
     }
 
     private class FakeSearchRuntime : SearchPluginExecutionRuntime {
-        override suspend fun fetchSource(url: String): String = ""
-
-        override suspend fun inspectSource(source: String): SearchPluginSourceInspection {
-            return SearchPluginSourceInspection(
-                SearchPluginManifest(
-                    id = "plugin",
-                    name = "Plugin",
-                    hosts = listOf("example.com")
-                )
-            )
-        }
-
-        override suspend fun runDraft(
-            source: String,
-            input: SearchPluginSearchInput
-        ): SearchPluginDraftRunResult {
-            return SearchPluginDraftRunResult(
+        var resultFactory: (SearchPluginSearchInput) -> SearchPluginDraftRunResult = { input ->
+            SearchPluginDraftRunResult(
                 manifest = SearchPluginManifest(
                     id = "plugin",
                     name = "Plugin",
@@ -184,16 +257,37 @@ class SearchViewModelTest {
                 )
             )
         }
+
+        override suspend fun fetchSource(url: String): String = ""
+
+        override suspend fun inspectSource(source: String): SearchPluginSourceInspection {
+            return SearchPluginSourceInspection(
+                SearchPluginManifest(
+                    id = "plugin",
+                    name = "Plugin",
+                    hosts = listOf("example.com")
+                )
+            )
+        }
+
+        override suspend fun runDraft(
+            source: String,
+            input: SearchPluginSearchInput
+        ): SearchPluginDraftRunResult {
+            return resultFactory(input)
+        }
     }
 
     private class FakeSearchFetcher : SearchPluginFetcher {
         var lastUrl: String? = null
+        var fetchError: Throwable? = null
 
         override suspend fun fetch(
             input: SearchPluginFetchInput,
             policy: SearchPluginFetchPolicy?
         ): SearchPluginFetchResponse {
             lastUrl = input.url
+            fetchError?.let { throw it }
             return SearchPluginFetchResponse(
                 bodyText = "test",
                 bodyBytes = "test".toByteArray(),
@@ -203,4 +297,5 @@ class SearchViewModelTest {
             )
         }
     }
+
 }

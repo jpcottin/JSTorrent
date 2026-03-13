@@ -11,6 +11,12 @@ val SearchPluginJson = Json {
     prettyPrint = true
 }
 
+const val MAX_PLUGIN_RESULTS = 50
+const val MAX_PLUGIN_LOGS = 100
+const val MAX_PLUGIN_REQUESTS = 50
+const val MAX_PLUGIN_STRING_LENGTH = 500
+const val MAX_PLUGIN_URL_LENGTH = 2048
+
 private fun trimOptionalString(value: String?): String? {
     val trimmed = value?.trim()
     return if (trimmed.isNullOrEmpty()) null else trimmed
@@ -128,5 +134,61 @@ fun createInstalledPluginRecord(
         updatedAt = now,
         enabled = true,
         code = code
+    )
+}
+
+private fun clampString(value: String?, maxLength: Int = MAX_PLUGIN_STRING_LENGTH): String? {
+    val trimmed = value?.trim() ?: return null
+    if (trimmed.isEmpty()) return null
+    return trimmed.take(maxLength)
+}
+
+private fun clampUrl(value: String?): String? {
+    return clampString(value, MAX_PLUGIN_URL_LENGTH)
+}
+
+fun sanitizeSearchResult(result: SearchResult): SearchResult {
+    return result.copy(
+        name = clampString(result.name) ?: "Untitled result",
+        source = clampString(result.source) ?: "Unknown source",
+        magnetUrl = clampUrl(result.magnetUrl),
+        torrentUrl = clampUrl(result.torrentUrl),
+        infoHash = clampString(result.infoHash, 64),
+        detailsUrl = clampUrl(result.detailsUrl)
+    )
+}
+
+fun sanitizeRunTrace(trace: SearchPluginRunTrace): SearchPluginRunTrace {
+    return trace.copy(
+        results = trace.results
+            .take(MAX_PLUGIN_RESULTS)
+            .map(::sanitizeSearchResult),
+        logs = trace.logs
+            .take(MAX_PLUGIN_LOGS)
+            .map { log ->
+                log.copy(message = clampString(log.message) ?: "")
+            },
+        requests = trace.requests
+            .take(MAX_PLUGIN_REQUESTS)
+            .map { request ->
+                request.copy(
+                    url = clampUrl(request.url) ?: "",
+                    method = clampString(request.method, 16) ?: "GET",
+                    remoteAddress = clampString(request.remoteAddress, 128),
+                    error = clampString(request.error)
+                )
+            },
+        error = trace.error?.copy(
+            name = clampString(trace.error.name, 64) ?: "Error",
+            message = clampString(trace.error.message) ?: "Plugin failed",
+            stack = clampString(trace.error.stack, 4_000)
+        )
+    )
+}
+
+fun sanitizeDraftRunResult(result: SearchPluginDraftRunResult): SearchPluginDraftRunResult {
+    return result.copy(
+        manifest = result.manifest?.let { normalizeSearchPluginManifest(it) },
+        trace = sanitizeRunTrace(result.trace)
     )
 }

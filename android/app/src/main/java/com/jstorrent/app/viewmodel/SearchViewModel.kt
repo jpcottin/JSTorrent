@@ -16,7 +16,10 @@ import com.jstorrent.app.search.SearchPluginRepository
 import com.jstorrent.app.search.SearchPluginSearchInput
 import com.jstorrent.app.search.SearchPluginSettingsStore
 import com.jstorrent.app.search.SearchRunSummary
+import com.jstorrent.app.search.sanitizeDraftRunResult
 import com.jstorrent.app.util.Formatters
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +48,8 @@ class SearchViewModel(
     private val addTorrent: (String) -> Unit,
     private val onClearedCallback: () -> Unit = {}
 ) : ViewModel() {
+
+    private var searchJob: Job? = null
 
     private val _uiState = MutableStateFlow(
         SearchUiState(
@@ -135,7 +140,8 @@ class SearchViewModel(
             return
         }
 
-        viewModelScope.launch {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
             _uiState.value = state.copy(
                 isSearching = true,
                 searchedOnce = true,
@@ -156,6 +162,8 @@ class SearchViewModel(
             state.enabledPlugins.forEach { plugin ->
                 val draft = runCatching {
                     runtime.runDraft(plugin.code, input)
+                }.mapCatching { result ->
+                    sanitizeDraftRunResult(result)
                 }.getOrElse { error ->
                     com.jstorrent.app.search.SearchPluginDraftRunResult(
                         manifest = plugin.manifest,
@@ -191,16 +199,30 @@ class SearchViewModel(
                 }
             }
 
-            _uiState.value = _uiState.value.copy(
-                isSearching = false,
-                results = sortResults(results),
-                runSummaries = summaries,
-                errorMessage = if (results.isEmpty() && summaries.all { !it.ok && it.errorMessage != null }) {
-                    summaries.firstNotNullOfOrNull { it.errorMessage }
-                } else {
-                    null
+            try {
+                _uiState.value = _uiState.value.copy(
+                    isSearching = false,
+                    results = sortResults(results),
+                    runSummaries = summaries,
+                    errorMessage = when {
+                        results.isEmpty() && summaries.all { !it.ok && it.errorMessage != null } -> {
+                            summaries.firstNotNullOfOrNull { it.errorMessage }
+                        }
+                        results.isEmpty() && summaries.any { !it.ok && it.errorMessage != null } -> {
+                            "No results. One or more plugins failed."
+                        }
+                        else -> null
+                    }
+                )
+            } catch (error: CancellationException) {
+                throw error
+            }
+        }.also { job ->
+            job.invokeOnCompletion { error ->
+                if (error is CancellationException && _uiState.value.isSearching) {
+                    _uiState.value = _uiState.value.copy(isSearching = false)
                 }
-            )
+            }
         }
     }
 
@@ -259,6 +281,7 @@ class SearchViewModel(
     }
 
     override fun onCleared() {
+        searchJob?.cancel()
         onClearedCallback()
         super.onCleared()
     }

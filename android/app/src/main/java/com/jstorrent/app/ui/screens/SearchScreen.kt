@@ -38,6 +38,7 @@ import com.jstorrent.app.R
 import com.jstorrent.app.search.RecommendedSearchPlugin
 import com.jstorrent.app.search.SearchDisplayResult
 import com.jstorrent.app.search.SearchPluginManifest
+import com.jstorrent.app.search.SearchRunSummary
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 import com.jstorrent.app.viewmodel.SearchUiState
 import com.jstorrent.app.viewmodel.SearchViewModel
@@ -155,6 +156,19 @@ fun SearchScreenContent(
                 }
             }
 
+            if (uiState.runSummaries.isNotEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.search_sources_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+                items(uiState.runSummaries, key = { it.pluginId }) { summary ->
+                    SearchRunSummaryCard(summary = summary)
+                }
+            }
+
             uiState.statusMessage?.let { message ->
                 item {
                     StatusMessage(message = message, isError = false)
@@ -165,6 +179,44 @@ fun SearchScreenContent(
                     StatusMessage(message = message, isError = true)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SearchRunSummaryCard(
+    summary: SearchRunSummary
+) {
+    OutlinedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = summary.pluginName,
+                style = MaterialTheme.typography.titleSmall
+            )
+            Text(
+                text = if (summary.ok) {
+                    stringResource(
+                        R.string.search_source_success,
+                        summary.resultCount,
+                        summary.durationMs
+                    )
+                } else {
+                    summary.errorMessage ?: stringResource(R.string.search_source_failed)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (summary.ok) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
     }
 }

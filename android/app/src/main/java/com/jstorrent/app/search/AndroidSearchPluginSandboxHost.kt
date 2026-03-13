@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -19,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -105,10 +107,11 @@ class AndroidSearchPluginSandboxHost(
 
     override suspend fun inspectSource(source: String): SearchPluginSourceInspection {
         ensureReady()
-        val deferred = withContext(mainDispatcher) {
+        val (requestId, deferred) = withContext(mainDispatcher) {
             check(!disposed) { "Sandbox host is disposed" }
             val requestId = nextRequestId++
-            CompletableDeferred<SearchPluginSourceInspection>().also { pending ->
+            val deferred = CompletableDeferred<SearchPluginSourceInspection>()
+            deferred.also { pending ->
                 pendingInspections[requestId] = pending
                 dispatchToSandbox(
                     SearchPluginJson.encodeToString(
@@ -119,8 +122,16 @@ class AndroidSearchPluginSandboxHost(
                     )
                 )
             }
+            requestId to deferred
         }
-        return deferred.await()
+        return try {
+            withTimeout(INSPECT_TIMEOUT_MS) { deferred.await() }
+        } catch (error: Exception) {
+            withContext(mainDispatcher) {
+                pendingInspections.remove(requestId)
+            }
+            throw error
+        }
     }
 
     override suspend fun runDraft(
@@ -129,10 +140,11 @@ class AndroidSearchPluginSandboxHost(
     ): SearchPluginDraftRunResult {
         val inspection = inspectSource(source)
         ensureReady()
-        val deferred = withContext(mainDispatcher) {
+        val (requestId, deferred) = withContext(mainDispatcher) {
             check(!disposed) { "Sandbox host is disposed" }
             val requestId = nextRequestId++
-            CompletableDeferred<SearchPluginDraftRunResult>().also { pending ->
+            val deferred = CompletableDeferred<SearchPluginDraftRunResult>()
+            deferred.also { pending ->
                 pendingRuns[requestId] = pending
                 requestPolicies[requestId] = SearchPluginFetchPolicy(
                     allowedHosts = inspection.manifest.hosts
@@ -147,8 +159,17 @@ class AndroidSearchPluginSandboxHost(
                     )
                 )
             }
+            requestId to deferred
         }
-        return deferred.await()
+        return try {
+            withTimeout(RUN_TIMEOUT_MS) { deferred.await() }
+        } catch (error: Exception) {
+            withContext(mainDispatcher) {
+                pendingRuns.remove(requestId)
+                requestPolicies.remove(requestId)
+            }
+            throw error
+        }
     }
 
     fun dispose() {
@@ -183,7 +204,7 @@ class AndroidSearchPluginSandboxHost(
             }
             readyDeferred
         }
-        ready.await()
+        withTimeout(READY_TIMEOUT_MS) { ready.await() }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -305,12 +326,16 @@ class AndroidSearchPluginSandboxHost(
             return
         }
 
-        val inspection = SearchPluginJson.decodeFromJsonElement<SearchPluginSourceInspection>(inspectionElement)
-        pending.complete(
-            SearchPluginSourceInspection(
-                manifest = normalizeSearchPluginManifest(inspection.manifest)
+        try {
+            val inspection = SearchPluginJson.decodeFromJsonElement<SearchPluginSourceInspection>(inspectionElement)
+            pending.complete(
+                SearchPluginSourceInspection(
+                    manifest = normalizeSearchPluginManifest(inspection.manifest)
+                )
             )
-        )
+        } catch (error: Exception) {
+            pending.completeExceptionally(error)
+        }
     }
 
     private fun handleRunResult(root: JsonObject) {
@@ -324,12 +349,14 @@ class AndroidSearchPluginSandboxHost(
             return
         }
 
-        val result = SearchPluginJson.decodeFromJsonElement<SearchPluginDraftRunResult>(resultElement)
-        pending.complete(
-            result.copy(
-                manifest = result.manifest?.let { normalizeSearchPluginManifest(it) }
+        try {
+            val result = SearchPluginJson.decodeFromJsonElement<SearchPluginDraftRunResult>(resultElement)
+            pending.complete(
+                sanitizeDraftRunResult(result)
             )
-        )
+        } catch (error: Exception) {
+            pending.completeExceptionally(error)
+        }
     }
 
     private fun handleFetchRequest(root: JsonObject) {
@@ -403,6 +430,9 @@ class AndroidSearchPluginSandboxHost(
         )
     }
 
+    @VisibleForTesting
+    internal fun currentWebViewInstanceId(): Int? = webView?.hashCode()
+
     private class SearchPluginJavascriptBridge(
         private val onMessage: (String) -> Unit
     ) {
@@ -416,6 +446,9 @@ class AndroidSearchPluginSandboxHost(
 
     companion object {
         private const val BRIDGE_NAME = "AndroidSearchPluginBridge"
+        private const val READY_TIMEOUT_MS = 10_000L
+        private const val INSPECT_TIMEOUT_MS = 10_000L
+        private const val RUN_TIMEOUT_MS = 30_000L
         private const val SANDBOX_ASSET_URL =
             "file:///android_asset/search-plugin-sandbox/search-plugin-sandbox.html"
         private const val SANDBOX_ASSET_PREFIX =
