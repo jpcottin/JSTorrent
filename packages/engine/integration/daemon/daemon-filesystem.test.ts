@@ -192,6 +192,25 @@ describe('DaemonFileSystem Integration', () => {
     expect(new TextDecoder().decode(buffer)).toBe('Mixed special chars')
   })
 
+  it('should handle unicode paths (v2 API)', async () => {
+    const filename = 'Каталог/файл-привет.txt'
+    const data = new TextEncoder().encode('Unicode path test')
+
+    const handle = await fs1.open(filename, 'w')
+    await handle.write(data, 0, data.length, 0)
+    await handle.close()
+
+    expect(await fs1.exists(filename)).toBe(true)
+
+    const readHandle = await fs1.open(filename, 'r')
+    const buffer = new Uint8Array(data.length)
+    const { bytesRead } = await readHandle.read(buffer, 0, data.length, 0)
+    await readHandle.close()
+
+    expect(bytesRead).toBe(data.length)
+    expect(new TextDecoder().decode(buffer)).toBe('Unicode path test')
+  })
+
   it('should verify DaemonFileHandle supports verified writes', async () => {
     const handle = await fs1.open('verify-support.txt', 'w')
     expect(supportsVerifiedWrite(handle)).toBe(true)

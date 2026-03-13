@@ -1,5 +1,6 @@
 package com.jstorrent.app.bencode
 
+import java.io.ByteArrayOutputStream
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -82,6 +83,49 @@ class TorrentMetadataTest {
 
         assertEquals("subdir/file2", metadata.files[1].path)
         assertEquals(200L, metadata.files[1].size)
+    }
+
+    @Test
+    fun `prefer utf-8 name and path fields`() {
+        val out = ByteArrayOutputStream()
+        val fallbackName = "fallback".toByteArray(Charsets.UTF_8)
+        val utf8Name = "Каталог".toByteArray(Charsets.UTF_8)
+        val fallbackPath = "fallback.txt".toByteArray(Charsets.UTF_8)
+        val utf8Path = "файл.txt".toByteArray(Charsets.UTF_8)
+
+        fun writeAscii(value: String) {
+            out.write(value.toByteArray(Charsets.US_ASCII))
+        }
+
+        fun writeBytes(bytes: ByteArray) {
+            writeAscii("${bytes.size}:")
+            out.write(bytes)
+        }
+
+        writeAscii("d")
+        writeAscii("5:filesl")
+        writeAscii("d6:lengthi100e")
+        writeAscii("4:pathl")
+        writeBytes(fallbackPath)
+        writeAscii("e")
+        writeAscii("10:path.utf-8l")
+        writeBytes(utf8Path)
+        writeAscii("ee")
+        writeAscii("e")
+        writeAscii("4:name")
+        writeBytes(fallbackName)
+        writeAscii("10:name.utf-8")
+        writeBytes(utf8Name)
+        writeAscii("12:piece lengthi16384e")
+        writeAscii("6:pieces0:")
+        writeAscii("e")
+
+        val infoDict = BencodeDecoder.decode(out.toByteArray()) as BencodeValue.BDict
+
+        val metadata = TorrentMetadata.fromInfoDict(infoDict)
+
+        assertEquals("Каталог", metadata.name)
+        assertEquals("файл.txt", metadata.files[0].path)
     }
 
     // =========================================================================

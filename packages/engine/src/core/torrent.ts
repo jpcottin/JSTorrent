@@ -64,6 +64,7 @@ import { WriteError, classifyError, getRetryDelay } from './write-error'
 import { VerifyChunkResult } from '../interfaces/filesystem'
 import type { VerifyChunksRequest, IFileSystem } from '../interfaces/filesystem'
 import { WebSeedHttpClient } from '../webseed/web-seed-http-client'
+import { getPreferredTorrentName } from './torrent-metadata'
 import {
   DEFAULT_MAX_WEB_SEED_REQUEST_BYTES,
   WebSeedManager,
@@ -1979,8 +1980,9 @@ export class Torrent extends EngineComponent {
   get name(): string {
     // Try to get from info dict (cached, avoids repeated parsing)
     const info = this.infoDict
-    if (info?.name) {
-      return toString(info.name as Uint8Array)
+    const name = getPreferredTorrentName(info)
+    if (name) {
+      return name
     }
 
     // Fallback to magnet display name

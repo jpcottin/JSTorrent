@@ -1,5 +1,5 @@
 import { IFileHandle } from '../../interfaces/filesystem'
-import { toHex } from '../../utils/buffer'
+import { toBase64, toHex } from '../../utils/buffer'
 import {
   WriteError,
   resultCodeToErrorType,
@@ -309,7 +309,7 @@ export class DaemonFileHandle implements IFileHandle {
     length: number,
     position: number,
   ): Promise<{ bytesRead: number }> {
-    const pathB64 = btoa(this.path)
+    const pathB64 = toBase64(new TextEncoder().encode(this.path))
 
     const data = await this.connection.requestBinaryWithHeaders('GET', `/read/${this.rootKey}`, {
       'X-Path-Base64': pathB64,
@@ -350,7 +350,7 @@ export class DaemonFileHandle implements IFileHandle {
     data: Uint8Array,
     position: number,
   ): Promise<{ bytesWritten: number }> {
-    const pathB64 = btoa(this.path)
+    const pathB64 = toBase64(new TextEncoder().encode(this.path))
 
     const headers: Record<string, string> = {
       'X-Path-Base64': pathB64,

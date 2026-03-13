@@ -4,6 +4,7 @@ import { PeerConnection } from '../../src/core/peer-connection'
 import { ISocketFactory, ITcpSocket } from '../../src/interfaces/socket'
 import { MockEngine } from '../utils/mock-engine'
 import type { BtEngine } from '../../src/core/bt-engine'
+import { fromString } from '../../src/utils/buffer'
 
 describe('Torrent Stats', () => {
   let torrent: Torrent
@@ -89,5 +90,20 @@ describe('Torrent Stats', () => {
 
     expect(torrent.downloadSpeed).toBe(300)
     expect(torrent.uploadSpeed).toBe(150)
+  })
+
+  it('should prefer name.utf-8 when reporting torrent name', () => {
+    ;(torrent as unknown as { _cachedInfoDict: Record<string, unknown> })._cachedInfoDict = {
+      name: fromString('fallback'),
+      'name.utf-8': fromString('Каталог'),
+    }
+
+    expect(torrent.name).toBe('Каталог')
+  })
+
+  it('should fall back to magnet display name when metadata is unavailable', () => {
+    torrent._magnetDisplayName = 'Magnet Name'
+
+    expect(torrent.name).toBe('Magnet Name')
   })
 })

@@ -50,4 +50,39 @@ describe('TorrentParser', () => {
       'https://mirror.example.com/root/',
     ])
   })
+
+  it('prefers utf-8 name/path/comment fields over legacy variants', async () => {
+    const buffer = Bencode.encode({
+      comment: 'legacy comment',
+      'comment.utf-8': 'русский комментарий',
+      'created by': 'legacy creator',
+      'created by.utf-8': 'Юникод автор',
+      info: {
+        name: 'fallback-name',
+        'name.utf-8': 'Каталог',
+        'piece length': 16384,
+        pieces: new Uint8Array(20),
+        files: [
+          {
+            length: 5,
+            path: ['fallback.txt'],
+            'path.utf-8': ['файл.txt'],
+          },
+        ],
+      },
+    })
+
+    const parsed = await TorrentParser.parse(buffer, hasher)
+
+    expect(parsed.name).toBe('Каталог')
+    expect(parsed.files).toEqual([
+      {
+        path: 'Каталог/файл.txt',
+        length: 5,
+        offset: 0,
+      },
+    ])
+    expect(parsed.comment).toBe('русский комментарий')
+    expect(parsed.createdBy).toBe('Юникод автор')
+  })
 })

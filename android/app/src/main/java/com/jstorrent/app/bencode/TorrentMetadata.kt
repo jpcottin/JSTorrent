@@ -23,6 +23,22 @@ data class TorrentMetadata(
     val isSingleFile: Boolean get() = files.size == 1
 
     companion object {
+        private fun BencodeValue.BDict.getPreferredString(vararg keys: String): String? {
+            for (key in keys) {
+                val value = getString(key)
+                if (value != null) return value
+            }
+            return null
+        }
+
+        private fun BencodeValue.BDict.getPreferredList(vararg keys: String): BencodeValue.BList? {
+            for (key in keys) {
+                val value = getList(key)
+                if (value != null) return value
+            }
+            return null
+        }
+
         /**
          * Parse metadata from a complete .torrent file (has "info" key at root).
          */
@@ -50,7 +66,7 @@ data class TorrentMetadata(
          * Parse metadata from a raw info dictionary (already decoded).
          */
         fun fromInfoDict(infoDict: BencodeValue.BDict): TorrentMetadata {
-            val name = infoDict.getString("name")
+            val name = infoDict.getPreferredString("name.utf-8", "name")
                 ?: throw BencodeException("Missing 'name' in info dictionary")
 
             val pieceLength = infoDict.getInt("piece length")
@@ -69,7 +85,7 @@ data class TorrentMetadata(
                     val fileDict = item as? BencodeValue.BDict
                         ?: throw BencodeException("File entry $index is not a dictionary")
 
-                    val pathList = fileDict.getList("path")
+                    val pathList = fileDict.getPreferredList("path.utf-8", "path")
                         ?: throw BencodeException("Missing 'path' in file entry $index")
 
                     val pathParts = pathList.items.map { part ->
