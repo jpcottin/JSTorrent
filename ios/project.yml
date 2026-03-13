@@ -1,0 +1,58 @@
+name: JSTorrent
+options:
+  minimumXcodeGenVersion: 2.38.0
+  bundleIdPrefix: com.jstorrent
+packages:
+  JSTorrentKit:
+    path: JSTorrentKit
+targets:
+  JSTorrent:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: JSTorrent/App
+    resources:
+      - path: JSTorrent/Resources
+    dependencies:
+      - package: JSTorrentKit
+        product: JSTorrentKit
+    preBuildScripts:
+      - name: Sync Engine Bundle
+        script: |
+          if [ -x "${SRCROOT}/scripts/sync-engine-bundle.sh" ]; then
+            "${SRCROOT}/scripts/sync-engine-bundle.sh"
+          fi
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jstorrent.ios
+        PRODUCT_NAME: JSTorrent
+        SWIFT_VERSION: 5.10
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        SUPPORTS_MACCATALYST: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+  JSTorrentAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: JSTorrentAppTests
+    dependencies:
+      - package: JSTorrentKit
+        product: JSTorrentKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jstorrent.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: 5.10
+schemes:
+  JSTorrent:
+    build:
+      targets:
+        JSTorrent: all
+        JSTorrentAppTests: [test]
+    test:
+      targets:
+        - JSTorrentAppTests
