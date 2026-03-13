@@ -887,11 +887,17 @@ public final class SocketBindings: @unchecked Sendable {
 
         managed.closeDelivered = true
         tcpConnections.removeValue(forKey: managed.socketID)
-        dispatchValueCallback(callbacks.tcpOnClose, arguments: [managed.socketID, hadError])
+        dispatchTCPCallbackAfterFlushingData(
+            callbacks.tcpOnClose,
+            arguments: [.value(managed.socketID), .value(hadError)]
+        )
     }
 
     private func reportTCPError(socketID: Int, message: String) {
-        dispatchValueCallback(callbacks.tcpOnError, arguments: [socketID, message])
+        dispatchTCPCallbackAfterFlushingData(
+            callbacks.tcpOnError,
+            arguments: [.value(socketID), .value(message)]
+        )
     }
 
     private func hasGlobalFunction(_ name: String) -> Bool {
@@ -913,6 +919,20 @@ public final class SocketBindings: @unchecked Sendable {
 
     private func dispatchCallback(_ callback: JSValue, arguments: [JSFunctionArgument]) {
         engine.jsQueue.async {
+            _ = try? self.engine.callFunction(callback, arguments: arguments)
+        }
+    }
+
+    private func dispatchTCPCallbackAfterFlushingData(
+        _ callback: JSValue?,
+        arguments: [JSFunctionArgument]
+    ) {
+        guard let callback else {
+            return
+        }
+
+        engine.jsQueue.async {
+            self.flushTCP()
             _ = try? self.engine.callFunction(callback, arguments: arguments)
         }
     }

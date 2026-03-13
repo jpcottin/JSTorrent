@@ -1,11 +1,132 @@
 import CryptoKit
+import Foundation
 import JavaScriptCore
+import Darwin
 import XCTest
 @testable import JSTorrentKit
 
 final class JSEngineTests: XCTestCase {
     private final class LogCapture: @unchecked Sendable {
         var value: (String, String)?
+    }
+
+    private final class LocalTCPServer {
+        let port: Int
+
+        private let listenFD: Int32
+        private let payload: Data
+        private let lock = NSLock()
+        private var clientFD: Int32 = -1
+        private var didSendPayload = false
+
+        init(payload: Data) throws {
+            self.payload = payload
+            let listenFD = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+
+            guard listenFD >= 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+
+            var reuse: Int32 = 1
+            _ = setsockopt(
+                listenFD,
+                SOL_SOCKET,
+                SO_REUSEADDR,
+                &reuse,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+
+            var address = sockaddr_in()
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = in_port_t(0).bigEndian
+            address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+            let bindResult = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { pointer in
+                    Darwin.bind(listenFD, pointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            guard bindResult == 0, Darwin.listen(listenFD, 1) == 0 else {
+                Darwin.close(listenFD)
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+
+            var boundAddress = sockaddr_in()
+            var boundLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let nameResult = withUnsafeMutablePointer(to: &boundAddress) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { pointer in
+                    getsockname(listenFD, pointer, &boundLength)
+                }
+            }
+            guard nameResult == 0 else {
+                Darwin.close(listenFD)
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+
+            port = Int(UInt16(bigEndian: boundAddress.sin_port))
+            self.listenFD = listenFD
+
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                var clientAddress = sockaddr_in()
+                var clientLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+                let acceptedFD = withUnsafeMutablePointer(to: &clientAddress) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { pointer in
+                        Darwin.accept(self.listenFD, pointer, &clientLength)
+                    }
+                }
+                guard acceptedFD >= 0 else {
+                    return
+                }
+
+                lock.lock()
+                clientFD = acceptedFD
+                lock.unlock()
+
+                payload.withUnsafeBytes { rawBuffer in
+                    guard let baseAddress = rawBuffer.baseAddress else {
+                        return
+                    }
+
+                    var sent = 0
+                    while sent < rawBuffer.count {
+                        let bytesSent = Darwin.send(
+                            acceptedFD,
+                            baseAddress.advanced(by: sent),
+                            rawBuffer.count - sent,
+                            0
+                        )
+                        if bytesSent <= 0 {
+                            break
+                        }
+                        sent += bytesSent
+                    }
+                }
+
+                lock.lock()
+                didSendPayload = true
+                lock.unlock()
+            }
+        }
+
+        func payloadWasSent() -> Bool {
+            lock.lock()
+            let snapshot = didSendPayload
+            lock.unlock()
+            return snapshot
+        }
+
+        func stop() {
+            lock.lock()
+            let acceptedFD = clientFD
+            clientFD = -1
+            lock.unlock()
+
+            if acceptedFD >= 0 {
+                Darwin.close(acceptedFD)
+            }
+            Darwin.close(listenFD)
+        }
     }
 
     private func makeBindingsEnvironment() throws -> (JSEngine, NativeBindings, URL, UserDefaults, String) {
@@ -1129,6 +1250,102 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(decoded["errors"] as? [[String: String]], [])
 
         _ = try engine.evaluate("__jstorrent_tcp_server_close(501)", filename: "tcp-server-close.js")
+    }
+
+    func testTCPCloseDeliversQueuedDataBeforeCloseCallback() throws {
+        let (engine, _, _, baseDirectory, userDefaults, suiteName) = try makeSocketEnvironment()
+        let server = try LocalTCPServer(payload: Data("tail".utf8))
+        defer {
+            server.stop()
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        _ = try engine.evaluate(
+            """
+            globalThis.__tcpOrderState = {
+              connected: null,
+              events: [],
+              received: {}
+            };
+
+            __jstorrent_tcp_on_connected((socketId, success, errorMessage) => {
+              __tcpOrderState.connected = { socketId, success, errorMessage };
+            });
+
+            __jstorrent_tcp_on_close((socketId, hadError) => {
+              __tcpOrderState.events.push(`close:${socketId}:${hadError}`);
+            });
+
+            globalThis.__jstorrent_tcp_dispatch_batch = (packed) => {
+              const view = new DataView(packed);
+              let offset = 0;
+              const count = view.getUint32(offset, true);
+              offset += 4;
+
+              for (let i = 0; i < count; i++) {
+                const socketId = view.getUint32(offset, true);
+                offset += 4;
+                const len = view.getUint32(offset, true);
+                offset += 4;
+                const data = packed.slice(offset, offset + len);
+                offset += len;
+                const text = __jstorrent_text_decode(data);
+                (__tcpOrderState.received[socketId] ||= []).push(text);
+                __tcpOrderState.events.push(`data:${socketId}:${text}`);
+              }
+            };
+            """,
+            filename: "tcp-close-order-init.js"
+        )
+
+        _ = try engine.evaluate(
+            "__jstorrent_tcp_connect(201, '127.0.0.1', \(server.port));",
+            filename: "tcp-close-order-connect.js"
+        )
+
+        try waitUntil {
+            let result = try engine.evaluate(
+                "__tcpOrderState.connected && __tcpOrderState.connected.success === true",
+                filename: "tcp-close-order-connected.js"
+            )
+            return result?.toBool() ?? false
+        }
+
+        try waitUntil(timeout: 2.0, pollInterval: 0.01) {
+            server.payloadWasSent()
+        }
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        _ = try engine.evaluate(
+            "__jstorrent_tcp_close(201);",
+            filename: "tcp-close-order-close.js"
+        )
+
+        try waitUntil(timeout: 3.0, pollInterval: 0.01) {
+            let result = try engine.evaluate(
+                """
+                __tcpOrderState.events.some((event) => event === "close:201:false")
+                """,
+                filename: "tcp-close-order-close-wait.js"
+            )
+            return result?.toBool() ?? false
+        }
+
+        let result = try engine.evaluate(
+            "JSON.stringify(__tcpOrderState)",
+            filename: "tcp-close-order-final.js"
+        )
+        let payload = try XCTUnwrap(result?.toString().data(using: .utf8))
+        let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+        let received = try XCTUnwrap(decoded["received"] as? [String: [String]])
+        XCTAssertEqual(received["201"], ["tail"])
+
+        let events = try XCTUnwrap(decoded["events"] as? [String])
+        let dataIndex = try XCTUnwrap(events.firstIndex(of: "data:201:tail"))
+        let closeIndex = try XCTUnwrap(events.firstIndex(of: "close:201:false"))
+        XCTAssertLessThan(dataIndex, closeIndex)
     }
 
     func testUDPBindingsSupportLoopbackBatchFlush() throws {
