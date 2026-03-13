@@ -34,6 +34,15 @@ const engineManager = new DaemonEngineManager(channel)
 window.engineManager = engineManager
 
 const isDevMode = channel.isDevMode()
+const SEARCH_PLUGINS_UI_FLAG = 'jstorrent:ff:searchPluginsUi'
+
+function isSearchPluginsUiEnabled(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(SEARCH_PLUGINS_UI_FLAG) === '1'
+  } catch {
+    return false
+  }
+}
 
 /**
  * ChromeAppContent - Wrapper around AppContent that provides Chrome-specific callbacks.
@@ -128,6 +137,7 @@ function App() {
   const [searchPluginsOpen, setSearchPluginsOpen] = useState(false)
   // Force re-render for stats updates (engine object is mutable)
   const [statsRevision, forceUpdate] = useState(0)
+  const searchPluginsUiEnabled = isSearchPluginsUiEnabled()
 
   // ConfigHub is available after engine init - apply UI caches when ready
   const configHub = engineManager.configHub
@@ -442,25 +452,27 @@ function App() {
                 <span style={{ fontSize: '14px' }}>&#x1F41B;</span>
                 Report Bug
               </button>
-              <button
-                onClick={() => setSearchPluginsOpen(true)}
-                style={{
-                  background: 'var(--button-bg)',
-                  border: '1px solid var(--border-color)',
-                  cursor: 'pointer',
-                  padding: '6px 12px',
-                  fontSize: '13px',
-                  color: 'var(--text-primary)',
-                  borderRadius: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-                title="Manage search plugins"
-              >
-                <span style={{ fontSize: '14px' }}>⌕</span>
-                Plugins
-              </button>
+              {searchPluginsUiEnabled && (
+                <button
+                  onClick={() => setSearchPluginsOpen(true)}
+                  style={{
+                    background: 'var(--button-bg)',
+                    border: '1px solid var(--border-color)',
+                    cursor: 'pointer',
+                    padding: '6px 12px',
+                    fontSize: '13px',
+                    color: 'var(--text-primary)',
+                    borderRadius: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                  title="Manage search plugins"
+                >
+                  <span style={{ fontSize: '14px' }}>⌕</span>
+                  Plugins
+                </button>
+              )}
               <button
                 onClick={() => setSettingsOpen(true)}
                 style={{
@@ -595,10 +607,12 @@ function App() {
               setActiveTab={setSettingsTab}
             />
           )}
-          <SearchPluginsOverlay
-            isOpen={searchPluginsOpen}
-            onClose={() => setSearchPluginsOpen(false)}
-          />
+          {searchPluginsUiEnabled && (
+            <SearchPluginsOverlay
+              isOpen={searchPluginsOpen}
+              onClose={() => setSearchPluginsOpen(false)}
+            />
+          )}
         </div>
       </SearchPluginServiceProvider>
     </EngineManagerProvider>
