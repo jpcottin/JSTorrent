@@ -6,6 +6,7 @@
   "ios_torrent_row_peers_label": "Peers",
   "ios_torrent_row_download_label": "Down",
   "ios_torrent_row_upload_label": "Up",
+  "ios_speed_value": "%1$@/s",
   "ios_add_test_torrent": "Add Test Torrent",
   "content_root_documents_label": "Documents",
   "engine_status_idle": "Idle",

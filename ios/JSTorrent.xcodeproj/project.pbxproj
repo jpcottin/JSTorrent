@@ -8,6 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		14D0DEBA4AE9FF71DE45C20E /* engine.bundle.js in Resources */ = {isa = PBXBuildFile; fileRef = D42EBCCAD88FA4BCC13FBFA9 /* engine.bundle.js */; };
+		2B0000014B0D500000A11001 /* AddTorrentSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0000114B0D500000A11001 /* AddTorrentSheet.swift */; };
+		2B0000024B0D500000A11001 /* TorrentDetailScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0000124B0D500000A11001 /* TorrentDetailScreen.swift */; };
+		2B0000034B0D500000A11001 /* TorrentListScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0000134B0D500000A11001 /* TorrentListScreen.swift */; };
+		2B0000044B0D500000A11001 /* TorrentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0000144B0D500000A11001 /* TorrentPresentation.swift */; };
+		2B0000054B0D500000A11001 /* TorrentRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0000154B0D500000A11001 /* TorrentRowView.swift */; };
 		2A99DDB24B0D3D1000A11001 /* Localization in Resources */ = {isa = PBXBuildFile; fileRef = 2A99DDB14B0D3D1000A11001 /* Localization */; };
 		6CCBAA87D0DCC327C53968D3 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B012998E4009CF290CCAF7E /* ContentView.swift */; };
 		7B7E4FD32DF59FC52DE694D2 /* JSTorrentApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CB7D9B46BAA2B050B421FF /* JSTorrentApp.swift */; };
@@ -19,6 +24,11 @@
 
 /* Begin PBXFileReference section */
 		2A99DDB14B0D3D1000A11001 /* Localization */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Localization; sourceTree = "<group>"; };
+		2B0000114B0D500000A11001 /* AddTorrentSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddTorrentSheet.swift; sourceTree = "<group>"; };
+		2B0000124B0D500000A11001 /* TorrentDetailScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentDetailScreen.swift; sourceTree = "<group>"; };
+		2B0000134B0D500000A11001 /* TorrentListScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentListScreen.swift; sourceTree = "<group>"; };
+		2B0000144B0D500000A11001 /* TorrentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentPresentation.swift; sourceTree = "<group>"; };
+		2B0000154B0D500000A11001 /* TorrentRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentRowView.swift; sourceTree = "<group>"; };
 		55EE78D153C235CF3D6F72D9 /* JSTorrentAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = JSTorrentAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5B012998E4009CF290CCAF7E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		77CB7D9B46BAA2B050B421FF /* JSTorrentApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSTorrentApp.swift; sourceTree = "<group>"; };
@@ -87,9 +97,14 @@
 		F89205EDE715410077131A31 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				2B0000114B0D500000A11001 /* AddTorrentSheet.swift */,
 				8F71B3A14B0D3D1000A11001 /* AppLocalization.swift */,
 				5B012998E4009CF290CCAF7E /* ContentView.swift */,
 				77CB7D9B46BAA2B050B421FF /* JSTorrentApp.swift */,
+				2B0000124B0D500000A11001 /* TorrentDetailScreen.swift */,
+				2B0000134B0D500000A11001 /* TorrentListScreen.swift */,
+				2B0000144B0D500000A11001 /* TorrentPresentation.swift */,
+				2B0000154B0D500000A11001 /* TorrentRowView.swift */,
 			);
 			name = App;
 			path = JSTorrent/App;
@@ -224,6 +239,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2B0000014B0D500000A11001 /* AddTorrentSheet.swift in Sources */,
+				2B0000024B0D500000A11001 /* TorrentDetailScreen.swift in Sources */,
+				2B0000034B0D500000A11001 /* TorrentListScreen.swift in Sources */,
+				2B0000044B0D500000A11001 /* TorrentPresentation.swift in Sources */,
+				2B0000054B0D500000A11001 /* TorrentRowView.swift in Sources */,
 				8F71B3A24B0D3D1000A11001 /* AppLocalization.swift in Sources */,
 				6CCBAA87D0DCC327C53968D3 /* ContentView.swift in Sources */,
 				7B7E4FD32DF59FC52DE694D2 /* JSTorrentApp.swift in Sources */,

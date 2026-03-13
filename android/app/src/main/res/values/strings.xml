@@ -8,6 +8,7 @@
     <string name="ios_torrent_row_peers_label">Peers</string>
     <string name="ios_torrent_row_download_label">Down</string>
     <string name="ios_torrent_row_upload_label">Up</string>
+    <string name="ios_speed_value">%1$s/s</string>
     <string name="ios_add_test_torrent">Add Test Torrent</string>
     <string name="content_root_documents_label">Documents</string>
     <string name="engine_status_idle">Idle</string>
