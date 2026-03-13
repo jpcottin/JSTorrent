@@ -173,6 +173,19 @@ public final class EngineController: ObservableObject {
         }
     }
 
+    public func removeTorrent(_ torrent: TorrentListItem) {
+        guard let runtime else {
+            return
+        }
+
+        do {
+            try runtime.removeTorrent(torrent.infoHash)
+        } catch {
+            lastError = error.localizedDescription
+            status = .failed(error.localizedDescription)
+        }
+    }
+
     func applyStateUpdate(payload: String) {
         guard let data = payload.data(using: .utf8) else {
             return

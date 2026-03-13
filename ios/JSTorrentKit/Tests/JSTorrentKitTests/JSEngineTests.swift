@@ -1318,6 +1318,48 @@ final class JSEngineTests: XCTestCase {
         )
     }
 
+    func testRuntimeRemoveCommandInvokesJSGlobal() throws {
+        let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            throw XCTSkip("Failed to create isolated UserDefaults suite")
+        }
+
+        let baseDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let runtime = try JSTorrentRuntime(
+            userDefaults: userDefaults,
+            fileBaseDirectory: baseDirectory
+        )
+
+        try runtime.engine.evaluate(
+            """
+            globalThis.__remove_calls = [];
+            globalThis.__jstorrent_cmd_remove = async function (infoHash, deleteFiles) {
+              globalThis.__remove_calls.push([infoHash, deleteFiles]);
+              return { ok: true };
+            };
+            """,
+            filename: "runtime-remove-test.js"
+        )
+
+        try runtime.removeTorrent("remove-hash", deleteFiles: true)
+
+        XCTAssertEqual(
+            try runtime.engine.evaluate("__remove_calls[0][0]", filename: "runtime-remove-read.js")?.toString(),
+            "remove-hash"
+        )
+        XCTAssertEqual(
+            try runtime.engine.evaluate("__remove_calls[0][1]", filename: "runtime-remove-read.js")?.toBool(),
+            true
+        )
+    }
+
     func testRuntimeLoadsRealBundleAndInitializesInHostMode() throws {
         let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
         guard let userDefaults = UserDefaults(suiteName: suiteName) else {

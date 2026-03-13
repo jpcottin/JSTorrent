@@ -142,6 +142,15 @@ public final class JSTorrentRuntime {
         )
     }
 
+    public func removeTorrent(_ infoHash: String, deleteFiles: Bool = false) throws {
+        let infoHashLiteral = try jsonLiteral(infoHash)
+        let deleteFilesLiteral = deleteFiles ? "true" : "false"
+        _ = try engine.evaluate(
+            "__jstorrent_cmd_remove(\(infoHashLiteral), \(deleteFilesLiteral))",
+            filename: "runtime-remove-torrent.js"
+        )
+    }
+
     public func tick() throws -> EngineTickResult {
         let value = try engine.callGlobalFunction("__jstorrent_engine_tick")
         let packed = try engine.data(from: value) ?? Data()

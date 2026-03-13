@@ -75,6 +75,11 @@ struct ContentView: View {
                                 .controlSize(.small)
                             }
                             .padding(.vertical, 4)
+                            .swipeActions {
+                                Button("Remove", role: .destructive) {
+                                    controller.removeTorrent(torrent)
+                                }
+                            }
                         }
                     }
                 }
