@@ -76,3 +76,6 @@ memory-magnet2.txt
 android/tmp/
 docs/investigations/android-memory-results/
 docs/design_docs/media-ecosystem.md
+
+# Generated iOS engine bundle
+ios/JSTorrent/Resources/engine.bundle.js
