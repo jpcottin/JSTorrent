@@ -1254,6 +1254,29 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(controller.torrents.first?.numPeers, 12)
     }
 
+    func testTorrentListItemDecodesQueryTorrentListPeerShape() throws {
+        let data = Data(
+            """
+            {
+              "torrents": [
+                {
+                  "infoHash": "abc123",
+                  "name": "Ubuntu ISO",
+                  "progress": 0.5,
+                  "downloadSpeed": 1024,
+                  "uploadSpeed": 512,
+                  "status": "downloading",
+                  "peersConnected": 7
+                }
+              ]
+            }
+            """.utf8
+        )
+
+        let payload = try JSONDecoder().decode(EngineStatePayload.self, from: data)
+        XCTAssertEqual(payload.torrents?.first?.numPeers, 7)
+    }
+
     @MainActor
     func testEngineControllerAppliesStructuredRuntimeErrorPayload() {
         let controller = EngineController(
@@ -1316,6 +1339,50 @@ final class JSEngineTests: XCTestCase {
             try runtime.engine.evaluate("__resume_calls[0]", filename: "runtime-command-read.js")?.toString(),
             "resume-hash"
         )
+    }
+
+    func testRuntimeQueryTorrentListDecodesResponse() throws {
+        let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            throw XCTSkip("Failed to create isolated UserDefaults suite")
+        }
+
+        let baseDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let runtime = try JSTorrentRuntime(
+            userDefaults: userDefaults,
+            fileBaseDirectory: baseDirectory
+        )
+
+        try runtime.engine.evaluate(
+            """
+            globalThis.__jstorrent_query_torrent_list = function () {
+              return JSON.stringify({
+                torrents: [{
+                  infoHash: "query-hash",
+                  name: "Query Torrent",
+                  progress: 0.25,
+                  downloadSpeed: 1,
+                  uploadSpeed: 2,
+                  status: "downloading",
+                  peersConnected: 3
+                }]
+              });
+            };
+            """,
+            filename: "runtime-query-torrent-list-test.js"
+        )
+
+        let payload = try runtime.queryTorrentList()
+        XCTAssertEqual(payload.torrents?.count, 1)
+        XCTAssertEqual(payload.torrents?.first?.name, "Query Torrent")
+        XCTAssertEqual(payload.torrents?.first?.numPeers, 3)
     }
 
     func testRuntimeRemoveCommandInvokesJSGlobal() throws {
@@ -1415,5 +1482,54 @@ final class JSEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(tick.delayMs, 0)
         XCTAssertTrue(sink.errors.isEmpty)
         XCTAssertFalse(sink.stateUpdates.isEmpty)
+    }
+
+    func testRuntimeAddTestTorrentAppearsInStateUpdates() throws {
+        let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            throw XCTSkip("Failed to create isolated UserDefaults suite")
+        }
+
+        let baseDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let sink = NativeEventSink()
+        let runtime = try JSTorrentRuntime(
+            eventSink: sink,
+            userDefaults: userDefaults,
+            fileBaseDirectory: baseDirectory
+        )
+        let bundleURL = repositoryRootURL()
+            .appendingPathComponent("packages/engine/dist/engine.native.js")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
+
+        try runtime.loadBundle(from: bundleURL)
+        try runtime.initialize(
+            with: EngineBootstrapConfig(
+                contentRoots: [ContentRoot(key: "default", label: "Default")],
+                defaultContentRoot: "default",
+                shouldRemainSuspended: true
+            )
+        )
+
+        try waitUntil {
+            try runtime.isInitialized()
+        }
+
+        try runtime.setTickMode(.host)
+        try runtime.subscribe(type: "torrents", intervalMs: 50)
+        try runtime.addTestTorrent()
+
+        try waitUntil(timeout: 3.0) {
+            _ = try runtime.tick()
+            return sink.stateUpdates.contains(where: { $0.contains("testdata_100mb.bin") })
+        }
+
+        XCTAssertTrue(sink.errors.isEmpty)
     }
 }

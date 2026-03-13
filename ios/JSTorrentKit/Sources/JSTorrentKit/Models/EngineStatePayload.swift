@@ -9,6 +9,31 @@ public struct TorrentListItem: Decodable, Equatable, Identifiable, Sendable {
     public let status: String
     public let numPeers: Int
 
+    private enum CodingKeys: String, CodingKey {
+        case infoHash
+        case name
+        case progress
+        case downloadSpeed
+        case uploadSpeed
+        case status
+        case numPeers
+        case peersConnected
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        infoHash = try container.decode(String.self, forKey: .infoHash)
+        name = try container.decode(String.self, forKey: .name)
+        progress = try container.decode(Double.self, forKey: .progress)
+        downloadSpeed = try container.decodeIfPresent(Int.self, forKey: .downloadSpeed) ?? 0
+        uploadSpeed = try container.decodeIfPresent(Int.self, forKey: .uploadSpeed) ?? 0
+        status = try container.decode(String.self, forKey: .status)
+        numPeers =
+            try container.decodeIfPresent(Int.self, forKey: .numPeers)
+            ?? container.decodeIfPresent(Int.self, forKey: .peersConnected)
+            ?? 0
+    }
+
     public var id: String { infoHash }
 
     public var isStopped: Bool {

@@ -37,6 +37,7 @@ public final class EngineController: ObservableObject {
     private let tickQueue = DispatchQueue(label: "com.jstorrent.ios.tick")
     private var tickTimer: DispatchSourceTimer?
     private let minimumTickDelayMs: Int32 = 1
+    private let subscriptionIntervalMs = 100
     private var runtime: JSTorrentRuntime?
 
     public init(
@@ -77,10 +78,11 @@ public final class EngineController: ObservableObject {
             )
             try runtime.loadDefaultBundle(in: bundle)
             try runtime.initialize(with: bootstrapConfig)
-            try runtime.subscribe(type: "torrents", intervalMs: 500)
+            try runtime.subscribe(type: "torrents", intervalMs: subscriptionIntervalMs)
 
             self.runtime = runtime
             resume()
+            scheduleTorrentRefreshes()
         } catch {
             status = .failed(error.localizedDescription)
             lastError = error.localizedDescription
@@ -137,6 +139,7 @@ public final class EngineController: ObservableObject {
         do {
             try runtime.addTorrent(input)
             magnetInput = ""
+            scheduleTorrentRefreshes()
         } catch {
             lastError = error.localizedDescription
             status = .failed(error.localizedDescription)
@@ -150,6 +153,7 @@ public final class EngineController: ObservableObject {
 
         do {
             try runtime.addTestTorrent()
+            scheduleTorrentRefreshes()
         } catch {
             lastError = error.localizedDescription
             status = .failed(error.localizedDescription)
@@ -167,6 +171,7 @@ public final class EngineController: ObservableObject {
             } else {
                 try runtime.pauseTorrent(torrent.infoHash)
             }
+            scheduleTorrentRefreshes()
         } catch {
             lastError = error.localizedDescription
             status = .failed(error.localizedDescription)
@@ -180,6 +185,7 @@ public final class EngineController: ObservableObject {
 
         do {
             try runtime.removeTorrent(torrent.infoHash)
+            scheduleTorrentRefreshes()
         } catch {
             lastError = error.localizedDescription
             status = .failed(error.localizedDescription)
@@ -211,6 +217,35 @@ public final class EngineController: ObservableObject {
 
         lastError = payload
         status = .failed(payload)
+    }
+
+    private func refreshTorrentList() {
+        guard let runtime else {
+            return
+        }
+
+        do {
+            let payload = try runtime.queryTorrentList()
+            torrents = payload.torrents ?? []
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func scheduleTorrentRefreshes() {
+        for delayMs in [0, 150, 500] {
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+
+                if delayMs > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
+                }
+
+                self.refreshTorrentList()
+            }
+        }
     }
 
     private func startTickLoop() {

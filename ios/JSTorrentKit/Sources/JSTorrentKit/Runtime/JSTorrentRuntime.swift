@@ -126,6 +126,16 @@ public final class JSTorrentRuntime {
         )
     }
 
+    public func queryTorrentList() throws -> EngineStatePayload {
+        let payload = try engine.evaluate(
+            "__jstorrent_query_torrent_list()",
+            filename: "runtime-query-torrent-list.js"
+        )?.toString() ?? "{\"torrents\":[]}"
+
+        let data = Data(payload.utf8)
+        return try JSONDecoder().decode(EngineStatePayload.self, from: data)
+    }
+
     public func pauseTorrent(_ infoHash: String) throws {
         let infoHashLiteral = try jsonLiteral(infoHash)
         _ = try engine.evaluate(

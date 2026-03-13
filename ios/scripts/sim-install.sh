@@ -107,6 +107,10 @@ if $BUILD_BUNDLE; then
     pnpm -C "$REPO_ROOT/packages/engine" bundle:native
 fi
 
+# Sync engine bundle before xcodegen so the file exists when the project is generated
+# (otherwise xcodegen won't create a resource copy phase for it)
+"$SCRIPT_DIR/sync-engine-bundle.sh"
+
 echo ">>> Generating Xcode project..."
 xcodegen generate --spec "$PROJECT_SPEC"
 
