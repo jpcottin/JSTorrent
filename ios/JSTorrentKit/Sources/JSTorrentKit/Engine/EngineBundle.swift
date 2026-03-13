@@ -1,4 +1,5 @@
 import Foundation
+import JavaScriptCore
 
 public enum EngineBundleError: Error, LocalizedError {
     case fileNotFound(URL)
@@ -25,5 +26,10 @@ public enum EngineBundle {
         }
 
         return source
+    }
+
+    @discardableResult
+    public static func evaluate(from url: URL, using engine: JSEngine) throws -> JSValue? {
+        try engine.evaluateBundle(at: url)
     }
 }
