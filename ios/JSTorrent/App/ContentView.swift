@@ -51,15 +51,28 @@ struct ContentView: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(torrent.name)
                                     .font(.headline)
-                                Text(torrent.status.capitalized)
+                                Text(torrent.displayStatus)
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                                 HStack {
-                                    Text("\(Int(torrent.progress * 100))%")
+                                    Text("\(torrent.progressPercent)%")
                                     Spacer()
                                     Text("Peers \(torrent.numPeers)")
                                 }
                                 .font(.caption)
+                                HStack {
+                                    Text("Down \(torrent.downloadSpeed) B/s")
+                                    Spacer()
+                                    Text("Up \(torrent.uploadSpeed) B/s")
+                                }
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+
+                                Button(torrent.isStopped ? "Resume" : "Pause") {
+                                    controller.toggleTorrent(torrent)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
                             }
                             .padding(.vertical, 4)
                         }

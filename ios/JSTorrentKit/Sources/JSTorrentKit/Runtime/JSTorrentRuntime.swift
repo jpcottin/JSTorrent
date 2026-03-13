@@ -126,6 +126,22 @@ public final class JSTorrentRuntime {
         )
     }
 
+    public func pauseTorrent(_ infoHash: String) throws {
+        let infoHashLiteral = try jsonLiteral(infoHash)
+        _ = try engine.evaluate(
+            "__jstorrent_cmd_pause(\(infoHashLiteral))",
+            filename: "runtime-pause-torrent.js"
+        )
+    }
+
+    public func resumeTorrent(_ infoHash: String) throws {
+        let infoHashLiteral = try jsonLiteral(infoHash)
+        _ = try engine.evaluate(
+            "__jstorrent_cmd_resume(\(infoHashLiteral))",
+            filename: "runtime-resume-torrent.js"
+        )
+    }
+
     public func tick() throws -> EngineTickResult {
         let value = try engine.callGlobalFunction("__jstorrent_engine_tick")
         let packed = try engine.data(from: value) ?? Data()

@@ -1272,6 +1272,52 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(controller.status, .failed("Disk write failed"))
     }
 
+    func testRuntimePauseAndResumeCommandsInvokeJSGlobals() throws {
+        let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            throw XCTSkip("Failed to create isolated UserDefaults suite")
+        }
+
+        let baseDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let runtime = try JSTorrentRuntime(
+            userDefaults: userDefaults,
+            fileBaseDirectory: baseDirectory
+        )
+
+        try runtime.engine.evaluate(
+            """
+            globalThis.__pause_calls = [];
+            globalThis.__resume_calls = [];
+            globalThis.__jstorrent_cmd_pause = function (infoHash) {
+              globalThis.__pause_calls.push(infoHash);
+            };
+            globalThis.__jstorrent_cmd_resume = function (infoHash) {
+              globalThis.__resume_calls.push(infoHash);
+            };
+            """,
+            filename: "runtime-command-test.js"
+        )
+
+        try runtime.pauseTorrent("pause-hash")
+        try runtime.resumeTorrent("resume-hash")
+
+        XCTAssertEqual(
+            try runtime.engine.evaluate("__pause_calls[0]", filename: "runtime-command-read.js")?.toString(),
+            "pause-hash"
+        )
+        XCTAssertEqual(
+            try runtime.engine.evaluate("__resume_calls[0]", filename: "runtime-command-read.js")?.toString(),
+            "resume-hash"
+        )
+    }
+
     func testRuntimeLoadsRealBundleAndInitializesInHostMode() throws {
         let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
         guard let userDefaults = UserDefaults(suiteName: suiteName) else {

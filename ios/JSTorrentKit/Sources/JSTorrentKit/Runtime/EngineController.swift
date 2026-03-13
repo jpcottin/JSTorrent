@@ -156,6 +156,23 @@ public final class EngineController: ObservableObject {
         }
     }
 
+    public func toggleTorrent(_ torrent: TorrentListItem) {
+        guard let runtime else {
+            return
+        }
+
+        do {
+            if torrent.isStopped {
+                try runtime.resumeTorrent(torrent.infoHash)
+            } else {
+                try runtime.pauseTorrent(torrent.infoHash)
+            }
+        } catch {
+            lastError = error.localizedDescription
+            status = .failed(error.localizedDescription)
+        }
+    }
+
     func applyStateUpdate(payload: String) {
         guard let data = payload.data(using: .utf8) else {
             return
