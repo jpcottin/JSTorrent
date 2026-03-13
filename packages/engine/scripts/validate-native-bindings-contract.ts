@@ -117,7 +117,11 @@ function assert(condition: unknown, message: string): asserts condition {
   }
 }
 
-function validateRequiredPlatforms(platforms: PlatformId[], allowed: Set<PlatformId>, name: string): void {
+function validateRequiredPlatforms(
+  platforms: PlatformId[],
+  allowed: Set<PlatformId>,
+  name: string,
+): void {
   assert(platforms.length > 0, `${name} must declare at least one required platform`)
   for (const platform of platforms) {
     assert(allowed.has(platform), `${name} references unknown platform ${platform}`)
@@ -125,22 +129,37 @@ function validateRequiredPlatforms(platforms: PlatformId[], allowed: Set<Platfor
 }
 
 function validateContract(contract: NativeBindingsContract, declaredSymbols: Set<string>): void {
-  assert(contract.contractVersion === 1, `Unsupported native bindings contractVersion ${contract.contractVersion}`)
-  assert(contract.behaviorVersion === 1, `Unsupported native bindings behaviorVersion ${contract.behaviorVersion}`)
+  assert(
+    contract.contractVersion === 1,
+    `Unsupported native bindings contractVersion ${contract.contractVersion}`,
+  )
+  assert(
+    contract.behaviorVersion === 1,
+    `Unsupported native bindings behaviorVersion ${contract.behaviorVersion}`,
+  )
 
   const allowedPlatforms = new Set(contract.platforms)
   const allowedCapabilities = new Set(contract.capabilities.map((capability) => capability.id))
   const seenNames = new Set<string>()
 
   assert(contract.capabilities.length > 0, 'Native bindings contract must declare capabilities')
-  assert(Object.keys(contract.sharedCodes).length > 0, 'Native bindings contract must declare sharedCodes')
-  assert(Object.keys(contract.packedFrames).length > 0, 'Native bindings contract must declare packedFrames')
+  assert(
+    Object.keys(contract.sharedCodes).length > 0,
+    'Native bindings contract must declare sharedCodes',
+  )
+  assert(
+    Object.keys(contract.packedFrames).length > 0,
+    'Native bindings contract must declare packedFrames',
+  )
 
   for (const symbol of contract.symbols) {
     assert(!seenNames.has(symbol.name), `Duplicate native binding symbol ${symbol.name}`)
     seenNames.add(symbol.name)
 
-    assert(declaredSymbols.has(symbol.name), `Contract symbol ${symbol.name} is missing from bindings.d.ts`)
+    assert(
+      declaredSymbols.has(symbol.name),
+      `Contract symbol ${symbol.name} is missing from bindings.d.ts`,
+    )
     validateRequiredPlatforms(symbol.requiredIn, allowedPlatforms, `Symbol ${symbol.name}`)
 
     if (symbol.availability === 'capability_gated') {
@@ -167,12 +186,18 @@ function validateContract(contract: NativeBindingsContract, declaredSymbols: Set
         symbol.direction === 'js_internal_callback_store',
         `Callback store ${symbol.name} must use js_internal_callback_store direction`,
       )
-      assert(symbol.itemArgKinds.length > 0, `Callback store ${symbol.name} must declare itemArgKinds`)
+      assert(
+        symbol.itemArgKinds.length > 0,
+        `Callback store ${symbol.name} must declare itemArgKinds`,
+      )
     }
   }
 
   for (const declaredSymbol of declaredSymbols) {
-    assert(seenNames.has(declaredSymbol), `bindings.d.ts symbol ${declaredSymbol} missing from contract`)
+    assert(
+      seenNames.has(declaredSymbol),
+      `bindings.d.ts symbol ${declaredSymbol} missing from contract`,
+    )
   }
 
   for (const [frameName, frame] of Object.entries(contract.packedFrames)) {
@@ -186,7 +211,10 @@ function validateContract(contract: NativeBindingsContract, declaredSymbols: Set
   const sharedCodeNames = Object.keys(contract.sharedCodes)
   assert(sharedCodeNames.includes('writeResultCode'), 'sharedCodes.writeResultCode is required')
   assert(sharedCodeNames.includes('readResultCode'), 'sharedCodes.readResultCode is required')
-  assert(sharedCodeNames.includes('verifyChunkResultByte'), 'sharedCodes.verifyChunkResultByte is required')
+  assert(
+    sharedCodeNames.includes('verifyChunkResultByte'),
+    'sharedCodes.verifyChunkResultByte is required',
+  )
 }
 
 function validateConformance(
@@ -211,21 +239,37 @@ function validateConformance(
     assert(!seenCaseIds.has(testCase.id), `Duplicate conformance case ${testCase.id}`)
     seenCaseIds.add(testCase.id)
 
-    validateRequiredPlatforms(testCase.requiredIn, allowedPlatforms, `Conformance case ${testCase.id}`)
-    assert(testCase.symbols.length > 0, `Conformance case ${testCase.id} must reference at least one symbol`)
+    validateRequiredPlatforms(
+      testCase.requiredIn,
+      allowedPlatforms,
+      `Conformance case ${testCase.id}`,
+    )
+    assert(
+      testCase.symbols.length > 0,
+      `Conformance case ${testCase.id} must reference at least one symbol`,
+    )
 
     if (testCase.availability === 'capability_gated') {
-      assert(testCase.capability, `Capability-gated conformance case ${testCase.id} must declare capability`)
+      assert(
+        testCase.capability,
+        `Capability-gated conformance case ${testCase.id} must declare capability`,
+      )
       assert(
         capabilityIds.has(testCase.capability),
         `Conformance case ${testCase.id} references unknown capability ${testCase.capability}`,
       )
     } else {
-      assert(!testCase.capability, `Required conformance case ${testCase.id} must not declare capability`)
+      assert(
+        !testCase.capability,
+        `Required conformance case ${testCase.id} must not declare capability`,
+      )
     }
 
     for (const symbol of testCase.symbols) {
-      assert(symbolNames.has(symbol), `Conformance case ${testCase.id} references unknown symbol ${symbol}`)
+      assert(
+        symbolNames.has(symbol),
+        `Conformance case ${testCase.id} references unknown symbol ${symbol}`,
+      )
     }
   }
 }

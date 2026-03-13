@@ -9,7 +9,7 @@ targets:
   JSTorrent:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: '16.0'
     sources:
       - path: JSTorrent/App
     resources:
@@ -32,11 +32,11 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         SUPPORTS_MACCATALYST: NO
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TARGETED_DEVICE_FAMILY: '1,2'
   JSTorrentAppTests:
     type: bundle.unit-test
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: '16.0'
     sources:
       - path: JSTorrentAppTests
     dependencies:
