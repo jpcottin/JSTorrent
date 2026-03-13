@@ -1224,6 +1224,36 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(gatewayValue?.toString(), "null")
     }
 
+    @MainActor
+    func testEngineControllerAppliesTorrentPayload() {
+        let controller = EngineController(
+            bootstrapConfig: EngineBootstrapConfig(contentRoots: [])
+        )
+
+        controller.applyStateUpdate(
+            payload: """
+            {
+              "torrents": [
+                {
+                  "infoHash": "abc123",
+                  "name": "Ubuntu ISO",
+                  "progress": 0.5,
+                  "downloadSpeed": 1024,
+                  "uploadSpeed": 512,
+                  "status": "downloading",
+                  "numPeers": 12
+                }
+              ]
+            }
+            """
+        )
+
+        XCTAssertEqual(controller.torrents.count, 1)
+        XCTAssertEqual(controller.torrents.first?.name, "Ubuntu ISO")
+        XCTAssertEqual(controller.torrents.first?.status, "downloading")
+        XCTAssertEqual(controller.torrents.first?.numPeers, 12)
+    }
+
     func testRuntimeLoadsRealBundleAndInitializesInHostMode() throws {
         let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
         guard let userDefaults = UserDefaults(suiteName: suiteName) else {

@@ -2,26 +2,73 @@ import SwiftUI
 import JSTorrentKit
 
 struct ContentView: View {
-    private let bootstrapConfig = EngineBootstrapConfig(
-        contentRoots: [
-            ContentRoot(key: "documents", label: "Documents")
-        ]
+    @StateObject private var controller = EngineController(
+        bootstrapConfig: EngineBootstrapConfig(
+            contentRoots: [
+                ContentRoot(key: "documents", label: "Documents")
+            ],
+            defaultContentRoot: "documents"
+        )
     )
 
     var body: some View {
         NavigationStack {
             List {
                 Section("Runtime") {
-                    LabeledContent("Platform", value: bootstrapConfig.platformType.rawValue)
-                    LabeledContent("Roots", value: String(bootstrapConfig.contentRoots.count))
+                    LabeledContent("Status", value: controller.status.label)
+                    LabeledContent("Torrents", value: String(controller.torrents.count))
                 }
 
-                Section("Status") {
-                    Text("iOS scaffold ready for JSCore host implementation.")
-                        .foregroundStyle(.secondary)
+                Section("Add Torrent") {
+                    TextField("Paste magnet link", text: $controller.magnetInput, axis: .vertical)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+
+                    Button("Add Magnet") {
+                        controller.addMagnet()
+                    }
+                    .disabled(controller.magnetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Button("Add Test Torrent") {
+                        controller.addTestTorrent()
+                    }
+                }
+
+                if let lastError = controller.lastError {
+                    Section("Error") {
+                        Text(lastError)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section("Torrents") {
+                    if controller.torrents.isEmpty {
+                        Text("No torrents yet.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(controller.torrents) { torrent in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(torrent.name)
+                                    .font(.headline)
+                                Text(torrent.status.capitalized)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                HStack {
+                                    Text("\(Int(torrent.progress * 100))%")
+                                    Spacer()
+                                    Text("Peers \(torrent.numPeers)")
+                                }
+                                .font(.caption)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
                 }
             }
             .navigationTitle("JSTorrent")
+            .task {
+                controller.startIfNeeded()
+            }
         }
     }
 }

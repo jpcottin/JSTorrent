@@ -111,6 +111,21 @@ public final class JSTorrentRuntime {
         )
     }
 
+    public func addTorrent(_ magnetOrBase64: String) throws {
+        let inputLiteral = try jsonLiteral(magnetOrBase64)
+        _ = try engine.evaluate(
+            "__jstorrent_cmd_add_torrent(\(inputLiteral))",
+            filename: "runtime-add-torrent.js"
+        )
+    }
+
+    public func addTestTorrent() throws {
+        _ = try engine.evaluate(
+            "__jstorrent_cmd_add_test_torrent()",
+            filename: "runtime-add-test-torrent.js"
+        )
+    }
+
     public func tick() throws -> EngineTickResult {
         let value = try engine.callGlobalFunction("__jstorrent_engine_tick")
         let packed = try engine.data(from: value) ?? Data()
