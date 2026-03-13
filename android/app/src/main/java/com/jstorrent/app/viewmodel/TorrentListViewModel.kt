@@ -319,6 +319,17 @@ class TorrentListViewModel(
         initialValue = 0L
     )
 
+    val trackedTorrentInfoHashes: StateFlow<Set<String>> = repository.state.map { state ->
+        state?.torrents
+            ?.map { it.infoHash.lowercase() }
+            ?.toSet()
+            ?: emptySet()
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptySet()
+    )
+
     /**
      * Engine error (e.g., JS initialization failure).
      * Exposed for UI to show toast notifications.

@@ -20,18 +20,31 @@ import com.jstorrent.app.search.sanitizeDraftRunResult
 import com.jstorrent.app.util.Formatters
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import java.util.Base64
+
+data class SearchResultItemUi(
+    val displayResult: SearchDisplayResult,
+    val resolvedInfoHash: String? = null,
+    val isTracked: Boolean = false,
+    val wasAddedFromSearch: Boolean = false
+) {
+    val stableId: String = displayResult.stableId
+    val canOpenDetails: Boolean = resolvedInfoHash != null && (isTracked || wasAddedFromSearch)
+}
 
 data class SearchUiState(
     val query: String = "",
     val category: String? = null,
     val categoryOptions: List<String> = emptyList(),
     val enabledPlugins: List<InstalledPluginRecord> = emptyList(),
-    val results: List<SearchDisplayResult> = emptyList(),
+    val selectedPluginIds: Set<String> = emptySet(),
+    val results: List<SearchResultItemUi> = emptyList(),
     val runSummaries: List<SearchRunSummary> = emptyList(),
     val recommendedPlugins: List<RecommendedSearchPlugin> = emptyList(),
     val isSearching: Boolean = false,
@@ -45,11 +58,15 @@ class SearchViewModel(
     private val store: SearchPluginSettingsStore,
     private val runtime: SearchPluginExecutionRuntime,
     private val fetcher: SearchPluginFetcher,
-    private val addTorrent: (String) -> Unit,
+    trackedTorrentInfoHashes: Flow<Set<String>> = flowOf(emptySet()),
+    private val addTorrent: (String, String) -> Unit,
     private val onClearedCallback: () -> Unit = {}
 ) : ViewModel() {
 
     private var searchJob: Job? = null
+    private var lastRawResults: List<SearchDisplayResult> = emptyList()
+    private var locallyAddedResultInfoHashes: Map<String, String> = emptyMap()
+    private var trackedInfoHashes: Set<String> = emptySet()
 
     private val _uiState = MutableStateFlow(
         SearchUiState(
@@ -59,6 +76,12 @@ class SearchViewModel(
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            trackedTorrentInfoHashes.collect { hashes ->
+                trackedInfoHashes = hashes.mapNotNull(::normalizeInfoHash).toSet()
+                refreshDecoratedResults()
+            }
+        }
         refreshEnabledPlugins()
     }
 
@@ -78,6 +101,41 @@ class SearchViewModel(
         )
     }
 
+    fun togglePluginSelection(pluginId: String) {
+        val state = _uiState.value
+        val enabledPluginIds = state.enabledPlugins.map { it.pluginId }.toSet()
+        if (pluginId !in enabledPluginIds) {
+            return
+        }
+        val updated = if (pluginId in state.selectedPluginIds) {
+            state.selectedPluginIds - pluginId
+        } else {
+            state.selectedPluginIds + pluginId
+        }
+        _uiState.value = state.copy(
+            selectedPluginIds = updated,
+            errorMessage = null,
+            statusMessage = null
+        )
+    }
+
+    fun selectAllPlugins() {
+        val state = _uiState.value
+        _uiState.value = state.copy(
+            selectedPluginIds = state.enabledPlugins.map { it.pluginId }.toSet(),
+            errorMessage = null,
+            statusMessage = null
+        )
+    }
+
+    fun clearPluginSelection() {
+        _uiState.value = _uiState.value.copy(
+            selectedPluginIds = emptySet(),
+            errorMessage = null,
+            statusMessage = null
+        )
+    }
+
     fun refreshEnabledPlugins() {
         viewModelScope.launch {
             runCatching {
@@ -90,10 +148,21 @@ class SearchViewModel(
                     .filter { it.isNotEmpty() }
                     .distinct()
                     .sorted()
-                val currentCategory = _uiState.value.category
+                val previousState = _uiState.value
+                val enabledPluginIds = enabledPlugins.map { it.pluginId }.toSet()
+                val currentCategory = previousState.category
                     ?.takeIf { it in categories }
+                val selectedPluginIds = when {
+                    enabledPluginIds.isEmpty() -> emptySet()
+                    previousState.selectedPluginIds.isNotEmpty() -> {
+                        previousState.selectedPluginIds.intersect(enabledPluginIds)
+                    }
+                    previousState.enabledPlugins.isEmpty() -> enabledPluginIds
+                    else -> emptySet()
+                }
                 _uiState.value = _uiState.value.copy(
                     enabledPlugins = enabledPlugins,
+                    selectedPluginIds = selectedPluginIds,
                     categoryOptions = categories,
                     category = currentCategory,
                     recommendedPlugins = store.recommendedPlugins()
@@ -116,6 +185,7 @@ class SearchViewModel(
                 val enabledPlugins = plugins.filter { it.enabled }
                 _uiState.value = _uiState.value.copy(
                     enabledPlugins = enabledPlugins,
+                    selectedPluginIds = enabledPlugins.map { it.pluginId }.toSet(),
                     categoryOptions = enabledPlugins.flatMap { it.manifest.categories.orEmpty() }.distinct().sorted(),
                     recommendedPlugins = store.recommendedPlugins(),
                     statusMessage = "${plugin.manifest.name} installed"
@@ -139,9 +209,16 @@ class SearchViewModel(
             _uiState.value = state.copy(errorMessage = "No search plugins are enabled")
             return
         }
+        val selectedPlugins = state.enabledPlugins.filter { it.pluginId in state.selectedPluginIds }
+        if (selectedPlugins.isEmpty()) {
+            _uiState.value = state.copy(errorMessage = "Select at least one search plugin")
+            return
+        }
 
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
+            lastRawResults = emptyList()
+            locallyAddedResultInfoHashes = emptyMap()
             _uiState.value = state.copy(
                 isSearching = true,
                 searchedOnce = true,
@@ -159,7 +236,7 @@ class SearchViewModel(
             val summaries = mutableListOf<SearchRunSummary>()
             val results = mutableListOf<SearchDisplayResult>()
 
-            state.enabledPlugins.forEach { plugin ->
+            selectedPlugins.forEach { plugin ->
                 val draft = runCatching {
                     runtime.runDraft(plugin.code, input)
                 }.mapCatching { result ->
@@ -200,9 +277,10 @@ class SearchViewModel(
             }
 
             try {
+                lastRawResults = sortResults(results)
                 _uiState.value = _uiState.value.copy(
                     isSearching = false,
-                    results = sortResults(results),
+                    results = decorateResults(lastRawResults),
                     runSummaries = summaries,
                     errorMessage = when {
                         results.isEmpty() && summaries.all { !it.ok && it.errorMessage != null } -> {
@@ -229,6 +307,7 @@ class SearchViewModel(
     fun addResult(displayResult: SearchDisplayResult) {
         viewModelScope.launch {
             val stableId = displayResult.stableId
+            val resolvedInfoHash = resolveResultInfoHash(displayResult)
             _uiState.value = _uiState.value.copy(
                 addingResultIds = _uiState.value.addingResultIds + stableId,
                 errorMessage = null,
@@ -238,7 +317,7 @@ class SearchViewModel(
             runCatching {
                 when {
                     !displayResult.result.magnetUrl.isNullOrBlank() -> {
-                        addTorrent(displayResult.result.magnetUrl)
+                        addTorrent(displayResult.result.magnetUrl, displayResult.result.name)
                     }
 
                     !displayResult.result.torrentUrl.isNullOrBlank() -> {
@@ -252,7 +331,10 @@ class SearchViewModel(
                         require(response.bodyBytes.isNotEmpty()) {
                             "Torrent download was empty"
                         }
-                        addTorrent(Base64.getEncoder().encodeToString(response.bodyBytes))
+                        addTorrent(
+                            Base64.getEncoder().encodeToString(response.bodyBytes),
+                            displayResult.result.name
+                        )
                     }
 
                     else -> {
@@ -260,8 +342,12 @@ class SearchViewModel(
                     }
                 }
             }.onSuccess {
+                if (resolvedInfoHash != null) {
+                    locallyAddedResultInfoHashes += stableId to resolvedInfoHash
+                }
                 _uiState.value = _uiState.value.copy(
                     addingResultIds = _uiState.value.addingResultIds - stableId,
+                    results = decorateResults(lastRawResults),
                     statusMessage = "Added ${displayResult.result.name}"
                 )
             }.onFailure { error ->
@@ -286,6 +372,28 @@ class SearchViewModel(
         super.onCleared()
     }
 
+    private fun refreshDecoratedResults() {
+        if (lastRawResults.isEmpty() && _uiState.value.results.isEmpty()) {
+            return
+        }
+        _uiState.value = _uiState.value.copy(
+            results = decorateResults(lastRawResults)
+        )
+    }
+
+    private fun decorateResults(results: List<SearchDisplayResult>): List<SearchResultItemUi> {
+        return results.map { result ->
+            val resolvedInfoHash = resolveResultInfoHash(result)
+            SearchResultItemUi(
+                displayResult = result,
+                resolvedInfoHash = resolvedInfoHash,
+                isTracked = resolvedInfoHash != null && resolvedInfoHash in trackedInfoHashes,
+                wasAddedFromSearch = resolvedInfoHash != null &&
+                    locallyAddedResultInfoHashes[result.stableId] == resolvedInfoHash
+            )
+        }
+    }
+
     companion object {
         fun sortResults(results: List<SearchDisplayResult>): List<SearchDisplayResult> {
             return results.sortedWith(
@@ -304,11 +412,33 @@ class SearchViewModel(
             }
             return parts.joinToString(" • ")
         }
+
+        fun resolveResultInfoHash(result: SearchDisplayResult): String? {
+            return normalizeInfoHash(result.result.infoHash)
+                ?: extractMagnetInfoHash(result.result.magnetUrl)
+        }
+
+        private fun extractMagnetInfoHash(magnetUrl: String?): String? {
+            val magnet = magnetUrl?.trim().orEmpty()
+            if (!magnet.startsWith("magnet:?", ignoreCase = true)) {
+                return null
+            }
+            val hash = magnet
+                .substringAfter("xt=urn:btih:", missingDelimiterValue = "")
+                .substringBefore('&')
+            return normalizeInfoHash(hash)
+        }
+
+        private fun normalizeInfoHash(value: String?): String? {
+            val normalized = value?.trim()?.lowercase().orEmpty()
+            return if (normalized.matches(Regex("^[0-9a-f]{40}$"))) normalized else null
+        }
     }
 
     class Factory(
         private val context: Context,
-        private val addTorrent: (String) -> Unit
+        private val trackedTorrentInfoHashes: Flow<Set<String>> = flowOf(emptySet()),
+        private val addTorrent: (String, String) -> Unit
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -322,6 +452,7 @@ class SearchViewModel(
                     store = repository,
                     runtime = host,
                     fetcher = com.jstorrent.app.search.SearchPluginFetchMediator(),
+                    trackedTorrentInfoHashes = trackedTorrentInfoHashes,
                     addTorrent = addTorrent,
                     onClearedCallback = host::dispose
                 ) as T

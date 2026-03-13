@@ -1,5 +1,6 @@
 package com.jstorrent.app.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Checkbox
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
@@ -19,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -36,10 +39,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.jstorrent.app.R
 import com.jstorrent.app.search.RecommendedSearchPlugin
-import com.jstorrent.app.search.SearchDisplayResult
 import com.jstorrent.app.search.SearchPluginManifest
 import com.jstorrent.app.search.SearchRunSummary
 import com.jstorrent.app.ui.theme.JSTorrentTheme
+import com.jstorrent.app.viewmodel.SearchResultItemUi
 import com.jstorrent.app.viewmodel.SearchUiState
 import com.jstorrent.app.viewmodel.SearchViewModel
 
@@ -48,6 +51,7 @@ import com.jstorrent.app.viewmodel.SearchViewModel
 fun SearchScreen(
     viewModel: SearchViewModel,
     onNavigateBack: () -> Unit,
+    onOpenTorrentDetails: (String) -> Unit,
     onManageSearchPlugins: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -55,9 +59,13 @@ fun SearchScreen(
     SearchScreenContent(
         uiState = uiState,
         onNavigateBack = onNavigateBack,
+        onOpenTorrentDetails = onOpenTorrentDetails,
         onManageSearchPlugins = onManageSearchPlugins,
         onQueryChanged = viewModel::onQueryChanged,
         onCategoryChanged = viewModel::onCategoryChanged,
+        onTogglePluginSelection = viewModel::togglePluginSelection,
+        onSelectAllPlugins = viewModel::selectAllPlugins,
+        onClearPluginSelection = viewModel::clearPluginSelection,
         onSearch = viewModel::search,
         onInstallRecommended = viewModel::installRecommendedPlugin,
         onAddResult = viewModel::addResult,
@@ -70,12 +78,16 @@ fun SearchScreen(
 fun SearchScreenContent(
     uiState: SearchUiState,
     onNavigateBack: () -> Unit,
+    onOpenTorrentDetails: (String) -> Unit,
     onManageSearchPlugins: () -> Unit,
     onQueryChanged: (String) -> Unit,
     onCategoryChanged: (String?) -> Unit,
+    onTogglePluginSelection: (String) -> Unit,
+    onSelectAllPlugins: () -> Unit,
+    onClearPluginSelection: () -> Unit,
     onSearch: () -> Unit,
     onInstallRecommended: (RecommendedSearchPlugin) -> Unit,
-    onAddResult: (SearchDisplayResult) -> Unit,
+    onAddResult: (com.jstorrent.app.search.SearchDisplayResult) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -104,6 +116,9 @@ fun SearchScreenContent(
                     uiState = uiState,
                     onQueryChanged = onQueryChanged,
                     onCategoryChanged = onCategoryChanged,
+                    onTogglePluginSelection = onTogglePluginSelection,
+                    onSelectAllPlugins = onSelectAllPlugins,
+                    onClearPluginSelection = onClearPluginSelection,
                     onSearch = onSearch
                 )
             }
@@ -151,7 +166,8 @@ fun SearchScreenContent(
                     SearchResultCard(
                         result = result,
                         isAdding = result.stableId in uiState.addingResultIds,
-                        onAddResult = { onAddResult(result) }
+                        onAddResult = { onAddResult(result.displayResult) },
+                        onOpenDetails = { infoHash -> onOpenTorrentDetails(infoHash) }
                     )
                 }
             }
@@ -226,6 +242,9 @@ private fun SearchFormCard(
     uiState: SearchUiState,
     onQueryChanged: (String) -> Unit,
     onCategoryChanged: (String?) -> Unit,
+    onTogglePluginSelection: (String) -> Unit,
+    onSelectAllPlugins: () -> Unit,
+    onClearPluginSelection: () -> Unit,
     onSearch: () -> Unit
 ) {
     val searchButtonContentDescription = stringResource(R.string.search_action_button)
@@ -254,6 +273,15 @@ private fun SearchFormCard(
                     modifier = Modifier.padding(top = 12.dp)
                 )
             }
+            if (uiState.enabledPlugins.size > 1) {
+                PluginSelectionSection(
+                    uiState = uiState,
+                    onTogglePluginSelection = onTogglePluginSelection,
+                    onSelectAllPlugins = onSelectAllPlugins,
+                    onClearPluginSelection = onClearPluginSelection,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+            }
             Button(
                 onClick = onSearch,
                 enabled = !uiState.isSearching,
@@ -271,6 +299,67 @@ private fun SearchFormCard(
                     text = stringResource(R.string.search_action),
                     modifier = Modifier.padding(start = 8.dp)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PluginSelectionSection(
+    uiState: SearchUiState,
+    onTogglePluginSelection: (String) -> Unit,
+    onSelectAllPlugins: () -> Unit,
+    onClearPluginSelection: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(
+                    R.string.search_plugins_label,
+                    uiState.selectedPluginIds.size,
+                    uiState.enabledPlugins.size
+                ),
+                style = MaterialTheme.typography.titleSmall
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onSelectAllPlugins) {
+                    Text(stringResource(R.string.search_plugins_all))
+                }
+                TextButton(onClick = onClearPluginSelection) {
+                    Text(stringResource(R.string.search_plugins_none))
+                }
+            }
+        }
+        uiState.enabledPlugins.forEach { plugin ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onTogglePluginSelection(plugin.pluginId) }
+                    .padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = plugin.pluginId in uiState.selectedPluginIds,
+                    onCheckedChange = null
+                )
+                Column(modifier = Modifier.padding(start = 8.dp)) {
+                    Text(
+                        text = plugin.manifest.name,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    plugin.manifest.description?.let { description ->
+                        Text(
+                            text = description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
     }
@@ -336,9 +425,10 @@ private fun EmptyPluginsCard(
 
 @Composable
 private fun SearchResultCard(
-    result: SearchDisplayResult,
+    result: SearchResultItemUi,
     isAdding: Boolean,
-    onAddResult: () -> Unit
+    onAddResult: () -> Unit,
+    onOpenDetails: (String) -> Unit
 ) {
     OutlinedCard(
         modifier = Modifier
@@ -349,16 +439,16 @@ private fun SearchResultCard(
             modifier = Modifier.padding(16.dp)
         ) {
             Text(
-                text = result.result.name,
+                text = result.displayResult.result.name,
                 style = MaterialTheme.typography.titleMedium
             )
             Text(
-                text = SearchViewModel.formatResultMeta(result),
+                text = SearchViewModel.formatResultMeta(result.displayResult),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp)
             )
-            result.result.detailsUrl?.let { url ->
+            result.displayResult.result.detailsUrl?.let { url ->
                 Text(
                     text = url,
                     style = MaterialTheme.typography.bodySmall,
@@ -366,18 +456,49 @@ private fun SearchResultCard(
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
-            Button(
-                onClick = onAddResult,
-                enabled = !isAdding,
-                modifier = Modifier.padding(top = 12.dp)
-            ) {
-                if (isAdding) {
-                    CircularProgressIndicator(
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.padding(end = 8.dp)
+            when {
+                result.isTracked -> {
+                    Text(
+                        text = stringResource(R.string.search_result_already_tracked),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 8.dp)
                     )
                 }
-                Text(stringResource(R.string.search_add_result))
+                result.wasAddedFromSearch -> {
+                    Text(
+                        text = stringResource(R.string.search_result_added),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (!result.isTracked && !result.wasAddedFromSearch) {
+                    Button(
+                        onClick = onAddResult,
+                        enabled = !isAdding
+                    ) {
+                        if (isAdding) {
+                            CircularProgressIndicator(
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                        }
+                        Text(stringResource(R.string.search_add_result))
+                    }
+                }
+                if (result.canOpenDetails) {
+                    OutlinedButton(
+                        onClick = { result.resolvedInfoHash?.let(onOpenDetails) }
+                    ) {
+                        Text(stringResource(R.string.search_open_details))
+                    }
+                }
             }
         }
     }
@@ -402,9 +523,13 @@ private fun SearchScreenPreview() {
                 )
             ),
             onNavigateBack = {},
+            onOpenTorrentDetails = {},
             onManageSearchPlugins = {},
             onQueryChanged = {},
             onCategoryChanged = {},
+            onTogglePluginSelection = {},
+            onSelectAllPlugins = {},
+            onClearPluginSelection = {},
             onSearch = {},
             onInstallRecommended = {},
             onAddResult = {}

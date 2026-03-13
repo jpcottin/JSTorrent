@@ -150,6 +150,9 @@
     <!-- SearchScreen -->
     <string name="search_query_label">Search query</string>
     <string name="search_category_label">Category</string>
+    <string name="search_plugins_label">Plugins (%1$d/%2$d)</string>
+    <string name="search_plugins_all">All</string>
+    <string name="search_plugins_none">None</string>
     <string name="search_action">Search</string>
     <string name="search_action_button">Run search</string>
     <string name="search_install_internet_archive">Install Internet Archive</string>
@@ -162,6 +165,9 @@
     <string name="search_source_success">%1$d results in %2$d ms</string>
     <string name="search_source_failed">Search failed</string>
     <string name="search_add_result">Add</string>
+    <string name="search_open_details">Open details</string>
+    <string name="search_result_added">Added from search</string>
+    <string name="search_result_already_tracked">Already in your torrent list</string>
 
     <!-- Common -->
     <string name="back">Back</string>

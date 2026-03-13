@@ -150,13 +150,20 @@ fun TorrentNavHost(
         composable(Routes.SEARCH) {
             val context = LocalContext.current
             val viewModel: SearchViewModel = viewModel(
-                factory = SearchViewModel.Factory(context) { magnetOrBase64 ->
+                factory = SearchViewModel.Factory(
+                    context = context,
+                    trackedTorrentInfoHashes = listViewModel.trackedTorrentInfoHashes
+                ) { magnetOrBase64, displayName ->
+                    listViewModel.addPendingNewTorrent(displayName)
                     listViewModel.addTorrent(magnetOrBase64)
                 }
             )
             SearchScreen(
                 viewModel = viewModel,
                 onNavigateBack = { navController.safePopBackStack() },
+                onOpenTorrentDetails = { infoHash ->
+                    navController.navigate(Routes.torrentDetail(infoHash))
+                },
                 onManageSearchPlugins = {
                     navController.navigate(Routes.SETTINGS_SEARCH_PLUGINS)
                 }
