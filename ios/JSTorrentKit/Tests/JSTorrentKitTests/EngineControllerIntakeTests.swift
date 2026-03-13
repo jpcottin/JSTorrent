@@ -6,6 +6,11 @@ import XCTest
 final class EngineControllerIntakeTests: XCTestCase {
     private final class MockRuntime: EngineRuntimeHandling {
         var addedTorrentInputs: [String] = []
+        var addTestTorrentCallCount = 0
+        var pausedInfoHashes: [String] = []
+        var resumedInfoHashes: [String] = []
+        var removedInfoHashes: [String] = []
+        var shutdownCallCount = 0
 
         func prepareDefaultBundle(in bundle: Bundle) throws {}
         func bootstrap(with config: EngineBootstrapConfig) throws {}
@@ -16,15 +21,25 @@ final class EngineControllerIntakeTests: XCTestCase {
             addedTorrentInputs.append(magnetOrBase64)
         }
 
-        func addTestTorrent() throws {}
+        func addTestTorrent() throws {
+            addTestTorrentCallCount += 1
+        }
 
         func queryTorrentList() throws -> EngineStatePayload {
             EngineStatePayload(torrents: [])
         }
 
-        func pauseTorrent(_ infoHash: String) throws {}
-        func resumeTorrent(_ infoHash: String) throws {}
-        func removeTorrent(_ infoHash: String, deleteFiles: Bool) throws {}
+        func pauseTorrent(_ infoHash: String) throws {
+            pausedInfoHashes.append(infoHash)
+        }
+
+        func resumeTorrent(_ infoHash: String) throws {
+            resumedInfoHashes.append(infoHash)
+        }
+
+        func removeTorrent(_ infoHash: String, deleteFiles: Bool) throws {
+            removedInfoHashes.append(infoHash)
+        }
 
         func tick() throws -> EngineTickResult {
             EngineTickResult(
@@ -39,6 +54,10 @@ final class EngineControllerIntakeTests: XCTestCase {
                 pipelineMax: 0,
                 pendingHashes: 0
             )
+        }
+
+        func shutdown() throws {
+            shutdownCallCount += 1
         }
     }
 
@@ -82,5 +101,52 @@ final class EngineControllerIntakeTests: XCTestCase {
         controller.handleIncomingURL(torrentURL)
 
         XCTAssertEqual(runtime.addedTorrentInputs, [torrentData.base64EncodedString()])
+    }
+
+    func testAddTestTorrentStartsRuntimeOnDemand() {
+        let runtime = MockRuntime()
+        let controller = makeController(runtime: runtime)
+
+        controller.addTestTorrent()
+
+        XCTAssertEqual(runtime.addTestTorrentCallCount, 1)
+        XCTAssertTrue(controller.isStarted)
+
+        controller.shutdown()
+    }
+
+    func testToggleTorrentStartsRuntimeOnDemand() {
+        let runtime = MockRuntime()
+        let controller = makeController(runtime: runtime)
+        let torrent = TorrentListItem(
+            infoHash: "abcdef0123456789abcdef0123456789abcdef01",
+            name: "Ubuntu",
+            progress: 0.5,
+            downloadSpeed: 0,
+            uploadSpeed: 0,
+            status: "stopped",
+            numPeers: 0
+        )
+
+        controller.toggleTorrent(torrent)
+
+        XCTAssertEqual(runtime.resumedInfoHashes, [torrent.infoHash])
+        XCTAssertTrue(controller.isStarted)
+
+        controller.shutdown()
+    }
+
+    func testShutdownReleasesRuntime() {
+        let runtime = MockRuntime()
+        let controller = makeController(runtime: runtime)
+
+        controller.startIfNeeded()
+        XCTAssertTrue(controller.isStarted)
+
+        controller.shutdown()
+
+        XCTAssertEqual(runtime.shutdownCallCount, 1)
+        XCTAssertFalse(controller.isStarted)
+        XCTAssertEqual(controller.status, .idle)
     }
 }

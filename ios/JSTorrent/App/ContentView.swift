@@ -112,18 +112,18 @@ struct ContentView: View {
                 controller.handleFileImportResult(result)
             }
             .task {
-                controller.startIfNeeded()
                 if scenePhase == .active {
-                    controller.resume()
+                    controller.resumeIfStarted()
                 }
             }
             .onChange(of: scenePhase) { newPhase in
                 switch newPhase {
                 case .active:
-                    controller.startIfNeeded()
-                    controller.resume()
-                case .inactive, .background:
-                    controller.suspend()
+                    controller.resumeIfStarted()
+                case .inactive:
+                    break
+                case .background:
+                    controller.shutdown()
                 @unknown default:
                     break
                 }

@@ -13,6 +13,7 @@ protocol EngineRuntimeHandling: AnyObject {
     func resumeTorrent(_ infoHash: String) throws
     func removeTorrent(_ infoHash: String, deleteFiles: Bool) throws
     func tick() throws -> EngineTickResult
+    func shutdown() throws
 }
 
 extension JSTorrentRuntime: EngineRuntimeHandling {
@@ -79,6 +80,10 @@ public final class EngineController: ObservableObject {
     private let subscriptionIntervalMs = 100
     private var runtime: (any EngineRuntimeHandling)?
     private var pendingTorrentPayloads: [String] = []
+
+    public var isStarted: Bool {
+        runtime != nil
+    }
 
     public init(
         bootstrapConfig: EngineBootstrapConfig,
@@ -165,6 +170,14 @@ public final class EngineController: ObservableObject {
         }
     }
 
+    public func resumeIfStarted() {
+        guard runtime != nil else {
+            return
+        }
+
+        resume()
+    }
+
     public func suspend() {
         stopTickLoop()
 
@@ -181,6 +194,24 @@ public final class EngineController: ObservableObject {
         } catch {
             handle(error)
         }
+    }
+
+    public func shutdown() {
+        stopTickLoop()
+
+        guard let runtime else {
+            status = .idle
+            return
+        }
+
+        do {
+            try runtime.shutdown()
+        } catch {
+            lastError = error.localizedDescription
+        }
+
+        self.runtime = nil
+        status = .idle
     }
 
     public func addMagnet() {
@@ -250,6 +281,8 @@ public final class EngineController: ObservableObject {
     }
 
     public func addTestTorrent() {
+        startIfNeeded()
+
         guard let runtime else {
             return
         }
@@ -264,6 +297,8 @@ public final class EngineController: ObservableObject {
     }
 
     public func toggleTorrent(_ torrent: TorrentListItem) {
+        startIfNeeded()
+
         guard let runtime else {
             return
         }
@@ -282,6 +317,8 @@ public final class EngineController: ObservableObject {
     }
 
     public func removeTorrent(_ torrent: TorrentListItem) {
+        startIfNeeded()
+
         guard let runtime else {
             return
         }

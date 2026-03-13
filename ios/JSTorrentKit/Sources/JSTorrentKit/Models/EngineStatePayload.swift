@@ -20,6 +20,24 @@ public struct TorrentListItem: Decodable, Equatable, Identifiable, Sendable {
         case peersConnected
     }
 
+    public init(
+        infoHash: String,
+        name: String,
+        progress: Double,
+        downloadSpeed: Int,
+        uploadSpeed: Int,
+        status: String,
+        numPeers: Int
+    ) {
+        self.infoHash = infoHash
+        self.name = name
+        self.progress = progress
+        self.downloadSpeed = downloadSpeed
+        self.uploadSpeed = uploadSpeed
+        self.status = status
+        self.numPeers = numPeers
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         infoHash = try container.decode(String.self, forKey: .infoHash)
