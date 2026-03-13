@@ -9,16 +9,27 @@ function loadSandboxAsset(fileName) {
   return fs.readFileSync(resolve(SANDBOX_ASSET_DIR, fileName), 'utf-8')
 }
 
+function buildSandboxHtml() {
+  const htmlTemplate = loadSandboxAsset('search-plugin-sandbox.html')
+  const jsSource = loadSandboxAsset('search-plugin-sandbox.js')
+
+  return htmlTemplate
+    .replace("script-src 'self' 'unsafe-eval'", "script-src 'unsafe-inline' 'unsafe-eval'")
+    .replace('<script src="./search-plugin-sandbox.js"></script>', `<script>\n${jsSource}\n</script>`)
+}
+
 export function sharedSearchPluginSandboxAssets() {
+  const htmlSource = buildSandboxHtml()
+  const jsSource = loadSandboxAsset('search-plugin-sandbox.js')
   const assets = [
     {
       fileName: 'search-plugin-sandbox.html',
-      source: loadSandboxAsset('search-plugin-sandbox.html'),
+      source: htmlSource,
       contentType: 'text/html; charset=utf-8',
     },
     {
       fileName: 'search-plugin-sandbox.js',
-      source: loadSandboxAsset('search-plugin-sandbox.js'),
+      source: jsSource,
       contentType: 'application/javascript; charset=utf-8',
     },
   ]
