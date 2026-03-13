@@ -1070,6 +1070,131 @@ final class JSEngineTests: XCTestCase {
         _ = try engine.evaluate("__jstorrent_tcp_server_close(501)", filename: "tcp-server-close.js")
     }
 
+    func testUDPBindingsSupportLoopbackBatchFlush() throws {
+        let (engine, _, _, baseDirectory, userDefaults, suiteName) = try makeSocketEnvironment()
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        _ = try engine.evaluate(
+            """
+            function encodeUtf8(str) {
+              return new Uint8Array(__jstorrent_text_encode(str));
+            }
+
+            globalThis.__udpState = {
+              bounds: {},
+              received: {}
+            };
+
+            __jstorrent_udp_on_bound((socketId, success, port) => {
+              __udpState.bounds[socketId] = { success, port };
+            });
+
+            globalThis.__jstorrent_udp_dispatch_batch = (packed) => {
+              const view = new DataView(packed);
+              const bytes = new Uint8Array(packed);
+              let offset = 0;
+              const count = view.getUint32(offset, true);
+              offset += 4;
+
+              for (let i = 0; i < count; i++) {
+                const socketId = view.getUint32(offset, true);
+                offset += 4;
+                const srcPort = view.getUint16(offset, true);
+                offset += 2;
+                const addrLen = bytes[offset];
+                offset += 1;
+                const addr = __jstorrent_text_decode(bytes.slice(offset, offset + addrLen).buffer);
+                offset += addrLen;
+                const dataLen = view.getUint32(offset, true);
+                offset += 4;
+                const data = packed.slice(offset, offset + dataLen);
+                offset += dataLen;
+
+                (__udpState.received[socketId] ||= []).push({
+                  addr,
+                  port: srcPort,
+                  text: __jstorrent_text_decode(data)
+                });
+              }
+            };
+
+            __jstorrent_udp_bind(201, "127.0.0.1", 0);
+            __jstorrent_udp_bind(202, "127.0.0.1", 0);
+            """,
+            filename: "udp-loopback-init.js"
+        )
+
+        try waitUntil {
+            let result = try engine.evaluate(
+                """
+                Boolean(
+                  __udpState.bounds["201"] &&
+                  __udpState.bounds["202"] &&
+                  __udpState.bounds["201"].success === true &&
+                  __udpState.bounds["202"].success === true
+                )
+                """,
+                filename: "udp-bound-check.js"
+            )
+            return result?.toBool() ?? false
+        }
+
+        _ = try engine.evaluate(
+            """
+            const port201 = __udpState.bounds["201"].port;
+            const port202 = __udpState.bounds["202"].port;
+            __jstorrent_udp_send(201, "127.0.0.1", port202, encodeUtf8("alpha"));
+            __jstorrent_udp_send(202, "127.0.0.1", port201, encodeUtf8("beta"));
+            __jstorrent_udp_join_multicast(201, "224.0.0.251");
+            __jstorrent_udp_leave_multicast(201, "224.0.0.251");
+            """,
+            filename: "udp-send.js"
+        )
+
+        try waitUntil {
+            _ = try engine.evaluate("__jstorrent_udp_flush()", filename: "udp-flush.js")
+            let result = try engine.evaluate(
+                """
+                Boolean(
+                  __udpState.received["201"] &&
+                  __udpState.received["201"][0].text === "beta" &&
+                  __udpState.received["202"] &&
+                  __udpState.received["202"][0].text === "alpha"
+                )
+                """,
+                filename: "udp-receive-check.js"
+            )
+            return result?.toBool() ?? false
+        }
+
+        let result = try engine.evaluate(
+            "JSON.stringify(__udpState)",
+            filename: "udp-final-state.js"
+        )
+
+        let payload = try XCTUnwrap(result?.toString().data(using: .utf8))
+        let decoded = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        )
+        let bounds = try XCTUnwrap(decoded["bounds"] as? [String: [String: Any]])
+        XCTAssertEqual(bounds["201"]?["success"] as? Bool, true)
+        XCTAssertEqual(bounds["202"]?["success"] as? Bool, true)
+        XCTAssertGreaterThan(bounds["201"]?["port"] as? Int ?? 0, 0)
+        XCTAssertGreaterThan(bounds["202"]?["port"] as? Int ?? 0, 0)
+
+        let received = try XCTUnwrap(decoded["received"] as? [String: [[String: Any]]])
+        XCTAssertEqual(received["201"]?.first?["text"] as? String, "beta")
+        XCTAssertEqual(received["202"]?.first?["text"] as? String, "alpha")
+        XCTAssertEqual(received["201"]?.first?["addr"] as? String, "127.0.0.1")
+        XCTAssertEqual(received["202"]?.first?["addr"] as? String, "127.0.0.1")
+
+        _ = try engine.evaluate("__jstorrent_udp_close(201)", filename: "udp-close-201.js")
+        _ = try engine.evaluate("__jstorrent_udp_close(202)", filename: "udp-close-202.js")
+    }
+
     func testRuntimeLoadsRealBundleAndInitializesInHostMode() throws {
         let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
         guard let userDefaults = UserDefaults(suiteName: suiteName) else {

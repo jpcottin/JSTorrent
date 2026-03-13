@@ -2,9 +2,17 @@ import Foundation
 import JavaScriptCore
 import Network
 import Security
+import Darwin
 
 private struct PendingTCPFrame {
     let socketID: Int
+    let data: Data
+}
+
+private struct PendingUDPFrame {
+    let socketID: Int
+    let sourceAddress: String
+    let sourcePort: Int
     let data: Data
 }
 
@@ -60,6 +68,18 @@ private final class ManagedTCPServer {
     }
 }
 
+private final class ManagedUDPSocket {
+    let socketID: Int
+    let fileDescriptor: Int32
+    let readSource: DispatchSourceRead
+
+    init(socketID: Int, fileDescriptor: Int32, readSource: DispatchSourceRead) {
+        self.socketID = socketID
+        self.fileDescriptor = fileDescriptor
+        self.readSource = readSource
+    }
+}
+
 private struct TCPSendBatchReader {
     let data: Data
     var offset = 0
@@ -94,7 +114,9 @@ public final class SocketBindings: @unchecked Sendable {
     private let stateQueue = DispatchQueue(label: "com.jstorrent.ios.socket")
     private var tcpConnections: [Int: ManagedTCPConnection] = [:]
     private var tcpServers: [Int: ManagedTCPServer] = [:]
+    private var udpSockets: [Int: ManagedUDPSocket] = [:]
     private var pendingTCPFrames: [PendingTCPFrame] = []
+    private var pendingUDPFrames: [PendingUDPFrame] = []
     private var tcpBackpressureActive = false
     private var nextAcceptedSocketID: UInt32 = 0xF0000000
 
@@ -227,29 +249,286 @@ public final class SocketBindings: @unchecked Sendable {
 
         engine.setGlobalFunction("__jstorrent_udp_bind") { arguments in
             let socketID = Int(arguments.first?.toInt32() ?? 0)
+            let address = arguments.dropFirst().first?.toString() ?? ""
             let port = Int(arguments.dropFirst(2).first?.toInt32() ?? 0)
-            self.dispatchValueCallback(self.callbacks.udpOnBound, arguments: [socketID, false, port])
+            self.bindUDP(socketID: socketID, address: address, port: port)
             return .undefined
         }
 
-        engine.setGlobalFunction("__jstorrent_udp_send") { _ in
+        engine.setGlobalFunction("__jstorrent_udp_send") { [weak engine] arguments in
+            guard
+                let engine,
+                let data = try engine.data(from: arguments.dropFirst(3).first)
+            else {
+                return .undefined
+            }
+
+            let socketID = Int(arguments.first?.toInt32() ?? 0)
+            let address = arguments.dropFirst().first?.toString() ?? ""
+            let port = Int(arguments.dropFirst(2).first?.toInt32() ?? 0)
+            self.sendUDP(socketID: socketID, address: address, port: port, data: data)
             return .undefined
         }
 
-        engine.setGlobalFunction("__jstorrent_udp_close") { _ in
+        engine.setGlobalFunction("__jstorrent_udp_close") { arguments in
+            let socketID = Int(arguments.first?.toInt32() ?? 0)
+            self.closeUDP(socketID: socketID)
             return .undefined
         }
 
-        engine.setGlobalFunction("__jstorrent_udp_join_multicast") { _ in
+        engine.setGlobalFunction("__jstorrent_udp_join_multicast") { arguments in
+            let socketID = Int(arguments.first?.toInt32() ?? 0)
+            let group = arguments.dropFirst().first?.toString() ?? ""
+            self.joinUDPMulticast(socketID: socketID, group: group)
             return .undefined
         }
 
-        engine.setGlobalFunction("__jstorrent_udp_leave_multicast") { _ in
+        engine.setGlobalFunction("__jstorrent_udp_leave_multicast") { arguments in
+            let socketID = Int(arguments.first?.toInt32() ?? 0)
+            let group = arguments.dropFirst().first?.toString() ?? ""
+            self.leaveUDPMulticast(socketID: socketID, group: group)
             return .undefined
         }
 
         engine.setGlobalFunction("__jstorrent_udp_flush") { _ in
+            self.flushUDP()
             return .undefined
+        }
+    }
+
+    private func bindUDP(socketID: Int, address: String, port: Int) {
+        guard socketID > 0, let bindAddress = ipv4Address(address, allowEmpty: true) else {
+            dispatchValueCallback(callbacks.udpOnBound, arguments: [socketID, false, port])
+            return
+        }
+
+        stateQueue.async {
+            if let existing = self.udpSockets.removeValue(forKey: socketID) {
+                existing.readSource.cancel()
+            }
+
+            let fileDescriptor = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+            guard fileDescriptor >= 0 else {
+                self.dispatchValueCallback(self.callbacks.udpOnBound, arguments: [socketID, false, port])
+                return
+            }
+
+            var reuse: Int32 = 1
+            _ = setsockopt(
+                fileDescriptor,
+                SOL_SOCKET,
+                SO_REUSEADDR,
+                &reuse,
+                socklen_t(MemoryLayout.size(ofValue: reuse))
+            )
+
+            _ = fcntl(fileDescriptor, F_SETFL, O_NONBLOCK)
+
+            var socketAddress = sockaddr_in()
+            socketAddress.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            socketAddress.sin_family = sa_family_t(AF_INET)
+            socketAddress.sin_port = in_port_t(UInt16(port).bigEndian)
+            socketAddress.sin_addr = bindAddress
+
+            let bindResult = withUnsafePointer(to: &socketAddress) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { pointer in
+                    Darwin.bind(
+                        fileDescriptor,
+                        pointer,
+                        socklen_t(MemoryLayout<sockaddr_in>.size)
+                    )
+                }
+            }
+
+            guard bindResult == 0 else {
+                Darwin.close(fileDescriptor)
+                self.dispatchValueCallback(self.callbacks.udpOnBound, arguments: [socketID, false, port])
+                return
+            }
+
+            let readSource = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor, queue: self.stateQueue)
+            let managed = ManagedUDPSocket(socketID: socketID, fileDescriptor: fileDescriptor, readSource: readSource)
+            readSource.setEventHandler { [weak self] in
+                self?.receiveUDP(socketID: socketID)
+            }
+            readSource.setCancelHandler {
+                Darwin.close(fileDescriptor)
+            }
+            self.udpSockets[socketID] = managed
+            readSource.resume()
+
+            var localAddress = sockaddr_in()
+            var localLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let actualPort: Int
+            let nameResult = withUnsafeMutablePointer(to: &localAddress) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { pointer in
+                    getsockname(fileDescriptor, pointer, &localLength)
+                }
+            }
+            if nameResult == 0 {
+                actualPort = Int(UInt16(bigEndian: localAddress.sin_port))
+            } else {
+                actualPort = port
+            }
+
+            self.dispatchValueCallback(self.callbacks.udpOnBound, arguments: [socketID, true, actualPort])
+        }
+    }
+
+    private func sendUDP(socketID: Int, address: String, port: Int, data: Data) {
+        guard let targetAddress = ipv4Address(address, allowEmpty: false) else {
+            return
+        }
+
+        stateQueue.async {
+            guard let managed = self.udpSockets[socketID] else {
+                return
+            }
+
+            var destination = sockaddr_in()
+            destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            destination.sin_family = sa_family_t(AF_INET)
+            destination.sin_port = in_port_t(UInt16(port).bigEndian)
+            destination.sin_addr = targetAddress
+
+            data.withUnsafeBytes { buffer in
+                _ = withUnsafePointer(to: &destination) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { pointer in
+                        sendto(
+                            managed.fileDescriptor,
+                            buffer.baseAddress,
+                            buffer.count,
+                            0,
+                            pointer,
+                            socklen_t(MemoryLayout<sockaddr_in>.size)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func closeUDP(socketID: Int) {
+        stateQueue.async {
+            guard let managed = self.udpSockets.removeValue(forKey: socketID) else {
+                return
+            }
+
+            managed.readSource.cancel()
+        }
+    }
+
+    private func joinUDPMulticast(socketID: Int, group: String) {
+        updateUDPMembership(socketID: socketID, group: group, option: IP_ADD_MEMBERSHIP)
+    }
+
+    private func leaveUDPMulticast(socketID: Int, group: String) {
+        updateUDPMembership(socketID: socketID, group: group, option: IP_DROP_MEMBERSHIP)
+    }
+
+    private func updateUDPMembership(socketID: Int, group: String, option: Int32) {
+        guard let multicastAddress = ipv4Address(group, allowEmpty: false) else {
+            return
+        }
+
+        stateQueue.async {
+            guard let managed = self.udpSockets[socketID] else {
+                return
+            }
+
+            var membership = ip_mreq(
+                imr_multiaddr: multicastAddress,
+                imr_interface: in_addr(s_addr: INADDR_ANY)
+            )
+
+            _ = withUnsafePointer(to: &membership) { pointer in
+                setsockopt(
+                    managed.fileDescriptor,
+                    IPPROTO_IP,
+                    option,
+                    pointer,
+                    socklen_t(MemoryLayout<ip_mreq>.size)
+                )
+            }
+        }
+    }
+
+    private func receiveUDP(socketID: Int) {
+        guard let managed = udpSockets[socketID] else {
+            return
+        }
+
+        while true {
+            var buffer = [UInt8](repeating: 0, count: 65_535)
+            var sourceAddress = sockaddr_storage()
+            var sourceLength = socklen_t(MemoryLayout<sockaddr_storage>.size)
+
+            let bytesRead = withUnsafeMutablePointer(to: &sourceAddress) { storagePointer in
+                storagePointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { addressPointer in
+                    recvfrom(
+                        managed.fileDescriptor,
+                        &buffer,
+                        buffer.count,
+                        0,
+                        addressPointer,
+                        &sourceLength
+                    )
+                }
+            }
+
+            if bytesRead >= 0 {
+                let data = Data(buffer.prefix(Int(bytesRead)))
+                let source = udpSource(from: sourceAddress, length: sourceLength)
+                pendingUDPFrames.append(
+                    PendingUDPFrame(
+                        socketID: socketID,
+                        sourceAddress: source.address,
+                        sourcePort: source.port,
+                        data: data
+                    )
+                )
+                continue
+            }
+
+            if errno == EWOULDBLOCK || errno == EAGAIN {
+                break
+            }
+
+            break
+        }
+    }
+
+    private func flushUDP() {
+        let frames = stateQueue.sync {
+            let drained = pendingUDPFrames
+            pendingUDPFrames.removeAll(keepingCapacity: true)
+            return drained
+        }
+
+        guard !frames.isEmpty else {
+            return
+        }
+
+        if hasGlobalFunction("__jstorrent_udp_dispatch_batch") {
+            let packed = packUDPBatch(frames)
+            _ = try? engine.callGlobalFunction("__jstorrent_udp_dispatch_batch", arguments: [.binary(packed)])
+            return
+        }
+
+        for frame in frames {
+            guard let callback = callbacks.udpOnMessage else {
+                continue
+            }
+
+            _ = try? engine.callFunction(
+                callback,
+                arguments: [
+                    .value(frame.socketID),
+                    .value(frame.sourceAddress),
+                    .value(frame.sourcePort),
+                    .binary(frame.data),
+                ]
+            )
         }
     }
 
@@ -654,6 +933,28 @@ public final class SocketBindings: @unchecked Sendable {
         return packed
     }
 
+    private func packUDPBatch(_ frames: [PendingUDPFrame]) -> Data {
+        var packed = Data()
+        packed.reserveCapacity(
+            4 + frames.reduce(0) { partial, frame in
+                partial + 4 + 2 + 1 + frame.sourceAddress.utf8.count + 4 + frame.data.count
+            }
+        )
+        packed.appendUInt32LE(UInt32(frames.count))
+
+        for frame in frames {
+            let addressBytes = Array(frame.sourceAddress.utf8)
+            packed.appendUInt32LE(UInt32(frame.socketID))
+            packed.appendUInt16LE(UInt16(clamping: frame.sourcePort))
+            packed.appendUInt8(UInt8(addressBytes.count))
+            packed.append(contentsOf: addressBytes)
+            packed.appendUInt32LE(UInt32(frame.data.count))
+            packed.append(frame.data)
+        }
+
+        return packed
+    }
+
     private func remoteAddressAndPort(for endpoint: NWEndpoint) -> (address: String, port: Int) {
         switch endpoint {
         case .hostPort(let host, let port):
@@ -682,9 +983,62 @@ public final class SocketBindings: @unchecked Sendable {
 
         return NWParameters(tls: nil, tcp: tcpOptions)
     }
+
+    private func ipv4Address(_ address: String, allowEmpty: Bool) -> in_addr? {
+        if allowEmpty, address.isEmpty {
+            return in_addr(s_addr: INADDR_ANY)
+        }
+
+        let resolved = address == "localhost" ? "127.0.0.1" : address
+        var parsed = in_addr()
+        let result = resolved.withCString { cString in
+            inet_pton(AF_INET, cString, &parsed)
+        }
+
+        return result == 1 ? parsed : nil
+    }
+
+    private func udpSource(from storage: sockaddr_storage, length: socklen_t) -> (address: String, port: Int) {
+        guard Int(length) >= MemoryLayout<sockaddr>.size else {
+            return ("", 0)
+        }
+
+        switch Int32(storage.ss_family) {
+        case AF_INET:
+            var copy = storage
+            return withUnsafePointer(to: &copy) { pointer in
+                pointer.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { addressPointer in
+                    let address = addressPointer.pointee.sin_addr
+                    let port = Int(UInt16(bigEndian: addressPointer.pointee.sin_port))
+                    var addressBuffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                    var mutableAddress = address
+                    let converted = inet_ntop(
+                        AF_INET,
+                        &mutableAddress,
+                        &addressBuffer,
+                        socklen_t(addressBuffer.count)
+                    )
+                    return (converted != nil ? String(cString: addressBuffer) : "", port)
+                }
+            }
+        default:
+            return ("", 0)
+        }
+    }
 }
 
 private extension Data {
+    mutating func appendUInt8(_ value: UInt8) {
+        append(value)
+    }
+
+    mutating func appendUInt16LE(_ value: UInt16) {
+        var littleEndian = value.littleEndian
+        Swift.withUnsafeBytes(of: &littleEndian) { buffer in
+            append(buffer.bindMemory(to: UInt8.self))
+        }
+    }
+
     mutating func appendUInt32LE(_ value: UInt32) {
         var littleEndian = value.littleEndian
         Swift.withUnsafeBytes(of: &littleEndian) { buffer in
