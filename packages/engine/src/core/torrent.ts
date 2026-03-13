@@ -2609,7 +2609,8 @@ export class Torrent extends EngineComponent {
             ? toString(peer.connection.peerId)
             : 'unknown'
           : 'web-seed',
-      peerId: peer.kind === 'peer' && peer.connection?.peerId ? toHex(peer.connection.peerId) : null,
+      peerId:
+        peer.kind === 'peer' && peer.connection?.peerId ? toHex(peer.connection.peerId) : null,
       downloaded: peer.downloaded,
       uploaded: peer.uploaded,
       downloadSpeed: peer.downloadSpeed,
@@ -2619,7 +2620,7 @@ export class Torrent extends EngineComponent {
       peerInterested: peer.peerInterested,
       amChoking: peer.amChoking,
       amInterested: peer.amInterested,
-      piecesHave: peer.kind === 'peer' ? peer.connection?.bitfield?.count() ?? 0 : 0,
+      piecesHave: peer.kind === 'peer' ? (peer.connection?.bitfield?.count() ?? 0) : 0,
       connectionType:
         peer.kind === 'webseed'
           ? ('web-seed' as const)
@@ -2654,7 +2655,8 @@ export class Torrent extends EngineComponent {
         swarmPeer,
         clientName: swarmPeer?.clientName ?? null,
         source: swarmPeer?.source ?? '',
-        progress: conn.bitfield && this.piecesCount > 0 ? conn.bitfield.count() / this.piecesCount : 0,
+        progress:
+          conn.bitfield && this.piecesCount > 0 ? conn.bitfield.count() / this.piecesCount : 0,
         downloadSpeed: conn.downloadSpeed,
         uploadSpeed: conn.uploadSpeed,
         downloaded: conn.downloaded,
@@ -2706,7 +2708,8 @@ export class Torrent extends EngineComponent {
     }
 
     const webSeedSnapshots =
-      this._webSeedManager?.getSourceSnapshots() ?? this.webSeedUrls.map((url) => buildIdleWebSeedSnapshot(url))
+      this._webSeedManager?.getSourceSnapshots() ??
+      this.webSeedUrls.map((url) => buildIdleWebSeedSnapshot(url))
     for (const snapshot of webSeedSnapshots) {
       result.push(createDisplayPeerFromWebSeedSnapshot(snapshot))
     }
@@ -4741,7 +4744,11 @@ function createDisplayPeerFromWebSeedSnapshot(snapshot: WebSeedSourceSnapshot): 
   }
 }
 
-function parseWebSeedDisplayUrl(url: string): { host: string; port: number; protocol: 'http:' | 'https:' } {
+function parseWebSeedDisplayUrl(url: string): {
+  host: string
+  port: number
+  protocol: 'http:' | 'https:'
+} {
   const parsed = new URL(url)
   const protocol = parsed.protocol === 'https:' ? 'https:' : 'http:'
   const fallbackPort = protocol === 'https:' ? 443 : 80

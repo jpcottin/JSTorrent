@@ -174,7 +174,9 @@ export class WebSeedManager extends EngineComponent {
       const displayUrl = activeTransfer?.currentUrl ?? source.canonicalUrl ?? source.url
       const endpoint = parseWebSeedEndpoint(displayUrl)
       const downloadSpeed = activeTransfer
-        ? Math.round((activeTransfer.bytesRead * 1000) / Math.max(1, now - activeTransfer.startedAt))
+        ? Math.round(
+            (activeTransfer.bytesRead * 1000) / Math.max(1, now - activeTransfer.startedAt),
+          )
         : source.averageTransferRateBps
 
       return {
@@ -401,7 +403,14 @@ export class WebSeedManager extends EngineComponent {
         this.recordCanonicalUrl(source, span.requestUrl, response.finalUrl)
 
         try {
-          await this.consumeSpanBody(reservation, response.body, span.length, cursor, transfer, signal)
+          await this.consumeSpanBody(
+            reservation,
+            response.body,
+            span.length,
+            cursor,
+            transfer,
+            signal,
+          )
         } catch (error) {
           response.body.cancel('web-seed span failed')
           throw error
@@ -757,10 +766,15 @@ function getWebSeedSourceId(url: string): string {
   return `${WEB_SEED_SOURCE_PREFIX}${url}`
 }
 
-function parseWebSeedEndpoint(url: string): { host: string; port: number; protocol: 'http:' | 'https:' } {
+function parseWebSeedEndpoint(url: string): {
+  host: string
+  port: number
+  protocol: 'http:' | 'https:'
+} {
   const parsed = new URL(url)
   const protocol = parsed.protocol === 'https:' ? 'https:' : 'http:'
-  const port = parsed.port.length > 0 ? Number.parseInt(parsed.port, 10) : protocol === 'https:' ? 443 : 80
+  const port =
+    parsed.port.length > 0 ? Number.parseInt(parsed.port, 10) : protocol === 'https:' ? 443 : 80
   return {
     host: parsed.hostname,
     port: Number.isFinite(port) ? port : protocol === 'https:' ? 443 : 80,

@@ -76,7 +76,9 @@ export class TorrentParser {
     return this.parseInfoDictionary(
       info as Record<string, unknown>,
       infoHash,
-      Array.isArray(decoded['announce-list']) ? (decoded['announce-list'] as Uint8Array[][]) : undefined,
+      Array.isArray(decoded['announce-list'])
+        ? (decoded['announce-list'] as Uint8Array[][])
+        : undefined,
       decoded.announce instanceof Uint8Array ? decoded.announce : undefined,
       urlSeeds,
       infoBuffer,
@@ -147,11 +149,7 @@ export class TorrentParser {
         if (!file || typeof file !== 'object' || Array.isArray(file)) {
           throw new Error('Invalid torrent: file entry must be a dictionary')
         }
-        const pathEntries = getByteListField(
-          file as Record<string, unknown>,
-          'path.utf-8',
-          'path',
-        )
+        const pathEntries = getByteListField(file as Record<string, unknown>, 'path.utf-8', 'path')
         if (!pathEntries || pathEntries.length === 0) {
           throw new Error('Invalid torrent: file path must be a non-empty list')
         }

@@ -86,7 +86,13 @@ function concatChunks(chunks: Uint8Array[]): Uint8Array {
 }
 
 function isRedirectStatus(statusCode: number): boolean {
-  return statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308
+  return (
+    statusCode === 301 ||
+    statusCode === 302 ||
+    statusCode === 303 ||
+    statusCode === 307 ||
+    statusCode === 308
+  )
 }
 
 function resolveRedirectUrl(currentUrl: string, locationHeader: string): string {
@@ -878,7 +884,9 @@ export class DaemonEngineManager implements IEngineManager {
           const location = response.head.headers.location
           response.body.cancel('Following redirect')
           if (!location) {
-            throw new Error(`Redirect response missing Location header: HTTP ${response.head.statusCode}`)
+            throw new Error(
+              `Redirect response missing Location header: HTTP ${response.head.statusCode}`,
+            )
           }
           if (redirectsRemaining <= 0) {
             throw new Error(`Too many redirects while fetching ${input.url}`)

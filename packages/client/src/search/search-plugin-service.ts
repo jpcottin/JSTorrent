@@ -40,10 +40,7 @@ function describeInvalidTorrentPayload(bodyText: string): string {
   return 'Downloaded data is not a valid .torrent file'
 }
 
-function normalizeRelativeTorrentUrlSeeds(
-  torrentBytes: Uint8Array,
-  finalUrl?: string,
-): Uint8Array {
+function normalizeRelativeTorrentUrlSeeds(torrentBytes: Uint8Array, finalUrl?: string): Uint8Array {
   if (!finalUrl) {
     return torrentBytes
   }
