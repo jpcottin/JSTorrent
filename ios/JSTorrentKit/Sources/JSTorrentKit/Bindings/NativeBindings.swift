@@ -5,6 +5,7 @@ public final class NativeBindings {
     public let storage: StorageBindings
     public let files: FileBindings
     public let hashes: HashBindings
+    public let networkInfo: NetworkInfoBindings
     public let eventSink: NativeEventSink
 
     private let engine: JSEngine
@@ -28,6 +29,7 @@ public final class NativeBindings {
             defaultRootKey: defaultRootKey
         )
         self.hashes = HashBindings(engine: engine)
+        self.networkInfo = NetworkInfoBindings()
     }
 
     public func registerCoreBindings() {
@@ -36,6 +38,7 @@ public final class NativeBindings {
         storage.register(on: engine)
         files.register(on: engine)
         hashes.register()
+        networkInfo.register(on: engine)
     }
 
     private func registerEventCallbacks() {

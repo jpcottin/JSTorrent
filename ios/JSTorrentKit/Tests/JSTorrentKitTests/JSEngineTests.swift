@@ -1195,6 +1195,35 @@ final class JSEngineTests: XCTestCase {
         _ = try engine.evaluate("__jstorrent_udp_close(202)", filename: "udp-close-202.js")
     }
 
+    func testNetworkInfoBindingsReturnJSONShapes() throws {
+        let (engine, _, baseDirectory, userDefaults, suiteName) = try makeBindingsEnvironment()
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let interfacesValue = try engine.evaluate(
+            "__jstorrent_get_network_interfaces()",
+            filename: "network-interfaces.js"
+        )
+        let gatewayValue = try engine.evaluate(
+            "__jstorrent_get_default_gateway()",
+            filename: "default-gateway.js"
+        )
+
+        let interfacesData = try XCTUnwrap(interfacesValue?.toString().data(using: .utf8))
+        let interfaces = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: interfacesData) as? [[String: Any]]
+        )
+        for interface in interfaces {
+            XCTAssertNotNil(interface["name"] as? String)
+            XCTAssertNotNil(interface["address"] as? String)
+            XCTAssertNotNil(interface["prefixLength"] as? Int)
+        }
+
+        XCTAssertEqual(gatewayValue?.toString(), "null")
+    }
+
     func testRuntimeLoadsRealBundleAndInitializesInHostMode() throws {
         let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
         guard let userDefaults = UserDefaults(suiteName: suiteName) else {
