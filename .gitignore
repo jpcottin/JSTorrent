@@ -79,3 +79,6 @@ docs/design_docs/media-ecosystem.md
 
 # Generated iOS engine bundle
 ios/JSTorrent/Resources/engine.bundle.js
+
+# Local iOS DerivedData output from ios/scripts/sim-install.sh
+ios/build/
