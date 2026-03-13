@@ -95,6 +95,10 @@ class AndroidConfigHub(
         get() = getInt("maxPipelineDepth", DEFAULT_MAX_PIPELINE_DEPTH)
         set(value) = set("maxPipelineDepth", value)
 
+    var activePieceMemoryLimitMiB: Int
+        get() = getInt("activePieceMemoryLimitMiB", DEFAULT_ACTIVE_PIECE_MEMORY_LIMIT_MIB)
+        set(value) = set("activePieceMemoryLimitMiB", value)
+
     // =========================================================================
     // Queue
     // =========================================================================
@@ -323,7 +327,8 @@ class AndroidConfigHub(
             "maxGlobalPeers" -> bridge.setMaxGlobalPeers(value as Int)
             "maxUploadSlots" -> bridge.setMaxUploadSlots(value as Int)
             "maxPipelineDepth" -> bridge.setMaxPipelineDepth(value as Int)
-            "activeDownloads", "activeSeeds" -> bridge.batchUpdate(mapOf(key to (value as Any)))
+            "activeDownloads", "activeSeeds", "activePieceMemoryLimitMiB" ->
+                bridge.batchUpdate(mapOf(key to (value as Any)))
             "encryptionPolicy" -> bridge.setEncryptionPolicy(value as String)
             "dhtEnabled" -> bridge.setDhtEnabled(value as Boolean)
             "pexEnabled" -> bridge.setPexEnabled(value as Boolean)
@@ -380,6 +385,8 @@ class AndroidConfigHub(
     companion object {
         /** Default max pipeline depth for Android standalone (lower than extension's 500 to reduce memory pressure) */
         const val DEFAULT_MAX_PIPELINE_DEPTH = 250
+        /** Default active piece memory limit override. 0 = use platform default. */
+        const val DEFAULT_ACTIVE_PIECE_MEMORY_LIMIT_MIB = 0
         /** Default max active downloads - must match config-schema.ts */
         const val DEFAULT_ACTIVE_DOWNLOADS = 5
         /** Default max active seeds - must match config-schema.ts */

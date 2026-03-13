@@ -182,6 +182,20 @@ export class ActivePieceManager extends EngineComponent {
   }
 
   /**
+   * Update the buffered-byte budget used to gate creation of new active pieces.
+   * Existing pieces are preserved; the new budget only affects future creation.
+   */
+  setBufferedByteLimit(maxBufferedBytes: number): void {
+    if (maxBufferedBytes === this.config.maxBufferedBytes) return
+
+    const oldLimit = this.config.maxBufferedBytes
+    this.config.maxBufferedBytes = maxBufferedBytes
+    this.logger.info(
+      `Updated active piece memory budget: ${oldLimit} -> ${maxBufferedBytes} bytes`,
+    )
+  }
+
+  /**
    * Get existing ActivePiece without creating.
    * Checks all three maps: partial, fullyRequested, and fullyResponded.
    */

@@ -1441,6 +1441,19 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       }),
     )
 
+    this.configUnsubscribers.push(
+      this.config.activePieceMemoryLimitMiB.subscribe((limitMiB) => {
+        for (const torrent of this.torrents) {
+          torrent.setActivePieceMemoryLimitMiB(limitMiB)
+        }
+        this.logger.info(
+          `Active piece memory limit updated: ${
+            limitMiB === 0 ? 'platform default' : `${limitMiB} MiB`
+          }`,
+        )
+      }),
+    )
+
     // Send buffer watermark
     this.configUnsubscribers.push(
       this.config.sendBufferWatermark.subscribe((watermark) => {

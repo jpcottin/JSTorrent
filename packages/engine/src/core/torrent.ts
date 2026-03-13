@@ -6,7 +6,7 @@ import { PeerConnection } from './peer-connection'
 import { ActivePiece, BLOCK_SIZE } from './active-piece'
 import type { ChunkedBuffer } from './chunked-buffer'
 import { PeerCoordinator } from './peer-coordinator'
-import { ActivePieceManager } from './active-piece-manager'
+import { ActivePieceManager, getDefaultActivePieceConfig } from './active-piece-manager'
 import { TorrentContentStorage } from './torrent-content-storage'
 // HashMismatchError is checked by name (not instanceof) to support both
 // daemon-file-handle and native-file-handle error classes
@@ -181,6 +181,7 @@ export function createDefaultPersistedState(): TorrentPersistedState {
 
 export class Torrent extends EngineComponent {
   static logName = 'torrent'
+  private static readonly MIB = 1024 * 1024
 
   private btEngine: BtEngine
   private _swarm: Swarm // Single source of truth for peer state
@@ -3129,10 +3130,28 @@ export class Torrent extends EngineComponent {
       (index) => this.getPieceLength(index),
       {
         platformType: this.btEngine.config?.platformType.get(),
+        maxBufferedBytes: this.getActivePieceMemoryLimitBytes(),
         standardPieceLength: this.pieceLength,
       },
     )
     return this.activePieces
+  }
+
+  private getActivePieceMemoryLimitBytes(): number | undefined {
+    const limitMiB = this.btEngine.config?.activePieceMemoryLimitMiB.get() ?? 0
+    if (limitMiB <= 0) return undefined
+    return limitMiB * Torrent.MIB
+  }
+
+  setActivePieceMemoryLimitMiB(limitMiB: number): void {
+    if (!this.activePieces) return
+
+    const maxBufferedBytes =
+      limitMiB > 0
+        ? limitMiB * Torrent.MIB
+        : getDefaultActivePieceConfig(this.btEngine.config?.platformType.get()).maxBufferedBytes
+
+    this.activePieces.setBufferedByteLimit(maxBufferedBytes)
   }
 
   private createWebSeedHttpClient(): WebSeedHttpClient {

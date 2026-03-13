@@ -67,6 +67,22 @@ describe('ActivePieceManager', () => {
 
       androidManager.destroy()
     })
+
+    it('should allow overriding android memory budget for large pieces', () => {
+      const largePiece = 16 * 1024 * 1024
+      const androidManager = new ActivePieceManager(mockEngine, () => largePiece, {
+        platformType: 'android-standalone',
+        maxBufferedBytes: 48 * 1024 * 1024,
+        standardPieceLength: largePiece,
+      })
+
+      expect(androidManager.getOrCreate(0)).not.toBeNull()
+      expect(androidManager.getOrCreate(1)).not.toBeNull()
+      expect(androidManager.getOrCreate(2)).not.toBeNull()
+      expect(androidManager.totalBufferedBytes).toBe(48 * 1024 * 1024)
+
+      androidManager.destroy()
+    })
   })
 
   describe('platform defaults', () => {

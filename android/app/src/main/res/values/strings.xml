@@ -225,6 +225,9 @@
     <string name="settings_speed_max_global_peers_description">Maximum total connections</string>
     <string name="settings_speed_max_upload_slots_label">Max upload slots</string>
     <string name="settings_speed_max_upload_slots_description">Simultaneous upload connections</string>
+    <string name="settings_speed_active_piece_memory_limit_label">Active piece memory limit</string>
+    <string name="settings_speed_active_piece_memory_limit_description">Memory budget for in-progress piece buffers</string>
+    <string name="settings_speed_active_piece_memory_limit_warning">Higher values may improve large-piece downloads, but can cause instability or crashes on some devices.</string>
     <string name="settings_speed_queue_section">Queue</string>
     <string name="settings_speed_active_downloads_label">Max active downloads</string>
     <string name="settings_speed_active_downloads_description">Simultaneous downloading torrents</string>

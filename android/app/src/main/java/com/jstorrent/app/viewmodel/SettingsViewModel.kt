@@ -49,6 +49,7 @@ data class SettingsUiState(
     val maxGlobalPeers: Int = 200,
     val maxUploadSlots: Int = 4,
     val maxPipelineDepth: Int = AndroidConfigHub.DEFAULT_MAX_PIPELINE_DEPTH,
+    val activePieceMemoryLimitMiB: Int = AndroidConfigHub.DEFAULT_ACTIVE_PIECE_MEMORY_LIMIT_MIB,
     // Queue Limits
     val activeDownloads: Int = AndroidConfigHub.DEFAULT_ACTIVE_DOWNLOADS,
     val activeSeeds: Int = AndroidConfigHub.DEFAULT_ACTIVE_SEEDS,
@@ -134,6 +135,7 @@ class SettingsViewModel(
             maxGlobalPeers = configHub.maxGlobalPeers,
             maxUploadSlots = configHub.maxUploadSlots,
             maxPipelineDepth = configHub.maxPipelineDepth,
+            activePieceMemoryLimitMiB = configHub.activePieceMemoryLimitMiB,
             activeDownloads = configHub.activeDownloads,
             activeSeeds = configHub.activeSeeds,
             dhtEnabled = configHub.dhtEnabled,
@@ -372,6 +374,15 @@ class SettingsViewModel(
     fun setMaxPipelineDepth(depth: Int) {
         configHub.maxPipelineDepth = depth
         _uiState.value = _uiState.value.copy(maxPipelineDepth = depth)
+    }
+
+    /**
+     * Set active-piece memory budget override in MiB.
+     * 0 = use platform default.
+     */
+    fun setActivePieceMemoryLimitMiB(limitMiB: Int) {
+        configHub.activePieceMemoryLimitMiB = limitMiB
+        _uiState.value = _uiState.value.copy(activePieceMemoryLimitMiB = limitMiB)
     }
 
     // =========================================================================

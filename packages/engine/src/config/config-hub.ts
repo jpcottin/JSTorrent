@@ -80,6 +80,9 @@ export interface ConfigHub extends ConfigValueMap {
   /** Maximum outstanding block requests per peer (pipeline depth). */
   readonly maxPipelineDepth: ConfigValue<number>
 
+  /** Override active-piece memory budget in MiB. 0 = platform default. */
+  readonly activePieceMemoryLimitMiB: ConfigValue<number>
+
   /** Maximum simultaneous BEP 19 web-seed transfers per torrent. */
   readonly maxWebSeedConnections: ConfigValue<number>
 

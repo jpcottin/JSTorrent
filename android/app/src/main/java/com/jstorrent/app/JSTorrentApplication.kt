@@ -731,13 +731,15 @@ class JSTorrentApplication : Application() {
         // Queue limits
         configBridge.batchUpdate(mapOf(
             "activeDownloads" to configHub.activeDownloads,
-            "activeSeeds" to configHub.activeSeeds
+            "activeSeeds" to configHub.activeSeeds,
+            "activePieceMemoryLimitMiB" to configHub.activePieceMemoryLimitMiB
         ))
 
         Log.i(TAG, "Applied engine settings: download=${if (effectiveDownloadLimit == 0) "unlimited" else "${effectiveDownloadLimit}B/s"}, " +
             "upload=${if (effectiveUploadLimit == 0) "unlimited" else "${effectiveUploadLimit}B/s"}, " +
             "dht=${configHub.dhtEnabled}, pex=${configHub.pexEnabled}, " +
             "upnp=${configHub.upnpEnabled}, encryption=${configHub.encryptionPolicy}, " +
-            "activeDownloads=${configHub.activeDownloads}, activeSeeds=${configHub.activeSeeds}")
+            "activeDownloads=${configHub.activeDownloads}, activeSeeds=${configHub.activeSeeds}, " +
+            "activePieceMemoryLimitMiB=${configHub.activePieceMemoryLimitMiB}")
     }
 }

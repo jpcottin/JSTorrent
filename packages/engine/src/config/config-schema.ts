@@ -199,6 +199,19 @@ export const configSchema = {
     max: 2000,
   },
 
+  /**
+   * Override for active-piece memory budget in MiB.
+   * 0 = use platform default.
+   */
+  activePieceMemoryLimitMiB: {
+    type: 'number',
+    category: 'setting',
+    storage: 'local',
+    default: 0,
+    min: 0,
+    max: 512,
+  },
+
   /** Maximum simultaneous BEP 19 web-seed transfers per torrent. */
   maxWebSeedConnections: {
     type: 'number',

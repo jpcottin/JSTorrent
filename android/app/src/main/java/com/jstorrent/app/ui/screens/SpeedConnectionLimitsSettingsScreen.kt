@@ -75,6 +75,13 @@ private val maxUploadSlotsPresets = listOf(
     ConnectionLimitPreset(16, "16")
 )
 
+private val activePieceMemoryLimitPresets = listOf(
+    ConnectionLimitPreset(0, "Default"),
+    ConnectionLimitPreset(32, "32 MB"),
+    ConnectionLimitPreset(48, "48 MB"),
+    ConnectionLimitPreset(64, "64 MB")
+)
+
 private val activeDownloadsPresets = listOf(
     ConnectionLimitPreset(1, "1"),
     ConnectionLimitPreset(2, "2"),
@@ -156,9 +163,11 @@ fun SpeedConnectionLimitsSettingsScreen(
                     maxPeersPerTorrent = uiState.maxPeersPerTorrent,
                     maxGlobalPeers = uiState.maxGlobalPeers,
                     maxUploadSlots = uiState.maxUploadSlots,
+                    activePieceMemoryLimitMiB = uiState.activePieceMemoryLimitMiB,
                     onMaxPeersPerTorrentChange = { viewModel.setMaxPeersPerTorrent(it) },
                     onMaxGlobalPeersChange = { viewModel.setMaxGlobalPeers(it) },
-                    onMaxUploadSlotsChange = { viewModel.setMaxUploadSlots(it) }
+                    onMaxUploadSlotsChange = { viewModel.setMaxUploadSlots(it) },
+                    onActivePieceMemoryLimitMiBChange = { viewModel.setActivePieceMemoryLimitMiB(it) }
                 )
             }
         }
@@ -291,9 +300,11 @@ private fun ConnectionLimitsSection(
     maxPeersPerTorrent: Int,
     maxGlobalPeers: Int,
     maxUploadSlots: Int,
+    activePieceMemoryLimitMiB: Int,
     onMaxPeersPerTorrentChange: (Int) -> Unit,
     onMaxGlobalPeersChange: (Int) -> Unit,
     onMaxUploadSlotsChange: (Int) -> Unit,
+    onActivePieceMemoryLimitMiBChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -324,6 +335,22 @@ private fun ConnectionLimitsSection(
             presets = maxUploadSlotsPresets,
             onValueChange = onMaxUploadSlotsChange
         )
+        Spacer(modifier = Modifier.height(8.dp))
+        ConnectionLimitRow(
+            label = stringResource(R.string.settings_speed_active_piece_memory_limit_label),
+            description = stringResource(R.string.settings_speed_active_piece_memory_limit_description),
+            currentValue = activePieceMemoryLimitMiB,
+            presets = activePieceMemoryLimitPresets,
+            onValueChange = onActivePieceMemoryLimitMiBChange
+        )
+        if (activePieceMemoryLimitMiB > 32) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.settings_speed_active_piece_memory_limit_warning),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
     }
 }
 

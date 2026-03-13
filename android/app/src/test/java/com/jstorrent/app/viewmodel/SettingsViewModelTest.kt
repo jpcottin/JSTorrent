@@ -79,6 +79,7 @@ class SettingsViewModelTest {
             on { maxGlobalPeers } doReturn 200
             on { maxUploadSlots } doReturn 4
             on { maxPipelineDepth } doReturn 500
+            on { activePieceMemoryLimitMiB } doReturn 0
             on { dhtEnabled } doReturn true
             on { pexEnabled } doReturn true
             on { upnpEnabled } doReturn true
@@ -123,6 +124,16 @@ class SettingsViewModelTest {
 
         val state = viewModel.uiState.value
         assertTrue(state.downloadRoots.isEmpty())
+    }
+
+    @Test
+    fun `initial state loads active piece memory limit`() {
+        whenever(rootStore.refreshAvailability()).thenReturn(emptyList())
+        whenever(configHub.activePieceMemoryLimitMiB).thenReturn(48)
+
+        viewModel = SettingsViewModel(app, rootStore, settingsStore, configHub, initialNotificationPermissionGranted = false)
+
+        assertEquals(48, viewModel.uiState.value.activePieceMemoryLimitMiB)
     }
 
     // =========================================================================

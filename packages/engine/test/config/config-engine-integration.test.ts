@@ -118,6 +118,19 @@ describe('ConfigHub Engine Integration', () => {
       config.set('maxUploadSlots', 8)
       expect(engine.maxUploadSlots).toBe(8)
     })
+
+    it('should propagate active piece memory limit changes to torrents', () => {
+      const setActivePieceMemoryLimitMiB = vi.fn()
+      const torrent = {
+        setActivePieceMemoryLimitMiB,
+      } as unknown as (typeof engine.torrents)[number]
+
+      engine.torrents.push(torrent)
+      config.set('activePieceMemoryLimitMiB', 48)
+
+      expect(setActivePieceMemoryLimitMiB).toHaveBeenCalledWith(48)
+      engine.torrents.pop()
+    })
   })
 
   describe('reactive updates - encryption policy', () => {
