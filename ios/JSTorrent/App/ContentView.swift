@@ -2,6 +2,7 @@ import SwiftUI
 import JSTorrentKit
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var controller = EngineController(
         bootstrapConfig: EngineBootstrapConfig(
             contentRoots: [
@@ -68,6 +69,20 @@ struct ContentView: View {
             .navigationTitle("JSTorrent")
             .task {
                 controller.startIfNeeded()
+                if scenePhase == .active {
+                    controller.resume()
+                }
+            }
+            .onChange(of: scenePhase) { newPhase in
+                switch newPhase {
+                case .active:
+                    controller.startIfNeeded()
+                    controller.resume()
+                case .inactive, .background:
+                    controller.suspend()
+                @unknown default:
+                    break
+                }
             }
         }
     }

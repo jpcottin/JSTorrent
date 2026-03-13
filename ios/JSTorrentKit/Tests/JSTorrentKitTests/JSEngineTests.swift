@@ -1254,6 +1254,24 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(controller.torrents.first?.numPeers, 12)
     }
 
+    @MainActor
+    func testEngineControllerAppliesStructuredRuntimeErrorPayload() {
+        let controller = EngineController(
+            bootstrapConfig: EngineBootstrapConfig(contentRoots: [])
+        )
+
+        controller.applyRuntimeError(
+            payload: """
+            {
+              "error": "Disk write failed"
+            }
+            """
+        )
+
+        XCTAssertEqual(controller.lastError, "Disk write failed")
+        XCTAssertEqual(controller.status, .failed("Disk write failed"))
+    }
+
     func testRuntimeLoadsRealBundleAndInitializesInHostMode() throws {
         let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
         guard let userDefaults = UserDefaults(suiteName: suiteName) else {

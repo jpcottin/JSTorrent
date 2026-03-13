@@ -5,6 +5,7 @@ public enum EngineControllerStatus: Equatable, Sendable {
     case idle
     case starting
     case running
+    case suspended
     case failed(String)
 
     public var label: String {
@@ -15,6 +16,8 @@ public enum EngineControllerStatus: Equatable, Sendable {
             return "Starting"
         case .running:
             return "Running"
+        case .suspended:
+            return "Suspended"
         case .failed(let message):
             return "Failed: \(message)"
         }
@@ -33,6 +36,7 @@ public final class EngineController: ObservableObject {
     private let fileBaseDirectory: URL?
     private let tickQueue = DispatchQueue(label: "com.jstorrent.ios.tick")
     private var tickTimer: DispatchSourceTimer?
+    private let minimumTickDelayMs: Int32 = 1
     private var runtime: JSTorrentRuntime?
 
     public init(
@@ -73,15 +77,54 @@ public final class EngineController: ObservableObject {
             )
             try runtime.loadDefaultBundle(in: bundle)
             try runtime.initialize(with: bootstrapConfig)
-            try runtime.setTickMode(.host)
             try runtime.subscribe(type: "torrents", intervalMs: 500)
 
             self.runtime = runtime
-            startTickLoop()
-            status = .running
+            resume()
         } catch {
             status = .failed(error.localizedDescription)
             lastError = error.localizedDescription
+        }
+    }
+
+    public func resume() {
+        guard let runtime else {
+            return
+        }
+
+        guard tickTimer == nil else {
+            if status == .suspended {
+                status = .running
+            }
+            return
+        }
+
+        do {
+            try runtime.setTickMode(.host)
+            startTickLoop()
+            status = .running
+        } catch {
+            lastError = error.localizedDescription
+            status = .failed(error.localizedDescription)
+        }
+    }
+
+    public func suspend() {
+        stopTickLoop()
+
+        guard let runtime else {
+            return
+        }
+
+        do {
+            try runtime.setTickMode(.js)
+            if case .failed = status {
+                return
+            }
+            status = .suspended
+        } catch {
+            lastError = error.localizedDescription
+            status = .failed(error.localizedDescription)
         }
     }
 
@@ -141,19 +184,31 @@ public final class EngineController: ObservableObject {
     }
 
     private func startTickLoop() {
+        guard tickTimer == nil else {
+            return
+        }
+
         let timer = DispatchSource.makeTimerSource(queue: tickQueue)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(100))
-        timer.setEventHandler { [weak self] in
-            guard let self else {
+        timer.schedule(deadline: .now())
+        timer.setEventHandler { [weak self, weak timer] in
+            guard let self, let timer else {
                 return
             }
 
             do {
-                _ = try self.runtime?.tick()
+                let tick = try self.runtime?.tick()
+                let nextDelayMs = max(self.minimumTickDelayMs, tick?.delayMs ?? 100)
+                timer.schedule(deadline: .now() + .milliseconds(Int(nextDelayMs)))
+                Task { @MainActor in
+                    if self.status == .suspended {
+                        self.status = .running
+                    }
+                }
             } catch {
                 Task { @MainActor in
                     self.lastError = error.localizedDescription
                     self.status = .failed(error.localizedDescription)
+                    self.stopTickLoop()
                 }
             }
         }
@@ -161,7 +216,13 @@ public final class EngineController: ObservableObject {
         timer.resume()
     }
 
-    deinit {
-        tickTimer?.cancel()
+    private func stopTickLoop() {
+        guard let timer = tickTimer else {
+            return
+        }
+
+        tickTimer = nil
+        timer.setEventHandler {}
+        timer.cancel()
     }
 }

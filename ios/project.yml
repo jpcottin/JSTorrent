@@ -19,6 +19,11 @@ targets:
         product: JSTorrentKit
     preBuildScripts:
       - name: Sync Engine Bundle
+        inputFiles:
+          - ${SRCROOT}/scripts/sync-engine-bundle.sh
+          - ${SRCROOT}/../packages/engine/dist/engine.native.js
+        outputFiles:
+          - ${SRCROOT}/JSTorrent/Resources/engine.bundle.js
         script: |
           if [ -x "${SRCROOT}/scripts/sync-engine-bundle.sh" ]; then
             "${SRCROOT}/scripts/sync-engine-bundle.sh"
