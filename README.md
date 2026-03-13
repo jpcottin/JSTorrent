@@ -13,7 +13,7 @@ A modern, full-featured BitTorrent client built on a shared TypeScript engine th
 | **Desktop App** | ✅ Available | Standalone app for macOS, Windows, and Linux ([download](https://jstorrent.com)) |
 | **Chrome Extension** | ✅ Available | [Chrome Web Store](https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk) — Chrome, Edge, Brave, and other Chromium browsers |
 | **Android** | ✅ Available | [Google Play](https://play.google.com/store/apps/details?id=com.jstorrent.app) — native app with QuickJS engine |
-| **ChromeOS** | ✅ Available | [Extension](https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk) + [Android companion app](https://play.google.com/store/apps/details?id=com.jstorrent.app) |
+| **ChromeOS** | ✅ Available | [Extension](https://chromewebstore.google.com/detail/jstorrent/dbokmlpefliilbjldladbimlcfgbolhk) + [Android companion app](https://play.google.com/store/apps/details?id=com.jstorrent.app), or [Crostini setup help](https://jstorrent.com/#my-chromebook-doesnt-have-the-play-store-can-i-still-use-jstorrent) |
 | **iOS** | 🚧 Underway | Sideload only — [MVP plan](docs/plans/ios-app-mvp.md) |
 
 ## Architecture
@@ -23,6 +23,7 @@ One TypeScript BitTorrent engine powers all platforms. Platform-specific native 
 - **Desktop**: Tauri (Rust) — lightweight native window, no Electron. Small download, low memory footprint.
 - **Android**: Native Kotlin + Jetpack Compose UI. The engine runs in-process via QuickJS with JNI bindings for I/O.
 - **Extension**: Runs in the browser with a Rust sidecar (io-daemon) for disk and network access.
+- **Node / CLI**: Node.js host and command-line tooling built on the same engine for daemon, streaming, and test workflows.
 
 ## Features
 
