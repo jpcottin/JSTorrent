@@ -62,6 +62,7 @@ One TypeScript BitTorrent engine powers all platforms. Platform-specific native 
 - ✅ Dark mode
 - ✅ Drag and drop torrents
 - ✅ Click magnet links to add
+- ✅ Installable search plugins for in-app torrent search
 - ✅ Per-torrent and global statistics
 
 ## About
@@ -73,6 +74,10 @@ Written in TypeScript with comprehensive test coverage, including integration te
 ## Development
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for build instructions and project structure.
+
+## Documentation
+
+- [Search Plugins](docs/search-plugins.md) - Manifest structure, runtime API, result format, and the Internet Archive reference plugin
 
 ## License
 
