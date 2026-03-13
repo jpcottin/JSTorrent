@@ -1,5 +1,7 @@
 # iOS App MVP Plan
 
+See also: [iOS Native Bindings Implementation Plan](/Users/kgraehl/code/jstorrent/docs/plans/ios-native-bindings-implementation-plan.md) for the concrete contract-first, XCTest-first bring-up plan.
+
 ## Architecture Decisions
 
 | Decision | Choice | Rationale |
@@ -8,7 +10,7 @@
 | Background | **Foreground-only (MVP)** | iOS has no equivalent to Android's foreground service. Downloads run while app is on screen, pause when backgrounded. Location hack can be added later for AltStore PAL. |
 | UI | **SwiftUI** | Minimal native shell. Thin wrapper around engine state. |
 | Distribution | **AltStore PAL (EU)** / sideloading | App Store would reject a torrent client. |
-| Engine bundle | **Same `engine.native.js`** | Reuse the existing native bundle entry + adapter layer unchanged. |
+| Engine bundle | **Same `engine.native.js` family** | Reuse the shared native bundle path, with small native-init adjustments for iOS-specific runtime config. |
 
 ## Architecture Overview
 
