@@ -29,6 +29,31 @@ final class JSEngineTests: XCTestCase {
         return (engine, bindings, baseDirectory, userDefaults, suiteName)
     }
 
+    private func repositoryRootURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 2.0,
+        pollInterval: TimeInterval = 0.01,
+        condition: () throws -> Bool
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if try condition() {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+
+        XCTFail("Timed out waiting for condition")
+    }
+
     func testEvaluateSimpleExpression() throws {
         let engine = try JSEngine()
 
@@ -731,10 +756,14 @@ final class JSEngineTests: XCTestCase {
             filename: "async-read-check.js"
         )
 
-        XCTAssertEqual(
-            result?.toString(),
-            #"{"rd1":{"resultCode":0,"data":[1,2]},"rd2":{"resultCode":0,"data":[3,4]}}"#
+        let payload = try XCTUnwrap(result?.toString().data(using: .utf8))
+        let decoded = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: payload) as? [String: [String: Any]]
         )
+        XCTAssertEqual(decoded["rd1"]?["resultCode"] as? Int, 0)
+        XCTAssertEqual(decoded["rd1"]?["data"] as? [Int], [1, 2])
+        XCTAssertEqual(decoded["rd2"]?["resultCode"] as? Int, 0)
+        XCTAssertEqual(decoded["rd2"]?["data"] as? [Int], [3, 4])
     }
 
     func testHashBindingsSyncBatchAndAsync() throws {
@@ -834,5 +863,62 @@ final class JSEngineTests: XCTestCase {
             result?.toString(),
             #"{"singleLength":20,"batchLength":40,"asyncLength":20,"samePrefix":true}"#
         )
+    }
+
+    func testRuntimeLoadsRealBundleAndInitializesInHostMode() throws {
+        let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            throw XCTSkip("Failed to create isolated UserDefaults suite")
+        }
+
+        let baseDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let stateExpectation = expectation(description: "initial state callback")
+        stateExpectation.assertForOverFulfill = false
+        let sink = NativeEventSink(
+            onStateUpdate: { payload in
+                if payload.contains("\"torrents\"") {
+                    stateExpectation.fulfill()
+                }
+            }
+        )
+
+        let runtime = try JSTorrentRuntime(
+            eventSink: sink,
+            userDefaults: userDefaults,
+            fileBaseDirectory: baseDirectory
+        )
+        let bundleURL = repositoryRootURL()
+            .appendingPathComponent("packages/engine/dist/engine.native.js")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.path))
+
+        try runtime.loadBundle(from: bundleURL)
+        try runtime.initialize(
+            with: EngineBootstrapConfig(
+                contentRoots: [ContentRoot(key: "default", label: "Default")],
+                defaultContentRoot: "default",
+                shouldRemainSuspended: true
+            )
+        )
+
+        try waitUntil {
+            try runtime.isInitialized()
+        }
+
+        try runtime.setTickMode(.host)
+        try runtime.subscribe(type: "torrents", intervalMs: 50)
+
+        wait(for: [stateExpectation], timeout: 2.0)
+
+        let tick = try runtime.tick()
+        XCTAssertGreaterThanOrEqual(tick.delayMs, 0)
+        XCTAssertTrue(sink.errors.isEmpty)
+        XCTAssertFalse(sink.stateUpdates.isEmpty)
     }
 }
