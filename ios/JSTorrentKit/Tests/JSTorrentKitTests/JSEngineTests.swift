@@ -445,6 +445,298 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(result?.toString(), #"{"match":[0],"mismatch":[1]}"#)
     }
 
+    func testVerifiedWriteBatchFlushDispatchesCallbackManagerFormat() throws {
+        let (engine, _, baseDirectory, userDefaults, suiteName) = try makeBindingsEnvironment()
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let goodHash = Data(Insecure.SHA1.hash(data: Data("ok".utf8))).map { String(format: "%02x", $0) }.joined()
+        let badHash = Data(Insecure.SHA1.hash(data: Data("xx".utf8))).map { String(format: "%02x", $0) }.joined()
+
+        _ = try engine.evaluate(
+            """
+            function encodeUtf8(str) {
+              return new Uint8Array(__jstorrent_text_encode(str));
+            }
+
+            function packVerifiedWrites(items) {
+              let total = 4;
+              for (const item of items) {
+                const rootKey = encodeUtf8(item.rootKey);
+                const path = encodeUtf8(item.path);
+                const callbackId = encodeUtf8(item.callbackId);
+                const hashHex = encodeUtf8(item.expectedHashHex);
+                total += 1 + rootKey.length;
+                total += 2 + path.length;
+                total += 8;
+                total += 4 + item.data.length;
+                total += 40;
+                total += 1 + callbackId.length;
+              }
+
+              const buffer = new ArrayBuffer(total);
+              const view = new DataView(buffer);
+              const bytes = new Uint8Array(buffer);
+              let offset = 0;
+              view.setUint32(offset, items.length, true);
+              offset += 4;
+
+              for (const item of items) {
+                const rootKey = encodeUtf8(item.rootKey);
+                const path = encodeUtf8(item.path);
+                const callbackId = encodeUtf8(item.callbackId);
+                const hashHex = encodeUtf8(item.expectedHashHex);
+
+                bytes[offset] = rootKey.length;
+                offset += 1;
+                bytes.set(rootKey, offset);
+                offset += rootKey.length;
+
+                view.setUint16(offset, path.length, true);
+                offset += 2;
+                bytes.set(path, offset);
+                offset += path.length;
+
+                view.setUint32(offset, item.position >>> 0, true);
+                view.setUint32(offset + 4, Math.floor(item.position / 0x100000000) >>> 0, true);
+                offset += 8;
+
+                view.setUint32(offset, item.data.length, true);
+                offset += 4;
+                bytes.set(item.data, offset);
+                offset += item.data.length;
+
+                bytes.set(hashHex, offset);
+                offset += 40;
+
+                bytes[offset] = callbackId.length;
+                offset += 1;
+                bytes.set(callbackId, offset);
+                offset += callbackId.length;
+              }
+
+              return buffer;
+            }
+
+            globalThis.__writeResults = {};
+            globalThis.__jstorrent_file_write_callbacks = {
+              vw1(bytesWritten, resultCode) {
+                __writeResults.vw1 = { bytesWritten, resultCode };
+              },
+              vw2(bytesWritten, resultCode) {
+                __writeResults.vw2 = { bytesWritten, resultCode };
+              }
+            };
+            globalThis.__jstorrent_file_dispatch_batch = (packed) => {
+              const view = new DataView(packed);
+              const bytes = new Uint8Array(packed);
+              let offset = 0;
+              const count = view.getUint32(offset, true);
+              offset += 4;
+
+              for (let i = 0; i < count; i++) {
+                const callbackIdLen = bytes[offset];
+                offset += 1;
+                const callbackId = __jstorrent_text_decode(bytes.slice(offset, offset + callbackIdLen).buffer);
+                offset += callbackIdLen;
+                const bytesWritten = view.getInt32(offset, true);
+                offset += 4;
+                const resultCode = bytes[offset];
+                offset += 1;
+                const callback = globalThis.__jstorrent_file_write_callbacks[callbackId];
+                if (callback) {
+                  delete globalThis.__jstorrent_file_write_callbacks[callbackId];
+                  callback(bytesWritten, resultCode);
+                }
+              }
+            };
+
+            __jstorrent_file_write_verified_batch(packVerifiedWrites([
+              {
+                rootKey: "default",
+                path: "verified/good.bin",
+                position: 0,
+                data: encodeUtf8("ok"),
+                expectedHashHex: "\(goodHash)",
+                callbackId: "vw1"
+              },
+              {
+                rootKey: "default",
+                path: "verified/bad.bin",
+                position: 0,
+                data: encodeUtf8("no"),
+                expectedHashHex: "\(badHash)",
+                callbackId: "vw2"
+              }
+            ]));
+            """,
+            filename: "verified-write-batch.js"
+        )
+
+        let asyncExpectation = expectation(description: "verified write queued")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            asyncExpectation.fulfill()
+        }
+        wait(for: [asyncExpectation], timeout: 1.0)
+
+        _ = try engine.evaluate("__jstorrent_file_flush()", filename: "verified-write-flush.js")
+
+        let result = try engine.evaluate(
+            """
+            JSON.stringify({
+              results: __writeResults,
+              goodExists: __jstorrent_file_exists("default", "verified/good.bin"),
+              badExists: __jstorrent_file_exists("default", "verified/bad.bin"),
+              goodData: Array.from(new Uint8Array(__jstorrent_file_read("default", "verified/good.bin", 0, 2)))
+            });
+            """,
+            filename: "verified-write-check.js"
+        )
+
+        let payload = try XCTUnwrap(result?.toString().data(using: .utf8))
+        let decoded = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        )
+        let results = try XCTUnwrap(decoded["results"] as? [String: [String: Any]])
+        XCTAssertEqual(results["vw1"]?["bytesWritten"] as? Int, 2)
+        XCTAssertEqual(results["vw1"]?["resultCode"] as? Int, 0)
+        XCTAssertEqual(results["vw2"]?["bytesWritten"] as? Int, 0)
+        XCTAssertEqual(results["vw2"]?["resultCode"] as? Int, 1)
+        XCTAssertEqual(decoded["goodExists"] as? Bool, true)
+        XCTAssertEqual(decoded["badExists"] as? Bool, false)
+        XCTAssertEqual(decoded["goodData"] as? [Int], [111, 107])
+    }
+
+    func testAsyncReadBatchFlushDispatchesCallbackManagerFormat() throws {
+        let (engine, _, baseDirectory, userDefaults, suiteName) = try makeBindingsEnvironment()
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        _ = try engine.evaluate(
+            """
+            __jstorrent_file_write("default", "reads/file.bin", 0, new Uint8Array([1, 2, 3, 4]).buffer);
+
+            function encodeUtf8(str) {
+              return new Uint8Array(__jstorrent_text_encode(str));
+            }
+
+            function packReads(items) {
+              let total = 4;
+              for (const item of items) {
+                const rootKey = encodeUtf8(item.rootKey);
+                const path = encodeUtf8(item.path);
+                const callbackId = encodeUtf8(item.callbackId);
+                total += 1 + rootKey.length;
+                total += 2 + path.length;
+                total += 8;
+                total += 4;
+                total += 1 + callbackId.length;
+              }
+
+              const buffer = new ArrayBuffer(total);
+              const view = new DataView(buffer);
+              const bytes = new Uint8Array(buffer);
+              let offset = 0;
+              view.setUint32(offset, items.length, true);
+              offset += 4;
+
+              for (const item of items) {
+                const rootKey = encodeUtf8(item.rootKey);
+                const path = encodeUtf8(item.path);
+                const callbackId = encodeUtf8(item.callbackId);
+
+                bytes[offset] = rootKey.length;
+                offset += 1;
+                bytes.set(rootKey, offset);
+                offset += rootKey.length;
+
+                view.setUint16(offset, path.length, true);
+                offset += 2;
+                bytes.set(path, offset);
+                offset += path.length;
+
+                view.setUint32(offset, item.position >>> 0, true);
+                view.setUint32(offset + 4, Math.floor(item.position / 0x100000000) >>> 0, true);
+                offset += 8;
+
+                view.setUint32(offset, item.length, true);
+                offset += 4;
+
+                bytes[offset] = callbackId.length;
+                offset += 1;
+                bytes.set(callbackId, offset);
+                offset += callbackId.length;
+              }
+
+              return buffer;
+            }
+
+            globalThis.__readResults = {};
+            globalThis.__jstorrent_file_read_callbacks = {
+              rd1(resultCode, data) {
+                __readResults.rd1 = { resultCode, data: Array.from(new Uint8Array(data)) };
+              },
+              rd2(resultCode, data) {
+                __readResults.rd2 = { resultCode, data: Array.from(new Uint8Array(data)) };
+              }
+            };
+            globalThis.__jstorrent_file_dispatch_read_batch = (packed) => {
+              const view = new DataView(packed);
+              const bytes = new Uint8Array(packed);
+              let offset = 0;
+              const count = view.getUint32(offset, true);
+              offset += 4;
+
+              for (let i = 0; i < count; i++) {
+                const callbackIdLen = bytes[offset];
+                offset += 1;
+                const callbackId = __jstorrent_text_decode(bytes.slice(offset, offset + callbackIdLen).buffer);
+                offset += callbackIdLen;
+                const resultCode = bytes[offset];
+                offset += 1;
+                const dataLen = view.getUint32(offset, true);
+                offset += 4;
+                const data = packed.slice(offset, offset + dataLen);
+                offset += dataLen;
+                const callback = globalThis.__jstorrent_file_read_callbacks[callbackId];
+                if (callback) {
+                  delete globalThis.__jstorrent_file_read_callbacks[callbackId];
+                  callback(resultCode, data);
+                }
+              }
+            };
+
+            __jstorrent_file_read_batch(packReads([
+              { rootKey: "default", path: "reads/file.bin", position: 0, length: 2, callbackId: "rd1" },
+              { rootKey: "default", path: "reads/file.bin", position: 2, length: 2, callbackId: "rd2" }
+            ]));
+            """,
+            filename: "async-read-batch.js"
+        )
+
+        let asyncExpectation = expectation(description: "async read queued")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            asyncExpectation.fulfill()
+        }
+        wait(for: [asyncExpectation], timeout: 1.0)
+
+        _ = try engine.evaluate("__jstorrent_file_flush()", filename: "async-read-flush.js")
+
+        let result = try engine.evaluate(
+            "JSON.stringify(__readResults)",
+            filename: "async-read-check.js"
+        )
+
+        XCTAssertEqual(
+            result?.toString(),
+            #"{"rd1":{"resultCode":0,"data":[1,2]},"rd2":{"resultCode":0,"data":[3,4]}}"#
+        )
+    }
+
     func testHashBindingsSyncBatchAndAsync() throws {
         let (engine, _, baseDirectory, userDefaults, suiteName) = try makeBindingsEnvironment()
         defer {
@@ -468,6 +760,25 @@ final class JSEngineTests: XCTestCase {
                 callback(hash);
               }
             };
+            globalThis.__jstorrent_hash_dispatch_batch = (packed) => {
+              const bytes = new Uint8Array(packed);
+              const view = new DataView(packed);
+              let offset = 0;
+              const count = view.getUint32(offset, true);
+              offset += 4;
+
+              for (let i = 0; i < count; i++) {
+                const callbackIdLen = bytes[offset];
+                offset += 1;
+                const callbackId = __jstorrent_text_decode(bytes.slice(offset, offset + callbackIdLen).buffer);
+                offset += callbackIdLen;
+                const hashLen = bytes[offset];
+                offset += 1;
+                const hash = packed.slice(offset, offset + hashLen);
+                offset += hashLen;
+                __jstorrent_hash_dispatch_result(callbackId, hash);
+              }
+            };
             """,
             filename: "hash-callback-init.js"
         )
@@ -483,6 +794,7 @@ final class JSEngineTests: XCTestCase {
             asyncExpectation.fulfill()
         }
         wait(for: [asyncExpectation], timeout: 1.0)
+        _ = try engine.evaluate("__jstorrent_hash_flush()", filename: "hash-flush.js")
 
         let result = try engine.evaluate(
             """
