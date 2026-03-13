@@ -6,7 +6,7 @@ struct JSTorrentApp: App {
     @StateObject private var controller = EngineController(
         bootstrapConfig: EngineBootstrapConfig(
             contentRoots: [
-                ContentRoot(key: "documents", label: "Documents")
+                ContentRoot(key: "documents", label: L10n.string("content_root_documents_label"))
             ],
             defaultContentRoot: "documents"
         )

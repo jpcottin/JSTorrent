@@ -1,6 +1,29 @@
 <resources>
     <string name="app_name">JSTorrent</string>
 
+    <!-- iOS shared shell -->
+    <string name="ios_runtime_section_title">Runtime</string>
+    <string name="ios_runtime_status_label">Status</string>
+    <string name="ios_runtime_torrents_label">Torrents</string>
+    <string name="ios_torrent_row_peers_label">Peers</string>
+    <string name="ios_torrent_row_download_label">Down</string>
+    <string name="ios_torrent_row_upload_label">Up</string>
+    <string name="ios_add_test_torrent">Add Test Torrent</string>
+    <string name="content_root_documents_label">Documents</string>
+    <string name="engine_status_idle">Idle</string>
+    <string name="engine_status_starting">Starting</string>
+    <string name="engine_status_running">Running</string>
+    <string name="engine_status_suspended">Suspended</string>
+    <string name="engine_status_failed">Failed</string>
+    <string name="torrent_status_stopped">Stopped</string>
+    <string name="torrent_status_downloading">Downloading</string>
+    <string name="torrent_status_downloading_metadata">Fetching Metadata</string>
+    <string name="torrent_status_checking">Checking</string>
+    <string name="torrent_status_seeding">Seeding</string>
+    <string name="torrent_status_done">Done</string>
+    <string name="torrent_status_queued">Queued</string>
+    <string name="torrent_status_error">Error</string>
+
     <!-- TorrentListScreen -->
     <string name="torrent_list_engine_error">Engine error: check logs for details</string>
     <string name="torrent_list_sort">Sort</string>
