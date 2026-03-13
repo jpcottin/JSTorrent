@@ -19,6 +19,13 @@ interface SearchPluginSourceRuntime {
     suspend fun inspectSource(source: String): SearchPluginSourceInspection
 }
 
+interface SearchPluginExecutionRuntime : SearchPluginSourceRuntime {
+    suspend fun runDraft(
+        source: String,
+        input: SearchPluginSearchInput
+    ): SearchPluginDraftRunResult
+}
+
 interface SearchPluginSettingsStore {
     fun recommendedPlugins(): List<RecommendedSearchPlugin>
     suspend fun listInstalledPlugins(): List<InstalledPluginRecord>

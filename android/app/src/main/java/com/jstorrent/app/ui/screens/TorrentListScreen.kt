@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -94,6 +95,7 @@ import com.jstorrent.quickjs.model.TorrentSummary
 fun TorrentListScreen(
     viewModel: TorrentListViewModel,
     onTorrentClick: (String) -> Unit = {},
+    onSearchClick: () -> Unit = {},
     onAddRootClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
     onShutdownClick: () -> Unit = {},
@@ -265,6 +267,12 @@ fun TorrentListScreen(
                                 )
                             }
                         }
+                    }
+                    IconButton(onClick = onSearchClick) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = stringResource(R.string.search_title)
+                        )
                     }
                     IconButton(onClick = { showMenu = true }) {
                         Icon(

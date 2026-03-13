@@ -170,6 +170,25 @@ class TorrentListScreenTest {
     }
 
     @Test
+    fun searchButton_invokesCallback() {
+        var clicked = false
+        fakeRepository.setLoaded(true)
+        fakeRepository.setTorrents(emptyList())
+
+        composeTestRule.setContent {
+            JSTorrentTheme {
+                TorrentListScreen(
+                    viewModel = viewModel,
+                    onSearchClick = { clicked = true }
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithContentDescription("Search").performClick()
+        assert(clicked)
+    }
+
+    @Test
     fun loadingState_showsLoadingIndicator() {
         fakeRepository.setLoaded(false)
 

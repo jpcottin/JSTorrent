@@ -57,6 +57,28 @@ data class SearchResult(
     val publishedAt: Long? = null
 )
 
+data class SearchDisplayResult(
+    val pluginId: String,
+    val pluginName: String,
+    val allowedHosts: List<String>,
+    val result: SearchResult
+) {
+    val stableId: String = buildString {
+        append(pluginId)
+        append('|')
+        append(result.infoHash ?: result.magnetUrl ?: result.torrentUrl ?: result.detailsUrl ?: result.name)
+    }
+}
+
+data class SearchRunSummary(
+    val pluginId: String,
+    val pluginName: String,
+    val ok: Boolean,
+    val durationMs: Long,
+    val resultCount: Int,
+    val errorMessage: String? = null
+)
+
 @Serializable
 data class SearchPluginLogEntry(
     val level: String,

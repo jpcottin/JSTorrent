@@ -34,6 +34,7 @@ import com.jstorrent.app.ui.screens.SpeedConnectionLimitsSettingsScreen
 import com.jstorrent.app.ui.screens.NetworkSettingsScreen
 import com.jstorrent.app.ui.screens.NotificationsSettingsScreen
 import com.jstorrent.app.ui.screens.PowerManagementSettingsScreen
+import com.jstorrent.app.ui.screens.SearchScreen
 import com.jstorrent.app.ui.screens.SearchPluginSettingsScreen
 import com.jstorrent.app.ui.screens.SettingsScreen
 import com.jstorrent.app.ui.screens.SpeedHistoryScreen
@@ -42,6 +43,7 @@ import com.jstorrent.app.ui.screens.TorrentDetailScreen
 import com.jstorrent.app.ui.screens.TorrentListScreen
 import com.jstorrent.app.viewmodel.DhtViewModel
 import com.jstorrent.app.viewmodel.LogViewerViewModel
+import com.jstorrent.app.viewmodel.SearchViewModel
 import com.jstorrent.app.viewmodel.SearchPluginSettingsViewModel
 import com.jstorrent.app.viewmodel.SettingsViewModel
 import com.jstorrent.app.viewmodel.SpeedHistoryViewModel
@@ -61,6 +63,7 @@ private fun NavHostController.safePopBackStack() {
 object Routes {
     const val TORRENT_LIST = "torrent_list"
     const val TORRENT_DETAIL = "torrent_detail/{infoHash}"
+    const val SEARCH = "search"
     const val SETTINGS = "settings"
     const val SETTINGS_SEARCH_PLUGINS = "settings/search_plugins"
     const val SETTINGS_STORAGE = "settings/storage"
@@ -123,6 +126,9 @@ fun TorrentNavHost(
                 onTorrentClick = { infoHash ->
                     navController.navigate(Routes.torrentDetail(infoHash))
                 },
+                onSearchClick = {
+                    navController.navigate(Routes.SEARCH)
+                },
                 onAddRootClick = onAddRootClick,
                 onSettingsClick = {
                     navController.navigate(Routes.SETTINGS)
@@ -138,6 +144,22 @@ fun TorrentNavHost(
                     navController.navigate(Routes.LOGS)
                 },
                 onDebugShowReviewDialog = onDebugShowReviewDialog
+            )
+        }
+
+        composable(Routes.SEARCH) {
+            val context = LocalContext.current
+            val viewModel: SearchViewModel = viewModel(
+                factory = SearchViewModel.Factory(context) { magnetOrBase64 ->
+                    listViewModel.addTorrent(magnetOrBase64)
+                }
+            )
+            SearchScreen(
+                viewModel = viewModel,
+                onNavigateBack = { navController.safePopBackStack() },
+                onManageSearchPlugins = {
+                    navController.navigate(Routes.SETTINGS_SEARCH_PLUGINS)
+                }
             )
         }
 

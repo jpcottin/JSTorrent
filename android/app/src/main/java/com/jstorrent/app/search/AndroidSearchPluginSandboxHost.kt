@@ -38,7 +38,7 @@ class AndroidSearchPluginSandboxHost(
     context: Context,
     private val fetcher: SearchPluginFetcher = SearchPluginFetchMediator(),
     private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate
-) : SearchPluginSourceRuntime {
+) : SearchPluginExecutionRuntime {
 
     @Serializable
     private data class RunDraftMessage(
@@ -123,7 +123,7 @@ class AndroidSearchPluginSandboxHost(
         return deferred.await()
     }
 
-    suspend fun runDraft(
+    override suspend fun runDraft(
         source: String,
         input: SearchPluginSearchInput
     ): SearchPluginDraftRunResult {

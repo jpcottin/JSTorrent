@@ -120,6 +120,7 @@
     <!-- SettingsScreen -->
     <string name="settings_title">Settings</string>
     <string name="settings_back_button">Back</string>
+    <string name="search_title">Search</string>
     <string name="search_plugins_title">Search Plugins</string>
     <string name="search_plugins_settings_description">Manage search providers for in-app torrent search</string>
     <string name="settings_storage_title">Storage</string>
@@ -145,6 +146,19 @@
     <string name="search_plugins_remove_button">Remove</string>
     <string name="search_plugins_enabled_label">Enabled</string>
     <string name="search_plugins_empty_installed">No search plugins installed yet</string>
+
+    <!-- SearchScreen -->
+    <string name="search_query_label">Search query</string>
+    <string name="search_category_label">Category</string>
+    <string name="search_action">Search</string>
+    <string name="search_action_button">Run search</string>
+    <string name="search_install_internet_archive">Install Internet Archive</string>
+    <string name="search_manage_plugins">Manage Search Plugins</string>
+    <string name="search_no_plugins_enabled">No search plugins are enabled</string>
+    <string name="search_no_plugins_enabled_description">Install a provider or enable an installed plugin to search for torrents.</string>
+    <string name="search_no_results">No search results</string>
+    <string name="search_results_title">Search results</string>
+    <string name="search_add_result">Add</string>
 
     <!-- Common -->
     <string name="back">Back</string>
