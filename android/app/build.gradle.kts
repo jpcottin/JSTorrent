@@ -152,6 +152,7 @@ dependencies {
     testImplementation(libs.kotlinx.serialization.json)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     // Netty for benchmark tests (NettyBenchmarkServer)
     testImplementation("io.netty:netty-codec-http:4.1.100.Final")
     testImplementation("io.netty:netty-handler:4.1.100.Final")
@@ -167,4 +168,21 @@ dependencies {
 // Configure test timeouts to fail fast on stuck tests
 tasks.withType<Test> {
     timeout = Duration.ofMinutes(5)
+}
+
+val syncSearchPluginSandboxAssets by tasks.registering(Copy::class) {
+    description = "Copies shared search plugin sandbox assets into Android app assets"
+
+    val sourceDir = rootProject.file("../packages/client/search-plugin-sandbox")
+    val destinationDir = file("src/main/assets/search-plugin-sandbox")
+
+    from(sourceDir) {
+        include("search-plugin-sandbox.html")
+        include("search-plugin-sandbox.js")
+    }
+    into(destinationDir)
+}
+
+tasks.named("preBuild") {
+    dependsOn(syncSearchPluginSandboxAssets)
 }
