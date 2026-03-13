@@ -80,6 +80,8 @@ JSTorrent ships as multiple products that share the same TypeScript engine but r
 
 **Node CLI** (`packages/engine/`): Published to npm as `@jstorrent/engine`. Primarily for integration testing; the Node adapters are the test/reference implementation.
 
+**Sandbox overview**: See `docs/architecture/sandbox-overview.md` for the current platform sandbox boundaries and search plugin / Google Play review notes.
+
 ### Pairing
 
 - **Desktop**: No pairing needed. Native messaging host auto-launches io-daemon with a known token.
