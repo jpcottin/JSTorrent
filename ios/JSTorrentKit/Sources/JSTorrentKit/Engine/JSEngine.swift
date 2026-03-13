@@ -211,6 +211,9 @@ public final class JSEngine {
         case .undefined:
             return JSValue(undefinedIn: context)
         case .value(let value):
+            if value == nil {
+                return JSValue(nullIn: context)
+            }
             if let jsValue = value as? JSValue {
                 return jsValue
             }
@@ -225,6 +228,9 @@ public final class JSEngine {
         case .undefined:
             return JSValue(undefinedIn: context)
         case .value(let value):
+            if value == nil {
+                return JSValue(nullIn: context)
+            }
             if let jsValue = value as? JSValue {
                 return jsValue
             }
