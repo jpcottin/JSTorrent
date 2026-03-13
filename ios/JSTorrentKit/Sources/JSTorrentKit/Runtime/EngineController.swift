@@ -1,6 +1,44 @@
 import Combine
 import Foundation
 
+protocol EngineRuntimeHandling: AnyObject {
+    func prepareDefaultBundle(in bundle: Bundle) throws
+    func bootstrap(with config: EngineBootstrapConfig) throws
+    func subscribe(type: String, hash: String, intervalMs: Int) throws
+    func setTickMode(_ mode: EngineTickMode) throws
+    func addTorrent(_ magnetOrBase64: String) throws
+    func addTestTorrent() throws
+    func queryTorrentList() throws -> EngineStatePayload
+    func pauseTorrent(_ infoHash: String) throws
+    func resumeTorrent(_ infoHash: String) throws
+    func removeTorrent(_ infoHash: String, deleteFiles: Bool) throws
+    func tick() throws -> EngineTickResult
+}
+
+extension JSTorrentRuntime: EngineRuntimeHandling {
+    func prepareDefaultBundle(in bundle: Bundle) throws {
+        _ = try loadDefaultBundle(in: bundle)
+    }
+
+    func bootstrap(with config: EngineBootstrapConfig) throws {
+        try initialize(with: config)
+    }
+}
+
+enum EngineControllerIntakeError: LocalizedError {
+    case emptyImportSelection
+    case unsupportedURL(URL)
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyImportSelection:
+            return "No torrent file was selected."
+        case .unsupportedURL(let url):
+            return "Unsupported torrent input: \(url.absoluteString)"
+        }
+    }
+}
+
 public enum EngineControllerStatus: Equatable, Sendable {
     case idle
     case starting
@@ -34,11 +72,13 @@ public final class EngineController: ObservableObject {
     private let bootstrapConfig: EngineBootstrapConfig
     private let bundle: Bundle
     private let fileBaseDirectory: URL?
+    private let runtimeFactory: (NativeEventSink, URL?) throws -> any EngineRuntimeHandling
     private let tickQueue = DispatchQueue(label: "com.jstorrent.ios.tick")
     private var tickTimer: DispatchSourceTimer?
     private let minimumTickDelayMs: Int32 = 1
     private let subscriptionIntervalMs = 100
-    private var runtime: JSTorrentRuntime?
+    private var runtime: (any EngineRuntimeHandling)?
+    private var pendingTorrentPayloads: [String] = []
 
     public init(
         bootstrapConfig: EngineBootstrapConfig,
@@ -48,6 +88,24 @@ public final class EngineController: ObservableObject {
         self.bootstrapConfig = bootstrapConfig
         self.bundle = bundle
         self.fileBaseDirectory = fileBaseDirectory
+        self.runtimeFactory = { sink, fileBaseDirectory in
+            try JSTorrentRuntime(
+                eventSink: sink,
+                fileBaseDirectory: fileBaseDirectory
+            )
+        }
+    }
+
+    init(
+        bootstrapConfig: EngineBootstrapConfig,
+        bundle: Bundle = .main,
+        fileBaseDirectory: URL? = nil,
+        runtimeFactory: @escaping (NativeEventSink, URL?) throws -> any EngineRuntimeHandling
+    ) {
+        self.bootstrapConfig = bootstrapConfig
+        self.bundle = bundle
+        self.fileBaseDirectory = fileBaseDirectory
+        self.runtimeFactory = runtimeFactory
     }
 
     public func startIfNeeded() {
@@ -72,20 +130,17 @@ public final class EngineController: ObservableObject {
                 }
             )
 
-            let runtime = try JSTorrentRuntime(
-                eventSink: sink,
-                fileBaseDirectory: fileBaseDirectory
-            )
-            try runtime.loadDefaultBundle(in: bundle)
-            try runtime.initialize(with: bootstrapConfig)
-            try runtime.subscribe(type: "torrents", intervalMs: subscriptionIntervalMs)
+            let runtime = try runtimeFactory(sink, fileBaseDirectory)
+            try runtime.prepareDefaultBundle(in: bundle)
+            try runtime.bootstrap(with: bootstrapConfig)
+            try runtime.subscribe(type: "torrents", hash: "", intervalMs: subscriptionIntervalMs)
 
             self.runtime = runtime
             resume()
+            processPendingTorrentPayloads()
             scheduleTorrentRefreshes()
         } catch {
-            status = .failed(error.localizedDescription)
-            lastError = error.localizedDescription
+            handle(error)
         }
     }
 
@@ -106,8 +161,7 @@ public final class EngineController: ObservableObject {
             startTickLoop()
             status = .running
         } catch {
-            lastError = error.localizedDescription
-            status = .failed(error.localizedDescription)
+            handle(error)
         }
     }
 
@@ -125,24 +179,73 @@ public final class EngineController: ObservableObject {
             }
             status = .suspended
         } catch {
-            lastError = error.localizedDescription
-            status = .failed(error.localizedDescription)
+            handle(error)
         }
     }
 
     public func addMagnet() {
         let input = magnetInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !input.isEmpty, let runtime else {
+        guard !input.isEmpty else {
             return
         }
 
+        addTorrent(input)
+        magnetInput = ""
+    }
+
+    public func addTorrent(_ magnetOrBase64: String) {
+        let input = magnetOrBase64.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty else {
+            return
+        }
+
+        submitTorrentPayload(input)
+    }
+
+    public func addTorrentFileData(_ data: Data) {
+        guard !data.isEmpty else {
+            handle(NSError(domain: "JSTorrent.EngineController", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Selected torrent file was empty."
+            ]))
+            return
+        }
+
+        submitTorrentPayload(data.base64EncodedString())
+    }
+
+    public func importTorrentFile(from url: URL) {
         do {
-            try runtime.addTorrent(input)
-            magnetInput = ""
-            scheduleTorrentRefreshes()
+            let data = try loadFileData(from: url)
+            addTorrentFileData(data)
         } catch {
-            lastError = error.localizedDescription
-            status = .failed(error.localizedDescription)
+            handle(error)
+        }
+    }
+
+    public func handleIncomingURL(_ url: URL) {
+        if url.isFileURL {
+            importTorrentFile(from: url)
+            return
+        }
+
+        if url.scheme?.caseInsensitiveCompare("magnet") == .orderedSame {
+            addTorrent(url.absoluteString)
+            return
+        }
+
+        handle(EngineControllerIntakeError.unsupportedURL(url))
+    }
+
+    public func handleFileImportResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else {
+                handle(EngineControllerIntakeError.emptyImportSelection)
+                return
+            }
+            importTorrentFile(from: url)
+        case .failure(let error):
+            handle(error)
         }
     }
 
@@ -153,10 +256,10 @@ public final class EngineController: ObservableObject {
 
         do {
             try runtime.addTestTorrent()
+            noteSuccessfulCommand()
             scheduleTorrentRefreshes()
         } catch {
-            lastError = error.localizedDescription
-            status = .failed(error.localizedDescription)
+            handle(error)
         }
     }
 
@@ -171,10 +274,10 @@ public final class EngineController: ObservableObject {
             } else {
                 try runtime.pauseTorrent(torrent.infoHash)
             }
+            noteSuccessfulCommand()
             scheduleTorrentRefreshes()
         } catch {
-            lastError = error.localizedDescription
-            status = .failed(error.localizedDescription)
+            handle(error)
         }
     }
 
@@ -184,11 +287,11 @@ public final class EngineController: ObservableObject {
         }
 
         do {
-            try runtime.removeTorrent(torrent.infoHash)
+            try runtime.removeTorrent(torrent.infoHash, deleteFiles: false)
+            noteSuccessfulCommand()
             scheduleTorrentRefreshes()
         } catch {
-            lastError = error.localizedDescription
-            status = .failed(error.localizedDescription)
+            handle(error)
         }
     }
 
@@ -228,8 +331,68 @@ public final class EngineController: ObservableObject {
             let payload = try runtime.queryTorrentList()
             torrents = payload.torrents ?? []
         } catch {
-            lastError = error.localizedDescription
+            handle(error)
         }
+    }
+
+    private func submitTorrentPayload(_ payload: String) {
+        guard let runtime else {
+            pendingTorrentPayloads.append(payload)
+            startIfNeeded()
+            return
+        }
+
+        executeTorrentPayload(payload, using: runtime)
+    }
+
+    private func processPendingTorrentPayloads() {
+        guard let runtime, !pendingTorrentPayloads.isEmpty else {
+            return
+        }
+
+        let pendingPayloads = pendingTorrentPayloads
+        pendingTorrentPayloads.removeAll(keepingCapacity: true)
+        for payload in pendingPayloads {
+            executeTorrentPayload(payload, using: runtime)
+        }
+    }
+
+    private func executeTorrentPayload(
+        _ payload: String,
+        using runtime: any EngineRuntimeHandling
+    ) {
+        do {
+            try runtime.addTorrent(payload)
+            noteSuccessfulCommand()
+            scheduleTorrentRefreshes()
+        } catch {
+            handle(error)
+        }
+    }
+
+    private func loadFileData(from url: URL) throws -> Data {
+        let didAccessSecurityScopedResource = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccessSecurityScopedResource {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        return try Data(contentsOf: url)
+    }
+
+    private func noteSuccessfulCommand() {
+        lastError = nil
+
+        if case .failed = status {
+            status = tickTimer == nil ? .suspended : .running
+        }
+    }
+
+    private func handle(_ error: Error) {
+        let message = error.localizedDescription
+        lastError = message
+        status = .failed(message)
     }
 
     private func scheduleTorrentRefreshes() {

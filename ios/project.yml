@@ -33,9 +33,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.jstorrent.ios
         PRODUCT_NAME: JSTorrent
         SWIFT_VERSION: 5.10
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: JSTorrent/Info.plist
         SUPPORTS_MACCATALYST: NO
         TARGETED_DEVICE_FAMILY: '1,2'
   JSTorrentAppTests:

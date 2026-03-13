@@ -1,16 +1,11 @@
 import SwiftUI
 import JSTorrentKit
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var controller = EngineController(
-        bootstrapConfig: EngineBootstrapConfig(
-            contentRoots: [
-                ContentRoot(key: "documents", label: "Documents")
-            ],
-            defaultContentRoot: "documents"
-        )
-    )
+    @ObservedObject var controller: EngineController
+    @State private var isImportingTorrent = false
 
     var body: some View {
         NavigationStack {
@@ -29,10 +24,17 @@ struct ContentView: View {
                         controller.addMagnet()
                     }
                     .disabled(controller.magnetInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .buttonStyle(.bordered)
+
+                    Button("Import .torrent") {
+                        isImportingTorrent = true
+                    }
+                    .buttonStyle(.bordered)
 
                     Button("Add Test Torrent") {
                         controller.addTestTorrent()
                     }
+                    .buttonStyle(.bordered)
                 }
 
                 if let lastError = controller.lastError {
@@ -93,6 +95,13 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("JSTorrent")
+            .fileImporter(
+                isPresented: $isImportingTorrent,
+                allowedContentTypes: [.torrentFile],
+                allowsMultipleSelection: false
+            ) { result in
+                controller.handleFileImportResult(result)
+            }
             .task {
                 controller.startIfNeeded()
                 if scenePhase == .active {
@@ -115,5 +124,18 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(
+        controller: EngineController(
+            bootstrapConfig: EngineBootstrapConfig(
+                contentRoots: [
+                    ContentRoot(key: "documents", label: "Documents")
+                ],
+                defaultContentRoot: "documents"
+            )
+        )
+    )
+}
+
+private extension UTType {
+    static let torrentFile = UTType(importedAs: "org.bittorrent.torrent")
 }
