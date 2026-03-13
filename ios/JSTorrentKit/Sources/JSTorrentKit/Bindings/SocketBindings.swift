@@ -376,7 +376,7 @@ public final class SocketBindings: @unchecked Sendable {
     }
 
     private func sendUDP(socketID: Int, address: String, port: Int, data: Data) {
-        guard let targetAddress = ipv4Address(address, allowEmpty: false) else {
+        guard socketID > 0, !address.isEmpty, (0...Int(UInt16.max)).contains(port) else {
             return
         }
 
@@ -385,11 +385,9 @@ public final class SocketBindings: @unchecked Sendable {
                 return
             }
 
-            var destination = sockaddr_in()
-            destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-            destination.sin_family = sa_family_t(AF_INET)
-            destination.sin_port = in_port_t(UInt16(port).bigEndian)
-            destination.sin_addr = targetAddress
+            guard var destination = self.resolveUDPDestination(address: address, port: port) else {
+                return
+            }
 
             data.withUnsafeBytes { buffer in
                 _ = withUnsafePointer(to: &destination) {
@@ -982,6 +980,55 @@ public final class SocketBindings: @unchecked Sendable {
         }
 
         return NWParameters(tls: nil, tcp: tcpOptions)
+    }
+
+    private func resolveUDPDestination(address: String, port: Int) -> sockaddr_in? {
+        if let ipv4 = ipv4Address(address, allowEmpty: false) {
+            var destination = sockaddr_in()
+            destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            destination.sin_family = sa_family_t(AF_INET)
+            destination.sin_port = in_port_t(UInt16(port).bigEndian)
+            destination.sin_addr = ipv4
+            return destination
+        }
+
+        var hints = addrinfo(
+            ai_flags: AI_NUMERICSERV,
+            ai_family: AF_INET,
+            ai_socktype: SOCK_DGRAM,
+            ai_protocol: IPPROTO_UDP,
+            ai_addrlen: 0,
+            ai_canonname: nil,
+            ai_addr: nil,
+            ai_next: nil
+        )
+        var results: UnsafeMutablePointer<addrinfo>?
+        let service = String(port)
+        let status = address.withCString { hostCString in
+            service.withCString { serviceCString in
+                getaddrinfo(hostCString, serviceCString, &hints, &results)
+            }
+        }
+        guard status == 0, let firstResult = results else {
+            return nil
+        }
+        defer {
+            freeaddrinfo(firstResult)
+        }
+
+        var current: UnsafeMutablePointer<addrinfo>? = firstResult
+        while let entry = current {
+            if
+                entry.pointee.ai_family == AF_INET,
+                let aiAddress = entry.pointee.ai_addr,
+                entry.pointee.ai_addrlen >= socklen_t(MemoryLayout<sockaddr_in>.size)
+            {
+                return aiAddress.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee }
+            }
+            current = entry.pointee.ai_next
+        }
+
+        return nil
     }
 
     private func ipv4Address(_ address: String, allowEmpty: Bool) -> in_addr? {

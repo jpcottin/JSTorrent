@@ -4535,6 +4535,18 @@ export class Torrent extends EngineComponent {
         // Seeds are tracked separately - don't add to per-piece availability
         this._availability.onDeferredHaveAll()
         this.logger.debug(`Deferred seed processed (seedCount: ${this._availability.seedCount})`)
+      } else if (peer.bitfield && this.piecesCount > 0) {
+        // Peers can send BITFIELD before metadata exists for magnet downloads.
+        // Rebuild availability and per-peer indices now that the piece layout is known.
+        const result = this._availability.onBitfield(peer.bitfield, this.piecesCount)
+        peer.haveCount = result.haveCount
+        peer.isSeed = result.isSeed
+
+        if (peer.isSeed) {
+          this.logger.debug(`Deferred bitfield resolved to seed (seedCount: ${this._availability.seedCount})`)
+        } else {
+          this.buildPeerPieceIndex(peer)
+        }
       }
 
       this.updateInterest(peer)

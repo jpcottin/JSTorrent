@@ -56,6 +56,8 @@ private enum TorrentListFilter: CaseIterable, Identifiable {
 
 struct TorrentListScreen: View {
     @ObservedObject var controller: EngineController
+    @ObservedObject var settings: AppSettings
+    let onOpenSettings: () -> Void
     let onTorrentSelected: (String) -> Void
 
     @State private var selectedFilter: TorrentListFilter = .all
@@ -120,7 +122,14 @@ struct TorrentListScreen: View {
         .listStyle(.insetGrouped)
         .navigationTitle(L10n.string("app_name"))
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Button {
+                    onOpenSettings()
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel(L10n.string("settings_title"))
+
                 Button {
                     isPresentingAddTorrent = true
                 } label: {
@@ -153,6 +162,9 @@ struct TorrentListScreen: View {
         .refreshable {
             controller.startIfNeeded()
             controller.resumeIfStarted()
+        }
+        .onChange(of: settings.locationChangeToken) { _ in
+            selectedFilter = .all
         }
     }
 }

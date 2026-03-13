@@ -134,13 +134,17 @@ public final class EngineController: ObservableObject {
         bundle: Bundle = .main,
         fileBaseDirectory: URL? = nil
     ) {
+        let defaultRootKey = bootstrapConfig.defaultContentRoot
+            ?? bootstrapConfig.contentRoots.first?.key
+            ?? "default"
         self.bootstrapConfig = bootstrapConfig
         self.bundle = bundle
         self.fileBaseDirectory = fileBaseDirectory
         self.runtimeFactory = { sink, fileBaseDirectory in
             try JSTorrentRuntime(
                 eventSink: sink,
-                fileBaseDirectory: fileBaseDirectory
+                fileBaseDirectory: fileBaseDirectory,
+                defaultRootKey: defaultRootKey
             )
         }
     }

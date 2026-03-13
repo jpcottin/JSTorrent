@@ -167,19 +167,22 @@ public final class FileBindings: @unchecked Sendable {
     private let fileManager: FileManager
     private let baseDirectory: URL
     private let defaultRootKey: String
-    private let workQueue: DispatchQueue
+    private let readQueue: DispatchQueue
+    private let writeQueue: DispatchQueue
     private let asyncState: FileAsyncState
 
     public init(
         baseDirectory: URL,
         defaultRootKey: String = "default",
         fileManager: FileManager = .default,
-        workQueue: DispatchQueue = DispatchQueue(label: "com.jstorrent.ios.file", qos: .utility, attributes: .concurrent)
+        readQueue: DispatchQueue = DispatchQueue(label: "com.jstorrent.ios.file.read", qos: .utility, attributes: .concurrent),
+        writeQueue: DispatchQueue = DispatchQueue(label: "com.jstorrent.ios.file.write", qos: .utility)
     ) {
         self.baseDirectory = baseDirectory.standardizedFileURL
         self.defaultRootKey = defaultRootKey
         self.fileManager = fileManager
-        self.workQueue = workQueue
+        self.readQueue = readQueue
+        self.writeQueue = writeQueue
         self.asyncState = FileAsyncState()
     }
 
@@ -495,14 +498,14 @@ public final class FileBindings: @unchecked Sendable {
     }
 
     private func queueVerifiedWrite(_ request: VerifiedWriteRequest) {
-        workQueue.async {
+        writeQueue.async {
             let result = self.performVerifiedWrite(request)
             self.asyncState.enqueueWrite(result)
         }
     }
 
     private func queueAsyncRead(_ request: AsyncReadRequest) {
-        workQueue.async {
+        readQueue.async {
             let result = self.performAsyncRead(request)
             self.asyncState.enqueueRead(result)
         }
@@ -877,6 +880,10 @@ public final class FileBindings: @unchecked Sendable {
             resolvedKey = defaultRootKey
         } else {
             resolvedKey = rootKey
+        }
+
+        if resolvedKey == defaultRootKey {
+            return baseDirectory
         }
 
         return baseDirectory.appendingPathComponent(resolvedKey, isDirectory: true).standardizedFileURL

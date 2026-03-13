@@ -1206,12 +1206,45 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
       return JSON.stringify({ error: 'Torrent not found' })
     }
 
+    const manager = torrent.getActivePieceManager()
+    let activePieceStates: string | undefined
+    if (manager && manager.activeCount > 0) {
+      const partial = [...manager.partialKeys()]
+      const requested = [...manager.fullyRequestedKeys()]
+      const responded = [...manager.fullyRespondedKeys()]
+      const totalCount = partial.length + requested.length + responded.length
+      if (totalCount > 0) {
+        const buf = new Uint8Array(6 + totalCount * 2)
+        const view = new DataView(buf.buffer)
+        view.setUint16(0, partial.length, true)
+        view.setUint16(2, requested.length, true)
+        view.setUint16(4, responded.length, true)
+
+        let offset = 6
+        for (const idx of partial) {
+          view.setUint16(offset, idx, true)
+          offset += 2
+        }
+        for (const idx of requested) {
+          view.setUint16(offset, idx, true)
+          offset += 2
+        }
+        for (const idx of responded) {
+          view.setUint16(offset, idx, true)
+          offset += 2
+        }
+        activePieceStates = toHex(buf)
+      }
+    }
+
     return JSON.stringify({
       piecesTotal: torrent.piecesCount,
       piecesCompleted: torrent.completedPiecesCount,
       pieceSize: torrent.pieceLength,
       lastPieceSize: torrent.lastPieceLength,
       bitfield: torrent.bitfield?.toHex() ?? '',
+      recentChanges: [],
+      activePieceStates: activePieceStates ?? null,
     })
   }
 

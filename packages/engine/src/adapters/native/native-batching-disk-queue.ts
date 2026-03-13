@@ -22,6 +22,8 @@ import { toHex } from '../../utils/buffer'
 import { HashMismatchError } from './native-file-handle'
 import './bindings.d.ts'
 
+globalThis.__jstorrent_file_write_callbacks ??= {}
+
 /** Result codes from native verified write */
 const WriteResultCode = {
   SUCCESS: 0,

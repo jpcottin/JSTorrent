@@ -1,33 +1,49 @@
 import SwiftUI
-import JSTorrentKit
+
+private enum AppRoute: Hashable {
+    case torrent(String)
+    case settings
+}
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
-    @ObservedObject var controller: EngineController
-    @State private var path: [String] = []
+    @ObservedObject var appModel: AppModel
+    @State private var path: [AppRoute] = []
 
     var body: some View {
         NavigationStack(path: $path) {
-            TorrentListScreen(controller: controller) { infoHash in
-                path.append(infoHash)
-            }
-            .navigationDestination(for: String.self) { infoHash in
-                TorrentDetailScreen(controller: controller, infoHash: infoHash)
+            TorrentListScreen(
+                controller: appModel.controller,
+                settings: appModel.settings,
+                onOpenSettings: {
+                    path.append(.settings)
+                },
+                onTorrentSelected: { infoHash in
+                    path.append(.torrent(infoHash))
+                }
+            )
+            .navigationDestination(for: AppRoute.self) { route in
+                switch route {
+                case .torrent(let infoHash):
+                    TorrentDetailScreen(controller: appModel.controller, infoHash: infoHash)
+                case .settings:
+                    SettingsScreen(settings: appModel.settings)
+                }
             }
         }
         .task {
             if scenePhase == .active {
-                controller.resumeIfStarted()
+                appModel.controller.resumeIfStarted()
             }
         }
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {
             case .active:
-                controller.resumeIfStarted()
+                appModel.controller.resumeIfStarted()
             case .inactive:
                 break
             case .background:
-                controller.shutdown()
+                appModel.controller.shutdown()
             @unknown default:
                 break
             }
@@ -36,14 +52,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView(
-        controller: EngineController(
-            bootstrapConfig: EngineBootstrapConfig(
-                contentRoots: [
-                    ContentRoot(key: "documents", label: L10n.string("content_root_documents_label"))
-                ],
-                defaultContentRoot: "documents"
-            )
-        )
-    )
+    ContentView(appModel: AppModel())
 }

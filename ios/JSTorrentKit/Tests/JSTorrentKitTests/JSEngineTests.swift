@@ -1146,7 +1146,7 @@ final class JSEngineTests: XCTestCase {
             """
             const port201 = __udpState.bounds["201"].port;
             const port202 = __udpState.bounds["202"].port;
-            __jstorrent_udp_send(201, "127.0.0.1", port202, encodeUtf8("alpha"));
+            __jstorrent_udp_send(201, "localhost", port202, encodeUtf8("alpha"));
             __jstorrent_udp_send(202, "127.0.0.1", port201, encodeUtf8("beta"));
             __jstorrent_udp_join_multicast(201, "224.0.0.251");
             __jstorrent_udp_leave_multicast(201, "224.0.0.251");

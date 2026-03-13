@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { BitField } from '../../src/utils/bitfield'
 import { PeerConnection } from '../../src/core/peer-connection'
+import { PieceAvailability } from '../../src/core/piece-availability'
+import { Torrent } from '../../src/core/torrent'
 import { ILoggingEngine } from '../../src/logging/logger'
 import type { ITcpSocket } from '../../src/interfaces/socket'
 
@@ -367,6 +369,79 @@ describe('Availability Tracking', () => {
   })
 
   describe('Edge cases not in original spec', () => {
+    it('recheckPeers replays deferred bitfield processing after metadata arrives', () => {
+      const piecesCount = 4
+      const availability = new PieceAvailability()
+      availability.initialize(piecesCount)
+
+      const peer = {
+        deferredHaveAll: false,
+        bitfield: BitField.createFull(piecesCount),
+        haveCount: 0,
+        isSeed: false,
+        setPieceLength: vi.fn(),
+      }
+
+      const fakeTorrent = {
+        connectedPeers: [peer],
+        pieceLength: 16384,
+        piecesCount,
+        _availability: availability,
+        buildPeerPieceIndex: vi.fn(),
+        updateInterest: vi.fn(),
+        logger: {
+          debug: vi.fn(),
+        },
+      }
+
+      ;(Torrent.prototype.recheckPeers as (this: typeof fakeTorrent) => void).call(fakeTorrent)
+
+      expect(peer.setPieceLength).toHaveBeenCalledWith(16384)
+      expect(peer.haveCount).toBe(piecesCount)
+      expect(peer.isSeed).toBe(true)
+      expect(availability.seedCount).toBe(1)
+      expect(fakeTorrent.buildPeerPieceIndex).not.toHaveBeenCalled()
+      expect(fakeTorrent.updateInterest).toHaveBeenCalledWith(peer)
+    })
+
+    it('recheckPeers rebuilds peer indices for deferred partial bitfields after metadata arrives', () => {
+      const piecesCount = 4
+      const availability = new PieceAvailability()
+      availability.initialize(piecesCount)
+
+      const partial = new BitField(piecesCount)
+      partial.set(1, true)
+      partial.set(3, true)
+
+      const peer = {
+        deferredHaveAll: false,
+        bitfield: partial,
+        haveCount: 0,
+        isSeed: false,
+        setPieceLength: vi.fn(),
+      }
+
+      const fakeTorrent = {
+        connectedPeers: [peer],
+        pieceLength: 16384,
+        piecesCount,
+        _availability: availability,
+        buildPeerPieceIndex: vi.fn(),
+        updateInterest: vi.fn(),
+        logger: {
+          debug: vi.fn(),
+        },
+      }
+
+      ;(Torrent.prototype.recheckPeers as (this: typeof fakeTorrent) => void).call(fakeTorrent)
+
+      expect(peer.haveCount).toBe(2)
+      expect(peer.isSeed).toBe(false)
+      expect([...availability.rawAvailability!]).toEqual([0, 1, 0, 1])
+      expect(fakeTorrent.buildPeerPieceIndex).toHaveBeenCalledWith(peer)
+      expect(fakeTorrent.updateInterest).toHaveBeenCalledWith(peer)
+    })
+
     it('deferred HAVE_ALL peer disconnect before metadata - should not affect counts', () => {
       // Scenario: peer sends HAVE_ALL when piecesCount=0 (no metadata yet)
       // Then peer disconnects before metadata arrives

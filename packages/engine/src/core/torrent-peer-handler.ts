@@ -311,8 +311,17 @@ export class TorrentPeerHandler extends EngineComponent {
   private handleBitfield(peer: PeerConnection, bf: BitField): void {
     this.logger.debug('Bitfield received')
 
-    const availability = this.callbacks.getAvailability()
     const piecesCount = this.callbacks.getPiecesCount()
+
+    if (piecesCount === 0) {
+      // Preserve the peer bitfield and finish availability/index setup after metadata arrives.
+      peer.haveCount = bf.count()
+      peer.isSeed = false
+      this.logger.debug('Deferring bitfield processing - no metadata yet')
+      return
+    }
+
+    const availability = this.callbacks.getAvailability()
 
     // Update availability tracking
     const result = availability.onBitfield(bf, piecesCount)

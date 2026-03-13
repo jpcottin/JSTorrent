@@ -14,6 +14,8 @@
 
 import './bindings.d.ts'
 
+globalThis.__jstorrent_file_read_callbacks ??= {}
+
 /** Result codes from native async read (must match Kotlin ReadResultCode) */
 const ReadResultCode = {
   SUCCESS: 0,
