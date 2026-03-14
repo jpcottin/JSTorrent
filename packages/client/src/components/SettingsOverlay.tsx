@@ -173,20 +173,37 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   const [loadingRoots, setLoadingRoots] = useState(true)
   const [addingRoot, setAddingRoot] = useState(false)
 
-  // Load roots when overlay opens
+  // Keep download roots in sync while the overlay is open so late ROOTS_CHANGED
+  // updates do not leave settings showing stale state.
   useEffect(() => {
-    if (isOpen) {
-      const doLoad = async () => {
-        setLoadingRoots(true)
-        const loadedRoots = engineManager.getRoots()
-        const loadedDefaultKey = await engineManager.getDefaultRootKey()
-        setRoots(loadedRoots)
-        setDefaultKey(loadedDefaultKey)
-        setLoadingRoots(false)
-      }
-      void doLoad()
+    if (!isOpen) return
+
+    let cancelled = false
+    const syncRoots = async () => {
+      setLoadingRoots(true)
+      const loadedRoots = engineManager.getRoots()
+      const loadedDefaultKey = await engineManager.getDefaultRootKey()
+      if (cancelled) return
+      setRoots(loadedRoots)
+      setDefaultKey(loadedDefaultKey)
+      setLoadingRoots(false)
     }
-  }, [isOpen, engineManager])
+
+    void syncRoots()
+
+    const unsubStorageRoots = config.storageRoots.subscribe(() => {
+      void syncRoots()
+    })
+    const unsubDefaultRoot = config.defaultRootKey.subscribe(() => {
+      void syncRoots()
+    })
+
+    return () => {
+      cancelled = true
+      unsubStorageRoots()
+      unsubDefaultRoot()
+    }
+  }, [isOpen, engineManager, config])
 
   const reloadRoots = async () => {
     setLoadingRoots(true)

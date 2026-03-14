@@ -53,7 +53,7 @@ const USE_WEBRTC_KEEP_ALIVE = false
 const NULL_STORAGE = false
 
 // Session store key for default root key
-const DEFAULT_ROOT_KEY_KEY = 'settings:defaultRootKey'
+const LEGACY_DEFAULT_ROOT_KEY_KEY = 'settings:defaultRootKey'
 const CHROMEOS_ANDROID_HOST = '100.115.92.2'
 const CHROMEOS_WRITE_QUEUE_HIGH_WATER = 32 * 1024 * 1024
 const CHROMEOS_WRITE_QUEUE_LOW_WATER = 16 * 1024 * 1024
@@ -108,6 +108,14 @@ function guessMimeType(filePath: string): string | null {
   const lastDot = lowerPath.lastIndexOf('.')
   if (lastDot < 0) return null
   return MIME_TYPES_BY_EXTENSION[lowerPath.slice(lastDot)] ?? null
+}
+
+function mapDownloadRootsToEngineRoots(roots: DownloadRoot[]): EngineStorageRoot[] {
+  return roots.map((root) => ({
+    key: root.key,
+    label: root.display_name,
+    path: root.path,
+  }))
 }
 
 // Augment Window interface for debug exports
@@ -172,12 +180,22 @@ export class DaemonEngineManager implements IEngineManager {
   private pendingNativeEvents: Array<{ event: string; payload: unknown }> = []
   private daemonBackedEngine: DaemonBackedEngine | null = null
   private socketFactory: ISocketFactory | null = null
+  private latestHostRoots: DownloadRoot[] = []
   private backgroundKeepAlive = USE_WEBRTC_KEEP_ALIVE
     ? new BackgroundWebRTCManager()
     : new BackgroundAudioManager()
 
   constructor(channel: HostChannel) {
     this.channel = channel
+    this.latestHostRoots = channel.getState().roots ?? []
+
+    this.channel.onStateChanged((state) => {
+      this.latestHostRoots = state.roots ?? []
+
+      if (state.status === 'connected') {
+        void this.syncRootsFromHostState(state.roots)
+      }
+    })
   }
 
   /**
@@ -206,7 +224,8 @@ export class DaemonEngineManager implements IEngineManager {
       throw new Error('Failed to get daemon info from host')
     }
     this._daemonInfo = daemonInfo
-    const roots: DownloadRoot[] = daemonInfo.roots ?? []
+    const liveRoots = this.channel.getState().roots
+    const roots: DownloadRoot[] = liveRoots.length > 0 ? liveRoots : (daemonInfo.roots ?? [])
     console.log(
       '[DaemonEngineManager] App version:',
       this.channel.getVersion() ?? 'unknown',
@@ -297,17 +316,6 @@ export class DaemonEngineManager implements IEngineManager {
           path: root.path,
         })
       }
-
-      // Load saved default root from session store
-      const savedDefaultBytes = await this.sessionStore.get(DEFAULT_ROOT_KEY_KEY)
-      const defaultKey = savedDefaultBytes ? new TextDecoder().decode(savedDefaultBytes) : null
-      const validDefault = defaultKey && roots.some((r) => r.key === defaultKey)
-
-      if (validDefault) {
-        srm.setDefaultRoot(defaultKey)
-      } else if (roots.length > 0) {
-        srm.setDefaultRoot(roots[0].key)
-      }
       console.log('[DaemonEngineManager] Registered', roots.length, 'download roots')
     } else {
       console.warn('[DaemonEngineManager] No download roots configured!')
@@ -327,11 +335,7 @@ export class DaemonEngineManager implements IEngineManager {
     configHub.setRuntime('platformType', isChromeos ? 'chromeos' : 'desktop')
 
     // Set storage roots in ConfigHub (mirrors what StorageRootManager has)
-    const storageRootsForConfig: EngineStorageRoot[] = roots.map((r) => ({
-      key: r.key,
-      label: r.display_name,
-      path: r.path,
-    }))
+    const storageRootsForConfig = mapDownloadRootsToEngineRoots(roots)
     configHub.setRuntime('storageRoots', storageRootsForConfig)
 
     // 6. Create engine (suspended) with ConfigHub
@@ -375,6 +379,8 @@ export class DaemonEngineManager implements IEngineManager {
     window.engine = this.engine // expose for debugging
     window.getBatchWriteHistogram = getBatchWriteHistogram // expose for benchmarking
     console.log('[DaemonEngineManager] Engine created (suspended)')
+
+    await this.syncRootsFromHostState(roots)
 
     // 7. Restore session
     const restored = await this.engine.restoreSession()
@@ -578,15 +584,9 @@ export class DaemonEngineManager implements IEngineManager {
       if (!currentDefault) {
         const remaining = this.engine.storageRootManager.getRoots()
         if (remaining.length > 0) {
-          this.engine.storageRootManager.setDefaultRoot(remaining[0].key)
-          if (this.sessionStore) {
-            await this.sessionStore.set(
-              DEFAULT_ROOT_KEY_KEY,
-              new TextEncoder().encode(remaining[0].key),
-            )
-          }
-        } else if (this.sessionStore) {
-          await this.sessionStore.delete(DEFAULT_ROOT_KEY_KEY)
+          await this.persistDefaultRootKey(remaining[0].key)
+        } else {
+          await this.clearPersistedDefaultRootKey()
         }
       }
     }
@@ -812,21 +812,28 @@ export class DaemonEngineManager implements IEngineManager {
 
   async setDefaultRoot(key: string): Promise<void> {
     if (!this.engine) throw new Error('Engine not initialized')
-    this.engine.storageRootManager.setDefaultRoot(key)
-    if (this.sessionStore) {
-      await this.sessionStore.set(DEFAULT_ROOT_KEY_KEY, new TextEncoder().encode(key))
-    }
+    await this.persistDefaultRootKey(key)
   }
 
   getRoots(): StorageRoot[] {
-    if (!this.engine) return []
-    return this.engine.storageRootManager.getRoots()
+    if (this.engine) {
+      const roots = this.engine.storageRootManager.getRoots()
+      if (roots.length > 0) return roots
+    }
+    if (this.configHub) {
+      return this.configHub.storageRoots.get()
+    }
+    return mapDownloadRootsToEngineRoots(this.latestHostRoots)
   }
 
   async getDefaultRootKey(): Promise<string | null> {
-    if (!this.sessionStore) return null
-    const bytes = await this.sessionStore.get(DEFAULT_ROOT_KEY_KEY)
-    return bytes ? new TextDecoder().decode(bytes) : null
+    const engineDefault = this.engine?.storageRootManager.getDefaultRoot()
+    if (engineDefault) return engineDefault
+
+    const configDefault = this.configHub?.defaultRootKey.get() ?? null
+    if (configDefault) return configDefault
+
+    return this.readLegacyDefaultRootKey()
   }
 
   setLoggingConfig(config: EngineLoggingConfig): void {
@@ -1044,6 +1051,84 @@ export class DaemonEngineManager implements IEngineManager {
         console.error('[DaemonEngineManager] Failed to add magnet:', e)
       }
     }
+  }
+
+  private async syncRootsFromHostState(roots: DownloadRoot[]): Promise<void> {
+    if (this._daemonInfo) {
+      this._daemonInfo = {
+        ...this._daemonInfo,
+        roots,
+      }
+    }
+
+    const mappedRoots = mapDownloadRootsToEngineRoots(roots)
+
+    if (this.configHub) {
+      ;(this.configHub as HostChannelConfigHub).setRuntime('storageRoots', mappedRoots)
+    }
+
+    if (mappedRoots.length === 0) {
+      await this.clearPersistedDefaultRootKey()
+      return
+    }
+
+    const currentDefault = this.engine?.storageRootManager.getDefaultRoot() ?? null
+    if (currentDefault && mappedRoots.some((root) => root.key === currentDefault)) {
+      await this.persistDefaultRootKey(currentDefault)
+      return
+    }
+
+    const configuredDefault = this.configHub?.defaultRootKey.get() ?? null
+    if (configuredDefault && mappedRoots.some((root) => root.key === configuredDefault)) {
+      await this.persistDefaultRootKey(configuredDefault)
+      return
+    }
+
+    const legacyDefault = await this.readLegacyDefaultRootKey()
+    if (legacyDefault && mappedRoots.some((root) => root.key === legacyDefault)) {
+      await this.persistDefaultRootKey(legacyDefault)
+      return
+    }
+
+    await this.persistDefaultRootKey(mappedRoots[0].key)
+  }
+
+  private async readLegacyDefaultRootKey(): Promise<string | null> {
+    if (!this.sessionStore) return null
+    const bytes = await this.sessionStore.get(LEGACY_DEFAULT_ROOT_KEY_KEY)
+    return bytes ? new TextDecoder().decode(bytes) : null
+  }
+
+  private async writeLegacyDefaultRootKey(key: string): Promise<void> {
+    if (!this.sessionStore) return
+    await this.sessionStore.set(LEGACY_DEFAULT_ROOT_KEY_KEY, new TextEncoder().encode(key))
+  }
+
+  private async clearLegacyDefaultRootKey(): Promise<void> {
+    if (!this.sessionStore) return
+    await this.sessionStore.delete(LEGACY_DEFAULT_ROOT_KEY_KEY)
+  }
+
+  private async persistDefaultRootKey(key: string): Promise<void> {
+    if (this.engine) {
+      const hasRoot = this.engine.storageRootManager.getRoots().some((root) => root.key === key)
+      if (hasRoot && this.engine.storageRootManager.getDefaultRoot() !== key) {
+        this.engine.storageRootManager.setDefaultRoot(key)
+      }
+    }
+
+    if (this.configHub?.defaultRootKey.get() !== key) {
+      this.configHub?.set('defaultRootKey', key)
+    }
+
+    await this.writeLegacyDefaultRootKey(key)
+  }
+
+  private async clearPersistedDefaultRootKey(): Promise<void> {
+    if (this.configHub?.defaultRootKey.get() != null) {
+      this.configHub.set('defaultRootKey', null)
+    }
+    await this.clearLegacyDefaultRootKey()
   }
 }
 
