@@ -76,6 +76,15 @@ final class AppSettings: ObservableObject {
         downloadBaseDirectoryURL.path
     }
 
+    var downloadFolderDisplayPath: String {
+        switch downloadLocation {
+        case .internalStorage:
+            return "~/\(downloadFolderDisplayName)"
+        case .externalFolder:
+            return Self.displayPath(for: downloadBaseDirectoryURL)
+        }
+    }
+
     var usesExternalDownloadFolder: Bool {
         if case .externalFolder = downloadLocation {
             return true
@@ -455,6 +464,28 @@ final class AppSettings: ObservableObject {
     private static func displayName(for url: URL) -> String {
         let values = try? url.resourceValues(forKeys: [.nameKey, .localizedNameKey])
         return values?.localizedName ?? values?.name ?? url.lastPathComponent
+    }
+
+    private static func displayPath(for url: URL) -> String {
+        let standardizedURL = url.standardizedFileURL
+        let homeURL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).standardizedFileURL
+        let path = standardizedURL.path
+        let homePath = homeURL.path
+
+        if path == homePath {
+            return "~"
+        }
+
+        if path.hasPrefix(homePath + "/") {
+            return "~/" + path.dropFirst(homePath.count + 1)
+        }
+
+        let components = standardizedURL.pathComponents.filter { $0 != "/" }
+        guard components.count > 2 else {
+            return path
+        }
+
+        return "…/" + components.suffix(2).joined(separator: "/")
     }
 
     private static func requiresSecurityScopedAccess(_ url: URL) -> Bool {

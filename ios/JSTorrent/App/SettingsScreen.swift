@@ -18,7 +18,7 @@ struct SettingsScreen: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(settings.downloadFolderPath)
+                    Text(settings.downloadFolderDisplayPath)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
