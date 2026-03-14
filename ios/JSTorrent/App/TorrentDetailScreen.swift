@@ -562,13 +562,19 @@ private struct TorrentPiecesSection: View {
                     )
                 }
 
-                ProgressView(
-                    value: pieces.piecesTotal > 0
-                        ? Double(pieces.piecesCompleted) / Double(pieces.piecesTotal)
-                        : 0
-                )
+                Text(L10n.string("tab_pieces_progress").uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
 
-                PiecePreviewStrip(bitfieldHex: pieces.bitfield)
+                PieceProgressBar(pieces: pieces)
+
+                Text(L10n.string("tab_pieces_piece_map").uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                PieceMapView(pieces: pieces)
+
+                PieceLegend()
             }
             .padding(18)
             .background(
@@ -584,57 +590,298 @@ private struct TorrentPiecesSection: View {
     }
 }
 
-private struct PiecePreviewStrip: View {
-    let bitfieldHex: String
+private struct PieceProgressBar: View {
+    let pieces: TorrentPiecesPayload
 
-    private var sample: [Bool] {
-        let bits = decodeBitfield(hex: bitfieldHex)
-        if bits.isEmpty {
-            return Array(repeating: false, count: 48)
-        }
+    private let maxSegments = 100
 
-        let chunkSize = max(1, bits.count / 48)
-        return stride(from: 0, to: bits.count, by: chunkSize).map { start in
-            let end = min(bits.count, start + chunkSize)
-            return bits[start..<end].contains(true)
-        }
+    private var segmentStates: [PieceVisualState] {
+        makeSegmentStates(
+            piecesTotal: pieces.piecesTotal,
+            bitfieldHex: pieces.bitfield,
+            activePieceStatesHex: pieces.activePieceStates,
+            maxSegments: maxSegments
+        )
     }
 
     var body: some View {
-        HStack(spacing: 3) {
-            ForEach(Array(sample.enumerated()), id: \.offset) { _, complete in
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(complete ? Color.accentColor : Color(.tertiarySystemFill))
-                    .frame(height: 10)
+        GeometryReader { geometry in
+            let height = geometry.size.height
+            let segmentWidth = max(geometry.size.width / CGFloat(max(segmentStates.count, 1)), 1)
+
+            HStack(spacing: 1) {
+                ForEach(Array(segmentStates.enumerated()), id: \.offset) { _, state in
+                    Rectangle()
+                        .fill(state.color.opacity(state == .missing ? 1 : 0.85))
+                        .frame(width: max(segmentWidth - 1, 1), height: height)
+                }
+            }
+        }
+        .frame(height: 12)
+    }
+}
+
+private struct PieceMapView: View {
+    let pieces: TorrentPiecesPayload
+
+    private var pieceStates: [PieceVisualState] {
+        makePieceStates(
+            piecesTotal: pieces.piecesTotal,
+            bitfieldHex: pieces.bitfield,
+            activePieceStatesHex: pieces.activePieceStates
+        )
+    }
+
+    private var columns: Int {
+        switch pieces.piecesTotal {
+        case ...10:
+            return max(pieces.piecesTotal, 1)
+        case ...50:
+            return min(pieces.piecesTotal, 25)
+        case ...200:
+            return min(pieces.piecesTotal, 40)
+        case ...1000:
+            return 50
+        case ...5000:
+            return 80
+        default:
+            return 100
+        }
+    }
+
+    private var cellSize: CGFloat {
+        switch pieces.piecesTotal {
+        case ...10:
+            return 24
+        case ...50:
+            return 16
+        case ...200:
+            return 10
+        case ...1000:
+            return 6
+        case ...5000:
+            return 4
+        default:
+            return 3
+        }
+    }
+
+    private var rows: Int {
+        Int(ceil(Double(pieces.piecesTotal) / Double(columns)))
+    }
+
+    var body: some View {
+        let gap: CGFloat = 1
+
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<rows, id: \.self) { row in
+                HStack(spacing: gap) {
+                    ForEach(0..<columns, id: \.self) { column in
+                        let index = row * columns + column
+                        Rectangle()
+                            .fill(index < pieceStates.count ? pieceStates[index].color : PieceVisualState.missing.color)
+                            .frame(width: cellSize, height: cellSize)
+                    }
+                }
+                if row < rows - 1 {
+                    Spacer()
+                        .frame(height: gap)
+                }
+            }
+        }
+    }
+}
+
+private struct PieceLegend: View {
+    private let items: [(String, PieceVisualState)] = [
+        ("tab_pieces_legend_complete", .completed),
+        ("tab_pieces_legend_verifying", .responded),
+        ("tab_pieces_legend_receiving", .requested),
+        ("tab_pieces_legend_requesting", .partial),
+        ("tab_pieces_legend_missing", .missing)
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                HStack(spacing: 8) {
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(item.1.color)
+                        .frame(width: 12, height: 12)
+                    Text(L10n.string(item.0))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+private enum ActivePieceStateCode {
+    static func fromHex(_ hex: String?) -> (partial: Set<Int>, requested: Set<Int>, responded: Set<Int>) {
+        guard let hex, !hex.isEmpty else {
+            return ([], [], [])
+        }
+
+        let bytes = decodeHexBytes(hex)
+        guard bytes.count >= 6 else {
+            return ([], [], [])
+        }
+
+        func readUInt16LE(at offset: Int) -> Int {
+            guard offset + 1 < bytes.count else { return 0 }
+            return Int(bytes[offset]) | (Int(bytes[offset + 1]) << 8)
+        }
+
+        let partialCount = readUInt16LE(at: 0)
+        let requestedCount = readUInt16LE(at: 2)
+        let respondedCount = readUInt16LE(at: 4)
+
+        var cursor = 6
+
+        func readSet(count: Int) -> Set<Int> {
+            var result = Set<Int>()
+            result.reserveCapacity(count)
+            for _ in 0..<count {
+                guard cursor + 1 < bytes.count else {
+                    break
+                }
+                result.insert(readUInt16LE(at: cursor))
+                cursor += 2
+            }
+            return result
+        }
+
+        let partial = readSet(count: partialCount)
+        let requested = readSet(count: requestedCount)
+        let responded = readSet(count: respondedCount)
+        return (partial, requested, responded)
+    }
+}
+
+private enum PieceVisualState: CaseIterable {
+    case completed
+    case responded
+    case requested
+    case partial
+    case missing
+
+    var color: Color {
+        switch self {
+        case .completed:
+            return .accentColor
+        case .responded:
+            return Color(red: 0.30, green: 0.69, blue: 0.31)
+        case .requested:
+            return Color(red: 0.00, green: 0.74, blue: 0.83)
+        case .partial:
+            return Color(red: 1.00, green: 0.60, blue: 0.00)
+        case .missing:
+            return Color(.tertiarySystemFill)
+        }
+    }
+}
+
+private func makePieceStates(
+    piecesTotal: Int,
+    bitfieldHex: String,
+    activePieceStatesHex: String?
+) -> [PieceVisualState] {
+    let bitfield = decodeBitfield(hex: bitfieldHex, piecesTotal: piecesTotal)
+    let activeStates = ActivePieceStateCode.fromHex(activePieceStatesHex)
+
+    return (0..<piecesTotal).map { index in
+        if bitfield.indices.contains(index), bitfield[index] {
+            return .completed
+        }
+        if activeStates.responded.contains(index) {
+            return .responded
+        }
+        if activeStates.requested.contains(index) {
+            return .requested
+        }
+        if activeStates.partial.contains(index) {
+            return .partial
+        }
+        return .missing
+    }
+}
+
+private func makeSegmentStates(
+    piecesTotal: Int,
+    bitfieldHex: String,
+    activePieceStatesHex: String?,
+    maxSegments: Int
+) -> [PieceVisualState] {
+    let pieceStates = makePieceStates(
+        piecesTotal: piecesTotal,
+        bitfieldHex: bitfieldHex,
+        activePieceStatesHex: activePieceStatesHex
+    )
+
+    guard !pieceStates.isEmpty else {
+        return []
+    }
+
+    let segmentCount = min(maxSegments, pieceStates.count)
+    let piecesPerSegment = Double(pieceStates.count) / Double(segmentCount)
+
+    return (0..<segmentCount).map { segmentIndex in
+        let start = Int(floor(Double(segmentIndex) * piecesPerSegment))
+        let end = min(Int(ceil(Double(segmentIndex + 1) * piecesPerSegment)), pieceStates.count)
+        let slice = pieceStates[start..<max(start + 1, end)]
+        return slice.contains(.completed) ? .completed
+            : slice.contains(.responded) ? .responded
+            : slice.contains(.requested) ? .requested
+            : slice.contains(.partial) ? .partial
+            : .missing
+    }
+}
+
+private func decodeBitfield(hex: String, piecesTotal: Int) -> [Bool] {
+    let bytes = decodeHexBytes(hex)
+    guard !bytes.isEmpty else {
+        return Array(repeating: false, count: piecesTotal)
+    }
+
+    var bits: [Bool] = []
+    bits.reserveCapacity(min(bytes.count * 8, piecesTotal))
+
+    for byte in bytes {
+        for shift in (0..<8).reversed() {
+            bits.append((byte & (1 << shift)) != 0)
+            if bits.count == piecesTotal {
+                return bits
             }
         }
     }
 
-    private func decodeBitfield(hex: String) -> [Bool] {
-        guard hex.count.isMultiple(of: 2) else {
+    if bits.count < piecesTotal {
+        bits.append(contentsOf: repeatElement(false, count: piecesTotal - bits.count))
+    }
+    return bits
+}
+
+private func decodeHexBytes(_ hex: String) -> [UInt8] {
+    guard hex.count.isMultiple(of: 2) else {
+        return []
+    }
+
+    var bytes: [UInt8] = []
+    bytes.reserveCapacity(hex.count / 2)
+
+    var index = hex.startIndex
+    while index < hex.endIndex {
+        let nextIndex = hex.index(index, offsetBy: 2)
+        let byteString = String(hex[index..<nextIndex])
+        guard let byte = UInt8(byteString, radix: 16) else {
             return []
         }
-
-        var bits: [Bool] = []
-        bits.reserveCapacity(hex.count * 4)
-
-        var index = hex.startIndex
-        while index < hex.endIndex {
-            let nextIndex = hex.index(index, offsetBy: 2)
-            let byteString = String(hex[index..<nextIndex])
-            guard let byte = UInt8(byteString, radix: 16) else {
-                return []
-            }
-
-            for shift in (0..<8).reversed() {
-                bits.append((byte & (1 << shift)) != 0)
-            }
-
-            index = nextIndex
-        }
-
-        return bits
+        bytes.append(byte)
+        index = nextIndex
     }
+
+    return bytes
 }
 
 private struct DetailMetricCard: View {
