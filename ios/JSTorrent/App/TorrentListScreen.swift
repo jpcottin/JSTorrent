@@ -63,6 +63,7 @@ struct TorrentListScreen: View {
     @State private var selectedFilter: TorrentListFilter = .all
     @State private var isPresentingAddTorrent = false
     @State private var isImportingTorrent = false
+    @State private var pendingRemovalTorrent: TorrentListItem?
 
     private var filteredTorrents: [TorrentListItem] {
         controller.torrents.filter(selectedFilter.includes)
@@ -102,7 +103,7 @@ struct TorrentListScreen: View {
                                 controller.toggleTorrent(torrent)
                             },
                             onRemove: {
-                                controller.removeTorrent(torrent)
+                                pendingRemovalTorrent = torrent
                             }
                         )
                         .swipeActions {
@@ -112,7 +113,7 @@ struct TorrentListScreen: View {
                             .tint(.blue)
 
                             Button(L10n.string("dialog_remove_confirm_button"), role: .destructive) {
-                                controller.removeTorrent(torrent)
+                                pendingRemovalTorrent = torrent
                             }
                         }
                     }
@@ -158,6 +159,18 @@ struct TorrentListScreen: View {
             allowsMultipleSelection: false
         ) { result in
             controller.handleFileImportResult(result)
+        }
+        .sheet(item: $pendingRemovalTorrent) { torrent in
+            RemoveTorrentSheet(
+                torrent: torrent,
+                onConfirm: { deleteFiles in
+                    controller.removeTorrent(torrent, deleteFiles: deleteFiles)
+                    pendingRemovalTorrent = nil
+                },
+                onCancel: {
+                    pendingRemovalTorrent = nil
+                }
+            )
         }
         .refreshable {
             controller.startIfNeeded()

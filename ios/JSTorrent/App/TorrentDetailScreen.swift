@@ -49,6 +49,7 @@ struct TorrentDetailScreen: View {
 
     @State private var selectedSection: TorrentDetailSection = .status
     @State private var previewItem: PreviewItem?
+    @State private var pendingRemovalTorrent: TorrentListItem?
 
     private var torrent: TorrentListItem? {
         controller.torrents.first(where: { $0.infoHash == infoHash })
@@ -97,7 +98,7 @@ struct TorrentDetailScreen: View {
                         .accessibilityLabel(torrent.isStopped ? L10n.string("torrent_detail_resume_button") : L10n.string("torrent_detail_pause_button"))
 
                         Button(role: .destructive) {
-                            controller.removeTorrent(torrent)
+                            pendingRemovalTorrent = torrent
                         } label: {
                             Image(systemName: "trash")
                         }
@@ -113,6 +114,18 @@ struct TorrentDetailScreen: View {
                 }
                 .sheet(item: $previewItem) { item in
                     FilePreviewSheet(item: item)
+                }
+                .sheet(item: $pendingRemovalTorrent) { torrent in
+                    RemoveTorrentSheet(
+                        torrent: torrent,
+                        onConfirm: { deleteFiles in
+                            controller.removeTorrent(torrent, deleteFiles: deleteFiles)
+                            pendingRemovalTorrent = nil
+                        },
+                        onCancel: {
+                            pendingRemovalTorrent = nil
+                        }
+                    )
                 }
             } else {
                 VStack(alignment: .center, spacing: 10) {

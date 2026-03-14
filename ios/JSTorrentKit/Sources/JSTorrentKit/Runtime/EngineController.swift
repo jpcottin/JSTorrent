@@ -398,7 +398,7 @@ public final class EngineController: ObservableObject {
         }
     }
 
-    public func removeTorrent(_ torrent: TorrentListItem) {
+    public func removeTorrent(_ torrent: TorrentListItem, deleteFiles: Bool = false) {
         startIfNeeded()
 
         guard let runtime else {
@@ -406,7 +406,7 @@ public final class EngineController: ObservableObject {
         }
 
         do {
-            try runtime.removeTorrent(torrent.infoHash, deleteFiles: false)
+            try runtime.removeTorrent(torrent.infoHash, deleteFiles: deleteFiles)
             clearTorrentDetailState(for: torrent.infoHash)
             noteSuccessfulCommand()
             scheduleTorrentRefreshes()
