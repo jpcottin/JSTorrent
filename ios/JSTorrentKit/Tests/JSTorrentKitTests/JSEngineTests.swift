@@ -1873,6 +1873,42 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(payload.files.first?.priority, 2)
     }
 
+    func testRuntimeSetFilePrioritiesDecodesResponse() throws {
+        let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            throw XCTSkip("Failed to create isolated UserDefaults suite")
+        }
+
+        let baseDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let runtime = try JSTorrentRuntime(
+            userDefaults: userDefaults,
+            fileBaseDirectory: baseDirectory
+        )
+
+        try runtime.engine.evaluate(
+            """
+            globalThis.__jstorrent_cmd_set_file_priorities = async function (infoHash, prioritiesJson) {
+              const priorities = JSON.parse(prioritiesJson);
+              if (infoHash !== "query-hash" || priorities["0"] !== 1 || priorities["2"] !== 2) {
+                return { ok: false, error: "Unexpected arguments" };
+              }
+              return { ok: true, applied: 2 };
+            };
+            """,
+            filename: "runtime-set-file-priorities-test.js"
+        )
+
+        let applied = try runtime.setFilePriorities("query-hash", priorities: [0: 1, 2: 2])
+        XCTAssertEqual(applied, 2)
+    }
+
     func testRuntimeQueryDetailsDecodesResponse() throws {
         let suiteName = "JSTorrentKitTests.\(UUID().uuidString)"
         guard let userDefaults = UserDefaults(suiteName: suiteName) else {

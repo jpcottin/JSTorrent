@@ -10,11 +10,13 @@ final class EngineControllerIntakeTests: XCTestCase {
         var pausedInfoHashes: [String] = []
         var resumedInfoHashes: [String] = []
         var removedInfoHashes: [String] = []
+        var setFilePrioritiesCalls: [(infoHash: String, priorities: [Int: Int])] = []
         var unsubscribedHashes: [String] = []
         var subscribedTypes: [(type: String, hash: String, intervalMs: Int)] = []
         var shutdownCallCount = 0
         var queryPiecesCallCount = 0
         var queryDetailsCallCount = 0
+        var nextFilesPayload = TorrentFilesPayload(files: [], rootKey: nil)
         var nextPiecesPayload = TorrentPiecesPayload(
             piecesTotal: 0,
             piecesCompleted: 0,
@@ -48,7 +50,7 @@ final class EngineControllerIntakeTests: XCTestCase {
         }
 
         func queryFiles(_ infoHash: String) throws -> TorrentFilesPayload {
-            TorrentFilesPayload(files: [], rootKey: nil)
+            nextFilesPayload
         }
 
         func queryTrackers(_ infoHash: String) throws -> TorrentTrackersPayload {
@@ -92,6 +94,11 @@ final class EngineControllerIntakeTests: XCTestCase {
 
         func removeTorrent(_ infoHash: String, deleteFiles: Bool) throws {
             removedInfoHashes.append(infoHash)
+        }
+
+        func setFilePriorities(_ infoHash: String, priorities: [Int: Int]) throws -> Int {
+            setFilePrioritiesCalls.append((infoHash, priorities))
+            return priorities.count
         }
 
         func tick() throws -> EngineTickResult {
@@ -286,6 +293,36 @@ final class EngineControllerIntakeTests: XCTestCase {
         XCTAssertEqual(controller.torrentDetails[infoHash]?.pieceCount, 8)
         XCTAssertEqual(runtime.queryPiecesCallCount, 2)
         XCTAssertEqual(runtime.queryDetailsCallCount, 2)
+
+        controller.shutdown()
+    }
+
+    func testSetFilePrioritiesRefreshesFilePayload() {
+        let runtime = MockRuntime()
+        let controller = makeController(runtime: runtime)
+        let infoHash = "abcdef0123456789abcdef0123456789abcdef01"
+
+        runtime.nextFilesPayload = TorrentFilesPayload(
+            files: [
+                TorrentFileItem(
+                    index: 0,
+                    path: "ubuntu.iso",
+                    size: 4096,
+                    downloaded: 1024,
+                    progress: 0.25,
+                    priority: 1
+                )
+            ],
+            rootKey: "default"
+        )
+
+        let success = controller.setFilePriorities(infoHash, priorities: [0: 1])
+
+        XCTAssertTrue(success)
+        XCTAssertEqual(runtime.setFilePrioritiesCalls.count, 1)
+        XCTAssertEqual(runtime.setFilePrioritiesCalls.first?.infoHash, infoHash)
+        XCTAssertEqual(runtime.setFilePrioritiesCalls.first?.priorities[0], 1)
+        XCTAssertEqual(controller.torrentFiles[infoHash]?.files.first?.priority, 1)
 
         controller.shutdown()
     }

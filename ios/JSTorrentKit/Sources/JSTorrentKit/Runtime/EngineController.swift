@@ -19,6 +19,7 @@ protocol EngineRuntimeHandling: AnyObject {
     func pauseTorrent(_ infoHash: String) throws
     func resumeTorrent(_ infoHash: String) throws
     func removeTorrent(_ infoHash: String, deleteFiles: Bool) throws
+    func setFilePriorities(_ infoHash: String, priorities: [Int: Int]) throws -> Int
     func tick() throws -> EngineTickResult
     func shutdown() throws
 }
@@ -432,6 +433,30 @@ public final class EngineController: ObservableObject {
             scheduleTorrentRefreshes()
         } catch {
             handle(error)
+        }
+    }
+
+    @discardableResult
+    public func setFilePriorities(_ infoHash: String, priorities: [Int: Int]) -> Bool {
+        guard !priorities.isEmpty else {
+            return true
+        }
+
+        startIfNeeded()
+
+        guard let runtime else {
+            return false
+        }
+
+        do {
+            _ = try runtime.setFilePriorities(infoHash, priorities: priorities)
+            setDetailValue(try runtime.queryFiles(infoHash), for: infoHash, in: \.torrentFiles)
+            noteSuccessfulCommand()
+            scheduleTorrentRefreshes()
+            return true
+        } catch {
+            handle(error)
+            return false
         }
     }
 

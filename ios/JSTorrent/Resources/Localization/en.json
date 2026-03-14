@@ -175,6 +175,8 @@
   "selected": "Selected",
   "save": "Save",
   "cancel": "Cancel",
+  "edit": "Edit",
+  "done": "Done",
   "settings_network_connection_section": "Connection",
   "settings_network_wifi_only_label": "WiFi only",
   "settings_network_wifi_only_description": "Pause downloads on metered or mobile connections",

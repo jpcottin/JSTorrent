@@ -37,6 +37,12 @@ private struct RuntimeQueryErrorPayload: Decodable {
     let error: String
 }
 
+private struct RuntimeSetFilePrioritiesPayload: Decodable {
+    let ok: Bool
+    let applied: Int?
+    let error: String?
+}
+
 public final class JSTorrentRuntime {
     public let engine: JSEngine
     public let bindings: NativeBindings
@@ -233,6 +239,34 @@ public final class JSTorrentRuntime {
             "__jstorrent_cmd_remove(\(infoHashLiteral), \(deleteFilesLiteral))",
             filename: "runtime-remove-torrent.js"
         )
+    }
+
+    @discardableResult
+    public func setFilePriorities(_ infoHash: String, priorities: [Int: Int]) throws -> Int {
+        let infoHashLiteral = try jsonLiteral(infoHash)
+        let stringKeyedPriorities = Dictionary(
+            uniqueKeysWithValues: priorities.map { (String($0.key), $0.value) }
+        )
+        let prioritiesData = try JSONEncoder().encode(stringKeyedPriorities)
+        let prioritiesJSONString = String(decoding: prioritiesData, as: UTF8.self)
+        let prioritiesLiteral = try jsonLiteral(prioritiesJSONString)
+        let payload = try engine.awaitPromise(
+            expression: """
+            (async () => JSON.stringify(
+              await __jstorrent_cmd_set_file_priorities(\(infoHashLiteral), \(prioritiesLiteral))
+            ))()
+            """,
+            filename: "runtime-set-file-priorities.js"
+        )?.toString() ?? "{\"ok\":false,\"error\":\"Missing set_file_priorities response\"}"
+
+        let response = try decodePayload(RuntimeSetFilePrioritiesPayload.self, from: payload)
+        guard response.ok else {
+            throw JSTorrentRuntimeError.queryFailed(
+                response.error ?? "Failed to set file priorities."
+            )
+        }
+
+        return response.applied ?? 0
     }
 
     public func tick() throws -> EngineTickResult {

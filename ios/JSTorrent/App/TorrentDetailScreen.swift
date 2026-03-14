@@ -52,6 +52,8 @@ struct TorrentDetailScreen: View {
     @State private var selectedSection: TorrentDetailSection = .status
     @State private var sharedItem: SharedURLItem?
     @State private var pendingRemovalTorrent: TorrentListItem?
+    @State private var isEditingFiles = false
+    @State private var pendingFileStates: [Int: TorrentFileSelectionState] = [:]
 
     private var torrent: TorrentListItem? {
         controller.torrents.first(where: { $0.infoHash == infoHash })
@@ -172,8 +174,11 @@ struct TorrentDetailScreen: View {
             TorrentFilesSection(
                 filesPayload: filesPayload,
                 details: details,
+                isEditing: $isEditingFiles,
+                pendingFileStates: $pendingFileStates,
                 onOpenFile: openFile,
-                onOpenFolder: openFolder
+                onOpenFolder: openFolder,
+                onApplyChanges: applyFileSelectionChanges
             )
         case .trackers:
             TorrentTrackersSection(trackers: trackers)
@@ -210,6 +215,10 @@ struct TorrentDetailScreen: View {
                 sharedItem = SharedURLItem(url: url)
             }
         }
+    }
+
+    private func applyFileSelectionChanges(_ priorities: [Int: Int]) -> Bool {
+        controller.setFilePriorities(infoHash, priorities: priorities)
     }
 }
 
@@ -376,16 +385,72 @@ private struct TorrentStatusSection: View {
     }
 }
 
+private enum TorrentFilePriority: Int, CaseIterable {
+    case normal = 0
+    case skip = 1
+    case high = 2
+
+    var titleKey: String {
+        switch self {
+        case .normal:
+            return "file_priority_normal"
+        case .skip:
+            return "file_priority_skip"
+        case .high:
+            return "file_priority_high"
+        }
+    }
+}
+
+private struct TorrentFileSelectionState: Equatable {
+    var isSelected: Bool
+    var priority: TorrentFilePriority
+
+    var appliedPriorityValue: Int {
+        isSelected ? priority.rawValue : TorrentFilePriority.skip.rawValue
+    }
+
+    var displayPriority: TorrentFilePriority {
+        isSelected ? priority : .skip
+    }
+}
+
 private struct TorrentFilesSection: View {
     let filesPayload: TorrentFilesPayload?
     let details: TorrentDetailsPayload?
+    @Binding var isEditing: Bool
+    @Binding var pendingFileStates: [Int: TorrentFileSelectionState]
     let onOpenFile: (TorrentFileItem, String?) -> Void
     let onOpenFolder: (String?) -> Void
+    let onApplyChanges: ([Int: Int]) -> Bool
+
+    private var hasPendingChanges: Bool {
+        !pendingFileStates.isEmpty
+    }
 
     var body: some View {
         if let filesPayload, !filesPayload.files.isEmpty {
             VStack(alignment: .leading, spacing: 16) {
                 let resolvedRootKey = filesPayload.rootKey ?? details?.rootKey
+
+                HStack {
+                    Text(L10n.string("tab_files"))
+                        .font(.headline)
+
+                    Spacer()
+
+                    Button(isEditing ? L10n.string("done") : L10n.string("edit")) {
+                        if isEditing {
+                            if !hasPendingChanges {
+                                isEditing = false
+                            }
+                        } else {
+                            isEditing = true
+                        }
+                    }
+                    .disabled(isEditing && hasPendingChanges)
+                    .font(.subheadline.weight(.semibold))
+                }
 
                 if let rootKey = resolvedRootKey {
                     DetailFactRow(
@@ -403,42 +468,47 @@ private struct TorrentFilesSection: View {
                     .buttonStyle(.bordered)
                 }
 
-                ForEach(filesPayload.files) { file in
-                    Button {
-                        onOpenFile(file, resolvedRootKey)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(alignment: .top, spacing: 12) {
-                                Text(file.path)
-                                    .font(.subheadline.weight(.medium))
-                                    .lineLimit(2)
-
-                                Spacer()
-
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
-
-                            ProgressView(value: min(max(file.progress, 0), 1))
-
-                            HStack {
-                                Text(formattedProgress(file.progress))
-                                Spacer()
-                                Text(formattedByteCount(file.downloaded))
-                                Text("/")
-                                Text(formattedByteCount(file.size))
-                            }
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                if isEditing {
+                    FilesSelectionHeader(
+                        onSelectAll: {
+                            selectAllFiles(filesPayload.files)
+                        },
+                        onSelectNone: {
+                            selectNoFiles(filesPayload.files)
                         }
-                        .padding(14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color(.secondarySystemGroupedBackground))
+                    )
+
+                    if hasPendingChanges {
+                        FilesPendingChangesCard(
+                            onCancel: {
+                                pendingFileStates.removeAll()
+                                isEditing = false
+                            },
+                            onApply: {
+                                if onApplyChanges(pendingPriorityMap()) {
+                                    pendingFileStates.removeAll()
+                                    isEditing = false
+                                }
+                            }
                         )
                     }
-                    .buttonStyle(.plain)
+                }
+
+                ForEach(filesPayload.files) { file in
+                    TorrentFileRow(
+                        file: file,
+                        state: displayedState(for: file),
+                        isEditing: isEditing,
+                        onOpen: {
+                            onOpenFile(file, resolvedRootKey)
+                        },
+                        onToggleSelection: {
+                            toggleSelection(for: file)
+                        },
+                        onSetPriority: { priority in
+                            setPriority(priority, for: file)
+                        }
+                    )
                 }
             }
         } else {
@@ -447,6 +517,234 @@ private struct TorrentFilesSection: View {
                 messageKey: "tab_files_empty_description"
             )
         }
+    }
+
+    private func displayedState(for file: TorrentFileItem) -> TorrentFileSelectionState {
+        pendingFileStates[file.index] ?? appliedState(for: file)
+    }
+
+    private func appliedState(for file: TorrentFileItem) -> TorrentFileSelectionState {
+        let priority = TorrentFilePriority(rawValue: file.priority) ?? .normal
+        return TorrentFileSelectionState(
+            isSelected: priority != .skip,
+            priority: priority
+        )
+    }
+
+    private func editableState(for file: TorrentFileItem) -> TorrentFileSelectionState {
+        if let pendingState = pendingFileStates[file.index] {
+            return pendingState
+        }
+
+        let priority = TorrentFilePriority(rawValue: file.priority) ?? .normal
+        if priority == .skip {
+            return TorrentFileSelectionState(isSelected: false, priority: .normal)
+        }
+
+        return TorrentFileSelectionState(isSelected: true, priority: priority)
+    }
+
+    private func storePendingState(_ state: TorrentFileSelectionState, for file: TorrentFileItem) {
+        if state.appliedPriorityValue == file.priority {
+            pendingFileStates.removeValue(forKey: file.index)
+        } else {
+            pendingFileStates[file.index] = state
+        }
+    }
+
+    private func toggleSelection(for file: TorrentFileItem) {
+        var state = editableState(for: file)
+        state.isSelected.toggle()
+        if state.isSelected && state.priority == .skip {
+            state.priority = .normal
+        }
+        storePendingState(state, for: file)
+    }
+
+    private func setPriority(_ priority: TorrentFilePriority, for file: TorrentFileItem) {
+        var state = editableState(for: file)
+        switch priority {
+        case .skip:
+            state.isSelected = false
+            state.priority = .skip
+        case .normal, .high:
+            state.isSelected = true
+            state.priority = priority
+        }
+        storePendingState(state, for: file)
+    }
+
+    private func selectAllFiles(_ files: [TorrentFileItem]) {
+        for file in files {
+            var state = editableState(for: file)
+            state.isSelected = true
+            if state.priority == .skip {
+                state.priority = .normal
+            }
+            storePendingState(state, for: file)
+        }
+    }
+
+    private func selectNoFiles(_ files: [TorrentFileItem]) {
+        for file in files {
+            var state = editableState(for: file)
+            state.isSelected = false
+            storePendingState(state, for: file)
+        }
+    }
+
+    private func pendingPriorityMap() -> [Int: Int] {
+        pendingFileStates.mapValues(\.appliedPriorityValue)
+    }
+}
+
+private struct FilesSelectionHeader: View {
+    let onSelectAll: () -> Void
+    let onSelectNone: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(L10n.string("tab_files_select_all_button")) {
+                onSelectAll()
+            }
+
+            Text("·")
+                .foregroundStyle(.secondary)
+
+            Button(L10n.string("tab_files_select_none_button")) {
+                onSelectNone()
+            }
+
+            Spacer()
+        }
+        .font(.subheadline.weight(.semibold))
+    }
+}
+
+private struct FilesPendingChangesCard: View {
+    let onCancel: () -> Void
+    let onApply: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(L10n.string("tab_files_selection_changed"))
+                .font(.subheadline)
+
+            Spacer()
+
+            Button(L10n.string("tab_files_cancel_button")) {
+                onCancel()
+            }
+            .buttonStyle(.borderless)
+
+            Button(L10n.string("tab_files_apply_button")) {
+                onApply()
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+}
+
+private struct TorrentFileRow: View {
+    let file: TorrentFileItem
+    let state: TorrentFileSelectionState
+    let isEditing: Bool
+    let onOpen: () -> Void
+    let onToggleSelection: () -> Void
+    let onSetPriority: (TorrentFilePriority) -> Void
+
+    var body: some View {
+        Group {
+            if isEditing {
+                rowContent
+            } else {
+                Button(action: onOpen) {
+                    rowContent
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var rowContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                if isEditing {
+                    Button(action: onToggleSelection) {
+                        Image(systemName: state.isSelected ? "checkmark.circle.fill" : "circle")
+                            .font(.title3)
+                            .foregroundStyle(state.isSelected ? Color.accentColor : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Text(file.path)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(2)
+                    .foregroundStyle(state.isSelected ? .primary : .secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if isEditing {
+                            onToggleSelection()
+                        }
+                    }
+
+                if isEditing {
+                    Menu {
+                        ForEach(TorrentFilePriority.allCases, id: \.rawValue) { priority in
+                            Button {
+                                onSetPriority(priority)
+                            } label: {
+                                if priority == state.displayPriority {
+                                    Label(L10n.string(priority.titleKey), systemImage: "checkmark")
+                                } else {
+                                    Text(L10n.string(priority.titleKey))
+                                }
+                            }
+                        }
+                    } label: {
+                        Text(L10n.string(state.displayPriority.titleKey))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(Color(.tertiarySystemFill))
+                            )
+                    }
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            if state.appliedPriorityValue != TorrentFilePriority.skip.rawValue {
+                ProgressView(value: min(max(file.progress, 0), 1))
+            }
+
+            HStack {
+                Text(formattedTorrentFileStatus(file, state: state))
+                Spacer()
+                Text(formattedByteCount(file.downloaded))
+                Text("/")
+                Text(formattedByteCount(file.size))
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
     }
 }
 
@@ -1029,6 +1327,30 @@ private func decodeHexBytes(_ hex: String) -> [UInt8] {
     }
 
     return bytes
+}
+
+private func formattedTorrentFileStatus(
+    _ file: TorrentFileItem,
+    state: TorrentFileSelectionState
+) -> String {
+    let statusKey: String
+    switch state.appliedPriorityValue {
+    case TorrentFilePriority.skip.rawValue:
+        statusKey = "file_status_skipped"
+    default:
+        if file.progress >= 1 {
+            statusKey = "file_status_complete"
+        } else if file.progress > 0 {
+            statusKey = "file_status_downloading"
+        } else {
+            statusKey = "file_status_pending"
+        }
+    }
+
+    let prioritySuffix = state.displayPriority == .high
+        ? " \(L10n.string("file_status_priority_high"))"
+        : ""
+    return "\(L10n.string(statusKey))\(prioritySuffix)"
 }
 
 private struct DetailMetricCard: View {
