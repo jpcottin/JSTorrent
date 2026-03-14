@@ -121,8 +121,12 @@ struct TorrentListScreen: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle(L10n.string("app_name"))
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                AppHeaderTitle()
+            }
+
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Button {
                     onOpenSettings()
@@ -179,6 +183,21 @@ struct TorrentListScreen: View {
         .onChange(of: settings.locationChangeToken) { _ in
             selectedFilter = .all
         }
+    }
+}
+
+private struct AppHeaderTitle: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image("HeaderAppIcon")
+                .resizable()
+                .frame(width: 22, height: 22)
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+
+            Text(L10n.string("app_name"))
+                .font(.headline)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
