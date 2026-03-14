@@ -31,6 +31,24 @@ if ! grep -q "## \[${VERSION}\]" "$CHANGELOG" 2>/dev/null; then
   exit 1
 fi
 
+# Check companion smoke test was run
+SMOKE_FLAG="/tmp/jstorrent-companion-smoke-passed"
+if [[ ! -f "$SMOKE_FLAG" ]] || [[ $(find "$SMOKE_FLAG" -mmin +120 2>/dev/null) ]]; then
+  echo ""
+  echo "WARNING: Companion smoke test not run recently."
+  echo "  Run:  ./scripts/e2e-companion-smoke.sh"
+  echo "  Or:   FULL_DOWNLOAD=1 ./scripts/e2e-companion-smoke.sh  (1GB test)"
+  echo ""
+  read -p "Continue without smoke test? [y/N] " -n 1 -r
+  echo ""
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Aborted. Run the smoke test first."
+    exit 1
+  fi
+else
+  echo "Companion smoke test passed recently. ✓"
+fi
+
 # Get current version
 CURRENT_VERSION=$(grep -o '"version": "[^"]*"' "$MANIFEST" | grep -o '[0-9][^"]*')
 echo "Updating manifest version: $CURRENT_VERSION -> $VERSION"

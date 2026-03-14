@@ -117,6 +117,50 @@ if [[ "$READY" != "1" ]]; then
 fi
 echo "    Companion server ready."
 
+# ─── Step 3b: Ensure storage root exists ─────────────────────────────────────
+
+# The companion needs at least one storage root. On first run, no SAF root has
+# been approved via the UI, so we create a file:// root in the app's internal
+# storage. This is idempotent — if roots.json already has entries, we skip.
+EXISTING_ROOTS=$(adb shell "run-as com.jstorrent.app cat files/roots.json" 2>/dev/null || echo '{"roots":[]}')
+ROOT_COUNT=$(echo "$EXISTING_ROOTS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['roots']))" 2>/dev/null || echo "0")
+
+if [[ "$ROOT_COUNT" == "0" ]]; then
+    echo "    No storage roots configured — creating test root..."
+    adb shell "run-as com.jstorrent.app mkdir -p files/test_downloads" 2>/dev/null || true
+    adb shell "run-as com.jstorrent.app sh -c 'cat > files/roots.json'" <<'ROOTJSON'
+{
+    "roots": [
+        {
+            "key": "test-root-01",
+            "uri": "file:///data/data/com.jstorrent.app/files/test_downloads",
+            "display_name": "Test Downloads",
+            "removable": false,
+            "last_stat_ok": true,
+            "last_checked": 1710000000000,
+            "volume_id": "primary"
+        }
+    ]
+}
+ROOTJSON
+    # Restart companion to pick up the new root
+    adb shell am force-stop com.jstorrent.app
+    sleep 1
+    adb shell am start -n com.jstorrent.app/.MainActivity -e force_companion true 2>/dev/null
+    echo -n "    Waiting for companion restart"
+    for i in {1..15}; do
+        if curl -s "http://127.0.0.1:${COMPANION_PORT}/health" >/dev/null 2>&1; then
+            break
+        fi
+        echo -n "."
+        sleep 1
+    done
+    echo ""
+    echo "    Test root created."
+else
+    echo "    Storage roots OK ($ROOT_COUNT root(s))."
+fi
+
 # ─── Step 4: Start seeder ────────────────────────────────────────────────────
 
 echo ""
@@ -130,7 +174,11 @@ if lsof -i :6881 >/dev/null 2>&1; then
 fi
 
 cd "$ROOT_DIR"
-pnpm seed-for-test &>/tmp/jstorrent-seeder.log &
+SEEDER_ARGS=()
+if [[ "${FULL_DOWNLOAD:-}" == "1" ]]; then
+    SEEDER_ARGS+=(--size 1gb)
+fi
+pnpm seed-for-test "${SEEDER_ARGS[@]}" &>/tmp/jstorrent-seeder.log &
 SEEDER_PID=$!
 
 # Wait for seeder to be ready
@@ -185,6 +233,8 @@ EXIT_CODE=$?
 echo ""
 if [[ $EXIT_CODE -eq 0 ]]; then
     echo "=== PASS ==="
+    # Write timestamp so release-extension.sh knows the smoke test passed recently
+    date > /tmp/jstorrent-companion-smoke-passed
 else
     echo "=== FAIL (exit code: $EXIT_CODE) ==="
 fi

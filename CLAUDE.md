@@ -418,6 +418,12 @@ The extension checks the connected backend's version against minimum requirement
 - **Manual step:** Download ZIP from GitHub Release and upload to Chrome Web Store
 - Changelog: `extension/CHANGELOG.md`
 - **Pre-release check:** Review `VERSION_REQUIREMENTS` in `packages/client/src/hooks/useSystemBridge.ts`. If new backend features are required, bump `minSupported` and ensure those backend versions are already released.
+- **Pre-release smoke test:** Run the companion download smoke test before releasing. The release script will warn if it hasn't been run recently.
+  ```bash
+  ./scripts/e2e-companion-smoke.sh                       # 100MB quick test
+  FULL_DOWNLOAD=1 ./scripts/e2e-companion-smoke.sh       # 1GB full test (recommended)
+  ```
+  Requires: Android emulator running (`emu start`). The script handles everything else (app install, companion mode, seeder, root setup, Playwright test).
 
 ### Android Releases
 
