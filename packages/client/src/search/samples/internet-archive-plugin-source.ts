@@ -2,7 +2,7 @@ export const INTERNET_ARCHIVE_SAMPLE_PLUGIN_SOURCE = `export const manifest = {
   id: 'org.archive.search',
   name: 'Internet Archive',
   version: '0.1.0',
-  description: 'Search public-domain and openly licensed media on the Internet Archive.',
+  description: 'Search Creative Commons and public domain media on the Internet Archive. Results are limited to openly licensed content.',
   homepage: 'https://archive.org',
   hosts: ['archive.org'],
   categories: ['all', 'movies', 'music', 'books', 'software'],
@@ -30,6 +30,7 @@ function buildQuery(input) {
   const clauses = [
     'format:"Archive BitTorrent"',
     '(title:"' + phrase + '" OR subject:"' + phrase + '" OR description:"' + phrase + '")',
+    '(licenseurl:*creativecommons* OR licenseurl:*publicdomain*)',
   ]
 
   const category = normalizeCategory(input.category)

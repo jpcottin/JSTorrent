@@ -14,6 +14,7 @@
 		0DC1F1EC17BAF7EB74DCAFF6 /* da.json in Resources */ = {isa = PBXBuildFile; fileRef = 99ED89ED91E6E1363C90272D /* da.json */; };
 		14D0DEBA4AE9FF71DE45C20E /* engine.bundle.js in Resources */ = {isa = PBXBuildFile; fileRef = D42EBCCAD88FA4BCC13FBFA9 /* engine.bundle.js */; };
 		198C14FCE61B9C19FCAB2728 /* zh-TW.json in Resources */ = {isa = PBXBuildFile; fileRef = A5E1C9533C59B1402062AAED /* zh-TW.json */; };
+		1E5A252C85D33827ECAE9576 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8850F13CF5E0722A4623B3DE /* PrivacyInfo.xcprivacy */; };
 		2263BE0B6D68AD42F2A18A74 /* nl.json in Resources */ = {isa = PBXBuildFile; fileRef = BFA98561F0802CD751005354 /* nl.json */; };
 		2B68FD5113148B15D157B416 /* TorrentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C6F59ABA247444BE721287C /* TorrentPresentation.swift */; };
 		320B08666688BB0E0B434DD5 /* SettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A898D21B2447838A842358A8 /* SettingsScreen.swift */; };
@@ -63,6 +64,7 @@
 		5C8E7550A79BA4BCC8FC34AD /* SearchScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchScreen.swift; sourceTree = "<group>"; };
 		77CB7D9B46BAA2B050B421FF /* JSTorrentApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSTorrentApp.swift; sourceTree = "<group>"; };
 		78A8157602C36D001065E8C3 /* RemoveTorrentSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoveTorrentSheet.swift; sourceTree = "<group>"; };
+		8850F13CF5E0722A4623B3DE /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		90F5A68B10DEC3AD5AC1CA77 /* JSTorrentKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JSTorrentKit; path = JSTorrentKit; sourceTree = SOURCE_ROOT; };
 		998EEA197A64488D6C86EA3C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		999D6C9559F4E1FC4D81884F /* SearchViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViewModel.swift; sourceTree = "<group>"; };
@@ -109,6 +111,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		10656701B95E9565F62B13CE /* JSTorrent */ = {
+			isa = PBXGroup;
+			children = (
+				8850F13CF5E0722A4623B3DE /* PrivacyInfo.xcprivacy */,
+			);
+			path = JSTorrent;
+			sourceTree = "<group>";
+		};
 		13DBA4895A7E0DC9234CCAAD /* Packages */ = {
 			isa = PBXGroup;
 			children = (
@@ -197,6 +207,7 @@
 			isa = PBXGroup;
 			children = (
 				F89205EDE715410077131A31 /* App */,
+				10656701B95E9565F62B13CE /* JSTorrent */,
 				BABCFB50489C50B114C29ABC /* JSTorrentAppTests */,
 				CFF84D8789FA656C855B3BF7 /* Localization */,
 				13DBA4895A7E0DC9234CCAAD /* Packages */,
@@ -288,6 +299,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9810833A3D732875142E5626 /* Assets.xcassets in Resources */,
+				1E5A252C85D33827ECAE9576 /* PrivacyInfo.xcprivacy in Resources */,
 				E8848F1BC86589688231F599 /* cs.json in Resources */,
 				0DC1F1EC17BAF7EB74DCAFF6 /* da.json in Resources */,
 				85A42A5B16A1F364D422F315 /* de.json in Resources */,
@@ -411,6 +423,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = JSTorrent/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -418,6 +431,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jstorrent.ios;
 				PRODUCT_NAME = JSTorrent;
 				SDKROOT = iphoneos;
@@ -549,6 +563,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = JSTorrent/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -556,6 +571,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jstorrent.ios;
 				PRODUCT_NAME = JSTorrent;
 				SDKROOT = iphoneos;
