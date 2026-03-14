@@ -12,6 +12,8 @@ targets:
     deploymentTarget: '16.0'
     sources:
       - path: JSTorrent/App
+      - path: JSTorrent/Resources/Localization
+        buildPhase: resources
       - path: JSTorrent/Resources/engine.bundle.js
         buildPhase: resources
     dependencies:

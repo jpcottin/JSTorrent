@@ -7,42 +7,80 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		03CC389F391AAD67D5370586 /* es.json in Resources */ = {isa = PBXBuildFile; fileRef = BB17B6E670D87C4DA83CA7CD /* es.json */; };
 		0443A281E499140CF057C13D /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEF6A7591A79F9AB5EF70743 /* AppModel.swift */; };
 		0A15EFC13E115FC642D29508 /* AppLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5468AB4CB1B619589580D1FE /* AppLocalization.swift */; };
+		0C50E5D375DCFB3B3EEA6FFC /* pl.json in Resources */ = {isa = PBXBuildFile; fileRef = A70B33C7A859D7AA634F5A29 /* pl.json */; };
+		0DC1F1EC17BAF7EB74DCAFF6 /* da.json in Resources */ = {isa = PBXBuildFile; fileRef = 99ED89ED91E6E1363C90272D /* da.json */; };
 		14D0DEBA4AE9FF71DE45C20E /* engine.bundle.js in Resources */ = {isa = PBXBuildFile; fileRef = D42EBCCAD88FA4BCC13FBFA9 /* engine.bundle.js */; };
+		198C14FCE61B9C19FCAB2728 /* zh-TW.json in Resources */ = {isa = PBXBuildFile; fileRef = A5E1C9533C59B1402062AAED /* zh-TW.json */; };
+		2263BE0B6D68AD42F2A18A74 /* nl.json in Resources */ = {isa = PBXBuildFile; fileRef = BFA98561F0802CD751005354 /* nl.json */; };
 		2B68FD5113148B15D157B416 /* TorrentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C6F59ABA247444BE721287C /* TorrentPresentation.swift */; };
 		320B08666688BB0E0B434DD5 /* SettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A898D21B2447838A842358A8 /* SettingsScreen.swift */; };
+		4874635F7568636C669550FF /* en.json in Resources */ = {isa = PBXBuildFile; fileRef = 516B58CCF0EC69D46ACAB3EB /* en.json */; };
 		5D3CF99ADCD86084B91BB345 /* TorrentRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC91F8367E5BF065175D293 /* TorrentRowView.swift */; };
 		6CCBAA87D0DCC327C53968D3 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B012998E4009CF290CCAF7E /* ContentView.swift */; };
+		7203186F5FA362B4289BF55B /* ru.json in Resources */ = {isa = PBXBuildFile; fileRef = D6480575620E4A124524ED6B /* ru.json */; };
 		74D854AD720EBF06654532C1 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32646CE9A53139F794FC298E /* AppSettings.swift */; };
 		7B7E4FD32DF59FC52DE694D2 /* JSTorrentApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CB7D9B46BAA2B050B421FF /* JSTorrentApp.swift */; };
+		85A42A5B16A1F364D422F315 /* de.json in Resources */ = {isa = PBXBuildFile; fileRef = 527AB85EB3B6794C249903ED /* de.json */; };
 		89B8E15EA38D9491C623EDD0 /* JSTorrentKit in Frameworks */ = {isa = PBXBuildFile; productRef = DBD1CCB10854125B9C670D93 /* JSTorrentKit */; };
+		9FB03BC7A82B4CC1A514C540 /* fr.json in Resources */ = {isa = PBXBuildFile; fileRef = F96132DD626B98212633C2A5 /* fr.json */; };
+		A4FC615C3E5991050C17E4D1 /* pt-BR.json in Resources */ = {isa = PBXBuildFile; fileRef = 07B26B9C08714BAB668CEC41 /* pt-BR.json */; };
 		AEB5386421A18725E5C0E1FA /* RemoveTorrentSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78A8157602C36D001065E8C3 /* RemoveTorrentSheet.swift */; };
+		B29DD5FDE9175AE46C4B37E2 /* tr.json in Resources */ = {isa = PBXBuildFile; fileRef = ACEB50A6DE177FE03852CEF3 /* tr.json */; };
+		BCE65EF9C5441AECE3744318 /* ko.json in Resources */ = {isa = PBXBuildFile; fileRef = CE50F57C9419BD90AC1D13C0 /* ko.json */; };
 		BDC7B7C6BE183AC5FE0C3006 /* JSTorrentKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1FC6A8EBDD6677BB8585120F /* JSTorrentKit */; };
+		C85B90C7EA33FB005298CE9F /* it.json in Resources */ = {isa = PBXBuildFile; fileRef = 1DD4ECC19360CC38ECBB2E23 /* it.json */; };
+		CEEC9C08264EC65570375D59 /* zh-CN.json in Resources */ = {isa = PBXBuildFile; fileRef = 40E53147FC59EC22AF84BF35 /* zh-CN.json */; };
+		D34DFA394450392F0FB0B28F /* uk.json in Resources */ = {isa = PBXBuildFile; fileRef = F3E2AD89D9FCDEDCFF16D6EB /* uk.json */; };
 		D9902A2CEB5F351634FD39A4 /* TorrentListScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6E786D457520B6326A66D1D /* TorrentListScreen.swift */; };
 		E132B052EE79B7AC8F637A02 /* AddTorrentSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7C7BAA4E8A9D8D0D5D27DCA /* AddTorrentSheet.swift */; };
+		E7699D3EEF9FD652F8B2CCFA /* sv.json in Resources */ = {isa = PBXBuildFile; fileRef = 25220240B7C1B32B13BAB562 /* sv.json */; };
+		E8848F1BC86589688231F599 /* cs.json in Resources */ = {isa = PBXBuildFile; fileRef = B577CCDB8DCAA1D3B986525E /* cs.json */; };
+		ED1A35046BAA0AC09F7CD65A /* ja.json in Resources */ = {isa = PBXBuildFile; fileRef = 2986734789BF366172A5BC43 /* ja.json */; };
 		EF49535AC79B76DFC900F316 /* TorrentDetailScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15B8543884A318B8B7FE5E6 /* TorrentDetailScreen.swift */; };
+		F750C300787DDDE83994D6C9 /* ro.json in Resources */ = {isa = PBXBuildFile; fileRef = A59D7A7986275DD304526E93 /* ro.json */; };
 		F941D1487154D48C8EBE9632 /* JSTorrentAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF9D039DAF0D97EBCEA1C5B7 /* JSTorrentAppTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		07B26B9C08714BAB668CEC41 /* pt-BR.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "pt-BR.json"; sourceTree = "<group>"; };
+		1DD4ECC19360CC38ECBB2E23 /* it.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = it.json; sourceTree = "<group>"; };
+		25220240B7C1B32B13BAB562 /* sv.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = sv.json; sourceTree = "<group>"; };
+		2986734789BF366172A5BC43 /* ja.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ja.json; sourceTree = "<group>"; };
 		2C6F59ABA247444BE721287C /* TorrentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentPresentation.swift; sourceTree = "<group>"; };
 		32646CE9A53139F794FC298E /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		40E53147FC59EC22AF84BF35 /* zh-CN.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "zh-CN.json"; sourceTree = "<group>"; };
+		516B58CCF0EC69D46ACAB3EB /* en.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = en.json; sourceTree = "<group>"; };
+		527AB85EB3B6794C249903ED /* de.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = de.json; sourceTree = "<group>"; };
 		5468AB4CB1B619589580D1FE /* AppLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLocalization.swift; sourceTree = "<group>"; };
 		55EE78D153C235CF3D6F72D9 /* JSTorrentAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = JSTorrentAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5B012998E4009CF290CCAF7E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		77CB7D9B46BAA2B050B421FF /* JSTorrentApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSTorrentApp.swift; sourceTree = "<group>"; };
 		78A8157602C36D001065E8C3 /* RemoveTorrentSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoveTorrentSheet.swift; sourceTree = "<group>"; };
 		90F5A68B10DEC3AD5AC1CA77 /* JSTorrentKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JSTorrentKit; path = JSTorrentKit; sourceTree = SOURCE_ROOT; };
+		99ED89ED91E6E1363C90272D /* da.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = da.json; sourceTree = "<group>"; };
+		A59D7A7986275DD304526E93 /* ro.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ro.json; sourceTree = "<group>"; };
+		A5E1C9533C59B1402062AAED /* zh-TW.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "zh-TW.json"; sourceTree = "<group>"; };
+		A70B33C7A859D7AA634F5A29 /* pl.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = pl.json; sourceTree = "<group>"; };
 		A898D21B2447838A842358A8 /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
+		ACEB50A6DE177FE03852CEF3 /* tr.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = tr.json; sourceTree = "<group>"; };
+		B577CCDB8DCAA1D3B986525E /* cs.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = cs.json; sourceTree = "<group>"; };
+		BB17B6E670D87C4DA83CA7CD /* es.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = es.json; sourceTree = "<group>"; };
+		BFA98561F0802CD751005354 /* nl.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = nl.json; sourceTree = "<group>"; };
 		C15B8543884A318B8B7FE5E6 /* TorrentDetailScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentDetailScreen.swift; sourceTree = "<group>"; };
+		CE50F57C9419BD90AC1D13C0 /* ko.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ko.json; sourceTree = "<group>"; };
 		D42EBCCAD88FA4BCC13FBFA9 /* engine.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = engine.bundle.js; sourceTree = "<group>"; };
+		D6480575620E4A124524ED6B /* ru.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ru.json; sourceTree = "<group>"; };
 		DEC91F8367E5BF065175D293 /* TorrentRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentRowView.swift; sourceTree = "<group>"; };
 		DF9D039DAF0D97EBCEA1C5B7 /* JSTorrentAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSTorrentAppTests.swift; sourceTree = "<group>"; };
 		E6E786D457520B6326A66D1D /* TorrentListScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentListScreen.swift; sourceTree = "<group>"; };
 		E727462DC21C294DFC3C9A4A /* JSTorrent.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = JSTorrent.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7C7BAA4E8A9D8D0D5D27DCA /* AddTorrentSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddTorrentSheet.swift; sourceTree = "<group>"; };
 		EEF6A7591A79F9AB5EF70743 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		F3E2AD89D9FCDEDCFF16D6EB /* uk.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = uk.json; sourceTree = "<group>"; };
+		F96132DD626B98212633C2A5 /* fr.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = fr.json; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -90,6 +128,33 @@
 			path = JSTorrentAppTests;
 			sourceTree = "<group>";
 		};
+		CFF84D8789FA656C855B3BF7 /* Localization */ = {
+			isa = PBXGroup;
+			children = (
+				B577CCDB8DCAA1D3B986525E /* cs.json */,
+				99ED89ED91E6E1363C90272D /* da.json */,
+				527AB85EB3B6794C249903ED /* de.json */,
+				516B58CCF0EC69D46ACAB3EB /* en.json */,
+				BB17B6E670D87C4DA83CA7CD /* es.json */,
+				F96132DD626B98212633C2A5 /* fr.json */,
+				1DD4ECC19360CC38ECBB2E23 /* it.json */,
+				2986734789BF366172A5BC43 /* ja.json */,
+				CE50F57C9419BD90AC1D13C0 /* ko.json */,
+				BFA98561F0802CD751005354 /* nl.json */,
+				A70B33C7A859D7AA634F5A29 /* pl.json */,
+				07B26B9C08714BAB668CEC41 /* pt-BR.json */,
+				A59D7A7986275DD304526E93 /* ro.json */,
+				D6480575620E4A124524ED6B /* ru.json */,
+				25220240B7C1B32B13BAB562 /* sv.json */,
+				ACEB50A6DE177FE03852CEF3 /* tr.json */,
+				F3E2AD89D9FCDEDCFF16D6EB /* uk.json */,
+				40E53147FC59EC22AF84BF35 /* zh-CN.json */,
+				A5E1C9533C59B1402062AAED /* zh-TW.json */,
+			);
+			name = Localization;
+			path = JSTorrent/Resources/Localization;
+			sourceTree = "<group>";
+		};
 		D8EB6131933D516881FAD8D2 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
@@ -124,6 +189,7 @@
 			children = (
 				F89205EDE715410077131A31 /* App */,
 				BABCFB50489C50B114C29ABC /* JSTorrentAppTests */,
+				CFF84D8789FA656C855B3BF7 /* Localization */,
 				13DBA4895A7E0DC9234CCAAD /* Packages */,
 				D8EB6131933D516881FAD8D2 /* Resources */,
 				390072683EF148D3919935D3 /* Products */,
@@ -212,7 +278,26 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E8848F1BC86589688231F599 /* cs.json in Resources */,
+				0DC1F1EC17BAF7EB74DCAFF6 /* da.json in Resources */,
+				85A42A5B16A1F364D422F315 /* de.json in Resources */,
+				4874635F7568636C669550FF /* en.json in Resources */,
 				14D0DEBA4AE9FF71DE45C20E /* engine.bundle.js in Resources */,
+				03CC389F391AAD67D5370586 /* es.json in Resources */,
+				9FB03BC7A82B4CC1A514C540 /* fr.json in Resources */,
+				C85B90C7EA33FB005298CE9F /* it.json in Resources */,
+				ED1A35046BAA0AC09F7CD65A /* ja.json in Resources */,
+				BCE65EF9C5441AECE3744318 /* ko.json in Resources */,
+				2263BE0B6D68AD42F2A18A74 /* nl.json in Resources */,
+				0C50E5D375DCFB3B3EEA6FFC /* pl.json in Resources */,
+				A4FC615C3E5991050C17E4D1 /* pt-BR.json in Resources */,
+				F750C300787DDDE83994D6C9 /* ro.json in Resources */,
+				7203186F5FA362B4289BF55B /* ru.json in Resources */,
+				E7699D3EEF9FD652F8B2CCFA /* sv.json in Resources */,
+				B29DD5FDE9175AE46C4B37E2 /* tr.json in Resources */,
+				D34DFA394450392F0FB0B28F /* uk.json in Resources */,
+				CEEC9C08264EC65570375D59 /* zh-CN.json in Resources */,
+				198C14FCE61B9C19FCAB2728 /* zh-TW.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

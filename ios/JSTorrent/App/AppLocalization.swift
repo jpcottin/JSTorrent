@@ -81,18 +81,20 @@ private final class LocalizationStore {
     }
 
     private static func loadLocale(_ localeTag: String, bundle: Bundle) -> [String: String] {
-        guard
-            let url = bundle.url(
-                forResource: localeTag,
-                withExtension: "json",
-                subdirectory: "Localization"
-            ),
-            let data = try? Data(contentsOf: url),
-            let dictionary = try? JSONDecoder().decode([String: String].self, from: data)
-        else {
-            return [:]
+        let resourceURLs = [
+            bundle.url(forResource: localeTag, withExtension: "json", subdirectory: "Localization"),
+            bundle.url(forResource: localeTag, withExtension: "json")
+        ]
+
+        for url in resourceURLs.compactMap({ $0 }) {
+            if
+                let data = try? Data(contentsOf: url),
+                let dictionary = try? JSONDecoder().decode([String: String].self, from: data)
+            {
+                return dictionary
+            }
         }
 
-        return dictionary
+        return [:]
     }
 }
