@@ -965,7 +965,7 @@ public final class FileBindings: @unchecked Sendable {
 
         for chunkOffset in 0..<requestedChunkCount {
             let chunkIndex = startChunk + chunkOffset
-            let hashStart = chunkIndex * 20
+            let hashStart = chunkOffset * 20
             guard hashStart + 20 <= hashes.count else {
                 break
             }

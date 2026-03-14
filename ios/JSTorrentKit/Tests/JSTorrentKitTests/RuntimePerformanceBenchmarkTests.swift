@@ -85,6 +85,7 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
         let finalPiecesCompleted: Int
         let finalPiecesTotal: Int
         let promiseState: PromiseProbeState
+        let phaseStats: String
         let samples: [InstrumentedRecheckSample]
         let logsTail: String
     }
@@ -654,6 +655,7 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
             })();
             """
 
+        try installRecheckPhaseProbe(harness: harness, infoHash: infoHash)
         _ = try harness.runtime.engine.evaluate(
             setupScript,
             filename: "runtime-perf-instrumented-recheck.js"
@@ -728,6 +730,7 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
                     finalPiecesCompleted: pieces.piecesCompleted,
                     finalPiecesTotal: pieces.piecesTotal,
                     promiseState: promiseState,
+                    phaseStats: try queryRecheckPhaseProbe(harness: harness),
                     samples: samples,
                     logsTail: harness.logs.tail(200)
                 )
@@ -755,6 +758,7 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
             finalPiecesCompleted: finalPieces.piecesCompleted,
             finalPiecesTotal: finalPieces.piecesTotal,
             promiseState: finalPromiseState,
+            phaseStats: try queryRecheckPhaseProbe(harness: harness),
             samples: samples,
             logsTail: harness.logs.tail(200)
         )
@@ -905,6 +909,114 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
         )?.toString() ?? #"{"done":false,"error":null}"#
 
         return try JSONDecoder().decode(PromiseProbeState.self, from: Data(value.utf8))
+    }
+
+    private func installRecheckPhaseProbe(
+        harness: RuntimeHarness,
+        infoHash: String
+    ) throws {
+        let infoHashLiteral = try jsonLiteral(infoHash)
+        let script =
+            """
+            (() => {
+              const engine = globalThis.jstorrent?.getEngine?.();
+              const torrent = engine?.getTorrent?.(\(infoHashLiteral));
+              if (!torrent) {
+                return;
+              }
+
+              const store = globalThis.__jstorrent_recheck_probe_stats = {
+                counters: {},
+                events: []
+              };
+
+              const now = () => Date.now();
+              const addCounter = (name, ms) => {
+                const current = store.counters[name] || { calls: 0, totalMs: 0, maxMs: 0 };
+                current.calls += 1;
+                current.totalMs += ms;
+                current.maxMs = Math.max(current.maxMs, ms);
+                store.counters[name] = current;
+              };
+              const addEvent = (name, extra) => {
+                store.events.push({ name, t: now(), ...extra });
+                if (store.events.length > 200) {
+                  store.events.shift();
+                }
+              };
+              const wrap = (obj, name, label, extraFactory) => {
+                if (!obj || typeof obj[name] !== "function") {
+                  return;
+                }
+                const wrappedFlag = `__wrapped_${name}`;
+                if (obj[wrappedFlag]) {
+                  return;
+                }
+                const original = obj[name];
+                obj[name] = function(...args) {
+                  const started = now();
+                  const finalize = () => {
+                    const elapsed = now() - started;
+                    addCounter(label, elapsed);
+                    addEvent(label, { ms: elapsed, ...(extraFactory ? extraFactory(args) : {}) });
+                  };
+                  try {
+                    const result = original.apply(this, args);
+                    if (result && typeof result.then === "function") {
+                      return result.finally(finalize);
+                    }
+                    finalize();
+                    return result;
+                  } catch (error) {
+                    finalize();
+                    throw error;
+                  }
+                };
+                obj[wrappedFlag] = true;
+              };
+
+              wrap(torrent, "stopNetwork", "torrent.stopNetwork");
+              wrap(torrent, "_doCheckPieces", "torrent._doCheckPieces");
+              wrap(torrent, "_batchVerifyPieces", "torrent._batchVerifyPieces");
+              wrap(
+                torrent,
+                "_verifyChunksBatched",
+                "torrent._verifyChunksBatched",
+                (args) => ({ files: args[1]?.length ?? null, pieces: args[2]?.length ?? null })
+              );
+              wrap(torrent, "markPieceVerified", "torrent.markPieceVerified");
+              wrap(torrent, "updateFileProgressForVerifiedPiece", "torrent.updateFileProgressForVerifiedPiece");
+
+              const fs = torrent.contentStorage?.storage?.getFileSystem?.();
+              wrap(
+                fs,
+                "verifyChunks",
+                "filesystem.verifyChunks",
+                (args) => {
+                  const request = args[0] || {};
+                  return {
+                    chunkCount: request.chunkCount ?? null,
+                    startChunk: request.startChunk ?? null,
+                    fileCount: request.files?.length ?? null
+                  };
+                }
+              );
+
+              const storage = torrent.contentStorage;
+              wrap(storage, "close", "contentStorage.close");
+            })();
+            """
+        _ = try harness.runtime.engine.evaluate(
+            script,
+            filename: "runtime-perf-recheck-phase-probe.js"
+        )
+    }
+
+    private func queryRecheckPhaseProbe(harness: RuntimeHarness) throws -> String {
+        try harness.runtime.engine.evaluate(
+            "JSON.stringify(globalThis.__jstorrent_recheck_probe_stats ?? {});",
+            filename: "runtime-perf-recheck-phase-probe.js"
+        )?.toString() ?? "{}"
     }
 
     private func jsonLiteral<T: Encodable>(_ value: T) throws -> String {

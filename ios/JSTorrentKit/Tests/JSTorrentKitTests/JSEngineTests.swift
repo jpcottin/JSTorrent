@@ -709,6 +709,36 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(result?.toString(), "[0,0]")
     }
 
+    func testVerifyChunksSupportsNonZeroStartChunkWithBatchLocalHashes() throws {
+        let (engine, _, baseDirectory, userDefaults, suiteName) = try makeBindingsEnvironment()
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let allChunkHashes = [
+            Data(Insecure.SHA1.hash(data: Data("abcd".utf8))),
+            Data(Insecure.SHA1.hash(data: Data("efgh".utf8)))
+        ]
+        let batchHashes = allChunkHashes[1].base64EncodedString()
+
+        let result = try engine.evaluate(
+            """
+            __jstorrent_file_write("default", "verify/offset.txt", 0, __jstorrent_text_encode("abcdefgh"));
+            JSON.stringify(Array.from(new Uint8Array(__jstorrent_file_verify_chunks("default", JSON.stringify({
+              files: [{ path: "verify/offset.txt", length: 8 }],
+              chunkSize: 4,
+              hashes: "\(batchHashes)",
+              startChunk: 1,
+              chunkCount: 1
+            })))));
+            """,
+            filename: "verify-chunks-offset.js"
+        )
+
+        XCTAssertEqual(result?.toString(), "[0]")
+    }
+
     func testVerifiedWriteBatchFlushDispatchesCallbackManagerFormat() throws {
         let (engine, _, baseDirectory, userDefaults, suiteName) = try makeBindingsEnvironment()
         defer {
