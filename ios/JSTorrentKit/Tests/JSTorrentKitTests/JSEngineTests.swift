@@ -2094,12 +2094,18 @@ final class JSEngineTests: XCTestCase {
         }
 
         try runtime.setTickMode(.host)
-        try runtime.subscribe(type: "torrents", intervalMs: 50)
         try runtime.addTestTorrent()
 
+        // Query the torrent list directly after each tick rather than relying
+        // on the subscription push loop. The subscription loop fires via
+        // setTimeout → TimerRegistry → jsQueue.async, which can be starved
+        // when tick() holds jsQueue.sync in a tight polling loop.
         try waitUntil(timeout: 3.0) {
             _ = try runtime.tick()
-            return sink.stateUpdates.contains(where: { $0.contains("testdata_100mb.bin") })
+            let list = try runtime.queryTorrentList()
+            return list.torrents?.contains(where: {
+                ($0.name ?? "").contains("testdata_100mb.bin")
+            }) ?? false
         }
 
         XCTAssertTrue(sink.errors.isEmpty)
