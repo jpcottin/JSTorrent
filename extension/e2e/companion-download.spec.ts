@@ -18,14 +18,17 @@
 import { test, expect } from './companion-fixtures'
 import * as net from 'net'
 
-// Known test values from seed_for_test.py (100MB size)
-const TEST_INFO_HASH = '67d01ece1b99c49c257baada0f760b770a7530b9'
+const FULL_DOWNLOAD = process.env.FULL_DOWNLOAD === '1'
+
+// Known test values from seed_for_test.py
 // Peer hint uses 127.0.0.1 because adb reverse maps emulator localhost → host localhost
-const TEST_MAGNET = `magnet:?xt=urn:btih:${TEST_INFO_HASH}&dn=testdata_100mb.bin&x.pe=127.0.0.1:6881`
+const TEST_100MB_INFO_HASH = '67d01ece1b99c49c257baada0f760b770a7530b9'
+const TEST_1GB_INFO_HASH = '18a7aacab6d2bc518e336921ccd4b6cc32a9624b'
+const TEST_INFO_HASH = FULL_DOWNLOAD ? TEST_1GB_INFO_HASH : TEST_100MB_INFO_HASH
+const TEST_FILENAME = FULL_DOWNLOAD ? 'testdata_1gb.bin' : 'testdata_100mb.bin'
+const TEST_MAGNET = `magnet:?xt=urn:btih:${TEST_INFO_HASH}&dn=${TEST_FILENAME}&x.pe=127.0.0.1:6881`
 const SEEDER_PORT = 6881
 const COMPANION_PORT = parseInt(process.env.COMPANION_PORT || '7800', 10)
-
-const FULL_DOWNLOAD = process.env.FULL_DOWNLOAD === '1'
 const DOWNLOAD_TIMEOUT_MS = (() => {
   const override = parseInt(process.env.DOWNLOAD_TIMEOUT_MS || '', 10)
   if (Number.isFinite(override) && override > 0) {

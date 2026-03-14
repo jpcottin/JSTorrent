@@ -176,7 +176,7 @@ export function getCompanionWriteQueueStats(): DiskWriteQueueStats {
     inFlightWrites: inFlightWriteCount,
     inFlightBytes: inFlightWriteBytes,
     totalWrites: totalWritesSent,
-    totalBytes: totalWriteBytesSent,
+    totalBytes: inFlightWriteBytes,
   }
 }
 
