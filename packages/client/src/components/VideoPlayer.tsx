@@ -126,6 +126,7 @@ export function VideoPlayer({
       disposed = true
       engineRef.current?.destroy()
       engineRef.current = null
+      bytes.close()
       video.pause()
       video.removeAttribute('src')
       video.load()
