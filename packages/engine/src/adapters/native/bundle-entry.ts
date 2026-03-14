@@ -175,10 +175,10 @@ const jstorrentApi = {
   },
 
   /**
-   * Check if the engine is initialized.
+   * Check if the engine is fully initialized (session restored, ready for commands).
    */
   isInitialized(): boolean {
-    return engine !== null
+    return engine !== null && engineReady
   },
 
   /**
