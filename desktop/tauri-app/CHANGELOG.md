@@ -2,6 +2,28 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.2.0]
+
+- Add video streaming: right-click Watch on video files for in-app playback with MKV keyframe seeking
+- Add desktop video fullscreen support (double-click to toggle)
+- Add LAN media share server for streaming to other devices on the network
+- Add web seed support: concurrent transfers, keep-alive connections, redirect handling, rate limiting
+- Add search plugin system with installable Internet Archive plugin
+- Add toast notification system (recheck results, etc.)
+- Port media streaming session contract to Rust io-daemon
+- Advertise IO daemon contract versions for conformance testing
+- Return 404 for missing daemon deletes instead of silently succeeding
+- Fix background update check spawning Tauri app window
+- Fix Windows taskbar icon and Linux window icon
+- Fix zero upload slots choking behavior
+- Fix file progress display after torrent recheck
+- Fix extension takeover from desktop app
+- Prefer UTF-8 torrent metadata and paths
+- Support magnet select-only file indices
+- Add configurable active piece memory limit
+- Add diagnostic logging for magnet deep link routing
+- Fix io-daemon spurious shutdown on transient parent process check failure (e.g., after sleep/wake)
+
 ## [0.1.31]
 
 - Fix 10-second startup delay by removing unnecessary backend-ready synchronization

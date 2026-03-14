@@ -521,12 +521,20 @@ fn conformance__roots__register_download_root_returns_root_added__impl__rust() {
     let canonical_root_path = root_dir.path().canonicalize().unwrap();
     let add_response = register_download_root(&mut host, root_dir.path().to_str().unwrap());
 
-    assert_eq!(add_response["ok"], true, "registerDownloadRoot should succeed: {add_response}");
+    assert_eq!(
+        add_response["ok"], true,
+        "registerDownloadRoot should succeed: {add_response}"
+    );
     assert_eq!(add_response["type"], "RootAdded");
 
     let root = &add_response["payload"]["root"];
-    assert_eq!(root["path"].as_str().unwrap(), canonical_root_path.to_str().unwrap());
-    let root_key = root["key"].as_str().expect("RootAdded must include root key");
+    assert_eq!(
+        root["path"].as_str().unwrap(),
+        canonical_root_path.to_str().unwrap()
+    );
+    let root_key = root["key"]
+        .as_str()
+        .expect("RootAdded must include root key");
     assert!(!root_key.is_empty(), "root key must not be empty");
 
     let rpc_info = read_rpc_info(config_dir.path());
@@ -537,7 +545,9 @@ fn conformance__roots__register_download_root_returns_root_added__impl__rust() {
         .find(|p| p["profile_id"].as_str() == Some(&profile_id))
         .expect("should find profile");
     let roots = profile["download_roots"].as_array().unwrap();
-    assert!(roots.iter().any(|entry| entry["key"].as_str() == Some(root_key)));
+    assert!(roots
+        .iter()
+        .any(|entry| entry["key"].as_str() == Some(root_key)));
 
     shutdown_host(host);
 }
@@ -560,9 +570,15 @@ fn conformance__roots__delete_download_root_returns_root_removed__impl__rust() {
         .to_string();
 
     let remove_response = delete_download_root(&mut host, &root_key);
-    assert_eq!(remove_response["ok"], true, "deleteDownloadRoot should succeed: {remove_response}");
+    assert_eq!(
+        remove_response["ok"], true,
+        "deleteDownloadRoot should succeed: {remove_response}"
+    );
     assert_eq!(remove_response["type"], "RootRemoved");
-    assert_eq!(remove_response["payload"]["key"].as_str().unwrap(), root_key);
+    assert_eq!(
+        remove_response["payload"]["key"].as_str().unwrap(),
+        root_key
+    );
 
     let rpc_info = read_rpc_info(config_dir.path());
     let profile = rpc_info["profiles"]
@@ -572,7 +588,9 @@ fn conformance__roots__delete_download_root_returns_root_removed__impl__rust() {
         .find(|p| p["profile_id"].as_str() == Some(&profile_id))
         .expect("should find profile");
     let roots = profile["download_roots"].as_array().unwrap();
-    assert!(!roots.iter().any(|entry| entry["key"].as_str() == Some(root_key.as_str())));
+    assert!(!roots
+        .iter()
+        .any(|entry| entry["key"].as_str() == Some(root_key.as_str())));
 
     shutdown_host(host);
 }

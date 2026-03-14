@@ -146,7 +146,10 @@ fn conformance__handshake__daemon_info_is_returned__impl__rust() {
         .as_u64()
         .expect("behaviorVersion must be a number");
     assert_eq!(behavior_version, 1, "behaviorVersion must be 1");
-    assert!(payload["roots"].is_array(), "roots must be present as an array");
+    assert!(
+        payload["roots"].is_array(),
+        "roots must be present as an array"
+    );
 
     eprintln!("Handshake OK: port={port}, version={version}, profileId={profile_id}");
 
@@ -209,7 +212,9 @@ fn conformance__handshake__capabilities_are_reported__impl__rust() {
         .as_object()
         .expect("DaemonInfo.capabilities must be present");
     assert_eq!(
-        capabilities.get("roots_manageable").and_then(|v| v.as_bool()),
+        capabilities
+            .get("roots_manageable")
+            .and_then(|v| v.as_bool()),
         Some(true)
     );
     assert_eq!(

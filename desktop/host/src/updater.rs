@@ -417,12 +417,7 @@ mod tests {
             .unwrap()
             .as_secs();
 
-        let stored: u64 = kv
-            .get(KV_LAST_CHECK_KEY)
-            .unwrap()
-            .unwrap()
-            .parse()
-            .unwrap();
+        let stored: u64 = kv.get(KV_LAST_CHECK_KEY).unwrap().unwrap().parse().unwrap();
         assert!(
             stored >= before && stored <= after,
             "recorded timestamp {stored} should be between {before} and {after}"
@@ -452,7 +447,8 @@ mod tests {
 
     #[test]
     fn update_check_result_deserialize() {
-        let json = r#"{"available":true,"version":"1.2.0","currentVersion":"1.1.0","body":"notes"}"#;
+        let json =
+            r#"{"available":true,"version":"1.2.0","currentVersion":"1.1.0","body":"notes"}"#;
         let result: UpdateCheckResult = serde_json::from_str(json).unwrap();
         assert!(result.available);
         assert_eq!(result.version.as_deref(), Some("1.2.0"));

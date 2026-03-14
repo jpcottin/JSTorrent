@@ -2538,6 +2538,7 @@ dependencies = [
  "hex",
  "if-addrs",
  "jstorrent-common",
+ "libc",
  "native-tls",
  "netdev",
  "serde",

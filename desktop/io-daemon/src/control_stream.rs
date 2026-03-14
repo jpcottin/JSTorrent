@@ -69,7 +69,11 @@ impl ControlStreamSession {
             },
         );
 
-        if let Err(error) = self.tx.send(build_frame(opcode, request_id, payload)).await {
+        if let Err(error) = self
+            .tx
+            .send(build_frame(opcode, request_id, &payload))
+            .await
+        {
             self.pending.lock().await.remove(&request_id);
             return Err(format!("Control stream send failed: {error}"));
         }
@@ -89,7 +93,7 @@ impl ControlStreamSession {
 
     pub(crate) async fn send_notification(&self, opcode: u8, payload: Value) -> Result<(), String> {
         self.tx
-            .send(build_frame(opcode, 0, payload))
+            .send(build_frame(opcode, 0, &payload))
             .await
             .map_err(|error| format!("Control stream send failed: {error}"))
     }
@@ -254,7 +258,7 @@ impl TorrentHttpStreamBridge for ControlChannelTorrentHttpStreamBridge {
             .map_err(|message| {
                 TorrentHttpStreamError::new(TorrentHttpStreamStatus::StreamSessionNotFound, message)
             })?;
-        ensure_ok(payload)?;
+        ensure_ok(&payload)?;
         self.active_sessions
             .write()
             .expect("active stream registry poisoned")
@@ -289,7 +293,7 @@ impl TorrentHttpStreamBridge for ControlChannelTorrentHttpStreamBridge {
             .map_err(|message| {
                 TorrentHttpStreamError::new(TorrentHttpStreamStatus::StreamSessionNotFound, message)
             })?;
-        ensure_ok(payload)
+        ensure_ok(&payload)
     }
 
     fn close_stream_session(&self, session_id: &str, reason: &str) {
@@ -316,7 +320,7 @@ impl TorrentHttpStreamBridge for ControlChannelTorrentHttpStreamBridge {
     }
 }
 
-fn ensure_ok(payload: Value) -> Result<(), TorrentHttpStreamError> {
+fn ensure_ok(payload: &Value) -> Result<(), TorrentHttpStreamError> {
     if payload.get("ok").and_then(Value::as_bool) == Some(true) {
         return Ok(());
     }
@@ -324,7 +328,6 @@ fn ensure_ok(payload: Value) -> Result<(), TorrentHttpStreamError> {
     let status = match payload.get("status").and_then(Value::as_str) {
         Some("FileSkipped") => TorrentHttpStreamStatus::FileSkipped,
         Some("StreamSessionMismatch") => TorrentHttpStreamStatus::StreamSessionMismatch,
-        Some("StreamSessionNotFound") => TorrentHttpStreamStatus::StreamSessionNotFound,
         Some("TorrentErrored") => TorrentHttpStreamStatus::TorrentErrored,
         Some("TorrentInactive") => TorrentHttpStreamStatus::TorrentInactive,
         Some("TorrentRemoved") => TorrentHttpStreamStatus::TorrentRemoved,
@@ -338,7 +341,7 @@ fn ensure_ok(payload: Value) -> Result<(), TorrentHttpStreamError> {
     Err(TorrentHttpStreamError::new(status, message))
 }
 
-fn build_frame(opcode: u8, request_id: u32, payload: Value) -> Vec<u8> {
+fn build_frame(opcode: u8, request_id: u32, payload: &Value) -> Vec<u8> {
     let mut frame = vec![0u8; 8];
     frame[0] = PROTOCOL_VERSION;
     frame[1] = opcode;

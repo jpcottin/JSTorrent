@@ -69,6 +69,7 @@ pub struct StatusRequest {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct StatusCapabilities {
     pub health: bool,
     pub status: bool,

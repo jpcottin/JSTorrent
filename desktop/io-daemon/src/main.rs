@@ -506,22 +506,27 @@ fn build_cors_layer(extension_id: Option<&str>, allow_any: bool) -> CorsLayer {
 
 #[cfg(unix)]
 async fn monitor_parent(pid: u32) {
-    use std::process::Command;
     use tokio::time::{sleep, Duration};
 
+    #[allow(clippy::cast_possible_wrap)]
+    let pid = pid as i32;
     loop {
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(5)).await;
 
-        let output = Command::new("kill").arg("-0").arg(pid.to_string()).output();
-
-        if let Ok(output) = output {
-            if !output.status.success() {
-                tracing::info!("Parent process {} exited, shutting down", pid);
+        // kill(pid, 0) checks if the process exists without sending a signal.
+        // Returns 0 if alive, -1 with ESRCH if dead.
+        // SAFETY: kill with signal 0 is a standard POSIX process existence check.
+        #[allow(unsafe_code)]
+        let ret = unsafe { libc::kill(pid, 0) };
+        if ret != 0 {
+            let err = std::io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::ESRCH) {
+                tracing::info!("Parent process {pid} exited, shutting down");
                 std::process::exit(0);
             }
-        } else {
-            tracing::warn!("Failed to check parent process, shutting down");
-            std::process::exit(1);
+            // EPERM means the process exists but we lack permission — still alive.
+            // Any other error is unexpected; log but keep running.
+            tracing::debug!("Parent process check returned unexpected error: {err}");
         }
     }
 }

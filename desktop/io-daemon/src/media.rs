@@ -59,6 +59,7 @@ pub struct HttpStreamSessionRegistry {
 }
 
 impl HttpStreamSessionRegistry {
+    #[allow(clippy::too_many_arguments)]
     pub fn register(
         &self,
         token: String,
@@ -353,11 +354,7 @@ async fn stream_file(
 
     let metadata = match tokio::fs::metadata(&full_path).await {
         Ok(metadata) if metadata.is_file() => metadata,
-        Ok(_) => {
-            state.http_streams.revoke(&token);
-            return StatusCode::NOT_FOUND.into_response();
-        }
-        Err(_) => {
+        Ok(_) | Err(_) => {
             state.http_streams.revoke(&token);
             return StatusCode::NOT_FOUND.into_response();
         }
@@ -416,7 +413,7 @@ async fn stream_file(
             .open_stream_session(&session_id, &token, &stream.torrent_id, stream.file_index)
             .await
         {
-            return handle_stream_error(&state, &token, error);
+            return handle_stream_error(&state, &token, &error);
         }
 
         let mut file = match File::open(&full_path).await {
@@ -445,7 +442,7 @@ async fn stream_file(
             .await
         {
             bridge.close_stream_session(&session_id, "request-complete");
-            return handle_stream_error(&state, &token, error);
+            return handle_stream_error(&state, &token, &error);
         }
 
         let mut first_chunk = vec![0u8; first_chunk_len];
@@ -539,7 +536,7 @@ fn first_chunk_len(range: HttpByteRange) -> usize {
 fn handle_stream_error(
     state: &AppState,
     stream_token: &str,
-    error: TorrentHttpStreamError,
+    error: &TorrentHttpStreamError,
 ) -> Response {
     match error.status {
         TorrentHttpStreamStatus::TorrentStopped => {

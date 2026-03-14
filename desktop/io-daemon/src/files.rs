@@ -491,17 +491,17 @@ async fn delete_file(
     if full_path.is_dir() {
         fs::remove_dir_all(full_path)
             .await
-            .map_err(map_delete_error)?;
+            .map_err(|e| map_delete_error(&e))?;
     } else {
         fs::remove_file(full_path)
             .await
-            .map_err(map_delete_error)?;
+            .map_err(|e| map_delete_error(&e))?;
     }
 
     Ok(())
 }
 
-fn map_delete_error(error: std::io::Error) -> (StatusCode, String) {
+fn map_delete_error(error: &std::io::Error) -> (StatusCode, String) {
     if error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(2) {
         (StatusCode::NOT_FOUND, error.to_string())
     } else {
@@ -820,8 +820,7 @@ async fn verify_chunks(
 mod tests {
     use super::*;
     use crate::{
-        control_stream::ControlStreamSessionRegistry, media::HttpStreamSessionRegistry,
-        DaemonStats,
+        control_stream::ControlStreamSessionRegistry, media::HttpStreamSessionRegistry, DaemonStats,
     };
     use jstorrent_common::DownloadRoot;
     use sha1::{Digest, Sha1};
