@@ -675,6 +675,40 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(result?.toString(), #"{"match":[0],"mismatch":[1]}"#)
     }
 
+    func testVerifyChunksAcrossFileBoundaries() throws {
+        let (engine, _, baseDirectory, userDefaults, suiteName) = try makeBindingsEnvironment()
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let chunkHashes = [
+            Data(Insecure.SHA1.hash(data: Data("abcd".utf8))),
+            Data(Insecure.SHA1.hash(data: Data("efgh".utf8)))
+        ]
+        let hashes = Data(chunkHashes.joined()).base64EncodedString()
+
+        let result = try engine.evaluate(
+            """
+            __jstorrent_file_write("default", "verify/a.txt", 0, __jstorrent_text_encode("abc"));
+            __jstorrent_file_write("default", "verify/b.txt", 0, __jstorrent_text_encode("defgh"));
+            JSON.stringify(Array.from(new Uint8Array(__jstorrent_file_verify_chunks("default", JSON.stringify({
+              files: [
+                { path: "verify/a.txt", length: 3 },
+                { path: "verify/b.txt", length: 5 }
+              ],
+              chunkSize: 4,
+              hashes: "\(hashes)",
+              startChunk: 0,
+              chunkCount: 2
+            })))));
+            """,
+            filename: "verify-chunks-boundary.js"
+        )
+
+        XCTAssertEqual(result?.toString(), "[0,0]")
+    }
+
     func testVerifiedWriteBatchFlushDispatchesCallbackManagerFormat() throws {
         let (engine, _, baseDirectory, userDefaults, suiteName) = try makeBindingsEnvironment()
         defer {

@@ -936,6 +936,18 @@ public final class FileBindings: @unchecked Sendable {
         }
 
         var results = Data(capacity: requestedChunkCount)
+        let readBufferSize = min(chunkSize, 256 * 1024)
+        let cumulativeEnds = request.files.reduce(into: [Int64]()) { partialResult, file in
+            let next = max(file.length, 0) + (partialResult.last ?? 0)
+            partialResult.append(next)
+        }
+
+        var streamPosition = Int64(startChunk * chunkSize)
+        var currentFileIndex = 0
+        while currentFileIndex < request.files.count && streamPosition >= cumulativeEnds[currentFileIndex] {
+            currentFileIndex += 1
+        }
+
         for chunkOffset in 0..<requestedChunkCount {
             let chunkIndex = startChunk + chunkOffset
             let hashStart = chunkIndex * 20
@@ -952,70 +964,69 @@ public final class FileBindings: @unchecked Sendable {
             let readLength = min(chunkSize, remaining)
 
             do {
-                let chunk = try readConcatenatedChunk(
-                    rootKey: rootKey,
-                    files: request.files,
-                    startOffset: startByte,
-                    length: readLength
-                )
-                if chunk.count != readLength {
+                var hasher = Insecure.SHA1()
+                var bytesHashed = 0
+                var ioError = false
+
+                while bytesHashed < readLength {
+                    if currentFileIndex >= request.files.count {
+                        ioError = true
+                        break
+                    }
+
+                    let fileStart = currentFileIndex > 0 ? cumulativeEnds[currentFileIndex - 1] : 0
+                    let file = request.files[currentFileIndex]
+                    let fileLength = max(file.length, 0)
+                    let positionInFile = startByte + Int64(bytesHashed) - fileStart
+                    let fileRemaining = fileLength - positionInFile
+                    let chunkRemaining = readLength - bytesHashed
+                    let bytesToRead = min(Int(fileRemaining), chunkRemaining, readBufferSize)
+
+                    if bytesToRead <= 0 {
+                        currentFileIndex += 1
+                        continue
+                    }
+
+                    let data = try readFile(
+                        rootKey: rootKey,
+                        path: file.path,
+                        offset: UInt64(positionInFile),
+                        length: bytesToRead
+                    )
+                    if data.count != bytesToRead {
+                        ioError = true
+                        break
+                    }
+
+                    hasher.update(data: data)
+                    bytesHashed += data.count
+
+                    if positionInFile + Int64(data.count) >= fileLength {
+                        currentFileIndex += 1
+                    }
+                }
+
+                if ioError {
                     results.append(2)
+                    streamPosition += Int64(chunkSize)
+                    currentFileIndex = 0
+                    while currentFileIndex < request.files.count && streamPosition >= cumulativeEnds[currentFileIndex] {
+                        currentFileIndex += 1
+                    }
                     continue
                 }
 
                 let expected = hashes.subdata(in: hashStart..<(hashStart + 20))
-                let actual = Data(Insecure.SHA1.hash(data: chunk))
+                let actual = Data(hasher.finalize())
                 results.append(actual == expected ? 0 : 1)
             } catch {
                 results.append(2)
             }
+
+            streamPosition += Int64(chunkSize)
         }
 
         return results
-    }
-
-    private func readConcatenatedChunk(
-        rootKey: String,
-        files: [VerifyChunkFile],
-        startOffset: Int64,
-        length: Int
-    ) throws -> Data {
-        var remainingOffset = startOffset
-        var remainingLength = length
-        var output = Data(capacity: length)
-
-        for file in files {
-            let fileLength = max(file.length, 0)
-            if remainingOffset >= fileLength {
-                remainingOffset -= fileLength
-                continue
-            }
-
-            let bytesFromFile = min(Int(fileLength - remainingOffset), remainingLength)
-            guard bytesFromFile > 0 else {
-                continue
-            }
-
-            let data = try readFile(
-                rootKey: rootKey,
-                path: file.path,
-                offset: UInt64(remainingOffset),
-                length: bytesFromFile
-            )
-            if data.count != bytesFromFile {
-                throw CocoaError(.fileReadUnknown)
-            }
-
-            output.append(data)
-            remainingLength -= bytesFromFile
-            remainingOffset = 0
-
-            if remainingLength == 0 {
-                break
-            }
-        }
-
-        return output
     }
 
     private func listTree(at directoryURL: URL) throws -> [TreeEntry] {
