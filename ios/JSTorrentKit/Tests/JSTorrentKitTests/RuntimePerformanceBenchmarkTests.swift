@@ -55,6 +55,40 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
         let chunkCount: Int
     }
 
+    private struct PromiseProbeState: Codable {
+        let done: Bool
+        let error: String?
+    }
+
+    private struct InstrumentedRecheckSample: Encodable {
+        let elapsedSeconds: Double
+        let status: String
+        let progress: Double
+        let piecesCompleted: Int
+        let piecesTotal: Int
+        let tickElapsedMs: Int32
+        let engineStats: String
+        let promiseDone: Bool
+        let promiseError: String?
+    }
+
+    private struct InstrumentedRecheckReport: Encodable {
+        let name: String
+        let fileSizeBytes: Int64
+        let pieceLength: Int
+        let timeoutSeconds: Double
+        let completed: Bool
+        let completionSeconds: Double?
+        let firstCheckingSeconds: Double?
+        let finalStatus: String
+        let finalProgress: Double
+        let finalPiecesCompleted: Int
+        let finalPiecesTotal: Int
+        let promiseState: PromiseProbeState
+        let samples: [InstrumentedRecheckSample]
+        let logsTail: String
+    }
+
     private struct TickAccumulator {
         var count = 0
         var totalElapsedMs = 0.0
@@ -340,6 +374,43 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
         )
     }
 
+    func testInstrumentedNativeStorageRecheck() throws {
+        let configuration = BenchmarkConfiguration(environment: ProcessInfo.processInfo.environment)
+        let fixture = try makeDownloadFixture(configuration: configuration, label: "recheck-instrumented")
+        defer {
+            fixture.seeder.stop()
+            try? FileManager.default.removeItem(at: fixture.sourceFileURL.deletingLastPathComponent())
+        }
+
+        let harness = try RuntimeHarness(storageMode: .native)
+        _ = try runDownloadBenchmark(
+            name: "download_setup_for_instrumented_recheck",
+            storageMode: .native,
+            harness: harness,
+            fixture: fixture,
+            configuration: configuration
+        )
+
+        let report = try runInstrumentedRecheck(
+            harness: harness,
+            infoHash: fixture.infoHash,
+            fileSizeBytes: fileSize(of: fixture.sourceFileURL),
+            pieceLength: configuration.pieceLength,
+            timeout: configuration.timeout,
+            pollInterval: configuration.pollInterval
+        )
+        emit(report)
+
+        XCTAssertTrue(
+            report.completed,
+            """
+            Instrumented recheck timed out.
+
+            \(report.logsTail)
+            """
+        )
+    }
+
     private func requireBenchmarksEnabled() throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["JSTORRENT_ENABLE_PERF_BENCHMARKS"] == "1" else {
@@ -466,17 +537,16 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
         iterations: Int,
         timeout: TimeInterval
     ) throws -> RecheckBenchmarkReport {
-        let infoHashLiteral = try jsonLiteral(infoHash)
         var iterationSeconds: [Double] = []
 
         for _ in 0..<iterations {
-            let start = CFAbsoluteTimeGetCurrent()
-            _ = try harness.runtime.engine.awaitPromise(
-                expression: "__jstorrent_cmd_recheck(\(infoHashLiteral))",
+            let elapsed = try waitForPromiseWithHostTicks(
+                harness: harness,
+                expression: "__jstorrent_cmd_recheck(\(try jsonLiteral(infoHash)))",
                 timeout: timeout,
+                pollInterval: 0.01,
                 filename: "runtime-perf-recheck.js"
             )
-            let elapsed = CFAbsoluteTimeGetCurrent() - start
             iterationSeconds.append(elapsed)
 
             let torrent = try XCTUnwrap(
@@ -495,6 +565,198 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
             averageSeconds: average,
             maxSeconds: iterationSeconds.max() ?? 0,
             engineStats: try engineStatsJSON(runtime: harness.runtime)
+        )
+    }
+
+    private func waitForPromiseWithHostTicks(
+        harness: RuntimeHarness,
+        expression: String,
+        timeout: TimeInterval,
+        pollInterval: TimeInterval,
+        filename: String
+    ) throws -> Double {
+        let token = "__jstorrent_promise_await_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
+        let tokenLiteral = try jsonLiteral(token)
+        let setupScript =
+            """
+            (() => {
+              const token = \(tokenLiteral);
+              globalThis[token] = { done: false, error: null };
+              Promise.resolve(\(expression)).then(
+                () => {
+                  globalThis[token] = { done: true, error: null };
+                },
+                (error) => {
+                  const message = error instanceof Error
+                    ? (error.stack || error.message || String(error))
+                    : String(error);
+                  globalThis[token] = { done: true, error: message };
+                }
+              );
+            })();
+            """
+
+        _ = try harness.runtime.engine.evaluate(setupScript, filename: filename)
+        defer {
+            _ = try? harness.runtime.engine.evaluate(
+                "delete globalThis[\(tokenLiteral)];",
+                filename: filename
+            )
+        }
+
+        let start = CFAbsoluteTimeGetCurrent()
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            _ = try harness.runtime.tick()
+            let state = try queryPromiseProbeState(harness: harness, token: token)
+            if state.done {
+                if let error = state.error, !error.isEmpty {
+                    throw JSEngineError.javaScriptException(error)
+                }
+                return CFAbsoluteTimeGetCurrent() - start
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+
+        throw JSEngineError.promiseTimedOut(
+            "Timed out waiting for JavaScript promise to settle: \(expression)"
+        )
+    }
+
+    private func runInstrumentedRecheck(
+        harness: RuntimeHarness,
+        infoHash: String,
+        fileSizeBytes: Int64,
+        pieceLength: Int,
+        timeout: TimeInterval,
+        pollInterval: TimeInterval
+    ) throws -> InstrumentedRecheckReport {
+        let infoHashLiteral = try jsonLiteral(infoHash)
+        let token = "__jstorrent_recheck_probe_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
+        let tokenLiteral = try jsonLiteral(token)
+
+        let setupScript =
+            """
+            (() => {
+              const token = \(tokenLiteral);
+              globalThis[token] = { done: false, error: null };
+              Promise.resolve(__jstorrent_cmd_recheck(\(infoHashLiteral))).then(
+                () => {
+                  globalThis[token] = { done: true, error: null };
+                },
+                (error) => {
+                  const message = error instanceof Error
+                    ? (error.stack || error.message || String(error))
+                    : String(error);
+                  globalThis[token] = { done: true, error: message };
+                }
+              );
+            })();
+            """
+
+        _ = try harness.runtime.engine.evaluate(
+            setupScript,
+            filename: "runtime-perf-instrumented-recheck.js"
+        )
+        defer {
+            _ = try? harness.runtime.engine.evaluate(
+                "delete globalThis[\(tokenLiteral)];",
+                filename: "runtime-perf-instrumented-recheck.js"
+            )
+        }
+
+        let start = CFAbsoluteTimeGetCurrent()
+        let deadline = Date().addingTimeInterval(timeout)
+        var firstCheckingSeconds: Double?
+        var samples: [InstrumentedRecheckSample] = []
+        var lastSampleElapsed = -1.0
+        var lastStatus: String?
+        var lastPiecesCompleted = -1
+        var lastPromiseDone = false
+
+        while Date() < deadline {
+            let tick = try harness.runtime.tick()
+            let elapsedSeconds = CFAbsoluteTimeGetCurrent() - start
+            let torrent = try XCTUnwrap(
+                try harness.runtime.queryTorrentList().torrents?.first(where: { $0.infoHash == infoHash })
+            )
+            let pieces = try harness.runtime.queryPieces(infoHash)
+            let promiseState = try queryPromiseProbeState(harness: harness, token: token)
+
+            if firstCheckingSeconds == nil && torrent.status == "checking" {
+                firstCheckingSeconds = elapsedSeconds
+            }
+
+            let shouldSample =
+                samples.isEmpty
+                || promiseState.done != lastPromiseDone
+                || torrent.status != lastStatus
+                || pieces.piecesCompleted != lastPiecesCompleted
+                || elapsedSeconds - lastSampleElapsed >= 0.25
+
+            if shouldSample {
+                samples.append(
+                    InstrumentedRecheckSample(
+                        elapsedSeconds: elapsedSeconds,
+                        status: torrent.status,
+                        progress: torrent.progress,
+                        piecesCompleted: pieces.piecesCompleted,
+                        piecesTotal: pieces.piecesTotal,
+                        tickElapsedMs: tick.elapsedMs,
+                        engineStats: try engineStatsJSON(runtime: harness.runtime),
+                        promiseDone: promiseState.done,
+                        promiseError: promiseState.error
+                    )
+                )
+                lastSampleElapsed = elapsedSeconds
+                lastStatus = torrent.status
+                lastPiecesCompleted = pieces.piecesCompleted
+                lastPromiseDone = promiseState.done
+            }
+
+            if promiseState.done {
+                return InstrumentedRecheckReport(
+                    name: "instrumented_native_storage_recheck",
+                    fileSizeBytes: fileSizeBytes,
+                    pieceLength: pieceLength,
+                    timeoutSeconds: timeout,
+                    completed: promiseState.error == nil,
+                    completionSeconds: elapsedSeconds,
+                    firstCheckingSeconds: firstCheckingSeconds,
+                    finalStatus: torrent.status,
+                    finalProgress: torrent.progress,
+                    finalPiecesCompleted: pieces.piecesCompleted,
+                    finalPiecesTotal: pieces.piecesTotal,
+                    promiseState: promiseState,
+                    samples: samples,
+                    logsTail: harness.logs.tail(200)
+                )
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+
+        let finalTorrent = try XCTUnwrap(
+            try harness.runtime.queryTorrentList().torrents?.first(where: { $0.infoHash == infoHash })
+        )
+        let finalPieces = try harness.runtime.queryPieces(infoHash)
+        let finalPromiseState = try queryPromiseProbeState(harness: harness, token: token)
+
+        return InstrumentedRecheckReport(
+            name: "instrumented_native_storage_recheck",
+            fileSizeBytes: fileSizeBytes,
+            pieceLength: pieceLength,
+            timeoutSeconds: timeout,
+            completed: false,
+            completionSeconds: nil,
+            firstCheckingSeconds: firstCheckingSeconds,
+            finalStatus: finalTorrent.status,
+            finalProgress: finalTorrent.progress,
+            finalPiecesCompleted: finalPieces.piecesCompleted,
+            finalPiecesTotal: finalPieces.piecesTotal,
+            promiseState: finalPromiseState,
+            samples: samples,
+            logsTail: harness.logs.tail(200)
         )
     }
 
@@ -630,6 +892,19 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
             output.append(contentsOf: Insecure.SHA1.hash(data: data))
         }
         return output.base64EncodedString()
+    }
+
+    private func queryPromiseProbeState(
+        harness: RuntimeHarness,
+        token: String
+    ) throws -> PromiseProbeState {
+        let tokenLiteral = try jsonLiteral(token)
+        let value = try harness.runtime.engine.evaluate(
+            "JSON.stringify(globalThis[\(tokenLiteral)] ?? { done: false, error: null });",
+            filename: "runtime-perf-instrumented-recheck.js"
+        )?.toString() ?? #"{"done":false,"error":null}"#
+
+        return try JSONDecoder().decode(PromiseProbeState.self, from: Data(value.utf8))
     }
 
     private func jsonLiteral<T: Encodable>(_ value: T) throws -> String {
