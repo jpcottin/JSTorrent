@@ -25,6 +25,7 @@
 		7B7E4FD32DF59FC52DE694D2 /* JSTorrentApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CB7D9B46BAA2B050B421FF /* JSTorrentApp.swift */; };
 		85A42A5B16A1F364D422F315 /* de.json in Resources */ = {isa = PBXBuildFile; fileRef = 527AB85EB3B6794C249903ED /* de.json */; };
 		89B8E15EA38D9491C623EDD0 /* JSTorrentKit in Frameworks */ = {isa = PBXBuildFile; productRef = DBD1CCB10854125B9C670D93 /* JSTorrentKit */; };
+		9810833A3D732875142E5626 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 998EEA197A64488D6C86EA3C /* Assets.xcassets */; };
 		9FB03BC7A82B4CC1A514C540 /* fr.json in Resources */ = {isa = PBXBuildFile; fileRef = F96132DD626B98212633C2A5 /* fr.json */; };
 		A4FC615C3E5991050C17E4D1 /* pt-BR.json in Resources */ = {isa = PBXBuildFile; fileRef = 07B26B9C08714BAB668CEC41 /* pt-BR.json */; };
 		AEB5386421A18725E5C0E1FA /* RemoveTorrentSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78A8157602C36D001065E8C3 /* RemoveTorrentSheet.swift */; };
@@ -60,6 +61,7 @@
 		77CB7D9B46BAA2B050B421FF /* JSTorrentApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSTorrentApp.swift; sourceTree = "<group>"; };
 		78A8157602C36D001065E8C3 /* RemoveTorrentSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoveTorrentSheet.swift; sourceTree = "<group>"; };
 		90F5A68B10DEC3AD5AC1CA77 /* JSTorrentKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JSTorrentKit; path = JSTorrentKit; sourceTree = SOURCE_ROOT; };
+		998EEA197A64488D6C86EA3C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		99ED89ED91E6E1363C90272D /* da.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = da.json; sourceTree = "<group>"; };
 		A59D7A7986275DD304526E93 /* ro.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ro.json; sourceTree = "<group>"; };
 		A5E1C9533C59B1402062AAED /* zh-TW.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "zh-TW.json"; sourceTree = "<group>"; };
@@ -158,6 +160,7 @@
 		D8EB6131933D516881FAD8D2 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				998EEA197A64488D6C86EA3C /* Assets.xcassets */,
 				D42EBCCAD88FA4BCC13FBFA9 /* engine.bundle.js */,
 			);
 			name = Resources;
@@ -278,6 +281,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9810833A3D732875142E5626 /* Assets.xcassets in Resources */,
 				E8848F1BC86589688231F599 /* cs.json in Resources */,
 				0DC1F1EC17BAF7EB74DCAFF6 /* da.json in Resources */,
 				85A42A5B16A1F364D422F315 /* de.json in Resources */,
