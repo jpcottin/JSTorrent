@@ -1,4 +1,5 @@
 import CryptoKit
+import CommonCrypto
 import Darwin
 import Foundation
 
@@ -806,7 +807,24 @@ public final class FileBindings: @unchecked Sendable {
     }
 
     private func readFile(rootKey: String, path: String, offset: UInt64, length: Int) throws -> Data {
-        guard length >= 0, let fileURL = resolveFileURL(rootKey: rootKey, relativePath: path) else {
+        var output = Data(count: length)
+        let bytesRead = try output.withUnsafeMutableBytes { rawBuffer in
+            try readFile(rootKey: rootKey, path: path, offset: offset, into: rawBuffer)
+        }
+
+        if bytesRead == length {
+            return output
+        }
+        return output.prefix(bytesRead)
+    }
+
+    private func readFile(
+        rootKey: String,
+        path: String,
+        offset: UInt64,
+        into buffer: UnsafeMutableRawBufferPointer
+    ) throws -> Int {
+        guard let fileURL = resolveFileURL(rootKey: rootKey, relativePath: path) else {
             throw FileBindingError.invalidArguments
         }
 
@@ -816,18 +834,17 @@ public final class FileBindings: @unchecked Sendable {
         }
 
         let fileDescriptor = try descriptorPool.descriptorForReading(at: fileURL)
-        var output = Data(count: length)
-        let bytesRead = output.withUnsafeMutableBytes { rawBuffer -> Int in
-            guard let baseAddress = rawBuffer.baseAddress else {
+        let bytesRead = buffer.withMemoryRebound(to: UInt8.self) { typedBuffer -> Int in
+            guard let baseAddress = typedBuffer.baseAddress else {
                 return 0
             }
 
             var totalRead = 0
-            while totalRead < length {
+            while totalRead < typedBuffer.count {
                 let chunkRead = Darwin.pread(
                     fileDescriptor,
                     baseAddress.advanced(by: totalRead),
-                    length - totalRead,
+                    typedBuffer.count - totalRead,
                     off_t(offset) + off_t(totalRead)
                 )
                 if chunkRead < 0 {
@@ -844,10 +861,7 @@ public final class FileBindings: @unchecked Sendable {
         if bytesRead < 0 {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
-        if bytesRead == length {
-            return output
-        }
-        return output.prefix(bytesRead)
+        return bytesRead
     }
 
     private func writeFile(rootKey: String, path: String, offset: UInt64, data: Data) throws -> Int {
@@ -941,6 +955,7 @@ public final class FileBindings: @unchecked Sendable {
             let next = max(file.length, 0) + (partialResult.last ?? 0)
             partialResult.append(next)
         }
+        var scratch = [UInt8](repeating: 0, count: readBufferSize)
 
         var streamPosition = Int64(startChunk * chunkSize)
         var currentFileIndex = 0
@@ -964,7 +979,8 @@ public final class FileBindings: @unchecked Sendable {
             let readLength = min(chunkSize, remaining)
 
             do {
-                var hasher = Insecure.SHA1()
+                var hasher = CC_SHA1_CTX()
+                CC_SHA1_Init(&hasher)
                 var bytesHashed = 0
                 var ioError = false
 
@@ -987,21 +1003,29 @@ public final class FileBindings: @unchecked Sendable {
                         continue
                     }
 
-                    let data = try readFile(
-                        rootKey: rootKey,
-                        path: file.path,
-                        offset: UInt64(positionInFile),
-                        length: bytesToRead
-                    )
-                    if data.count != bytesToRead {
+                    let bytesRead = try scratch.withUnsafeMutableBytes { rawBuffer in
+                        let chunkBuffer = UnsafeMutableRawBufferPointer(
+                            start: rawBuffer.baseAddress,
+                            count: bytesToRead
+                        )
+                        return try readFile(
+                            rootKey: rootKey,
+                            path: file.path,
+                            offset: UInt64(positionInFile),
+                            into: chunkBuffer
+                        )
+                    }
+                    if bytesRead != bytesToRead {
                         ioError = true
                         break
                     }
 
-                    hasher.update(data: data)
-                    bytesHashed += data.count
+                    scratch.withUnsafeBytes { rawBuffer in
+                        _ = CC_SHA1_Update(&hasher, rawBuffer.baseAddress, CC_LONG(bytesRead))
+                    }
+                    bytesHashed += bytesRead
 
-                    if positionInFile + Int64(data.count) >= fileLength {
+                    if positionInFile + Int64(bytesRead) >= fileLength {
                         currentFileIndex += 1
                     }
                 }
@@ -1017,7 +1041,9 @@ public final class FileBindings: @unchecked Sendable {
                 }
 
                 let expected = hashes.subdata(in: hashStart..<(hashStart + 20))
-                let actual = Data(hasher.finalize())
+                var digest = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
+                CC_SHA1_Final(&digest, &hasher)
+                let actual = Data(digest)
                 results.append(actual == expected ? 0 : 1)
             } catch {
                 results.append(2)

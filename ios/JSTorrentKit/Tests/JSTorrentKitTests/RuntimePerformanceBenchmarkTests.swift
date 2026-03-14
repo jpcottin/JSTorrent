@@ -46,6 +46,15 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
         let engineStats: String
     }
 
+    private struct DirectVerifyBenchmarkReport: Encodable {
+        let name: String
+        let fileSizeBytes: Int64
+        let pieceLength: Int
+        let elapsedSeconds: Double
+        let throughputMBps: Double
+        let chunkCount: Int
+    }
+
     private struct TickAccumulator {
         var count = 0
         var totalElapsedMs = 0.0
@@ -287,6 +296,48 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
         let downloadedURL = harness.baseDirectory.appendingPathComponent(fixture.sourceFileURL.lastPathComponent)
         XCTAssertEqual(try sha1Hex(for: downloadedURL), fixture.expectedSHA1)
         emit(report)
+    }
+
+    func testDirectVerifyChunksBindingPerformance() throws {
+        let configuration = BenchmarkConfiguration(environment: ProcessInfo.processInfo.environment)
+        let harness = try RuntimeHarness(storageMode: .native)
+        let fileURL = harness.baseDirectory.appendingPathComponent("verify_\(configuration.fileSizeMB)mb.bin")
+        try writeDeterministicFile(to: fileURL, sizeBytes: configuration.fileSizeMB * 1024 * 1024)
+
+        let fileSizeBytes = fileSize(of: fileURL)
+        let hashes = try pieceHashesBase64(for: fileURL, pieceLength: configuration.pieceLength)
+        let chunkCount = Int((fileSizeBytes + Int64(configuration.pieceLength) - 1) / Int64(configuration.pieceLength))
+        let request = [
+            "files": [["path": fileURL.lastPathComponent, "length": Int(fileSizeBytes)]],
+            "chunkSize": configuration.pieceLength,
+            "hashes": hashes,
+            "startChunk": 0,
+            "chunkCount": chunkCount,
+        ] as [String: Any]
+        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
+        let requestLiteral = try jsonLiteral(String(decoding: requestData, as: UTF8.self))
+
+        let start = CFAbsoluteTimeGetCurrent()
+        let value = try harness.runtime.engine.evaluate(
+            "__jstorrent_file_verify_chunks(\"default\", \(requestLiteral))",
+            filename: "runtime-perf-direct-verify.js"
+        )
+        let elapsedSeconds = CFAbsoluteTimeGetCurrent() - start
+
+        let result = try XCTUnwrap(harness.runtime.engine.data(from: value))
+        XCTAssertEqual(result.count, chunkCount)
+        XCTAssertTrue(result.allSatisfy { $0 == 0 })
+
+        emit(
+            DirectVerifyBenchmarkReport(
+                name: "direct_verify_chunks_binding",
+                fileSizeBytes: fileSizeBytes,
+                pieceLength: configuration.pieceLength,
+                elapsedSeconds: elapsedSeconds,
+                throughputMBps: throughputMBps(bytes: fileSizeBytes, seconds: elapsedSeconds),
+                chunkCount: chunkCount
+            )
+        )
     }
 
     private func requireBenchmarksEnabled() throws {
@@ -564,6 +615,21 @@ final class RuntimePerformanceBenchmarkTests: XCTestCase {
             hasher.update(data: data)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func pieceHashesBase64(for url: URL, pieceLength: Int) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        var output = Data()
+        while true {
+            let data = try handle.read(upToCount: pieceLength) ?? Data()
+            if data.isEmpty {
+                break
+            }
+            output.append(contentsOf: Insecure.SHA1.hash(data: data))
+        }
+        return output.base64EncodedString()
     }
 
     private func jsonLiteral<T: Encodable>(_ value: T) throws -> String {
