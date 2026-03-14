@@ -180,12 +180,15 @@
 
     <!-- SearchScreen -->
     <string name="search_query_label">Search query</string>
+    <string name="search_query_required">Enter a search query to continue.</string>
+    <string name="search_provider_label">Provider</string>
     <string name="search_category_label">Category</string>
     <string name="search_plugins_label">Plugins (%1$d/%2$d)</string>
     <string name="search_plugins_all">All</string>
     <string name="search_plugins_none">None</string>
     <string name="search_action">Search</string>
     <string name="search_action_button">Run search</string>
+    <string name="search_searching">Searching…</string>
     <string name="search_install_internet_archive">Install Internet Archive</string>
     <string name="search_manage_plugins">Manage Search Plugins</string>
     <string name="search_no_plugins_enabled">No search plugins are enabled</string>

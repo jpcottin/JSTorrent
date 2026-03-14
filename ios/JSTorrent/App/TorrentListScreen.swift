@@ -57,6 +57,7 @@ private enum TorrentListFilter: CaseIterable, Identifiable {
 struct TorrentListScreen: View {
     @ObservedObject var controller: EngineController
     @ObservedObject var settings: AppSettings
+    let onOpenSearch: () -> Void
     let onOpenSettings: () -> Void
     let onTorrentSelected: (String) -> Void
 
@@ -124,6 +125,7 @@ struct TorrentListScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {
             AppTopBar(
+                onOpenSearch: onOpenSearch,
                 onOpenSettings: onOpenSettings,
                 onAddTorrent: {
                     isPresentingAddTorrent = true
@@ -178,6 +180,7 @@ struct TorrentListScreen: View {
 }
 
 private struct AppTopBar: View {
+    let onOpenSearch: () -> Void
     let onOpenSettings: () -> Void
     let onAddTorrent: () -> Void
 
@@ -188,6 +191,11 @@ private struct AppTopBar: View {
             Spacer(minLength: 12)
 
             HStack(spacing: 12) {
+                Button(action: onOpenSearch) {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel(L10n.string("search_title"))
+
                 Button(action: onOpenSettings) {
                     Image(systemName: "gearshape")
                 }

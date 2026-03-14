@@ -2,6 +2,7 @@ import SwiftUI
 
 private enum AppRoute: Hashable {
     case torrent(String)
+    case search
     case settings
 }
 
@@ -15,6 +16,9 @@ struct ContentView: View {
             TorrentListScreen(
                 controller: appModel.controller,
                 settings: appModel.settings,
+                onOpenSearch: {
+                    path.append(.search)
+                },
                 onOpenSettings: {
                     path.append(.settings)
                 },
@@ -30,6 +34,8 @@ struct ContentView: View {
                         settings: appModel.settings,
                         infoHash: infoHash
                     )
+                case .search:
+                    SearchScreen(controller: appModel.controller)
                 case .settings:
                     SettingsScreen(settings: appModel.settings)
                 }
