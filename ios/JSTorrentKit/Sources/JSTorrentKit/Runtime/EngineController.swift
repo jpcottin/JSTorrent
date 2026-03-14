@@ -431,19 +431,19 @@ public final class EngineController: ObservableObject {
             mergeTorrentUpdates(torrentUpdates)
         }
         if let details = decoded.details {
-            torrentDetails.merge(details) { _, new in new }
+            mergeDetailMap(details, into: \.torrentDetails)
         }
         if let files = decoded.files {
-            torrentFiles.merge(files) { _, new in new }
+            mergeDetailMap(files, into: \.torrentFiles)
         }
         if let trackers = decoded.trackers {
-            torrentTrackers.merge(trackers) { _, new in new }
+            mergeDetailMap(trackers, into: \.torrentTrackers)
         }
         if let peers = decoded.peers {
-            torrentPeers.merge(peers) { _, new in new }
+            mergeDetailMap(peers, into: \.torrentPeers)
         }
         if let pieces = decoded.pieces {
-            torrentPieces.merge(pieces) { _, new in new }
+            mergeDetailMap(pieces, into: \.torrentPieces)
         }
     }
 
@@ -480,17 +480,17 @@ public final class EngineController: ObservableObject {
     ) throws {
         switch section {
         case .status:
-            torrentDetails[infoHash] = try runtime.queryDetails(infoHash)
-            torrentPieces[infoHash] = try runtime.queryPieces(infoHash)
+            setDetailValue(try runtime.queryDetails(infoHash), for: infoHash, in: \.torrentDetails)
+            setDetailValue(try runtime.queryPieces(infoHash), for: infoHash, in: \.torrentPieces)
         case .files:
-            torrentFiles[infoHash] = try runtime.queryFiles(infoHash)
+            setDetailValue(try runtime.queryFiles(infoHash), for: infoHash, in: \.torrentFiles)
         case .trackers:
-            torrentTrackers[infoHash] = try runtime.queryTrackers(infoHash).trackers
+            setDetailValue(try runtime.queryTrackers(infoHash).trackers, for: infoHash, in: \.torrentTrackers)
         case .peers:
-            torrentPeers[infoHash] = try runtime.queryPeers(infoHash).peers
+            setDetailValue(try runtime.queryPeers(infoHash).peers, for: infoHash, in: \.torrentPeers)
         case .pieces:
-            torrentPieces[infoHash] = try runtime.queryPieces(infoHash)
-            torrentDetails[infoHash] = try runtime.queryDetails(infoHash)
+            setDetailValue(try runtime.queryPieces(infoHash), for: infoHash, in: \.torrentPieces)
+            setDetailValue(try runtime.queryDetails(infoHash), for: infoHash, in: \.torrentDetails)
         }
     }
 
@@ -555,11 +555,11 @@ public final class EngineController: ObservableObject {
     }
 
     private func clearTorrentDetailState(for infoHash: String) {
-        torrentDetails.removeValue(forKey: infoHash)
-        torrentFiles.removeValue(forKey: infoHash)
-        torrentTrackers.removeValue(forKey: infoHash)
-        torrentPeers.removeValue(forKey: infoHash)
-        torrentPieces.removeValue(forKey: infoHash)
+        removeDetailValue(for: infoHash, from: \.torrentDetails)
+        removeDetailValue(for: infoHash, from: \.torrentFiles)
+        removeDetailValue(for: infoHash, from: \.torrentTrackers)
+        removeDetailValue(for: infoHash, from: \.torrentPeers)
+        removeDetailValue(for: infoHash, from: \.torrentPieces)
     }
 
     private func scheduleTorrentRefreshes() {
@@ -592,6 +592,34 @@ public final class EngineController: ObservableObject {
             }
         }
         torrents = merged
+    }
+
+    private func mergeDetailMap<Value>(
+        _ updates: [String: Value],
+        into keyPath: ReferenceWritableKeyPath<EngineController, [String: Value]>
+    ) {
+        var merged = self[keyPath: keyPath]
+        merged.merge(updates) { _, new in new }
+        self[keyPath: keyPath] = merged
+    }
+
+    private func setDetailValue<Value>(
+        _ value: Value,
+        for infoHash: String,
+        in keyPath: ReferenceWritableKeyPath<EngineController, [String: Value]>
+    ) {
+        var updated = self[keyPath: keyPath]
+        updated[infoHash] = value
+        self[keyPath: keyPath] = updated
+    }
+
+    private func removeDetailValue<Value>(
+        for infoHash: String,
+        from keyPath: ReferenceWritableKeyPath<EngineController, [String: Value]>
+    ) {
+        var updated = self[keyPath: keyPath]
+        updated.removeValue(forKey: infoHash)
+        self[keyPath: keyPath] = updated
     }
 
     private func startTickLoop() {
