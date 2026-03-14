@@ -61,6 +61,9 @@ JSTorrent ships as multiple products that share the same TypeScript engine but r
 ├──────────────────┼──────────────────┼───────────────┼───────────────┼──────────────┤
 │ Any (npm)        │ CLI              │ Node.js       │ Node fs       │ Terminal     │
 │                  │ @jstorrent/engine│               │               │              │
+├──────────────────┼──────────────────┼───────────────┼───────────────┼──────────────┤
+│ iOS (AltStore    │ iOS app          │ JavaScriptCore│ iOS native    │ Native       │
+│ PAL, EU only)    │                  │ (in-process)  │ (FileManager) │ SwiftUI      │
 └──────────────────┴──────────────────┴───────────────┴───────────────┴──────────────┘
 
 *  Extension requires desktop app. Desktop app installs a native messaging host
@@ -79,6 +82,8 @@ JSTorrent ships as multiple products that share the same TypeScript engine but r
 - **Companion mode**: Minimal UI (pair/unpair, mode switch). Runs the companion server (HTTP + WebSocket) so the Chrome extension can use it for I/O on ChromeOS.
 
 **Node CLI** (`packages/engine/`): Published to npm as `@jstorrent/engine`. Primarily for integration testing; the Node adapters are the test/reference implementation.
+
+**iOS App** (`ios/`): Native SwiftUI app with JavaScriptCore engine. Standalone — runs the full engine in-process with native TCP/UDP via Network.framework. Distributed via AltStore PAL (EU) and sideloading (App Store rejects torrent clients). Downloads run in foreground only (no background service equivalent on iOS).
 
 **Sandbox overview**: See `docs/architecture/sandbox-overview.md` for the current platform sandbox boundaries and search plugin / Google Play review notes.
 
@@ -374,6 +379,7 @@ All components follow the same release pattern:
 | **Extension** | `extension-v{ver}` | ZIP | Manual upload to Chrome Web Store |
 | **Android** | `android-v{ver}` | Signed APK + AAB | Manual upload to Play Store |
 | **Tauri App** | `tauri-app-v{ver}` | Signed installers (Mac/Win/Linux) | Auto-updates via updater JSON |
+| **iOS** | `ios-v{ver}` | Signed IPA | AltStore PAL (EU) via Apple Notarization |
 | **Website** | `website-v{ver}` | N/A | Auto-deploys on push to main |
 
 ### Version Compatibility & Release Order
@@ -458,6 +464,23 @@ Requires upload keystore at `android/app/signing/upload.keystore`.
 - CI creates GitHub Release with updater JSON for auto-updates
 - **No manual step:** Existing installs auto-update via the updater JSON endpoint
 - Changelog: `desktop/tauri-app/CHANGELOG.md`
+
+### iOS Releases (AltStore PAL)
+
+```bash
+./scripts/release-ios.sh <version>
+```
+
+- Updates `ios/project.yml` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION` auto-incremented)
+- Creates tag: `ios-v{version}`
+- CI builds IPA, uploads to App Store Connect for notarization, creates draft GitHub Release
+- Changelog: `ios/CHANGELOG.md`
+- **Manual steps after Apple notarization approval:**
+  1. Download ADP from AltStore PAL REST API
+  2. Upload ADP to GitHub Release
+  3. Run `scripts/ios-finalize-release.sh <version> <adp-url>`
+  4. Commit updated `website/public/altstore-source.json`
+  5. Undraft GitHub Release: `gh release edit ios-v<version> --draft=false`
 
 ### Website Releases
 

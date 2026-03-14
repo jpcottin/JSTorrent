@@ -1,0 +1,232 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'ios-v*'
+    paths:
+      - 'ios/**'
+      - 'packages/engine/**'
+      - '.github/workflows/ios-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'packages/engine/**'
+      - '.github/workflows/ios-ci.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build engine bundle
+        run: pnpm -C packages/engine bundle:native
+
+      - name: Sync engine bundle to iOS
+        run: ios/scripts/sync-engine-bundle.sh
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build for simulator
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -project JSTorrent.xcodeproj \
+            -scheme JSTorrent \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Run JSTorrentKit tests
+        run: swift test --package-path ios/JSTorrentKit
+
+      - name: Run app tests
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -project JSTorrent.xcodeproj \
+            -scheme JSTorrent \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
+  release-ios:
+    runs-on: macos-15
+    if: startsWith(github.ref, 'refs/tags/ios-v')
+    env:
+      HAS_IOS_SIGNING: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build engine bundle
+        run: pnpm -C packages/engine bundle:native
+
+      - name: Sync engine bundle to iOS
+        run: ios/scripts/sync-engine-bundle.sh
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      # --- iOS code signing ---
+      - name: Set up iOS code signing keychain
+        if: env.HAS_IOS_SIGNING == 'true'
+        env:
+          IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$IOS_CERTIFICATE_P12_BASE64" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "$IOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          echo "Available signing identities:"
+          security find-identity -v -p codesigning build.keychain
+          rm -f certificate.p12
+
+      - name: Install provisioning profile
+        if: env.HAS_IOS_SIGNING == 'true'
+        env:
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/jstorrent_ios.mobileprovision
+
+      - name: Set up ASC API key
+        env:
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+        run: |
+          mkdir -p ~/private_keys
+          KEY_PATH="$HOME/private_keys/AuthKey_${ASC_API_KEY_ID}.p8"
+          echo "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      # --- Archive and export ---
+      - name: Archive
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -project JSTorrent.xcodeproj \
+            -scheme JSTorrent \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination generic/platform=iOS \
+            -archivePath build/JSTorrent.xcarchive \
+            DEVELOPMENT_TEAM=VD7BYQ6ABM \
+            archive
+
+      - name: Export IPA
+        working-directory: ios
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/JSTorrent.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/export
+
+      # --- Upload to App Store Connect for notarization ---
+      - name: Upload to App Store Connect
+        working-directory: ios
+        run: |
+          xcrun altool --upload-app \
+            --type ios \
+            --file build/export/JSTorrent.ipa \
+            --apiKey "${{ secrets.ASC_API_KEY_ID }}" \
+            --apiIssuer "${{ secrets.ASC_API_ISSUER_ID }}"
+
+      # --- Extract changelog ---
+      - name: Extract changelog
+        id: changelog
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#ios-v}"
+          NOTES=$(awk "/^## \\[$VERSION\\]/{found=1; next} /^## \\[/{found=0} found" ios/CHANGELOG.md)
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      # --- Create draft GitHub Release ---
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#ios-v}"
+          TAG="${GITHUB_REF_NAME}"
+
+          cat > /tmp/release-body.md << 'BODY_EOF'
+          ${{ steps.changelog.outputs.notes }}
+
+          ## AltStore PAL
+
+          **Status: Awaiting Apple Notarization**
+
+          After notarization approval, the ADP will be uploaded and the AltStore source updated.
+
+          Add JSTorrent to AltStore PAL:
+          ```
+          altstore://source?url=https://jstorrent.com/altstore-source.json
+          ```
+          BODY_EOF
+
+          gh release create "$TAG" \
+            --title "JSTorrent iOS v${VERSION}" \
+            --notes-file /tmp/release-body.md \
+            --draft \
+            ios/build/export/JSTorrent.ipa
+
+      # --- Cleanup ---
+      - name: Clean up keychain
+        if: always()
+        run: |
+          security delete-keychain build.keychain 2>/dev/null || true
+          rm -rf ~/private_keys 2>/dev/null || true
+          rm -f ~/Library/MobileDevice/Provisioning\ Profiles/jstorrent_ios.mobileprovision 2>/dev/null || true
