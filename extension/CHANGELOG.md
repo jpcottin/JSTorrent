@@ -4,6 +4,15 @@ All notable changes to the Chrome extension are documented here.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-03-14
+
+### Fixed
+- Video player not releasing file lock on close
+- Stale streaming suppressions persisting after file lock removal, preventing pieces from resuming download
+
+### Changed
+- Internet Archive search plugin now filters results to Creative Commons and public domain licenses only
+
 ## [1.1.0] - 2026-03-14
 
 ### Added
