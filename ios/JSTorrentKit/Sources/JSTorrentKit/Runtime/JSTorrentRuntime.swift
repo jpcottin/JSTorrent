@@ -271,6 +271,11 @@ public final class JSTorrentRuntime {
 
     public func tick() throws -> EngineTickResult {
         let value = try engine.callGlobalFunction("__jstorrent_engine_tick")
+        // Force JSC to drain pending microtasks. On macOS 15 / iOS 18-era JSC,
+        // nested native→JS calls (e.g. hash flush callbacks) may not trigger
+        // microtask draining when only callGlobalFunction is used. A separate
+        // evaluate creates a new VMEntryScope whose exit drains the queue.
+        _ = try engine.evaluate("void 0", filename: "microtask-drain.js")
         let packed = try engine.data(from: value) ?? Data()
         guard packed.count == 40 else {
             throw JSTorrentRuntimeError.invalidTickFrame(packed.count)
