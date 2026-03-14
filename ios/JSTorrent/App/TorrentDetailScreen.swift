@@ -43,6 +43,7 @@ private enum TorrentDetailSection: CaseIterable, Identifiable {
 }
 
 struct TorrentDetailScreen: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var controller: EngineController
     @ObservedObject var settings: AppSettings
     let infoHash: String
@@ -121,6 +122,7 @@ struct TorrentDetailScreen: View {
                         onConfirm: { deleteFiles in
                             controller.removeTorrent(torrent, deleteFiles: deleteFiles)
                             pendingRemovalTorrent = nil
+                            dismiss()
                         },
                         onCancel: {
                             pendingRemovalTorrent = nil
