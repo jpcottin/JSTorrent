@@ -1276,9 +1276,16 @@ pub fn run() {
                 handle_menu_event(app, event.id.as_ref());
             });
 
+            // Load icon from PNG at runtime instead of using
+            // app.default_window_icon() — Tauri's codegen only reads the
+            // first entry from ICO files, producing a broken icon on Windows.
+            // See https://github.com/tauri-apps/tauri/issues/14596
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))
+                .expect("failed to load tray icon PNG");
+
             TrayIconBuilder::with_id("tray")
                 .tooltip("JSTorrent")
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(tray_icon)
                 .menu(&tray_menu)
                 .show_menu_on_left_click(cfg!(target_os = "macos"))
                 .on_tray_icon_event(|tray, event| {
