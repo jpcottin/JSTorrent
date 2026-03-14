@@ -114,12 +114,18 @@ struct TorrentDetailScreen: View {
                     controller.observeTorrentDetail(infoHash, section: section)
                     controller.resumeIfStarted()
 
-                    guard selectedSection == .pieces else {
+                    let refreshIntervalNs: UInt64
+                    switch selectedSection {
+                    case .files:
+                        refreshIntervalNs = 1_000_000_000
+                    case .pieces:
+                        refreshIntervalNs = 500_000_000
+                    case .status, .trackers, .peers:
                         return
                     }
 
                     while !Task.isCancelled {
-                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        try? await Task.sleep(nanoseconds: refreshIntervalNs)
                         guard !Task.isCancelled else {
                             return
                         }
