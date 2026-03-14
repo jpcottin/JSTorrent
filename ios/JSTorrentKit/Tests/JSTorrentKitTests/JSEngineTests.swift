@@ -1656,6 +1656,49 @@ final class JSEngineTests: XCTestCase {
         XCTAssertEqual(controller.torrentPieces["abc123"]?.piecesCompleted, 2)
     }
 
+    @MainActor
+    func testEngineControllerMergesPieceDiffsAndActiveStates() {
+        let controller = EngineController(
+            bootstrapConfig: EngineBootstrapConfig(contentRoots: [])
+        )
+
+        controller.applyStateUpdate(
+            payload: """
+            {
+              "pieces": {
+                "abc123": {
+                  "piecesTotal": 8,
+                  "piecesCompleted": 1,
+                  "pieceSize": 1024,
+                  "lastPieceSize": 1024,
+                  "bitfield": "80",
+                  "recentChanges": [],
+                  "activePieceStates": null
+                }
+              }
+            }
+            """
+        )
+
+        controller.applyStateUpdate(
+            payload: """
+            {
+              "pieceChanges": {
+                "abc123": [1, 3]
+              },
+              "activePieceStates": {
+                "abc123": "0100010000000400"
+              }
+            }
+            """
+        )
+
+        let pieces = controller.torrentPieces["abc123"]
+        XCTAssertEqual(pieces?.piecesCompleted, 3)
+        XCTAssertEqual(pieces?.bitfield, "d0")
+        XCTAssertEqual(pieces?.activePieceStates, "0100010000000400")
+    }
+
     func testTorrentListItemDecodesQueryTorrentListPeerShape() throws {
         let data = Data(
             """

@@ -442,8 +442,8 @@ public final class EngineController: ObservableObject {
         if let peers = decoded.peers {
             mergeDetailMap(peers, into: \.torrentPeers)
         }
-        if let pieces = decoded.pieces {
-            mergeDetailMap(pieces, into: \.torrentPieces)
+        if decoded.pieces != nil || decoded.pieceChanges != nil || decoded.activePieceStates != nil {
+            mergePieceUpdates(decoded)
         }
     }
 
@@ -594,6 +594,49 @@ public final class EngineController: ObservableObject {
         torrents = merged
     }
 
+    private func mergePieceUpdates(_ payload: EngineStatePayload) {
+        var updated = torrentPieces
+
+        if let pieces = payload.pieces {
+            for (infoHash, piecePayload) in pieces {
+                updated[infoHash] = mergePiecePayload(
+                    existing: updated[infoHash],
+                    incoming: piecePayload
+                )
+            }
+        }
+
+        if let activePieceStates = payload.activePieceStates {
+            for (infoHash, activeStateHex) in activePieceStates {
+                guard let existing = updated[infoHash] else {
+                    continue
+                }
+                updated[infoHash] = TorrentPiecesPayload(
+                    piecesTotal: existing.piecesTotal,
+                    piecesCompleted: existing.piecesCompleted,
+                    pieceSize: existing.pieceSize,
+                    lastPieceSize: existing.lastPieceSize,
+                    bitfield: existing.bitfield,
+                    recentChanges: existing.recentChanges,
+                    activePieceStates: activeStateHex
+                )
+            }
+        }
+
+        if let pieceChanges = payload.pieceChanges {
+            for (infoHash, diffs) in pieceChanges {
+                guard let existing = updated[infoHash], !diffs.isEmpty else {
+                    continue
+                }
+                updated[infoHash] = applyPieceChanges(diffs, to: existing)
+            }
+        }
+
+        if updated != torrentPieces {
+            torrentPieces = updated
+        }
+    }
+
     private func mergeDetailMap<Value>(
         _ updates: [String: Value],
         into keyPath: ReferenceWritableKeyPath<EngineController, [String: Value]>
@@ -620,6 +663,145 @@ public final class EngineController: ObservableObject {
         var updated = self[keyPath: keyPath]
         updated.removeValue(forKey: infoHash)
         self[keyPath: keyPath] = updated
+    }
+
+    private func mergePiecePayload(
+        existing: TorrentPiecesPayload?,
+        incoming: TorrentPiecesPayload
+    ) -> TorrentPiecesPayload {
+        let mergedBitfield = applyPieceChanges(
+            incoming.recentChanges,
+            toBitfieldHex: orBitfieldHex(
+                existingHex: existing?.bitfield,
+                incomingHex: incoming.bitfield,
+                piecesTotal: incoming.piecesTotal
+            ),
+            piecesTotal: incoming.piecesTotal
+        )
+        let completedPieces = max(
+            incoming.piecesCompleted,
+            countCompletedPieces(in: mergedBitfield, piecesTotal: incoming.piecesTotal)
+        )
+
+        return TorrentPiecesPayload(
+            piecesTotal: incoming.piecesTotal,
+            piecesCompleted: completedPieces,
+            pieceSize: incoming.pieceSize,
+            lastPieceSize: incoming.lastPieceSize,
+            bitfield: mergedBitfield,
+            recentChanges: incoming.recentChanges,
+            activePieceStates: incoming.activePieceStates ?? existing?.activePieceStates
+        )
+    }
+
+    private func applyPieceChanges(
+        _ diffs: [Int],
+        to payload: TorrentPiecesPayload
+    ) -> TorrentPiecesPayload {
+        let updatedBitfield = applyPieceChanges(
+            diffs,
+            toBitfieldHex: payload.bitfield,
+            piecesTotal: payload.piecesTotal
+        )
+        let completedPieces = max(
+            payload.piecesCompleted,
+            countCompletedPieces(in: updatedBitfield, piecesTotal: payload.piecesTotal)
+        )
+
+        return TorrentPiecesPayload(
+            piecesTotal: payload.piecesTotal,
+            piecesCompleted: completedPieces,
+            pieceSize: payload.pieceSize,
+            lastPieceSize: payload.lastPieceSize,
+            bitfield: updatedBitfield,
+            recentChanges: diffs,
+            activePieceStates: payload.activePieceStates
+        )
+    }
+
+    private func orBitfieldHex(
+        existingHex: String?,
+        incomingHex: String,
+        piecesTotal: Int
+    ) -> String {
+        let byteCount = max((piecesTotal + 7) / 8, incomingHex.count / 2, (existingHex?.count ?? 0) / 2)
+        var merged = decodeHexBytes(existingHex ?? "", minimumCount: byteCount)
+        let incoming = decodeHexBytes(incomingHex, minimumCount: byteCount)
+
+        for index in 0..<byteCount {
+            merged[index] |= incoming[index]
+        }
+
+        return encodeHexBytes(merged)
+    }
+
+    private func applyPieceChanges(
+        _ diffs: [Int],
+        toBitfieldHex bitfieldHex: String,
+        piecesTotal: Int
+    ) -> String {
+        guard !diffs.isEmpty else {
+            return bitfieldHex
+        }
+
+        let byteCount = max((piecesTotal + 7) / 8, bitfieldHex.count / 2)
+        var bytes = decodeHexBytes(bitfieldHex, minimumCount: byteCount)
+
+        for pieceIndex in diffs where pieceIndex >= 0 && pieceIndex < piecesTotal {
+            let byteIndex = pieceIndex / 8
+            let shift = 7 - (pieceIndex % 8)
+            bytes[byteIndex] |= UInt8(1 << shift)
+        }
+
+        return encodeHexBytes(bytes)
+    }
+
+    private func countCompletedPieces(in bitfieldHex: String, piecesTotal: Int) -> Int {
+        let bytes = decodeHexBytes(bitfieldHex, minimumCount: 0)
+        var count = 0
+
+        for pieceIndex in 0..<piecesTotal {
+            let byteIndex = pieceIndex / 8
+            guard byteIndex < bytes.count else {
+                break
+            }
+            let shift = 7 - (pieceIndex % 8)
+            if (bytes[byteIndex] & UInt8(1 << shift)) != 0 {
+                count += 1
+            }
+        }
+
+        return count
+    }
+
+    private func decodeHexBytes(_ hex: String, minimumCount: Int) -> [UInt8] {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(max(hex.count / 2, minimumCount))
+
+        if hex.count.isMultiple(of: 2) {
+            var index = hex.startIndex
+            while index < hex.endIndex {
+                let nextIndex = hex.index(index, offsetBy: 2)
+                let byteString = String(hex[index..<nextIndex])
+                if let byte = UInt8(byteString, radix: 16) {
+                    bytes.append(byte)
+                } else {
+                    bytes.removeAll(keepingCapacity: true)
+                    break
+                }
+                index = nextIndex
+            }
+        }
+
+        if bytes.count < minimumCount {
+            bytes.append(contentsOf: repeatElement(0, count: minimumCount - bytes.count))
+        }
+
+        return bytes
+    }
+
+    private func encodeHexBytes(_ bytes: [UInt8]) -> String {
+        bytes.map { String(format: "%02x", $0) }.joined()
     }
 
     private func startTickLoop() {
