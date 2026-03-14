@@ -1,6 +1,6 @@
 import SwiftUI
 import JSTorrentKit
-import QuickLook
+import UIKit
 
 private enum TorrentDetailSection: CaseIterable, Identifiable {
     case status
@@ -44,12 +44,13 @@ private enum TorrentDetailSection: CaseIterable, Identifiable {
 
 struct TorrentDetailScreen: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @ObservedObject var controller: EngineController
     @ObservedObject var settings: AppSettings
     let infoHash: String
 
     @State private var selectedSection: TorrentDetailSection = .status
-    @State private var previewItem: PreviewItem?
+    @State private var sharedItem: SharedURLItem?
     @State private var pendingRemovalTorrent: TorrentListItem?
 
     private var torrent: TorrentListItem? {
@@ -113,8 +114,8 @@ struct TorrentDetailScreen: View {
                 .onDisappear {
                     controller.stopObservingTorrentDetail(infoHash)
                 }
-                .sheet(item: $previewItem) { item in
-                    FilePreviewSheet(item: item)
+                .sheet(item: $sharedItem) { item in
+                    ShareSheet(item: item)
                 }
                 .sheet(item: $pendingRemovalTorrent) { torrent in
                     RemoveTorrentSheet(
@@ -158,7 +159,8 @@ struct TorrentDetailScreen: View {
             TorrentFilesSection(
                 filesPayload: filesPayload,
                 details: details,
-                onOpenFile: openFile
+                onOpenFile: openFile,
+                onOpenFolder: openFolder
             )
         case .trackers:
             TorrentTrackersSection(trackers: trackers)
@@ -178,7 +180,23 @@ struct TorrentDetailScreen: View {
             return
         }
 
-        previewItem = PreviewItem(url: fileURL)
+        openExternalURL(fileURL)
+    }
+
+    private func openFolder(_ rootKey: String?) {
+        guard let rootURL = settings.resolveDownloadedRootURL(rootKey: rootKey) else {
+            return
+        }
+
+        openExternalURL(rootURL)
+    }
+
+    private func openExternalURL(_ url: URL) {
+        openURL(url) { accepted in
+            if !accepted {
+                sharedItem = SharedURLItem(url: url)
+            }
+        }
     }
 }
 
@@ -349,6 +367,7 @@ private struct TorrentFilesSection: View {
     let filesPayload: TorrentFilesPayload?
     let details: TorrentDetailsPayload?
     let onOpenFile: (TorrentFileItem, String?) -> Void
+    let onOpenFolder: (String?) -> Void
 
     var body: some View {
         if let filesPayload, !filesPayload.files.isEmpty {
@@ -360,6 +379,15 @@ private struct TorrentFilesSection: View {
                         title: L10n.string("tab_files_save_location"),
                         value: rootKey
                     )
+
+                    Button {
+                        onOpenFolder(rootKey)
+                    } label: {
+                        Label(L10n.string("tab_files_open_folder"), systemImage: "folder")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
                 }
 
                 ForEach(filesPayload.files) { file in
@@ -409,43 +437,19 @@ private struct TorrentFilesSection: View {
     }
 }
 
-private struct PreviewItem: Identifiable {
+private struct SharedURLItem: Identifiable {
     let url: URL
     var id: String { url.path }
 }
 
-private struct FilePreviewSheet: UIViewControllerRepresentable {
-    let item: PreviewItem
+private struct ShareSheet: UIViewControllerRepresentable {
+    let item: SharedURLItem
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(item: item)
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [item.url], applicationActivities: nil)
     }
 
-    func makeUIViewController(context: Context) -> QLPreviewController {
-        let controller = QLPreviewController()
-        controller.dataSource = context.coordinator
-        return controller
-    }
-
-    func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {
-        context.coordinator.item = item
-        uiViewController.reloadData()
-    }
-
-    final class Coordinator: NSObject, QLPreviewControllerDataSource {
-        var item: PreviewItem
-
-        init(item: PreviewItem) {
-            self.item = item
-        }
-
-        func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
-            1
-        }
-
-        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
-            item.url as NSURL
-        }
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
     }
 }
 

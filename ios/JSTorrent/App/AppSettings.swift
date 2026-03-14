@@ -93,17 +93,21 @@ final class AppSettings: ObservableObject {
         return false
     }
 
+    func resolveDownloadedRootURL(rootKey: String?) -> URL? {
+        guard let root = resolveContentRoot(rootKey: rootKey) else {
+            return nil
+        }
+
+        return URL(fileURLWithPath: root.path, isDirectory: true).standardizedFileURL
+    }
+
     func resolveDownloadedFileURL(rootKey: String?, relativePath: String) -> URL? {
         let normalizedPath = relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedPath.isEmpty else {
             return nil
         }
 
-        let resolvedRootKey = rootKey ?? defaultContentRootKey
-        guard
-            let root = persistedRoots.first(where: { $0.key == resolvedRootKey })
-            ?? persistedRoots.first(where: { $0.key == defaultContentRootKey })
-        else {
+        guard let root = resolveContentRoot(rootKey: rootKey) else {
             return nil
         }
 
@@ -345,6 +349,12 @@ final class AppSettings: ObservableObject {
         }
 
         return deduplicated
+    }
+
+    private func resolveContentRoot(rootKey: String?) -> PersistedDownloadRoot? {
+        let resolvedRootKey = rootKey ?? defaultContentRootKey
+        return persistedRoots.first(where: { $0.key == resolvedRootKey })
+            ?? persistedRoots.first(where: { $0.key == defaultContentRootKey })
     }
 
     private func ensureInternalRoot(in roots: inout [PersistedDownloadRoot]) -> PersistedDownloadRoot {
