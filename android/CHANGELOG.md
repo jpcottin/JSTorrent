@@ -2,6 +2,29 @@
 
 All notable changes to the Android app are documented here.
 
+## [1.0.23]
+
+### Added
+- Media streaming player (Media3) with subtitle support, fullscreen swipe, and LAN sharing
+- Torrent search with plugin system and WebView sandbox
+- Web seed support (BEP 17/19) with keep-alive, concurrency, and redirect handling
+- Configurable active piece memory limit
+- Companion mode power management to prevent ARCVM Doze stalls
+- Default gateway detection for port mapping (NAT-PMP/PCP)
+- Data Saver detection with user warning banner
+
+### Fixed
+- Fix companion write backpressure deadlock: downloads stalled after 32MB of writes due to cumulative byte counter used for backpressure instead of in-flight bytes
+- Fix OOM crash on Chromebox (Android 13, SDK 33)
+- Use positioned SAF fd I/O for reduced write copy overhead
+- Fix player pause behavior and fullscreen overlay controls
+- Fix file priority await and .parts materialization on file unskip
+- Prefer UTF-8 torrent metadata and paths
+
+### Changed
+- Add IO daemon conformance gate with contract versioning
+- Harden Android memory crash paths and add instrumentation
+
 ## [1.0.22]
 
 ### Added
