@@ -2,6 +2,10 @@
 
 All notable changes to the JSTorrent Desktop app are documented here.
 
+## [0.2.1]
+
+- Fix video player not releasing file lock on close, which could block other files from downloading
+
 ## [0.2.0]
 
 - Add video streaming: right-click Watch on video files for in-app playback with MKV keyframe seeking
