@@ -121,27 +121,18 @@ struct TorrentListScreen: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                AppHeaderTitle()
-            }
-
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button {
-                    onOpenSettings()
-                } label: {
-                    Image(systemName: "gearshape")
-                }
-                .accessibilityLabel(L10n.string("settings_title"))
-
-                Button {
+        .toolbar(.hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AppTopBar(
+                onOpenSettings: onOpenSettings,
+                onAddTorrent: {
                     isPresentingAddTorrent = true
-                } label: {
-                    Image(systemName: "plus")
                 }
-                .accessibilityLabel(L10n.string("torrent_list_add_torrent"))
-            }
+            )
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            .background(.thinMaterial)
         }
         .sheet(isPresented: $isPresentingAddTorrent) {
             AddTorrentSheet(
@@ -186,16 +177,46 @@ struct TorrentListScreen: View {
     }
 }
 
+private struct AppTopBar: View {
+    let onOpenSettings: () -> Void
+    let onAddTorrent: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AppHeaderTitle()
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 12) {
+                Button(action: onOpenSettings) {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel(L10n.string("settings_title"))
+
+                Button(action: onAddTorrent) {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel(L10n.string("torrent_list_add_torrent"))
+            }
+            .font(.title2)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+        }
+    }
+}
+
 private struct AppHeaderTitle: View {
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image("HeaderAppIcon")
                 .resizable()
-                .frame(width: 22, height: 22)
-                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             Text(L10n.string("app_name"))
-                .font(.headline)
+                .font(.title3.weight(.semibold))
+                .lineLimit(1)
         }
         .accessibilityElement(children: .combine)
     }
