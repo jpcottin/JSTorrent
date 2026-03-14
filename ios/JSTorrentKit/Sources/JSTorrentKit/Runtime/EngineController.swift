@@ -384,6 +384,9 @@ public final class EngineController: ObservableObject {
     }
 
     public func addTestTorrent() {
+#if !DEBUG
+        return
+#else
         startIfNeeded()
 
         guard let runtime else {
@@ -397,6 +400,7 @@ public final class EngineController: ObservableObject {
         } catch {
             handle(error)
         }
+#endif
     }
 
     public func toggleTorrent(_ torrent: TorrentListItem) {

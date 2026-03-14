@@ -48,10 +48,12 @@ struct AddTorrentSheet: View {
                         onBrowse()
                     }
 
+#if DEBUG
                     Button(L10n.string("ios_add_test_torrent")) {
                         onAddTestTorrent()
                         dismiss()
                     }
+#endif
                 }
             }
             .navigationTitle(L10n.string("dialog_add_torrent_title"))
