@@ -20,8 +20,8 @@ export const VERSION_REQUIREMENTS: Record<
   'desktop' | 'android',
   { minSupported: string; recommended: string }
 > = {
-  desktop: { minSupported: '0.1.28', recommended: '0.1.28' },
-  android: { minSupported: '1.0.22', recommended: '1.0.22' },
+  desktop: { minSupported: '0.1.28', recommended: '0.2.0' },
+  android: { minSupported: '1.0.22', recommended: '1.0.23' },
 }
 
 export type IndicatorColor = 'green' | 'yellow' | 'red'

@@ -4,6 +4,36 @@ All notable changes to the Chrome extension are documented here.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-14
+
+### Added
+- Video streaming: right-click "Watch" on video files to stream directly from the torrent swarm with MKV keyframe-aware seeking and piece timeline visualization
+- Web seed support (BEP 17/19): concurrent HTTP downloads from web seeds with keep-alive, rate limiting, redirect handling, and health-based source selection
+- LAN media sharing: generate shareable URLs for completed files accessible by other devices on the local network (desktop only, capability-gated)
+- Search plugins infrastructure (behind feature flag): sandboxed plugin install and execution, Internet Archive sample plugin, search results with torrent actions
+- Configurable active piece memory limit
+- IO daemon and native host contract version advertising and conformance testing
+- Toast notification system for recheck results
+- Magnet URI select-only file indices (pre-select specific files before metadata)
+
+### Fixed
+- Companion write backpressure deadlock: downloads stalling after 32MB of cumulative writes on ChromeOS
+- ChromeOS download root state sync not reflecting current roots
+- Extension takeover from desktop app failing
+- File progress not updating after torrent recheck
+- Data check using wrong batch size
+- Zero upload slots causing incorrect choking behavior
+- Streaming file lock preemption and cleanup on file completion
+- Boundary .parts file materialization on session restore
+
+### Changed
+- Rewrote .parts partial file storage to use fixed header slots (libtorrent partfile compatibility)
+- Prefer UTF-8 torrent metadata and file paths over legacy encodings
+- Streaming-aware peer selection: prioritize peers with pieces needed for active video playback
+- Moved ChromeOS capability discovery from HTTP polling to control WebSocket channel
+- Decoupled popup video player from engine bundle for faster loading
+- Recommended backend versions: Tauri App v0.2.0, Android v1.0.23
+
 ## [1.0.6] - 2026-03-03
 
 ### Added
