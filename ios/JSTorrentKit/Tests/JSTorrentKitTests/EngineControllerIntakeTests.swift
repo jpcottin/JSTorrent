@@ -13,6 +13,16 @@ final class EngineControllerIntakeTests: XCTestCase {
         var unsubscribedHashes: [String] = []
         var subscribedTypes: [(type: String, hash: String, intervalMs: Int)] = []
         var shutdownCallCount = 0
+        var queryPiecesCallCount = 0
+        var queryDetailsCallCount = 0
+        var nextPiecesPayload = TorrentPiecesPayload(
+            piecesTotal: 0,
+            piecesCompleted: 0,
+            pieceSize: 0,
+            lastPieceSize: 0,
+            bitfield: ""
+        )
+        var nextDetailsPayload: TorrentDetailsPayload?
 
         func prepareDefaultBundle(in bundle: Bundle) throws {}
         func bootstrap(with config: EngineBootstrapConfig) throws {}
@@ -50,17 +60,13 @@ final class EngineControllerIntakeTests: XCTestCase {
         }
 
         func queryPieces(_ infoHash: String) throws -> TorrentPiecesPayload {
-            TorrentPiecesPayload(
-                piecesTotal: 0,
-                piecesCompleted: 0,
-                pieceSize: 0,
-                lastPieceSize: 0,
-                bitfield: ""
-            )
+            queryPiecesCallCount += 1
+            return nextPiecesPayload
         }
 
         func queryDetails(_ infoHash: String) throws -> TorrentDetailsPayload {
-            TorrentDetailsPayload(
+            queryDetailsCallCount += 1
+            return nextDetailsPayload ?? TorrentDetailsPayload(
                 infoHash: infoHash,
                 addedAt: 0,
                 completedAt: nil,
@@ -223,6 +229,64 @@ final class EngineControllerIntakeTests: XCTestCase {
         controller.stopObservingTorrentDetail(infoHash)
 
         XCTAssertEqual(runtime.unsubscribedHashes, [infoHash])
+        controller.shutdown()
+    }
+
+    func testPiecesObservationRehydratesWhenMetadataArrives() {
+        let runtime = MockRuntime()
+        let controller = makeController(runtime: runtime)
+        let infoHash = "abcdef0123456789abcdef0123456789abcdef01"
+
+        controller.observeTorrentDetail(infoHash, section: .pieces)
+        XCTAssertEqual(controller.torrentPieces[infoHash]?.piecesTotal, 0)
+        XCTAssertEqual(runtime.queryPiecesCallCount, 1)
+
+        runtime.nextPiecesPayload = TorrentPiecesPayload(
+            piecesTotal: 8,
+            piecesCompleted: 3,
+            pieceSize: 1024,
+            lastPieceSize: 1024,
+            bitfield: "e0"
+        )
+        runtime.nextDetailsPayload = TorrentDetailsPayload(
+            infoHash: infoHash,
+            addedAt: 0,
+            completedAt: nil,
+            totalSize: 8192,
+            pieceSize: 1024,
+            pieceCount: 8,
+            magnetUrl: "magnet:?xt=urn:btih:\(infoHash)",
+            rootKey: nil,
+            comment: nil,
+            createdBy: nil,
+            creationDate: nil,
+            isPrivate: false
+        )
+
+        controller.applyStateUpdate(
+            payload: """
+            {
+              "torrent": {
+                "\(infoHash)": {
+                  "infoHash": "\(infoHash)",
+                  "name": "Ubuntu",
+                  "progress": 0.1,
+                  "downloadSpeed": 1024,
+                  "uploadSpeed": 0,
+                  "status": "downloading",
+                  "numPeers": 3,
+                  "hasMetadata": true
+                }
+              }
+            }
+            """
+        )
+
+        XCTAssertEqual(controller.torrentPieces[infoHash]?.piecesTotal, 8)
+        XCTAssertEqual(controller.torrentDetails[infoHash]?.pieceCount, 8)
+        XCTAssertEqual(runtime.queryPiecesCallCount, 2)
+        XCTAssertEqual(runtime.queryDetailsCallCount, 2)
+
         controller.shutdown()
     }
 }

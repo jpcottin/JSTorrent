@@ -126,6 +126,7 @@ public final class EngineController: ObservableObject {
     private var runtime: (any EngineRuntimeHandling)?
     private var pendingTorrentPayloads: [String] = []
     private var lastTorrentListRefreshUptimeNs: UInt64 = 0
+    private var observedTorrentDetailSections: [String: TorrentDetailSubscriptionSection] = [:]
 
     public var isStarted: Bool {
         runtime != nil
@@ -248,6 +249,7 @@ public final class EngineController: ObservableObject {
 
     public func shutdown() {
         stopTickLoop()
+        observedTorrentDetailSections.removeAll()
 
         guard let runtime else {
             status = .idle
@@ -275,6 +277,7 @@ public final class EngineController: ObservableObject {
         }
 
         do {
+            observedTorrentDetailSections[infoHash] = section
             for type in section.subscriptionTypes {
                 try runtime.subscribe(type: type, hash: infoHash, intervalMs: section.intervalMs)
             }
@@ -285,12 +288,29 @@ public final class EngineController: ObservableObject {
     }
 
     public func stopObservingTorrentDetail(_ infoHash: String) {
+        observedTorrentDetailSections.removeValue(forKey: infoHash)
+
         guard let runtime else {
             return
         }
 
         do {
             try runtime.unsubscribeAll(hash: infoHash)
+        } catch {
+            handle(error)
+        }
+    }
+
+    public func refreshTorrentDetail(
+        _ infoHash: String,
+        section: TorrentDetailSubscriptionSection
+    ) {
+        guard let runtime else {
+            return
+        }
+
+        do {
+            try hydrateTorrentDetail(infoHash, section: section, using: runtime)
         } catch {
             handle(error)
         }
@@ -445,6 +465,7 @@ public final class EngineController: ObservableObject {
         if decoded.pieces != nil || decoded.pieceChanges != nil || decoded.activePieceStates != nil {
             mergePieceUpdates(decoded)
         }
+        refreshObservedDetailPayloadsIfNeeded()
     }
 
     func applyRuntimeError(payload: String) {
@@ -555,6 +576,7 @@ public final class EngineController: ObservableObject {
     }
 
     private func clearTorrentDetailState(for infoHash: String) {
+        observedTorrentDetailSections.removeValue(forKey: infoHash)
         removeDetailValue(for: infoHash, from: \.torrentDetails)
         removeDetailValue(for: infoHash, from: \.torrentFiles)
         removeDetailValue(for: infoHash, from: \.torrentTrackers)
@@ -635,6 +657,47 @@ public final class EngineController: ObservableObject {
         if updated != torrentPieces {
             torrentPieces = updated
         }
+    }
+
+    private func refreshObservedDetailPayloadsIfNeeded() {
+        guard let runtime else {
+            return
+        }
+
+        for (infoHash, section) in observedTorrentDetailSections {
+            guard shouldRefreshObservedDetailPayload(for: infoHash, section: section) else {
+                continue
+            }
+
+            do {
+                try hydrateTorrentDetail(infoHash, section: section, using: runtime)
+            } catch {
+                handle(error)
+            }
+        }
+    }
+
+    private func shouldRefreshObservedDetailPayload(
+        for infoHash: String,
+        section: TorrentDetailSubscriptionSection
+    ) -> Bool {
+        guard currentTorrentSummary(for: infoHash)?.hasMetadata == true else {
+            return false
+        }
+
+        switch section {
+        case .status, .pieces:
+            return (torrentPieces[infoHash]?.piecesTotal ?? 0) == 0
+                || (torrentDetails[infoHash]?.pieceCount ?? 0) == 0
+        case .files:
+            return torrentFiles[infoHash] == nil
+        case .trackers, .peers:
+            return false
+        }
+    }
+
+    private func currentTorrentSummary(for infoHash: String) -> TorrentListItem? {
+        torrents.first(where: { $0.infoHash == infoHash })
     }
 
     private func mergeDetailMap<Value>(

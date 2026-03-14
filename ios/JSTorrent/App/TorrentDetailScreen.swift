@@ -108,8 +108,21 @@ struct TorrentDetailScreen: View {
                     }
                 }
                 .task(id: selectedSection) {
-                    controller.observeTorrentDetail(infoHash, section: selectedSection.subscriptionSection)
+                    let section = selectedSection.subscriptionSection
+                    controller.observeTorrentDetail(infoHash, section: section)
                     controller.resumeIfStarted()
+
+                    guard selectedSection == .pieces else {
+                        return
+                    }
+
+                    while !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        guard !Task.isCancelled else {
+                            return
+                        }
+                        controller.refreshTorrentDetail(infoHash, section: section)
+                    }
                 }
                 .onDisappear {
                     controller.stopObservingTorrentDetail(infoHash)
@@ -626,34 +639,13 @@ private struct PieceProgressBar: View {
 }
 
 private struct PieceMapView: View {
+    @Environment(\.displayScale) private var displayScale
+
     let pieces: TorrentPiecesPayload
+    @State private var containerWidth: CGFloat = max(UIScreen.main.bounds.width - 76, 1)
+    @State private var renderedImage: UIImage?
 
-    private var pieceStates: [PieceVisualState] {
-        makePieceStates(
-            piecesTotal: pieces.piecesTotal,
-            bitfieldHex: pieces.bitfield,
-            activePieceStatesHex: pieces.activePieceStates
-        )
-    }
-
-    private var columns: Int {
-        switch pieces.piecesTotal {
-        case ...10:
-            return max(pieces.piecesTotal, 1)
-        case ...50:
-            return min(pieces.piecesTotal, 25)
-        case ...200:
-            return min(pieces.piecesTotal, 40)
-        case ...1000:
-            return 50
-        case ...5000:
-            return 80
-        default:
-            return 100
-        }
-    }
-
-    private var cellSize: CGFloat {
+    private var minCellSize: CGFloat {
         switch pieces.piecesTotal {
         case ...10:
             return 24
@@ -670,28 +662,164 @@ private struct PieceMapView: View {
         }
     }
 
-    private var rows: Int {
-        Int(ceil(Double(pieces.piecesTotal) / Double(columns)))
+    private var gap: CGFloat {
+        pieces.piecesTotal > 1000 ? 0.5 : 1
+    }
+
+    private var layout: PieceMapLayout {
+        PieceMapLayout(
+            piecesTotal: pieces.piecesTotal,
+            containerWidth: containerWidth,
+            minCellSize: minCellSize,
+            gap: gap
+        )
+    }
+
+    private var renderKey: PieceMapRenderKey {
+        PieceMapRenderKey(
+            piecesTotal: pieces.piecesTotal,
+            bitfieldHex: pieces.bitfield,
+            activePieceStatesHex: pieces.activePieceStates,
+            width: Int(containerWidth.rounded(.up)),
+            scale: Int(displayScale.rounded(.up))
+        )
     }
 
     var body: some View {
-        let gap: CGFloat = 1
-
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(0..<rows, id: \.self) { row in
-                HStack(spacing: gap) {
-                    ForEach(0..<columns, id: \.self) { column in
-                        let index = row * columns + column
-                        Rectangle()
-                            .fill(index < pieceStates.count ? pieceStates[index].color : PieceVisualState.missing.color)
-                            .frame(width: cellSize, height: cellSize)
+        Group {
+            if let renderedImage {
+                Image(uiImage: renderedImage)
+                    .resizable()
+                    .interpolation(.none)
+            } else {
+                Color.clear
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: layout.height, alignment: .topLeading)
+        .task(id: renderKey) {
+            let image = await renderPieceMapImage(
+                piecesTotal: pieces.piecesTotal,
+                bitfieldHex: pieces.bitfield,
+                activePieceStatesHex: pieces.activePieceStates,
+                layout: layout,
+                scale: displayScale
+            )
+            guard !Task.isCancelled else {
+                return
+            }
+            renderedImage = image
+        }
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        containerWidth = max(geometry.size.width, 1)
                     }
-                }
-                if row < rows - 1 {
-                    Spacer()
-                        .frame(height: gap)
+                    .onChange(of: geometry.size.width) { newWidth in
+                        containerWidth = max(newWidth, 1)
+                    }
+            }
+        }
+    }
+}
+
+private struct PieceMapRenderKey: Hashable {
+    let piecesTotal: Int
+    let bitfieldHex: String
+    let activePieceStatesHex: String?
+    let width: Int
+    let scale: Int
+}
+
+private struct PieceMapLayout {
+    let columns: Int
+    let rows: Int
+    let cellSize: CGFloat
+    let gap: CGFloat
+
+    init(piecesTotal: Int, containerWidth: CGFloat, minCellSize: CGFloat, gap: CGFloat) {
+        guard piecesTotal > 0, containerWidth > 0 else {
+            self.columns = 0
+            self.rows = 0
+            self.cellSize = 0
+            self.gap = gap
+            return
+        }
+
+        let maxColumns = max(Int(floor((containerWidth + gap) / (minCellSize + gap))), 1)
+        let columns = min(piecesTotal, maxColumns)
+        let resolvedCellSize = max(
+            minCellSize,
+            (containerWidth - CGFloat(max(columns - 1, 0)) * gap) / CGFloat(columns)
+        )
+
+        self.columns = columns
+        self.rows = Int(ceil(Double(piecesTotal) / Double(columns)))
+        self.cellSize = resolvedCellSize
+        self.gap = gap
+    }
+
+    var height: CGFloat {
+        guard rows > 0 else {
+            return 0
+        }
+
+        return CGFloat(rows) * cellSize + CGFloat(max(rows - 1, 0)) * gap
+    }
+}
+
+private func renderPieceMapImage(
+    piecesTotal: Int,
+    bitfieldHex: String,
+    activePieceStatesHex: String?,
+    layout: PieceMapLayout,
+    scale: CGFloat
+) async -> UIImage? {
+    guard piecesTotal > 0, layout.columns > 0, layout.height > 0 else {
+        return nil
+    }
+
+    return await withCheckedContinuation { continuation in
+        DispatchQueue.global(qos: .userInitiated).async {
+            let imageSize = CGSize(
+                width: CGFloat(layout.columns) * layout.cellSize + CGFloat(max(layout.columns - 1, 0)) * layout.gap,
+                height: layout.height
+            )
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = max(scale, 1)
+            format.opaque = false
+
+            let bitfield = decodeBitfield(hex: bitfieldHex, piecesTotal: piecesTotal)
+            let activeStates = ActivePieceStateCode.fromHex(activePieceStatesHex)
+
+            let image = UIGraphicsImageRenderer(size: imageSize, format: format).image { context in
+                for index in 0..<piecesTotal {
+                    let state: PieceVisualState
+                    if bitfield.indices.contains(index), bitfield[index] {
+                        state = .completed
+                    } else if activeStates.responded.contains(index) {
+                        state = .responded
+                    } else if activeStates.requested.contains(index) {
+                        state = .requested
+                    } else if activeStates.partial.contains(index) {
+                        state = .partial
+                    } else {
+                        state = .missing
+                    }
+
+                    let column = index % layout.columns
+                    let row = index / layout.columns
+                    let originX = CGFloat(column) * (layout.cellSize + layout.gap)
+                    let originY = CGFloat(row) * (layout.cellSize + layout.gap)
+                    let rect = CGRect(x: originX, y: originY, width: layout.cellSize, height: layout.cellSize)
+
+                    state.uiColor.setFill()
+                    context.fill(rect)
                 }
             }
+
+            continuation.resume(returning: image)
         }
     }
 }
@@ -773,7 +901,7 @@ private enum PieceVisualState: CaseIterable {
     var color: Color {
         switch self {
         case .completed:
-            return .accentColor
+            return Color(red: 0.04, green: 0.52, blue: 1.0)
         case .responded:
             return Color(red: 0.30, green: 0.69, blue: 0.31)
         case .requested:
@@ -782,6 +910,21 @@ private enum PieceVisualState: CaseIterable {
             return Color(red: 1.00, green: 0.60, blue: 0.00)
         case .missing:
             return Color(.tertiarySystemFill)
+        }
+    }
+
+    var uiColor: UIColor {
+        switch self {
+        case .completed:
+            return UIColor(red: 0.04, green: 0.52, blue: 1.0, alpha: 1)
+        case .responded:
+            return UIColor(red: 0.30, green: 0.69, blue: 0.31, alpha: 1)
+        case .requested:
+            return UIColor(red: 0.00, green: 0.74, blue: 0.83, alpha: 1)
+        case .partial:
+            return UIColor(red: 1.00, green: 0.60, blue: 0.00, alpha: 1)
+        case .missing:
+            return UIColor.tertiarySystemFill
         }
     }
 }

@@ -8,6 +8,7 @@ public struct TorrentListItem: Decodable, Equatable, Identifiable, Sendable {
     public let uploadSpeed: Int
     public let status: String
     public let numPeers: Int
+    public let hasMetadata: Bool
 
     private enum CodingKeys: String, CodingKey {
         case infoHash
@@ -18,6 +19,7 @@ public struct TorrentListItem: Decodable, Equatable, Identifiable, Sendable {
         case status
         case numPeers
         case peersConnected
+        case hasMetadata
     }
 
     public init(
@@ -27,7 +29,8 @@ public struct TorrentListItem: Decodable, Equatable, Identifiable, Sendable {
         downloadSpeed: Int,
         uploadSpeed: Int,
         status: String,
-        numPeers: Int
+        numPeers: Int,
+        hasMetadata: Bool = false
     ) {
         self.infoHash = infoHash
         self.name = name
@@ -36,6 +39,7 @@ public struct TorrentListItem: Decodable, Equatable, Identifiable, Sendable {
         self.uploadSpeed = uploadSpeed
         self.status = status
         self.numPeers = numPeers
+        self.hasMetadata = hasMetadata
     }
 
     public init(from decoder: Decoder) throws {
@@ -50,6 +54,7 @@ public struct TorrentListItem: Decodable, Equatable, Identifiable, Sendable {
             try container.decodeIfPresent(Int.self, forKey: .numPeers)
             ?? container.decodeIfPresent(Int.self, forKey: .peersConnected)
             ?? 0
+        hasMetadata = try container.decodeIfPresent(Bool.self, forKey: .hasMetadata) ?? false
     }
 
     public var id: String { infoHash }
