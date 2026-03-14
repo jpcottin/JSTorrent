@@ -190,9 +190,7 @@ export class ActivePieceManager extends EngineComponent {
 
     const oldLimit = this.config.maxBufferedBytes
     this.config.maxBufferedBytes = maxBufferedBytes
-    this.logger.info(
-      `Updated active piece memory budget: ${oldLimit} -> ${maxBufferedBytes} bytes`,
-    )
+    this.logger.info(`Updated active piece memory budget: ${oldLimit} -> ${maxBufferedBytes} bytes`)
   }
 
   /**

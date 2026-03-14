@@ -4545,7 +4545,9 @@ export class Torrent extends EngineComponent {
         peer.isSeed = result.isSeed
 
         if (peer.isSeed) {
-          this.logger.debug(`Deferred bitfield resolved to seed (seedCount: ${this._availability.seedCount})`)
+          this.logger.debug(
+            `Deferred bitfield resolved to seed (seedCount: ${this._availability.seedCount})`,
+          )
         } else {
           this.buildPeerPieceIndex(peer)
         }
