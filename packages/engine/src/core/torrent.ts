@@ -1561,6 +1561,10 @@ export class Torrent extends EngineComponent {
     }
 
     if (!changed) return
+    // Stale suppressions from the old file-lock context must be cleared so that
+    // pieces excluded by the lock (base priority 0) can resume downloading now
+    // that the lock is gone (base priority restored to normal).
+    this._streamingScheduler.resetRetainedSuppressions()
     this.syncStreamingFileLocks()
     this.syncStreamingScheduler()
   }

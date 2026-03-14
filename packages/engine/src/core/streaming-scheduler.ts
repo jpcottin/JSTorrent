@@ -194,6 +194,15 @@ export class StreamingScheduler {
     }
   }
 
+  /**
+   * Reset retained suppressions. Call when the scheduling context changes
+   * (e.g., a streaming file lock is removed) so stale suppressions from the
+   * previous context don't persist.
+   */
+  resetRetainedSuppressions(): void {
+    this.currentPlan.suppressedPieces.clear()
+  }
+
   private retainSuppressedPieces(previousSuppressedPieces: Set<number>, plan: StreamingPlan): void {
     if (!plan.effectivePriority || previousSuppressedPieces.size === 0) return
 
