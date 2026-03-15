@@ -337,6 +337,26 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
     await runSourceInLab(draftSource)
   }
 
+  const handleInstallFromLab = async () => {
+    setLabBusy(true)
+    try {
+      const plugin = await pluginService.installFromSource(draftSource)
+      const refreshed = await pluginService.listInstalledPlugins()
+      setInstalledPlugins(refreshed)
+      setSelectedPluginIds((current) =>
+        current.includes(plugin.pluginId) ? current : [...current, plugin.pluginId],
+      )
+      setLabStatus(`Installed ${plugin.manifest.name}.`)
+      setActiveTab('installed')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setLabStatus(message)
+      standaloneAlert(message)
+    } finally {
+      setLabBusy(false)
+    }
+  }
+
   const handleLoadInstalledPlugin = (plugin: InstalledPluginRecord) => {
     setDraftSource(plugin.code)
     setDraftRunResult(null)
@@ -514,6 +534,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
                 onDraftSourceChange={setDraftSource}
                 onSearchInputChange={setSearchInput}
                 onRunDraft={handleRunDraft}
+                onInstallFromLab={handleInstallFromLab}
               />
             )}
           </div>
@@ -946,6 +967,7 @@ interface PluginLabTabProps {
   onDraftSourceChange: (value: string) => void
   onSearchInputChange: (value: SearchPluginSearchInput) => void
   onRunDraft: () => void
+  onInstallFromLab: () => void
 }
 
 function PluginLabTab({
@@ -958,6 +980,7 @@ function PluginLabTab({
   onDraftSourceChange,
   onSearchInputChange,
   onRunDraft,
+  onInstallFromLab,
 }: PluginLabTabProps) {
   const handleResetSample = () => {
     onDraftSourceChange(INITIAL_SAMPLE_SOURCE)
@@ -1019,6 +1042,14 @@ function PluginLabTab({
             disabled={labBusy || !runtimeAvailable}
           >
             {labBusy ? 'Running...' : 'Run Draft'}
+          </button>
+          <button
+            style={styles.secondaryButton}
+            onClick={onInstallFromLab}
+            disabled={labBusy || !runtimeAvailable || !draftSource.trim()}
+            title="Install this plugin from the current source"
+          >
+            Install Plugin
           </button>
         </div>
         {labStatus && <div style={styles.statusText}>{labStatus}</div>}

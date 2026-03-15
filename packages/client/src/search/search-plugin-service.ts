@@ -135,6 +135,16 @@ export class SearchPluginService {
     return prepared.plugin
   }
 
+  async installFromSource(source: string): Promise<InstalledPluginRecord> {
+    const inspection = await this.sandboxHost.inspectSource(source)
+    const plugin = await createInstalledPluginRecord({
+      code: source,
+      manifest: inspection.manifest,
+    })
+    await this.saveInstalledPlugin(plugin)
+    return plugin
+  }
+
   async removeInstalledPlugin(pluginId: string): Promise<void> {
     await this.engineManager.removeInstalledSearchPlugin(pluginId)
   }
