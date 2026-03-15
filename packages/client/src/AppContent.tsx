@@ -44,6 +44,7 @@ import {
 } from './utils/test-magnets'
 import { markDesktopActivated } from './host/tauri-channel'
 import { VideoPlayer } from './components/VideoPlayer'
+import { SearchTab } from './components/SearchTab'
 
 interface ContextMenuState {
   x: number
@@ -82,6 +83,8 @@ export interface AppContentProps {
   isDevMode?: boolean
   /** Open the dedicated video player popup (extension-only). */
   onOpenVideoPopup?: (options: VideoPopupLaunchOptions) => Promise<void>
+  /** Open the search plugins overlay */
+  onOpenSearchOverlay?: () => void
 }
 
 export function AppContent(props: AppContentProps) {
@@ -105,6 +108,7 @@ function AppContentInner({
   shareUrl = 'https://jstorrent.com/share.html',
   isDevMode = false,
   onOpenVideoPopup,
+  onOpenSearchOverlay,
 }: AppContentProps) {
   const createSessionId = () =>
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -837,6 +841,7 @@ function AppContentInner({
                 onOpenLoggingSettings={onOpenLoggingSettings}
                 pieceViewMode={pieceViewMode}
                 onPieceViewModeChange={setPieceViewMode}
+                renderSearchTab={() => <SearchTab onOpenSearchOverlay={onOpenSearchOverlay} />}
               />
             </div>
           </div>

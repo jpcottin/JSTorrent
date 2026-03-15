@@ -52,10 +52,12 @@ function ChromeAppContent({
   onOpenLoggingSettings,
   supportsVideoPopup,
   supportsLanShare,
+  onOpenSearchOverlay,
 }: {
   onOpenLoggingSettings?: () => void
   supportsVideoPopup: boolean
   supportsLanShare: boolean
+  onOpenSearchOverlay?: () => void
 }) {
   return (
     <AppContent
@@ -123,6 +125,7 @@ function ChromeAppContent({
           : undefined
       }
       shareUrl={import.meta.env.SHARE_URL}
+      onOpenSearchOverlay={onOpenSearchOverlay}
     />
   )
 }
@@ -502,6 +505,9 @@ function App() {
                   onOpenLoggingSettings={handleOpenLoggingSettings}
                   supportsVideoPopup={supportsVideoPopup}
                   supportsLanShare={supportsLanShare}
+                  onOpenSearchOverlay={
+                    searchPluginsUiEnabled ? () => setSearchPluginsOpen(true) : undefined
+                  }
                 />
               </EngineProvider>
             ) : initError ? (

@@ -32,6 +32,7 @@ export type DetailTab =
   | 'disk'
   | 'speed'
   | 'dht'
+  | 'search'
 
 export const DEFAULT_DETAIL_TAB: DetailTab = 'general'
 
@@ -76,6 +77,8 @@ export interface DetailPaneProps {
   pieceViewMode?: PieceViewMode
   /** Callback when piece visualization mode changes */
   onPieceViewModeChange?: (mode: PieceViewMode) => void
+  /** Render function for the search tab content */
+  renderSearchTab?: () => React.ReactNode
 }
 
 const tabStyle: React.CSSProperties = {
@@ -176,6 +179,11 @@ export function DetailPane(props: DetailPaneProps) {
         </button>
         {/* Spacer pushes global tabs (Logs, Speed) to the right */}
         <div style={{ flex: 1 }} />
+        {props.renderSearchTab && (
+          <button style={getTabStyle(activeTab === 'search')} onClick={() => onTabChange('search')}>
+            Search
+          </button>
+        )}
         <button style={getTabStyle(activeTab === 'logs')} onClick={() => onTabChange('logs')}>
           Logs
         </button>
@@ -282,6 +290,7 @@ export function DetailPane(props: DetailPaneProps) {
           ) : (
             <TorrentPlaceholder selectedCount={props.selectedHashes.size} tabName="disk activity" />
           ))}
+        {activeTab === 'search' && props.renderSearchTab?.()}
       </div>
     </div>
   )
