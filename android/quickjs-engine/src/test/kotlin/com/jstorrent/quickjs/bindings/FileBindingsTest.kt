@@ -317,4 +317,255 @@ class FileBindingsTest {
             unpackVerifiedWriteBatch(packed)
         }
     }
+
+    // ============================================================
+    // unpackWriteBatch tests (unverified writes — no hash field)
+    // ============================================================
+
+    private data class TestUnverifiedWriteRequest(
+        val rootKey: String,
+        val path: String,
+        val position: Long,
+        val data: ByteArray,
+        val callbackId: String,
+    )
+
+    private data class EncodedUnverifiedWrite(
+        val rootKey: ByteArray,
+        val path: ByteArray,
+        val position: Long,
+        val data: ByteArray,
+        val callbackId: ByteArray,
+    )
+
+    /**
+     * Pack a batch of unverified writes for testing (mirrors JS packWriteBatch).
+     * Same as verified write batch but WITHOUT the 40-byte hash field.
+     */
+    private fun packTestUnverifiedBatch(writes: List<TestUnverifiedWriteRequest>): ByteArray {
+        var totalSize = 4 // count
+        val encoded = writes.map { w ->
+            val rootKey = w.rootKey.toByteArray(Charsets.UTF_8)
+            val path = w.path.toByteArray(Charsets.UTF_8)
+            val callbackId = w.callbackId.toByteArray(Charsets.UTF_8)
+            totalSize += 1 + rootKey.size  // rootKeyLen + rootKey
+            totalSize += 2 + path.size     // pathLen + path
+            totalSize += 8                  // position
+            totalSize += 4 + w.data.size   // dataLen + data
+            // NO hash field
+            totalSize += 1 + callbackId.size // callbackIdLen + callbackId
+            EncodedUnverifiedWrite(rootKey, path, w.position, w.data, callbackId)
+        }
+
+        val buffer = ByteBuffer.allocate(totalSize).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.putInt(writes.size)
+
+        for (e in encoded) {
+            buffer.put(e.rootKey.size.toByte())
+            buffer.put(e.rootKey)
+            buffer.putShort(e.path.size.toShort())
+            buffer.put(e.path)
+            buffer.putInt((e.position and 0xFFFFFFFFL).toInt())
+            buffer.putInt((e.position shr 32).toInt())
+            buffer.putInt(e.data.size)
+            buffer.put(e.data)
+            buffer.put(e.callbackId.size.toByte())
+            buffer.put(e.callbackId)
+        }
+
+        return buffer.array()
+    }
+
+    private fun extractWriteData(write: WriteRequest): ByteArray {
+        return write.packed.copyOfRange(write.dataOffset, write.dataOffset + write.dataLength)
+    }
+
+    @Test
+    fun `unpack single unverified write correctly`() {
+        val writes = listOf(
+            TestUnverifiedWriteRequest(
+                rootKey = "root1",
+                path = "path/to/file.txt",
+                position = 12345,
+                data = byteArrayOf(1, 2, 3, 4, 5),
+                callbackId = "wr_1",
+            )
+        )
+
+        val packed = packTestUnverifiedBatch(writes)
+        val result = unpackWriteBatch(packed)
+
+        assertEquals(1, result.size)
+        val r = result[0]
+        assertEquals("root1", r.rootKey)
+        assertEquals("path/to/file.txt", r.path)
+        assertEquals(12345L, r.position)
+        assertEquals(listOf<Byte>(1, 2, 3, 4, 5), extractWriteData(r).toList())
+        assertEquals("wr_1", r.callbackId)
+    }
+
+    @Test
+    fun `unpack multiple unverified writes correctly`() {
+        val writes = listOf(
+            TestUnverifiedWriteRequest(
+                rootKey = "r1",
+                path = "a.txt",
+                position = 100,
+                data = byteArrayOf(1),
+                callbackId = "wr_1",
+            ),
+            TestUnverifiedWriteRequest(
+                rootKey = "r2",
+                path = "b.txt",
+                position = 200,
+                data = byteArrayOf(2, 3),
+                callbackId = "wr_2",
+            ),
+        )
+
+        val packed = packTestUnverifiedBatch(writes)
+        val result = unpackWriteBatch(packed)
+
+        assertEquals(2, result.size)
+        assertEquals("r1", result[0].rootKey)
+        assertEquals("a.txt", result[0].path)
+        assertEquals(100L, result[0].position)
+        assertEquals(listOf<Byte>(1), extractWriteData(result[0]).toList())
+        assertEquals("wr_1", result[0].callbackId)
+
+        assertEquals("r2", result[1].rootKey)
+        assertEquals("b.txt", result[1].path)
+        assertEquals(200L, result[1].position)
+        assertEquals(listOf<Byte>(2, 3), extractWriteData(result[1]).toList())
+        assertEquals("wr_2", result[1].callbackId)
+    }
+
+    @Test
+    fun `handle large positions in unverified write (greater than 32 bits)`() {
+        val largePosition = 0x1_0000_0001L
+
+        val writes = listOf(
+            TestUnverifiedWriteRequest(
+                rootKey = "r",
+                path = "f",
+                position = largePosition,
+                data = byteArrayOf(),
+                callbackId = "c",
+            )
+        )
+
+        val packed = packTestUnverifiedBatch(writes)
+        val result = unpackWriteBatch(packed)
+
+        assertEquals(1, result.size)
+        assertEquals(largePosition, result[0].position)
+    }
+
+    @Test
+    fun `handle empty data in unverified write`() {
+        val writes = listOf(
+            TestUnverifiedWriteRequest(
+                rootKey = "r",
+                path = "f",
+                position = 0,
+                data = byteArrayOf(),
+                callbackId = "c",
+            )
+        )
+
+        val packed = packTestUnverifiedBatch(writes)
+        val result = unpackWriteBatch(packed)
+
+        assertEquals(1, result.size)
+        assertEquals(0, result[0].dataLength)
+    }
+
+    @Test
+    fun `handle unicode paths in unverified write`() {
+        val writes = listOf(
+            TestUnverifiedWriteRequest(
+                rootKey = "root",
+                path = "文件/テスト.txt",
+                position = 0,
+                data = byteArrayOf(),
+                callbackId = "wr_1",
+            )
+        )
+
+        val packed = packTestUnverifiedBatch(writes)
+        val result = unpackWriteBatch(packed)
+
+        assertEquals(1, result.size)
+        assertEquals("文件/テスト.txt", result[0].path)
+    }
+
+    @Test
+    fun `handle large data payload in unverified write`() {
+        val largeData = ByteArray(1024 * 256) { it.toByte() }
+
+        val writes = listOf(
+            TestUnverifiedWriteRequest(
+                rootKey = "root",
+                path = "large.bin",
+                position = 0,
+                data = largeData,
+                callbackId = "wr_1",
+            )
+        )
+
+        val packed = packTestUnverifiedBatch(writes)
+        val result = unpackWriteBatch(packed)
+
+        assertEquals(1, result.size)
+        assertEquals(largeData.size, result[0].dataLength)
+        assertEquals(largeData.toList(), extractWriteData(result[0]).toList())
+    }
+
+    @Test
+    fun `reject trailing bytes in unverified write batch`() {
+        val writes = listOf(
+            TestUnverifiedWriteRequest(
+                rootKey = "root",
+                path = "file.txt",
+                position = 0,
+                data = byteArrayOf(1, 2, 3),
+                callbackId = "wr_1",
+            )
+        )
+
+        val packed = packTestUnverifiedBatch(writes) + byteArrayOf(9)
+
+        assertFailsWith<IllegalArgumentException> {
+            unpackWriteBatch(packed)
+        }
+    }
+
+    @Test
+    fun `reject oversized unverified write batch`() {
+        val largeData = ByteArray(41 * 1024 * 1024) { 7 }
+        val writes = listOf(
+            TestUnverifiedWriteRequest(
+                rootKey = "root",
+                path = "oversized.bin",
+                position = 0,
+                data = largeData,
+                callbackId = "wr_1",
+            )
+        )
+
+        val packed = packTestUnverifiedBatch(writes)
+
+        assertFailsWith<IllegalArgumentException> {
+            unpackWriteBatch(packed)
+        }
+    }
+
+    @Test
+    fun `handle empty unverified write batch`() {
+        val writes = emptyList<TestUnverifiedWriteRequest>()
+        val packed = packTestUnverifiedBatch(writes)
+        val result = unpackWriteBatch(packed)
+
+        assertEquals(0, result.size)
+    }
 }

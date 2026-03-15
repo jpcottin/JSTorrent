@@ -322,6 +322,26 @@ declare global {
   function __jstorrent_file_write_verified_batch(packed: ArrayBuffer): void
 
   /**
+   * Batch async write (no hash verification): send multiple writes in a single FFI call.
+   * Used for boundary-piece writes and other unverified writes that previously blocked
+   * the JS thread via sync __jstorrent_file_write.
+   * Runs all writes on background threads. Results delivered via __jstorrent_file_dispatch_batch.
+   *
+   * Packed binary format (all multi-byte integers are little-endian):
+   *   [count: u32 LE] then for each write:
+   *     [rootKeyLen: u8] [rootKey: UTF-8 bytes]
+   *     [pathLen: u16 LE] [path: UTF-8 bytes]
+   *     [position: u64 LE]
+   *     [dataLen: u32 LE] [data: bytes]
+   *     [callbackIdLen: u8] [callbackId: UTF-8 bytes]
+   *
+   * Same as verified write batch but WITHOUT the 40-byte hash field.
+   *
+   * @param packed Binary-packed write requests
+   */
+  function __jstorrent_file_write_batch(packed: ArrayBuffer): void
+
+  /**
    * Batch async read: send multiple read requests in a single FFI call.
    * Reads run on background I/O threads. Results delivered via __jstorrent_file_dispatch_read_batch.
    *

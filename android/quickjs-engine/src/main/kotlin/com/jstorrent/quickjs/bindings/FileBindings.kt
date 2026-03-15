@@ -234,6 +234,99 @@ fun unpackVerifiedWriteBatch(packed: ByteArray): List<VerifiedWriteRequest> {
 }
 
 /**
+ * Parsed unverified write request from batch.
+ * Same as VerifiedWriteRequest but without expectedHashHex.
+ */
+data class WriteRequest(
+    val rootKey: String,
+    val path: String,
+    val position: Long,
+    val packed: ByteArray,
+    val dataOffset: Int,
+    val dataLength: Int,
+    val callbackId: String,
+)
+
+/**
+ * Unpack a batch of (unverified) write requests from binary format.
+ *
+ * Format (all multi-byte integers are little-endian):
+ *   [count: u32 LE] then for each write:
+ *     [rootKeyLen: u8] [rootKey: UTF-8 bytes]
+ *     [pathLen: u16 LE] [path: UTF-8 bytes]
+ *     [position: u64 LE]
+ *     [dataLen: u32 LE] [data: bytes]
+ *     [callbackIdLen: u8] [callbackId: UTF-8 bytes]
+ *
+ * Same as verified write batch but WITHOUT the 40-byte hash field.
+ */
+fun unpackWriteBatch(packed: ByteArray): List<WriteRequest> {
+    if (packed.size > MAX_VERIFIED_WRITE_BATCH_PACKED_BYTES) {
+        throw IllegalArgumentException("Write batch too large: ${packed.size} bytes")
+    }
+
+    val buffer = ByteBuffer.wrap(packed).order(ByteOrder.LITTLE_ENDIAN)
+
+    val count = buffer.int
+    if (count < 0 || count > 10000) {
+        throw IllegalArgumentException("Invalid batch count: $count")
+    }
+
+    val writes = mutableListOf<WriteRequest>()
+
+    for (i in 0 until count) {
+        // rootKeyLen + rootKey
+        val rootKeyLen = buffer.get().toInt() and 0xFF
+        val rootKeyBytes = ByteArray(rootKeyLen)
+        buffer.get(rootKeyBytes)
+        val rootKey = String(rootKeyBytes, Charsets.UTF_8)
+
+        // pathLen + path
+        val pathLen = buffer.short.toInt() and 0xFFFF
+        val pathBytes = ByteArray(pathLen)
+        buffer.get(pathBytes)
+        val path = String(pathBytes, Charsets.UTF_8)
+
+        // position (u64 LE) - read as two u32 and combine
+        val positionLow = buffer.int.toLong() and 0xFFFFFFFFL
+        val positionHigh = buffer.int.toLong() and 0xFFFFFFFFL
+        val position = positionLow or (positionHigh shl 32)
+
+        // dataLen + data
+        val dataLen = buffer.int
+        if (dataLen < 0 || dataLen > buffer.remaining() - 1) {
+            throw IllegalArgumentException("Invalid data length: $dataLen")
+        }
+        val dataOffset = buffer.position()
+        buffer.position(dataOffset + dataLen)
+
+        // callbackIdLen + callbackId
+        val callbackIdLen = buffer.get().toInt() and 0xFF
+        val callbackIdBytes = ByteArray(callbackIdLen)
+        buffer.get(callbackIdBytes)
+        val callbackId = String(callbackIdBytes, Charsets.UTF_8)
+
+        writes.add(
+            WriteRequest(
+                rootKey = rootKey,
+                path = path,
+                position = position,
+                packed = packed,
+                dataOffset = dataOffset,
+                dataLength = dataLen,
+                callbackId = callbackId,
+            )
+        )
+    }
+
+    if (buffer.hasRemaining()) {
+        throw IllegalArgumentException("Trailing bytes in write batch: ${buffer.remaining()}")
+    }
+
+    return writes
+}
+
+/**
  * File I/O bindings for QuickJS.
  *
  * Implements stateless file operations using [FileManager]:
@@ -241,6 +334,7 @@ fun unpackVerifiedWriteBatch(packed: ByteArray): List<VerifiedWriteRequest> {
  * - __jstorrent_file_write(rootKey, path, offset, data) -> number (sync)
  * - __jstorrent_file_write_verified(rootKey, path, offset, data, expectedSha1Hex, callbackId) -> void (async)
  * - __jstorrent_file_write_verified_batch(packed) -> void (async batched)
+ * - __jstorrent_file_write_batch(packed) -> void (async batched, no hash)
  * - __jstorrent_file_stat(rootKey, path) -> string | null
  * - __jstorrent_file_mkdir(rootKey, path) -> boolean
  * - __jstorrent_file_exists(rootKey, path) -> boolean
@@ -249,7 +343,7 @@ fun unpackVerifiedWriteBatch(packed: ByteArray): List<VerifiedWriteRequest> {
  *
  * Sync operations block the JS thread. The async write_verified operation runs
  * hashing and I/O on a background thread, posting results back to JS via callback.
- * The batch version accepts multiple writes packed in binary format to reduce FFI overhead.
+ * The batch versions accept multiple writes packed in binary format to reduce FFI overhead.
  *
  * Root resolution:
  * - Empty or "default" rootKey resolves to app-private downloads directory
@@ -1008,6 +1102,71 @@ class FileBindings(
                     } catch (e: Exception) {
                         Log.e(TAG, "write_verified_batch failed: ${write.path}", e)
                         // Map specific exception types to appropriate result codes
+                        val resultCode = when (e) {
+                            is FileManagerException.DiskFull -> WriteResultCode.DISK_FULL
+                            is FileManagerException.PermissionDenied -> WriteResultCode.PERMISSION_DENIED
+                            else -> WriteResultCode.IO_ERROR
+                        }
+                        queueDiskWriteResult(write.callbackId, -1, resultCode)
+                    }
+                }
+            }
+
+            null
+        }
+
+        // __jstorrent_file_write_batch(packed: ArrayBuffer): void
+        // Batch async write (no hash verification) - used for boundary-piece writes
+        // and other unverified writes that previously blocked the JS thread.
+        // Results queue to pendingDiskResults for batch delivery via __jstorrent_file_flush.
+        ctx.setGlobalFunctionWithBinary("__jstorrent_file_write_batch", 0) { _, binary ->
+            if (jsThread == null) {
+                Log.e(TAG, "write_batch: jsThread not available")
+                return@setGlobalFunctionWithBinary null
+            }
+
+            if (binary == null || binary.isEmpty()) {
+                Log.w(TAG, "write_batch: empty batch")
+                return@setGlobalFunctionWithBinary null
+            }
+
+            val writes = try {
+                unpackWriteBatch(binary)
+            } catch (t: Throwable) {
+                Log.e(TAG, "write_batch: failed to unpack", t)
+                return@setGlobalFunctionWithBinary null
+            }
+
+            if (writes.isEmpty()) {
+                return@setGlobalFunctionWithBinary null
+            }
+
+            Log.d(TAG, "write_batch: processing ${writes.size} writes")
+
+            // Launch all writes in parallel on I/O dispatcher
+            for (write in writes) {
+                val rootUri = resolveRoot(write.rootKey)
+                if (rootUri == null) {
+                    Log.w(TAG, "write_batch: unknown root key: ${write.rootKey}")
+                    queueDiskWriteResult(write.callbackId, -1, WriteResultCode.INVALID_ARGS)
+                    continue
+                }
+
+                ioScope.launch {
+                    try {
+                        fileManager.write(
+                            rootUri,
+                            write.path,
+                            write.position,
+                            write.packed,
+                            write.dataOffset,
+                            write.dataLength,
+                        )
+
+                        queueDiskWriteResult(write.callbackId, write.dataLength, WriteResultCode.SUCCESS)
+
+                    } catch (e: Exception) {
+                        Log.e(TAG, "write_batch failed: ${write.path}", e)
                         val resultCode = when (e) {
                             is FileManagerException.DiskFull -> WriteResultCode.DISK_FULL
                             is FileManagerException.PermissionDenied -> WriteResultCode.PERMISSION_DENIED

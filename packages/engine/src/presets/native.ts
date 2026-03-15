@@ -16,6 +16,7 @@ import {
   getGlobalBatchingQueue,
 } from '../adapters/native/native-batching-disk-queue'
 import { flushPendingReads } from '../adapters/native/native-async-read'
+import { flushPendingWrites } from '../adapters/native/native-async-write'
 import { NativeFileHandle } from '../adapters/native/native-file-handle'
 import { StorageRootManager, StorageRoot } from '../storage/storage-root-manager'
 import { Socks5SocketFactory } from '../proxy'
@@ -24,9 +25,10 @@ import type { NetworkInterface, GatewayInfo } from '../interfaces/network'
 import type { LogEntry } from '../logging/logger'
 import type { ConfigHub } from '../config/config-hub'
 
-// Enable async reads on Android — disk reads dispatch to Kotlin IO threads
-// instead of blocking the JS thread.
+// Enable async reads and writes on Android/iOS — disk I/O dispatches to
+// native I/O threads instead of blocking the JS thread.
 NativeFileHandle.useAsyncReads = true
+NativeFileHandle.useAsyncWrites = true
 
 // Verified-write queue pressure budget for Android/QuickJS.
 // Keep this aligned with the conservative active-piece byte budget so
@@ -166,6 +168,7 @@ export function createNativeEngine(config: NativeEngineConfig): BtEngine {
     getDefaultGateway,
     onEndOfTick: () => {
       flushBatchedWrites()
+      flushPendingWrites()
       flushPendingReads()
     },
     getWriteQueueStats: () => getGlobalBatchingQueue().getPressureStats(),

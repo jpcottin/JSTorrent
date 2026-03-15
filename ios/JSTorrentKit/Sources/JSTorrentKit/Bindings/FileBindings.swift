@@ -56,6 +56,14 @@ private struct VerifiedWriteRequest {
     let callbackID: String
 }
 
+private struct AsyncWriteRequest {
+    let rootKey: String
+    let path: String
+    let position: UInt64
+    let data: Data
+    let callbackID: String
+}
+
 private struct AsyncReadRequest {
     let rootKey: String
     let path: String
@@ -433,6 +441,22 @@ public final class FileBindings: @unchecked Sendable {
             return .undefined
         }
 
+        engine.setGlobalFunction("__jstorrent_file_write_batch") { [weak engine] arguments in
+            guard
+                let engine,
+                let packed = try engine.data(from: arguments.first),
+                let requests = try? self.parseWriteBatch(packed)
+            else {
+                return .undefined
+            }
+
+            for request in requests {
+                self.queueAsyncWrite(request)
+            }
+
+            return .undefined
+        }
+
         engine.setGlobalFunction("__jstorrent_file_read_batch") { [weak engine] arguments in
             guard
                 let engine,
@@ -656,6 +680,35 @@ public final class FileBindings: @unchecked Sendable {
         }
     }
 
+    private func queueAsyncWrite(_ request: AsyncWriteRequest) {
+        writeQueue.async {
+            let result = self.performAsyncWrite(request)
+            self.asyncState.enqueueWrite(result)
+        }
+    }
+
+    private func performAsyncWrite(_ request: AsyncWriteRequest) -> PendingWriteResult {
+        do {
+            let bytesWritten = try writeFile(
+                rootKey: request.rootKey,
+                path: request.path,
+                offset: request.position,
+                data: request.data
+            )
+            return PendingWriteResult(
+                callbackID: request.callbackID,
+                bytesWritten: Int32(clamping: bytesWritten),
+                resultCode: .success
+            )
+        } catch {
+            return PendingWriteResult(
+                callbackID: request.callbackID,
+                bytesWritten: -1,
+                resultCode: mapFileError(error)
+            )
+        }
+    }
+
     private func queueAsyncRead(_ request: AsyncReadRequest) {
         readQueue.async {
             let result = self.performAsyncRead(request)
@@ -734,6 +787,38 @@ public final class FileBindings: @unchecked Sendable {
                     position: position,
                     data: data,
                     expectedHashHex: expectedHashHex,
+                    callbackID: callbackID
+                )
+            )
+        }
+
+        return requests
+    }
+
+    private func parseWriteBatch(_ packed: Data) throws -> [AsyncWriteRequest] {
+        var reader = DataReader(data: packed)
+        let count = Int(try reader.readUInt32LE())
+        guard count >= 0, count <= 1024 else {
+            throw FileBindingError.invalidFrame
+        }
+
+        var requests: [AsyncWriteRequest] = []
+        requests.reserveCapacity(count)
+
+        for _ in 0..<count {
+            let rootKey = try reader.readUTF8(count: Int(try reader.readUInt8()))
+            let path = try reader.readUTF8(count: Int(try reader.readUInt16LE()))
+            let position = try reader.readUInt64LE()
+            let dataLength = Int(try reader.readUInt32LE())
+            let data = try reader.readData(count: dataLength)
+            let callbackID = try reader.readUTF8(count: Int(try reader.readUInt8()))
+
+            requests.append(
+                AsyncWriteRequest(
+                    rootKey: rootKey,
+                    path: path,
+                    position: position,
+                    data: data,
                     callbackID: callbackID
                 )
             )

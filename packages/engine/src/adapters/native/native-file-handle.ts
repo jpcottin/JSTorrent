@@ -11,6 +11,7 @@
 import type { IFileHandle } from '../../interfaces/filesystem'
 import { getGlobalBatchingQueue } from './native-batching-disk-queue'
 import { getGlobalAsyncReadQueue } from './native-async-read'
+import { getGlobalAsyncWriteQueue } from './native-async-write'
 import './bindings.d.ts'
 
 /**
@@ -95,6 +96,9 @@ export class NativeFileHandle implements IFileHandle {
   /** Whether to use async read batch (set by native preset) */
   static useAsyncReads = false
 
+  /** Whether to use async writes for unverified writes (set by native preset) */
+  static useAsyncWrites = false
+
   /**
    * Write data to the file at a specific position.
    *
@@ -103,7 +107,11 @@ export class NativeFileHandle implements IFileHandle {
    * - Returns Promise that resolves when complete
    * - Throws HashMismatchError if hash doesn't match
    *
-   * Otherwise uses synchronous write (blocks JS thread).
+   * If useAsyncWrites is enabled (Android/iOS), unverified writes are also
+   * async — queued to NativeAsyncWriteQueue with zero-copy (offset+length
+   * into the original ArrayBuffer, no JS-side .slice()).
+   *
+   * Otherwise falls back to synchronous __jstorrent_file_write (blocks JS thread).
    */
   async write(
     buffer: Uint8Array,
@@ -115,24 +123,40 @@ export class NativeFileHandle implements IFileHandle {
       throw new Error('File handle is closed')
     }
 
-    // Extract the portion of buffer to write
-    const data = buffer.subarray(offset, offset + length)
-
-    // Convert to ArrayBuffer for native binding
-    const arrayBuffer = data.buffer.slice(
-      data.byteOffset,
-      data.byteOffset + data.byteLength,
-    ) as ArrayBuffer
-
     // Check if we have a pending hash for verified write
     if (this.pendingHash) {
       const expectedHash = this.pendingHash
       this.pendingHash = null // Consume it
 
+      // Verified writes need a standalone ArrayBuffer (packed into batch with hash)
+      const data = buffer.subarray(offset, offset + length)
+      const arrayBuffer = data.buffer.slice(
+        data.byteOffset,
+        data.byteOffset + data.byteLength,
+      ) as ArrayBuffer
+
       return this.writeVerified(arrayBuffer, position, expectedHash)
     }
 
-    // Synchronous write (no hash verification)
+    // Async unverified write — zero-copy: pass original buffer + offset/length
+    if (NativeFileHandle.useAsyncWrites) {
+      const dataOffset = buffer.byteOffset + offset
+      return getGlobalAsyncWriteQueue().queueAsyncWrite(
+        this.rootKey,
+        this.path,
+        position,
+        buffer.buffer as ArrayBuffer,
+        dataOffset,
+        length,
+      )
+    }
+
+    // Sync fallback: slice + blocking FFI
+    const data = buffer.subarray(offset, offset + length)
+    const arrayBuffer = data.buffer.slice(
+      data.byteOffset,
+      data.byteOffset + data.byteLength,
+    ) as ArrayBuffer
     const bytesWritten = __jstorrent_file_write(this.rootKey, this.path, position, arrayBuffer)
 
     if (bytesWritten < 0) {
