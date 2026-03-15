@@ -512,6 +512,246 @@ class NativeBindingsTest {
         assertEquals("[]", result)
     }
 
+    // ========================================
+    // Async Write Batch Tests (__jstorrent_file_write_batch)
+    // ========================================
+
+    @Test
+    fun fileWriteBatchWritesDataAndCallsBack() {
+        // This test exercises the full async write path:
+        // JS packs binary -> __jstorrent_file_write_batch FFI -> Kotlin I/O thread ->
+        // queueDiskWriteResult -> __jstorrent_file_flush -> __jstorrent_file_dispatch_batch -> JS callback
+
+        // Set up the dispatch function that the Kotlin side calls to deliver results.
+        // In the full engine this is defined by native-batching-disk-queue.ts.
+        engine.evaluate("""
+            globalThis.__jstorrent_file_dispatch_batch = function(packed) {
+                var view = new DataView(packed);
+                var bytes = new Uint8Array(packed);
+                var offset = 0;
+                var count = view.getUint32(offset, true); offset += 4;
+                for (var i = 0; i < count; i++) {
+                    var idLen = bytes[offset]; offset += 1;
+                    var id = '';
+                    for (var j = 0; j < idLen; j++) { id += String.fromCharCode(bytes[offset + j]); }
+                    offset += idLen;
+                    var bytesWritten = view.getInt32(offset, true); offset += 4;
+                    var resultCode = bytes[offset]; offset += 1;
+                    var cb = globalThis.__jstorrent_file_write_callbacks[id];
+                    if (cb) {
+                        delete globalThis.__jstorrent_file_write_callbacks[id];
+                        cb(bytesWritten, resultCode);
+                    }
+                }
+            };
+        """.trimIndent())
+
+        val result = engine.evaluate("""
+            (function() {
+                // Set up callback tracking
+                globalThis.__test_write_result = null;
+                globalThis.__jstorrent_file_write_callbacks = globalThis.__jstorrent_file_write_callbacks || {};
+
+                var callbackId = "wr_test_1";
+
+                // Register callback
+                globalThis.__jstorrent_file_write_callbacks[callbackId] = function(bytesWritten, resultCode) {
+                    globalThis.__test_write_result = { bytesWritten: Number(bytesWritten), resultCode: Number(resultCode) };
+                };
+
+                // Pack a single write request in the batch format:
+                // [count: u32 LE] [rootKeyLen: u8] [rootKey] [pathLen: u16 LE] [path]
+                // [position: u64 LE] [dataLen: u32 LE] [data] [callbackIdLen: u8] [callbackId]
+                var rootKey = "default";
+                var path = "async_write_test.txt";
+                var data = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
+
+                var rootKeyBytes = new Uint8Array(__jstorrent_text_encode(rootKey));
+                var pathBytes = new Uint8Array(__jstorrent_text_encode(path));
+                var callbackIdBytes = new Uint8Array(__jstorrent_text_encode(callbackId));
+
+                var totalSize = 4 + 1 + rootKeyBytes.length + 2 + pathBytes.length + 8 + 4 + data.length + 1 + callbackIdBytes.length;
+                var packed = new ArrayBuffer(totalSize);
+                var view = new DataView(packed);
+                var bytes = new Uint8Array(packed);
+                var offset = 0;
+
+                // count = 1
+                view.setUint32(offset, 1, true); offset += 4;
+                // rootKeyLen + rootKey
+                bytes[offset] = rootKeyBytes.length; offset += 1;
+                bytes.set(rootKeyBytes, offset); offset += rootKeyBytes.length;
+                // pathLen + path
+                view.setUint16(offset, pathBytes.length, true); offset += 2;
+                bytes.set(pathBytes, offset); offset += pathBytes.length;
+                // position = 0 (u64 LE)
+                view.setUint32(offset, 0, true); offset += 4;
+                view.setUint32(offset, 0, true); offset += 4;
+                // dataLen + data
+                view.setUint32(offset, data.length, true); offset += 4;
+                bytes.set(data, offset); offset += data.length;
+                // callbackIdLen + callbackId
+                bytes[offset] = callbackIdBytes.length; offset += 1;
+                bytes.set(callbackIdBytes, offset); offset += callbackIdBytes.length;
+
+                // Send the batch
+                __jstorrent_file_write_batch(packed);
+
+                return "dispatched";
+            })();
+        """.trimIndent())
+
+        assertEquals("dispatched", result)
+
+        // Wait for I/O thread to complete and flush results
+        var attempts = 0
+        var writeResult: Any? = null
+        while (attempts < 40 && writeResult == null) {
+            Thread.sleep(100)
+            attempts++
+
+            engine.postAndWait {
+                // Flush results from I/O threads to JS
+                engine.context.evaluate("__jstorrent_file_flush()")
+
+                val r = engine.context.evaluate("globalThis.__test_write_result")
+                if (r != null) {
+                    writeResult = r
+                }
+            }
+        }
+
+        assertNotNull(writeResult, "Write callback should have fired (attempts: $attempts)")
+
+        // Verify the callback reported success
+        val resultCode = engine.evaluate("globalThis.__test_write_result.resultCode")
+        assertEquals(0, resultCode) // SUCCESS = 0
+
+        val bytesWritten = engine.evaluate("globalThis.__test_write_result.bytesWritten")
+        assertEquals(5, bytesWritten) // "Hello" = 5 bytes
+
+        // Verify the file was actually written by reading it back
+        val readBack = engine.evaluate("""
+            var readData = __jstorrent_file_read("default", "async_write_test.txt", 0, 5);
+            __jstorrent_text_decode(readData);
+        """.trimIndent())
+
+        assertEquals("Hello", readBack)
+    }
+
+    @Test
+    fun fileWriteBatchMultipleWrites() {
+        // Set up the dispatch function (same as single-write test)
+        engine.evaluate("""
+            globalThis.__jstorrent_file_dispatch_batch = function(packed) {
+                var view = new DataView(packed);
+                var bytes = new Uint8Array(packed);
+                var offset = 0;
+                var count = view.getUint32(offset, true); offset += 4;
+                for (var i = 0; i < count; i++) {
+                    var idLen = bytes[offset]; offset += 1;
+                    var id = '';
+                    for (var j = 0; j < idLen; j++) { id += String.fromCharCode(bytes[offset + j]); }
+                    offset += idLen;
+                    var bytesWritten = view.getInt32(offset, true); offset += 4;
+                    var resultCode = bytes[offset]; offset += 1;
+                    var cb = globalThis.__jstorrent_file_write_callbacks[id];
+                    if (cb) {
+                        delete globalThis.__jstorrent_file_write_callbacks[id];
+                        cb(bytesWritten, resultCode);
+                    }
+                }
+            };
+        """.trimIndent())
+
+        // Test batching multiple writes in a single FFI call
+        val result = engine.evaluate("""
+            (function() {
+                globalThis.__test_write_results = {};
+                globalThis.__jstorrent_file_write_callbacks = globalThis.__jstorrent_file_write_callbacks || {};
+
+                var writes = [
+                    { rootKey: "default", path: "batch_a.txt", data: [65, 65, 65], callbackId: "wr_a" },
+                    { rootKey: "default", path: "batch_b.txt", data: [66, 66, 66, 66], callbackId: "wr_b" },
+                ];
+
+                for (var i = 0; i < writes.length; i++) {
+                    var w = writes[i];
+                    globalThis.__jstorrent_file_write_callbacks[w.callbackId] = (function(id) {
+                        return function(bytesWritten, resultCode) {
+                            globalThis.__test_write_results[id] = { bytesWritten: Number(bytesWritten), resultCode: Number(resultCode) };
+                        };
+                    })(w.callbackId);
+                }
+
+                // Pack both writes
+                var totalSize = 4; // count
+                var encodedWrites = [];
+                for (var i = 0; i < writes.length; i++) {
+                    var w = writes[i];
+                    var rk = new Uint8Array(__jstorrent_text_encode(w.rootKey));
+                    var p = new Uint8Array(__jstorrent_text_encode(w.path));
+                    var cb = new Uint8Array(__jstorrent_text_encode(w.callbackId));
+                    var d = new Uint8Array(w.data);
+                    totalSize += 1 + rk.length + 2 + p.length + 8 + 4 + d.length + 1 + cb.length;
+                    encodedWrites.push({ rk: rk, p: p, cb: cb, d: d });
+                }
+
+                var packed = new ArrayBuffer(totalSize);
+                var view = new DataView(packed);
+                var bytes = new Uint8Array(packed);
+                var offset = 0;
+
+                view.setUint32(offset, writes.length, true); offset += 4;
+
+                for (var i = 0; i < encodedWrites.length; i++) {
+                    var e = encodedWrites[i];
+                    bytes[offset] = e.rk.length; offset += 1;
+                    bytes.set(e.rk, offset); offset += e.rk.length;
+                    view.setUint16(offset, e.p.length, true); offset += 2;
+                    bytes.set(e.p, offset); offset += e.p.length;
+                    view.setUint32(offset, 0, true); offset += 4;
+                    view.setUint32(offset, 0, true); offset += 4;
+                    view.setUint32(offset, e.d.length, true); offset += 4;
+                    bytes.set(e.d, offset); offset += e.d.length;
+                    bytes[offset] = e.cb.length; offset += 1;
+                    bytes.set(e.cb, offset); offset += e.cb.length;
+                }
+
+                __jstorrent_file_write_batch(packed);
+                return "dispatched";
+            })();
+        """.trimIndent())
+
+        assertEquals("dispatched", result)
+
+        // Wait for both callbacks
+        var attempts = 0
+        var bothDone = false
+        while (attempts < 40 && !bothDone) {
+            Thread.sleep(100)
+            attempts++
+
+            engine.postAndWait {
+                engine.context.evaluate("__jstorrent_file_flush()")
+                val keys = engine.context.evaluate("Object.keys(globalThis.__test_write_results).length")
+                bothDone = (keys as? Number)?.toInt() == 2
+            }
+        }
+
+        assertTrue(bothDone, "Both write callbacks should have fired (attempts: $attempts)")
+
+        // Verify both succeeded
+        assertEquals(0, engine.evaluate("globalThis.__test_write_results['wr_a'].resultCode"))
+        assertEquals(3, engine.evaluate("globalThis.__test_write_results['wr_a'].bytesWritten"))
+        assertEquals(0, engine.evaluate("globalThis.__test_write_results['wr_b'].resultCode"))
+        assertEquals(4, engine.evaluate("globalThis.__test_write_results['wr_b'].bytesWritten"))
+
+        // Verify files were written
+        assertEquals("AAA", engine.evaluate("__jstorrent_text_decode(__jstorrent_file_read('default', 'batch_a.txt', 0, 3))"))
+        assertEquals("BBBB", engine.evaluate("__jstorrent_text_decode(__jstorrent_file_read('default', 'batch_b.txt', 0, 4))"))
+    }
+
     @Test
     fun storageKeysWithPrefix() {
         engine.evaluate("""
