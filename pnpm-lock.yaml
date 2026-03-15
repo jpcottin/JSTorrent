@@ -184,6 +184,9 @@ importers:
       '@jstorrent/engine':
         specifier: workspace:*
         version: link:../engine
+      '@jstorrent/plugin-sdk':
+        specifier: workspace:*
+        version: link:../plugin-sdk
       '@jstorrent/ui':
         specifier: workspace:*
         version: link:../ui
@@ -252,6 +255,22 @@ importers:
       ws:
         specifier: ^8.18.1
         version: 8.19.0
+
+  packages/plugin-sdk:
+    dependencies:
+      happy-dom:
+        specifier: ^20.0.0
+        version: 20.0.10
+    devDependencies:
+      '@types/node':
+        specifier: ^20.10.0
+        version: 20.19.25
+      typescript:
+        specifier: ^5.0.0
+        version: 5.8.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@20.19.25)(happy-dom@20.0.10)
 
   packages/ui:
     dependencies:
@@ -5826,6 +5845,7 @@ snapshots:
   '@types/node@22.19.11':
     dependencies:
       undici-types: 6.21.0
+    optional: true
 
   '@types/prop-types@15.7.15': {}
 
@@ -5840,7 +5860,7 @@ snapshots:
 
   '@types/sax@1.2.7':
     dependencies:
-      '@types/node': 22.19.11
+      '@types/node': 20.19.25
 
   '@types/unist@3.0.3': {}
 

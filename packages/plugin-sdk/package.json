@@ -1,0 +1,60 @@
+{
+  "name": "@jstorrent/plugin-sdk",
+  "version": "0.1.0",
+  "description": "SDK for writing, testing, and validating JSTorrent search plugins",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "jstorrent-plugin": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kzahel/jstorrent.git",
+    "directory": "packages/plugin-sdk"
+  },
+  "homepage": "https://jstorrent.com",
+  "bugs": {
+    "url": "https://github.com/kzahel/jstorrent/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "keywords": [
+    "jstorrent",
+    "torrent",
+    "search-plugin",
+    "sdk"
+  ],
+  "author": "JSTorrent Team",
+  "license": "MIT",
+  "dependencies": {
+    "happy-dom": "^20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}

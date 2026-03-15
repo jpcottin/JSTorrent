@@ -25,7 +25,10 @@
       "@jstorrent/client": ["./packages/client/src/index.ts"],
       "@jstorrent/ui/*": ["./packages/ui/src/*"],
       "@jstorrent/ui": ["./packages/ui/src/index.ts"],
-      "@jstorrent/ui/styles.css": ["./packages/ui/src/styles.css"]
+      "@jstorrent/ui/styles.css": ["./packages/ui/src/styles.css"],
+      "@jstorrent/plugin-sdk/*": ["./packages/plugin-sdk/src/*"],
+      "@jstorrent/plugin-sdk": ["./packages/plugin-sdk/src/index.ts"],
+      "@jstorrent/plugin-sdk/testing": ["./packages/plugin-sdk/src/testing/index.ts"]
     }
   }
 }

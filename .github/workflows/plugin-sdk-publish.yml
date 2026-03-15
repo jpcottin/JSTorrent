@@ -1,0 +1,83 @@
+name: Publish Plugin SDK to npm
+
+on:
+  push:
+    tags:
+      - 'plugin-sdk-v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: packages/plugin-sdk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'pnpm'
+
+      - name: Update npm for OIDC support
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: pnpm install
+        working-directory: .
+
+      - name: Run type checking
+        run: pnpm typecheck
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#plugin-sdk-v}" >> $GITHUB_OUTPUT
+
+      - name: Verify changelog has entry for version
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          if ! grep -q "## \[${VERSION}\]" CHANGELOG.md; then
+            echo "Error: CHANGELOG.md does not contain an entry for version ${VERSION}"
+            echo "Please add a '## [${VERSION}]' section to CHANGELOG.md before releasing."
+            exit 1
+          fi
+          echo "Changelog entry found for version ${VERSION}"
+
+      - name: Build
+        run: pnpm build
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Extract changelog for release notes
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          awk "/^## \\[$VERSION\\]/{found=1; next} /^## \\[/{found=0} found" CHANGELOG.md > /tmp/release-notes.md
+          echo "Release notes for $VERSION:"
+          cat /tmp/release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Plugin SDK v${{ steps.version.outputs.VERSION }}
+          body_path: /tmp/release-notes.md
