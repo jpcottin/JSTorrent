@@ -232,7 +232,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
 
       const confirmed = standaloneConfirm(
         `Install plugin "${prepared.plugin.manifest.name}"?\n\nDeclared hosts:\n${prepared.plugin.manifest.hosts
-          .map((host) => `- ${host}`)
+          .map((host: string) => `- ${host}`)
           .join('\n')}`,
       )
       if (!confirmed) {
@@ -1086,7 +1086,9 @@ function PluginLabTab({
         {draftRunResult?.trace.logs.length ? (
           <pre style={styles.outputBlock}>
             {draftRunResult.trace.logs
-              .map((entry) => `[${entry.level}] ${entry.message}`)
+              .map(
+                (entry: { level: string; message: string }) => `[${entry.level}] ${entry.message}`,
+              )
               .join('\n')}
           </pre>
         ) : (

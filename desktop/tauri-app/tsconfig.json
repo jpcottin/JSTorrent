@@ -23,7 +23,9 @@
       "@jstorrent/client": ["../../packages/client/src"],
       "@jstorrent/client/*": ["../../packages/client/src/*"],
       "@jstorrent/ui": ["../../packages/ui/src"],
-      "@jstorrent/ui/*": ["../../packages/ui/src/*"]
+      "@jstorrent/ui/*": ["../../packages/ui/src/*"],
+      "@jstorrent/plugin-sdk": ["../../packages/plugin-sdk/src"],
+      "@jstorrent/plugin-sdk/*": ["../../packages/plugin-sdk/src/*"]
     }
   },
   "include": ["src"],
