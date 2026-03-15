@@ -516,14 +516,19 @@ class NativeBindingsTest {
     // Async Write Batch Tests (__jstorrent_file_write_batch)
     // ========================================
 
-    @Test
-    fun fileWriteBatchWritesDataAndCallsBack() {
-        // This test exercises the full async write path:
-        // JS packs binary -> __jstorrent_file_write_batch FFI -> Kotlin I/O thread ->
-        // queueDiskWriteResult -> __jstorrent_file_flush -> __jstorrent_file_dispatch_batch -> JS callback
-
-        // Set up the dispatch function that the Kotlin side calls to deliver results.
-        // In the full engine this is defined by native-batching-disk-queue.ts.
+    /**
+     * Set up the JS-side dispatch function for async write results.
+     *
+     * In production this is defined by callback-manager.ts (imported via
+     * createNativeEngine → native adapters), but that module is only
+     * tree-shaken in when jstorrent.init() runs.  Loading the full bundle
+     * without init() doesn't trigger the import.
+     *
+     * The logic below is identical to the production implementation in
+     * callback-manager.ts — it unpacks the binary batch and dispatches
+     * each result to the corresponding callback in __jstorrent_file_write_callbacks.
+     */
+    private fun registerWriteDispatchFunction() {
         engine.evaluate("""
             globalThis.__jstorrent_file_dispatch_batch = function(packed) {
                 var view = new DataView(packed);
@@ -545,6 +550,16 @@ class NativeBindingsTest {
                 }
             };
         """.trimIndent())
+    }
+
+    @Test
+    fun fileWriteBatchWritesDataAndCallsBack() {
+        // This test exercises the full async write path:
+        // JS packs binary -> __jstorrent_file_write_batch FFI -> Kotlin I/O thread ->
+        // queueDiskWriteResult -> __jstorrent_file_flush -> __jstorrent_file_dispatch_batch -> JS callback
+
+        // Register the JS dispatch function (mirrors callback-manager.ts)
+        registerWriteDispatchFunction()
 
         val result = engine.evaluate("""
             (function() {
@@ -641,28 +656,8 @@ class NativeBindingsTest {
 
     @Test
     fun fileWriteBatchMultipleWrites() {
-        // Set up the dispatch function (same as single-write test)
-        engine.evaluate("""
-            globalThis.__jstorrent_file_dispatch_batch = function(packed) {
-                var view = new DataView(packed);
-                var bytes = new Uint8Array(packed);
-                var offset = 0;
-                var count = view.getUint32(offset, true); offset += 4;
-                for (var i = 0; i < count; i++) {
-                    var idLen = bytes[offset]; offset += 1;
-                    var id = '';
-                    for (var j = 0; j < idLen; j++) { id += String.fromCharCode(bytes[offset + j]); }
-                    offset += idLen;
-                    var bytesWritten = view.getInt32(offset, true); offset += 4;
-                    var resultCode = bytes[offset]; offset += 1;
-                    var cb = globalThis.__jstorrent_file_write_callbacks[id];
-                    if (cb) {
-                        delete globalThis.__jstorrent_file_write_callbacks[id];
-                        cb(bytesWritten, resultCode);
-                    }
-                }
-            };
-        """.trimIndent())
+        // Register the JS dispatch function (mirrors callback-manager.ts)
+        registerWriteDispatchFunction()
 
         // Test batching multiple writes in a single FFI call
         val result = engine.evaluate("""
