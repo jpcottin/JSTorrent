@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { loadPlugin, runPlugin, validateSearchResult } from '../../src'
+import { validateSearchResult } from '../../src'
+import { loadPlugin, runPlugin } from '../../src/node'
 import { normalizeSearchPluginManifest } from '../../src/validation/manifest'
 
 const pluginPath = resolve(__dirname, '../../../../search-plugins/internet-archive.js')
