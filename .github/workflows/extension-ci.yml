@@ -39,6 +39,11 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+        working-directory: .
+
+      - name: Build plugin-sdk
+        run: pnpm build
+        working-directory: packages/plugin-sdk
 
       - name: Build extension
         run: pnpm run build
@@ -101,6 +106,11 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+        working-directory: .
+
+      - name: Build plugin-sdk
+        run: pnpm build
+        working-directory: packages/plugin-sdk
 
       - name: Build extension (with public key)
         run: pnpm run build
