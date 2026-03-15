@@ -191,6 +191,10 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
+      - name: Build plugin-sdk
+        run: pnpm build
+        working-directory: packages/plugin-sdk
+
       # --- Extract changelog ---
       - name: Extract changelog
         id: changelog
