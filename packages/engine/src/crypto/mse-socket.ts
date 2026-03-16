@@ -45,6 +45,7 @@ export class MseSocket implements ITcpSocket {
   private onDataCb: ((data: Uint8Array) => void) | null = null
   private onCloseCb: ((hadError: boolean) => void) | null = null
   private onErrorCb: ((err: Error) => void) | null = null
+  private pendingClose: { hadError: boolean } | null = null
   private bufferedData: Uint8Array[] = []
   private pendingInitialPayload: Uint8Array | null = null
 
@@ -62,7 +63,13 @@ export class MseSocket implements ITcpSocket {
 
     // Intercept socket events
     this.socket.onData((data) => this.handleData(data))
-    this.socket.onClose((hadError) => this.onCloseCb?.(hadError))
+    this.socket.onClose((hadError) => {
+      if (this.onCloseCb) {
+        this.onCloseCb(hadError)
+      } else {
+        this.pendingClose = { hadError }
+      }
+    })
     this.socket.onError((err) => this.onErrorCb?.(err))
   }
 
@@ -214,6 +221,10 @@ export class MseSocket implements ITcpSocket {
 
   onClose(cb: (hadError: boolean) => void): void {
     this.onCloseCb = cb
+    if (this.pendingClose) {
+      cb(this.pendingClose.hadError)
+      this.pendingClose = null
+    }
   }
 
   onError(cb: (err: Error) => void): void {
