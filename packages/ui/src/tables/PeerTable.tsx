@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { DisplayPeer, Torrent } from '@jstorrent/engine'
 import { TableMount } from './mount'
 import { ColumnDef } from './types'
 import { formatBytes, parseClientName } from '../utils/format'
 import { countryCodeToFlag, countryCodeToName } from '../utils/country-flag'
+import { ContextMenu, ContextMenuItem } from '../components/ContextMenu'
 
 /**
  * Format peer flags (choking/interested states)
@@ -191,27 +193,77 @@ export interface PeerTableProps {
   onSelectionChange?: (keys: Set<string>) => void
 }
 
+/** Context menu state */
+interface PeerContextMenuState {
+  x: number
+  y: number
+  peer: DisplayPeer
+}
+
 /**
  * Virtualized peer table for a single torrent.
  */
 export function PeerTable(props: PeerTableProps) {
+  const [contextMenu, setContextMenu] = useState<PeerContextMenuState | null>(null)
   const getTorrent = () => props.source.getTorrent(props.torrentHash) ?? null
   const columns = createPeerColumns(getTorrent)
 
+  const handleContextMenu = (peer: DisplayPeer, x: number, y: number) => {
+    setContextMenu({ x, y, peer })
+  }
+
+  const getContextMenuItems = (): ContextMenuItem[] => {
+    const selectedKeys = props.getSelectedKeys?.() ?? new Set<string>()
+    const count = selectedKeys.size
+
+    return [
+      {
+        id: 'disconnect',
+        label: count > 1 ? `Disconnect ${count} Peers` : 'Disconnect Peer',
+        danger: true,
+      },
+    ]
+  }
+
+  const handleContextMenuSelect = (id: string) => {
+    if (id !== 'disconnect') return
+    const torrent = getTorrent()
+    if (!torrent) return
+
+    const selectedKeys = props.getSelectedKeys?.() ?? new Set<string>()
+    const peers = torrent.getDisplayPeers().filter((p) => selectedKeys.has(p.key))
+    for (const peer of peers) {
+      torrent.disconnectPeer(peer.ip, peer.port)
+    }
+  }
+
   return (
-    <TableMount<DisplayPeer>
-      getRows={() => getTorrent()?.getDisplayPeers() ?? []}
-      getRowKey={(p) => p.key}
-      columns={columns}
-      storageKey="peers"
-      getSelectedKeys={props.getSelectedKeys}
-      onSelectionChange={props.onSelectionChange}
-      getRowStyle={(p) =>
-        p.state === 'connecting' || p.state === 'webseed-idle' || p.state === 'webseed-backoff'
-          ? { opacity: '0.6' }
-          : undefined
-      }
-      refreshKey={props.torrentHash}
-    />
+    <>
+      <TableMount<DisplayPeer>
+        getRows={() => getTorrent()?.getDisplayPeers() ?? []}
+        getRowKey={(p) => p.key}
+        columns={columns}
+        storageKey="peers"
+        getSelectedKeys={props.getSelectedKeys}
+        onSelectionChange={props.onSelectionChange}
+        onRowContextMenu={handleContextMenu}
+        getRowStyle={(p) =>
+          p.state === 'connecting' || p.state === 'webseed-idle' || p.state === 'webseed-backoff'
+            ? { opacity: '0.6' }
+            : undefined
+        }
+        refreshKey={props.torrentHash}
+      />
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={getContextMenuItems()}
+          onSelect={handleContextMenuSelect}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+    </>
   )
 }
