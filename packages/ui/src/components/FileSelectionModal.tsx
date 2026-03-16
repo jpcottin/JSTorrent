@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import { formatBytes } from '../utils/format'
 
 export interface FileSelectionFile {
@@ -168,7 +168,6 @@ export function FileSelectionModal({
   onCancel,
   onDontShowAgain,
 }: FileSelectionModalProps) {
-  const overlayRef = useRef<HTMLDivElement>(null)
   const effectiveDefaultRoot =
     defaultRootKey && roots.some((r) => r.key === defaultRootKey)
       ? defaultRootKey
@@ -186,18 +185,7 @@ export function FileSelectionModal({
   }, [allFileIndices, deselectedFiles])
   const [dontShow, setDontShow] = useState(false)
 
-  // Escape to cancel
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onCancel])
-
-  const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === overlayRef.current) onCancel()
-  }
+  // No escape-to-close or click-outside-to-close — user must use Cancel/Download buttons
 
   const toggleFile = (index: number) => {
     setDeselectedFiles((prev) => {
@@ -230,15 +218,10 @@ export function FileSelectionModal({
   }, [files])
 
   const hasRoot = selectedRootKey !== ''
-  const hasSelection = selectedFiles.size > 0
 
   const handleConfirm = () => {
     if (!hasRoot) return
-    if (selectedFiles.size === files.length) {
-      onConfirmAll(selectedRootKey)
-    } else {
-      onConfirm(selectedRootKey, [...selectedFiles])
-    }
+    onConfirm(selectedRootKey, [...selectedFiles])
   }
 
   const handleConfirmAll = () => {
@@ -252,7 +235,7 @@ export function FileSelectionModal({
   }
 
   return (
-    <div ref={overlayRef} style={overlayStyle} onClick={handleOverlayClick}>
+    <div style={overlayStyle}>
       <div style={dialogStyle}>
         <h3 style={titleStyle} title={torrentName}>
           {torrentName}
@@ -390,12 +373,16 @@ export function FileSelectionModal({
               <button
                 style={{
                   ...primaryButtonStyle,
-                  ...(!hasRoot || !hasSelection ? disabledButtonStyle : {}),
+                  ...(!hasRoot ? disabledButtonStyle : {}),
                 }}
                 onClick={handleConfirm}
-                disabled={!hasRoot || !hasSelection}
+                disabled={!hasRoot}
               >
-                Download{selectedFiles.size < files.length ? ` (${selectedFiles.size})` : ''}
+                {selectedFiles.size === 0
+                  ? 'Add'
+                  : selectedFiles.size < files.length
+                    ? `Download (${selectedFiles.size})`
+                    : 'Download'}
               </button>
             )}
             <button
