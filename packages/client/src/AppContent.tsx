@@ -126,8 +126,7 @@ function AppContentInner({
   const [confirmRemoveAll, setConfirmRemoveAll] = useState<Torrent[] | null>(null)
   const [removingData, setRemovingData] = useState(false)
   const [confirmDeleteFiles, setConfirmDeleteFiles] = useState<{
-    torrentHash: string
-    fileIndices: number[]
+    torrents: { torrentHash: string; fileIndices: number[]; name: string }[]
     fileNames: string[]
     totalFiles: number
   } | null>(null)
@@ -472,24 +471,41 @@ function AppContentInner({
     const files = torrent.files
     const fileNames = fileIndices.map((i) => files[i]?.filename ?? `file ${i}`).filter(Boolean)
     setConfirmDeleteFiles({
-      torrentHash,
-      fileIndices,
+      torrents: [{ torrentHash, fileIndices, name: torrent.name || 'Torrent' }],
       fileNames,
       totalFiles: files.length,
+    })
+  }
+
+  const handleDeleteFilesKeepTorrent = () => {
+    if (selectedTorrentObjects.length === 0) return
+    const entries = selectedTorrentObjects.map((t) => ({
+      torrentHash: t.infoHashStr,
+      fileIndices: t.files.map((f) => f.index),
+      name: t.name || 'Torrent',
+    }))
+    setConfirmDeleteFiles({
+      torrents: entries,
+      fileNames: [],
+      totalFiles: 0,
     })
   }
 
   const handleDeleteFileDataConfirm = async () => {
     if (!confirmDeleteFiles || deletingFiles) return
     setDeletingFiles(true)
-    const torrent = adapter.getTorrent(confirmDeleteFiles.torrentHash)
-    if (torrent) {
-      const result = await adapter.deleteFileData(torrent, confirmDeleteFiles.fileIndices)
-      if (result.errors.length > 0) {
-        standaloneAlert(
-          `Some files could not be deleted:\n${result.errors.slice(0, 5).join('\n')}${result.errors.length > 5 ? `\n...and ${result.errors.length - 5} more` : ''}`,
-        )
+    const errors: string[] = []
+    for (const entry of confirmDeleteFiles.torrents) {
+      const torrent = adapter.getTorrent(entry.torrentHash)
+      if (torrent) {
+        const result = await adapter.deleteFileData(torrent, entry.fileIndices)
+        errors.push(...result.errors)
       }
+    }
+    if (errors.length > 0) {
+      standaloneAlert(
+        `Some files could not be deleted:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? `\n...and ${errors.length - 5} more` : ''}`,
+      )
     }
     setDeletingFiles(false)
     setConfirmDeleteFiles(null)
@@ -578,6 +594,7 @@ function AppContentInner({
     { id: 'share', label: 'Share...', icon: '↗' },
     { id: 'separator3', label: '', separator: true },
     { id: 'remove', label: 'Remove', icon: '✕', danger: true },
+    { id: 'deleteFiles', label: 'Delete Files, Keep Torrent', icon: '✕', danger: true },
     { id: 'removeWithData', label: 'Remove All Data', icon: '⊗', danger: true },
   ]
 
@@ -637,6 +654,9 @@ function AppContentInner({
         break
       case 'remove':
         handleDeleteSelected()
+        break
+      case 'deleteFiles':
+        handleDeleteFilesKeepTorrent()
         break
       case 'removeWithData':
         handleRemoveWithDataRequest()
@@ -908,13 +928,15 @@ function AppContentInner({
         <ConfirmDialog
           title="Delete File Data"
           message={
-            confirmDeleteFiles.fileIndices.length === 1
-              ? `Permanently delete "${confirmDeleteFiles.fileNames[0]}" from disk?${confirmDeleteFiles.totalFiles === 1 ? ' The .parts file will also be deleted.' : ''} This cannot be undone.`
-              : `Permanently delete ${confirmDeleteFiles.fileIndices.length} files from disk?${confirmDeleteFiles.fileIndices.length === confirmDeleteFiles.totalFiles ? ' The .parts file will also be deleted.' : ''} This cannot be undone.`
+            confirmDeleteFiles.fileNames.length > 0
+              ? confirmDeleteFiles.fileNames.length === 1
+                ? `Permanently delete "${confirmDeleteFiles.fileNames[0]}" from disk?${confirmDeleteFiles.totalFiles === 1 ? ' The .parts file will also be deleted.' : ''} This cannot be undone.`
+                : `Permanently delete ${confirmDeleteFiles.fileNames.length} files from disk?${confirmDeleteFiles.fileNames.length === confirmDeleteFiles.totalFiles ? ' The .parts file will also be deleted.' : ''} This cannot be undone.`
+              : confirmDeleteFiles.torrents.length === 1
+                ? `Permanently delete all downloaded files for "${confirmDeleteFiles.torrents[0].name}"? The torrent will remain in the list. This cannot be undone.`
+                : `Permanently delete all downloaded files for ${confirmDeleteFiles.torrents.length} torrents? The torrents will remain in the list. This cannot be undone.`
           }
-          confirmLabel={
-            confirmDeleteFiles.fileIndices.length === 1 ? 'Delete File' : 'Delete Files'
-          }
+          confirmLabel="Delete Files"
           danger
           loading={deletingFiles}
           onConfirm={handleDeleteFileDataConfirm}
