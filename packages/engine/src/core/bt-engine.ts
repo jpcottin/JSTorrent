@@ -1232,6 +1232,9 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       }
     }
 
+    // Re-verify so piece states and file progress reflect the deleted data
+    await torrent.recheckData()
+
     return { success: errors.length === 0, errors }
   }
 
