@@ -47,6 +47,10 @@ export interface SearchResult {
   infoHash?: string
   detailsUrl?: string
   publishedAt?: number
+  category?: string
+  uploader?: string
+  numFiles?: number
+  imdbId?: string
 }
 
 export type SearchPluginLogLevel = 'debug' | 'info' | 'warn' | 'error'

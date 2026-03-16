@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
-import { TableMount, formatBytes } from '@jstorrent/ui'
-import type { ColumnDef } from '@jstorrent/ui'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react'
+import { TableMount, formatBytes, ContextMenu } from '@jstorrent/ui'
+import type { ColumnDef, ContextMenuItem } from '@jstorrent/ui'
 import { useSearchPluginService } from '../context/SearchPluginServiceContext'
 import type { SearchDisplayResult, SearchRunSummary, InstalledPluginRecord } from '../search/types'
 
@@ -88,6 +88,28 @@ function createSearchResultColumns(
       renderCell: (_, v) => (typeof v === 'number' && v >= 0 ? String(v) : ''),
     },
     {
+      id: 'category',
+      header: 'Category',
+      getValue: (r) => r.result.category ?? '',
+      width: 80,
+      defaultHidden: true,
+    },
+    {
+      id: 'uploader',
+      header: 'Uploader',
+      getValue: (r) => r.result.uploader ?? '',
+      width: 100,
+      defaultHidden: true,
+    },
+    {
+      id: 'files',
+      header: 'Files',
+      getValue: (r) => r.result.numFiles ?? '',
+      width: 50,
+      align: 'right',
+      defaultHidden: true,
+    },
+    {
       id: 'source',
       header: 'Source',
       getValue: (r) => r.pluginName,
@@ -99,9 +121,35 @@ function createSearchResultColumns(
       getValue: (r) => r.result.publishedAt ?? 0,
       width: 90,
       renderCell: (r) => (r.result.publishedAt ? formatDate(r.result.publishedAt) : ''),
-      defaultHidden: true,
     },
   ]
+}
+
+const SEARCH_TAB_STATE_KEY = 'jstorrent:searchTabState'
+
+function loadSelectedPluginIds(): Set<string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(SEARCH_TAB_STATE_KEY)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw) as { selectedPluginIds?: string[] }
+    if (Array.isArray(parsed.selectedPluginIds)) {
+      return new Set(parsed.selectedPluginIds.filter((id): id is string => typeof id === 'string'))
+    }
+  } catch {
+    // ignore
+  }
+  return new Set()
+}
+
+function saveSelectedPluginIds(ids: Set<string>): void {
+  try {
+    globalThis.localStorage?.setItem(
+      SEARCH_TAB_STATE_KEY,
+      JSON.stringify({ selectedPluginIds: [...ids] }),
+    )
+  } catch {
+    // ignore
+  }
 }
 
 export interface SearchTabProps {
@@ -111,6 +159,7 @@ export interface SearchTabProps {
 export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
   const pluginService = useSearchPluginService()
   const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<string | undefined>(undefined)
   const [results, setResults] = useState<SearchDisplayResult[]>([])
   const [summaries, setSummaries] = useState<SearchRunSummary[]>([])
   const [searching, setSearching] = useState(false)
@@ -119,20 +168,64 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
   const resultsRef = useRef(results)
   resultsRef.current = results
 
+  // Row selection state (mirrors useSelection pattern for Solid bridge)
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(() => new Set())
+  const selectedRowsRef = useRef(selectedRows)
+  useLayoutEffect(() => {
+    selectedRowsRef.current = selectedRows
+  }, [selectedRows])
+  const getSelectedKeys = useCallback(() => selectedRowsRef.current, [])
+  const onSelectionChange = useCallback((keys: Set<string>) => setSelectedRows(keys), [])
+
   const [plugins, setPlugins] = useState<InstalledPluginRecord[]>([])
+  const [selectedPluginIds, setSelectedPluginIds] = useState<Set<string>>(loadSelectedPluginIds)
+
   useEffect(() => {
     void pluginService.listInstalledPlugins().then((list) => {
       setPlugins(list)
+      // If no saved selection, default to all enabled plugins
+      setSelectedPluginIds((prev) => {
+        if (prev.size === 0) {
+          const allEnabled = new Set(list.filter((p) => p.enabled).map((p) => p.pluginId))
+          saveSelectedPluginIds(allEnabled)
+          return allEnabled
+        }
+        // Remove any IDs that no longer exist
+        const validIds = new Set(list.map((p) => p.pluginId))
+        const filtered = new Set([...prev].filter((id) => validIds.has(id)))
+        if (filtered.size !== prev.size) {
+          saveSelectedPluginIds(filtered)
+        }
+        return filtered
+      })
     })
   }, [pluginService])
 
-  const enabledPlugins = plugins.filter((p) => p.enabled)
+  const togglePlugin = useCallback((pluginId: string) => {
+    setSelectedPluginIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(pluginId)) {
+        next.delete(pluginId)
+      } else {
+        next.add(pluginId)
+      }
+      saveSelectedPluginIds(next)
+      return next
+    })
+  }, [])
+
+  const searchPlugins = plugins.filter((p) => selectedPluginIds.has(p.pluginId))
+
+  // Union of categories from all selected plugins
+  const availableCategories = Array.from(
+    new Set(searchPlugins.flatMap((p) => p.manifest.categories ?? [])),
+  ).filter((c) => c !== 'all')
 
   const handleSearch = useCallback(async () => {
     const trimmed = query.trim()
     if (!trimmed) return
-    if (enabledPlugins.length === 0) {
-      setStatus('No search plugins enabled. Install plugins in the Search Plugins overlay.')
+    if (searchPlugins.length === 0) {
+      setStatus('No search plugins selected.')
       return
     }
 
@@ -142,7 +235,7 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
     setSummaries([])
 
     try {
-      const output = await pluginService.runSearch(enabledPlugins, { query: trimmed })
+      const output = await pluginService.runSearch(searchPlugins, { query: trimmed, category })
       setResults(output.results)
       setSummaries(output.summaries)
 
@@ -158,7 +251,7 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
     } finally {
       setSearching(false)
     }
-  }, [query, enabledPlugins, pluginService])
+  }, [query, category, searchPlugins, pluginService])
 
   const handleAdd = useCallback(
     async (displayResult: SearchDisplayResult) => {
@@ -179,6 +272,55 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
     },
     [pluginService],
   )
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+
+  const handleRowContextMenu = useCallback(
+    (_row: SearchDisplayResult, x: number, y: number) => {
+      setContextMenu({ x, y })
+    },
+    [],
+  )
+
+  const handleAddSelected = useCallback(async () => {
+    const selected = selectedRowsRef.current
+    if (selected.size === 0) return
+    const toAdd = resultsRef.current.filter((r) => {
+      const key = getResultKey(r)
+      return selected.has(key) && (r.result.magnetUrl || r.result.torrentUrl)
+    })
+    if (toAdd.length === 0) {
+      setStatus('No addable results in selection')
+      return
+    }
+    let added = 0
+    let dupes = 0
+    let failed = 0
+    for (const r of toAdd) {
+      try {
+        const result = await pluginService.addSearchResult(r)
+        if (result.isDuplicate) dupes++
+        else added++
+      } catch {
+        failed++
+      }
+    }
+    const parts: string[] = []
+    if (added > 0) parts.push(`Added ${added}`)
+    if (dupes > 0) parts.push(`${dupes} duplicate${dupes !== 1 ? 's' : ''}`)
+    if (failed > 0) parts.push(`${failed} failed`)
+    setStatus(parts.join(', '))
+  }, [pluginService])
+
+  const selectedCount = selectedRows.size
+  const contextMenuItems: ContextMenuItem[] = [
+    {
+      id: 'addSelected',
+      label: selectedCount > 1 ? `Add ${selectedCount} torrents` : 'Add torrent',
+      disabled: selectedCount === 0,
+    },
+  ]
 
   const columns = createSearchResultColumns(handleAdd, addingKey)
 
@@ -213,6 +355,61 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
           }}
           disabled={searching}
         />
+        {availableCategories.length > 0 && (
+          <select
+            value={category ?? ''}
+            onChange={(e) => setCategory(e.target.value || undefined)}
+            disabled={searching}
+            style={{
+              padding: '2px 4px',
+              fontSize: 'var(--font-base, 13px)',
+              height: 'var(--button-height, 24px)',
+              boxSizing: 'border-box',
+            }}
+          >
+            <option value="">All</option>
+            {availableCategories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        )}
+        {plugins.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              gap: '2px',
+              alignItems: 'center',
+            }}
+          >
+            {plugins.filter((p) => p.enabled).map((p) => {
+              const selected = selectedPluginIds.has(p.pluginId)
+              return (
+                <button
+                  key={p.pluginId}
+                  onClick={() => togglePlugin(p.pluginId)}
+                  title={`${selected ? 'Disable' : 'Enable'} ${p.manifest.name}`}
+                  style={{
+                    padding: '1px 6px',
+                    fontSize: 'var(--font-small, 11px)',
+                    height: '20px',
+                    boxSizing: 'border-box',
+                    cursor: 'pointer',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '3px',
+                    background: selected ? 'var(--accent-primary)' : 'transparent',
+                    color: selected ? '#fff' : 'var(--text-secondary)',
+                    opacity: selected ? 1 : 0.6,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {p.manifest.name}
+                </button>
+              )
+            })}
+          </div>
+        )}
         <button
           onClick={() => void handleSearch()}
           disabled={searching || !query.trim()}
@@ -230,7 +427,7 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
         {onOpenSearchOverlay && (
           <button
             onClick={onOpenSearchOverlay}
-            title="Open Search Plugins overlay"
+            title="Manage search plugins"
             style={{
               padding: '2px 6px',
               fontSize: 'var(--font-base, 13px)',
@@ -241,7 +438,7 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
               border: '1px solid var(--border-color)',
             }}
           >
-            Plugins
+            ⚙
           </button>
         )}
         {status && (
@@ -278,6 +475,9 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
             getRowKey={getResultKey}
             columns={columns}
             storageKey="search-results"
+            getSelectedKeys={getSelectedKeys}
+            onSelectionChange={onSelectionChange}
+            onRowContextMenu={handleRowContextMenu}
           />
         ) : (
           <div
@@ -291,12 +491,26 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
           >
             {searching
               ? 'Searching...'
-              : enabledPlugins.length === 0
-                ? 'No search plugins enabled'
-                : 'Enter a search query above'}
+              : plugins.length === 0
+                ? 'No search plugins installed'
+                : searchPlugins.length === 0
+                  ? 'No search plugins selected'
+                  : 'Enter a search query above'}
           </div>
         )}
       </div>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenuItems}
+          onSelect={(id) => {
+            if (id === 'addSelected') void handleAddSelected()
+          }}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   )
 }

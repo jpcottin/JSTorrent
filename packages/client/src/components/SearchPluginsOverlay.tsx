@@ -704,6 +704,10 @@ function SearchTab({
   onToggleSearchPlugin,
 }: SearchTabProps) {
   const enabledPlugins = installedPlugins.filter((plugin) => plugin.enabled)
+  const selectedPlugins = enabledPlugins.filter((p) => selectedPluginIds.includes(p.pluginId))
+  const overlayCategories = Array.from(
+    new Set(selectedPlugins.flatMap((p) => p.manifest.categories ?? [])),
+  ).filter((c) => c !== 'all')
   const handleOpenDetails = async (event: MouseEvent<HTMLAnchorElement>, url: string) => {
     event.preventDefault()
 
@@ -738,8 +742,7 @@ function SearchTab({
 
         <label style={styles.fieldLabel}>
           Category
-          <input
-            type="text"
+          <select
             value={searchInput.category ?? ''}
             onChange={(event) =>
               onSearchInputChange({
@@ -748,7 +751,14 @@ function SearchTab({
               })
             }
             style={styles.input}
-          />
+          >
+            <option value="">All</option>
+            {overlayCategories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
         </label>
 
         {enabledPlugins.length === 0 ? (
