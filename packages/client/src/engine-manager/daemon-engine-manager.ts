@@ -42,6 +42,7 @@ import type {
 } from '../search/types'
 import { ensurePluginFetchAllowed, SEARCH_PLUGIN_STORAGE_PREFIX } from '../search/plugin-utils'
 import type { DaemonInfo, DownloadRoot } from '../types'
+import { getUserAddTorrentOptions } from '../utils/add-torrent-options'
 import type { IEngineManager, StorageRoot, FileOperationResult, LanShareResult } from './types'
 
 // Toggle: true = WebRTC (no audio icon), false = Audio (shows audio icon)
@@ -1036,7 +1037,8 @@ export class DaemonEngineManager implements IEngineManager {
       console.log('[DaemonEngineManager] Adding torrent:', p.name)
       try {
         const bytes = Uint8Array.from(atob(p.contentsBase64), (c) => c.charCodeAt(0))
-        await this.engine.addTorrent(bytes)
+        const addOptions = this.configHub ? getUserAddTorrentOptions(this.configHub) : {}
+        await this.engine.addTorrent(bytes, addOptions)
         markDesktopActivated()
       } catch (e) {
         console.error('[DaemonEngineManager] Failed to add torrent:', e)
@@ -1045,7 +1047,8 @@ export class DaemonEngineManager implements IEngineManager {
       const p = payload as { link: string }
       console.log('[DaemonEngineManager] Adding magnet:', p.link)
       try {
-        await this.engine.addTorrent(p.link)
+        const addOptions = this.configHub ? getUserAddTorrentOptions(this.configHub) : {}
+        await this.engine.addTorrent(p.link, addOptions)
         markDesktopActivated()
       } catch (e) {
         console.error('[DaemonEngineManager] Failed to add magnet:', e)

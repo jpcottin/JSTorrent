@@ -1,5 +1,6 @@
 import { Bencode, parseTorrentInput } from '@jstorrent/engine'
 import type { IEngineManager } from '../engine-manager/types'
+import { getUserAddTorrentOptions } from '../utils/add-torrent-options'
 import { IframeSearchPluginSandboxHost } from './iframe-search-plugin-sandbox-host'
 import { createInstalledPluginRecord } from './plugin-utils'
 import type {
@@ -228,8 +229,12 @@ export class SearchPluginService {
   ): Promise<{ isDuplicate: boolean; mode: 'magnet' | 'torrent' }> {
     const engine = await this.engineManager.init()
 
+    const addOptions = this.engineManager.configHub
+      ? getUserAddTorrentOptions(this.engineManager.configHub)
+      : {}
+
     if (displayResult.result.magnetUrl) {
-      const added = await engine.addTorrent(displayResult.result.magnetUrl)
+      const added = await engine.addTorrent(displayResult.result.magnetUrl, addOptions)
       return {
         isDuplicate: added.isDuplicate,
         mode: 'magnet',
@@ -260,7 +265,7 @@ export class SearchPluginService {
         )
       }
 
-      const added = await engine.addTorrent(torrentBytes)
+      const added = await engine.addTorrent(torrentBytes, addOptions)
       return {
         isDuplicate: added.isDuplicate,
         mode: 'torrent',

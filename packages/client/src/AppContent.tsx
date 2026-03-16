@@ -31,7 +31,9 @@ import {
 import type { FileSelectionFile } from '@jstorrent/ui'
 import { useEngineState } from './hooks/useEngineState'
 import { useConfigValue } from './context/ConfigContext'
+import { useConfig } from './context/ConfigContext'
 import { useEngineManager } from './context/EngineManagerContext'
+import { getUserAddTorrentOptions } from './utils/add-torrent-options'
 import { copyTextToClipboard } from './utils/clipboard'
 import { standaloneAlert } from './utils/dialogs'
 import type { VideoPopupLaunchOptions } from './host/types'
@@ -142,7 +144,8 @@ function AppContentInner({
   const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const engineManager = useEngineManager()
-  const [showFileSelection, setShowFileSelection] = useConfigValue('showFileSelection')
+  const { config: configHub } = useConfig()
+  const [, setShowFileSelection] = useConfigValue('showFileSelection')
   const [defaultRootKey] = useConfigValue('defaultRootKey')
   const popupVideoSessionRef = useRef<ReturnType<typeof createVideoPopupSessionHost> | null>(null)
 
@@ -238,16 +241,15 @@ function AppContentInner({
 
   // --- Action handlers ---
 
-  const addTorrentOptions = showFileSelection
-    ? { userState: 'awaitingFileSelection' as const }
-    : undefined
-
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     try {
       const buffer = await file.arrayBuffer()
-      const result = await adapter.addTorrent(new Uint8Array(buffer), addTorrentOptions)
+      const result = await adapter.addTorrent(
+        new Uint8Array(buffer),
+        getUserAddTorrentOptions(configHub),
+      )
       if (!result.isDuplicate) {
         markDesktopActivated()
         onTorrentAdded?.()
@@ -268,7 +270,7 @@ function AppContentInner({
       return
     }
     try {
-      const result = await adapter.addTorrent(magnetInput, addTorrentOptions)
+      const result = await adapter.addTorrent(magnetInput, getUserAddTorrentOptions(configHub))
       setMagnetInput('')
       if (!result.isDuplicate) {
         markDesktopActivated()
@@ -671,7 +673,7 @@ function AppContentInner({
 
   const handleAddTestTorrent = async (magnet: string) => {
     try {
-      const result = await adapter.addTorrent(magnet)
+      const result = await adapter.addTorrent(magnet, getUserAddTorrentOptions(configHub))
       if (!result.isDuplicate) {
         markDesktopActivated()
         onTorrentAdded?.()
