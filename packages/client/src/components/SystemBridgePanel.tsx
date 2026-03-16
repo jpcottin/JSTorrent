@@ -418,7 +418,25 @@ export function SystemBridgePanel({
                 fontSize: 'var(--font-base, 13px)',
               }}
             >
-              Update available
+              A newer version of the desktop app is available.
+              {onOpenSettings && (
+                <button
+                  onClick={() => onOpenSettings()}
+                  style={{
+                    display: 'block',
+                    marginTop: 'var(--spacing-xs, 4px)',
+                    padding: '0',
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--accent-primary)',
+                    cursor: 'pointer',
+                    fontSize: 'inherit',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Update in Settings
+                </button>
+              )}
             </div>
           )}
         </div>
