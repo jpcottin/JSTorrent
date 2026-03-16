@@ -2,7 +2,8 @@ import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react
 import { TableMount, formatBytes, ContextMenu } from '@jstorrent/ui'
 import type { ColumnDef, ContextMenuItem } from '@jstorrent/ui'
 import { useSearchPluginService } from '../context/SearchPluginServiceContext'
-import type { SearchDisplayResult, SearchRunSummary, InstalledPluginRecord } from '../search/types'
+import { useSearchStore } from '../stores/useSearchStore'
+import type { SearchDisplayResult, InstalledPluginRecord } from '../search/types'
 
 function formatDate(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString(undefined, {
@@ -125,51 +126,41 @@ function createSearchResultColumns(
   ]
 }
 
-const SEARCH_TAB_STATE_KEY = 'jstorrent:searchTabState'
-
-function loadSelectedPluginIds(): Set<string> {
-  try {
-    const raw = globalThis.localStorage?.getItem(SEARCH_TAB_STATE_KEY)
-    if (!raw) return new Set()
-    const parsed = JSON.parse(raw) as { selectedPluginIds?: string[] }
-    if (Array.isArray(parsed.selectedPluginIds)) {
-      return new Set(parsed.selectedPluginIds.filter((id): id is string => typeof id === 'string'))
-    }
-  } catch {
-    // ignore
-  }
-  return new Set()
-}
-
-function saveSelectedPluginIds(ids: Set<string>): void {
-  try {
-    globalThis.localStorage?.setItem(
-      SEARCH_TAB_STATE_KEY,
-      JSON.stringify({ selectedPluginIds: [...ids] }),
-    )
-  } catch {
-    // ignore
-  }
-}
-
 export interface SearchTabProps {
   onOpenSearchOverlay?: () => void
 }
 
 export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
   const pluginService = useSearchPluginService()
-  const [query, setQuery] = useState('')
-  const [category, setCategory] = useState<string | undefined>(undefined)
-  const [results, setResults] = useState<SearchDisplayResult[]>([])
-  const [summaries, setSummaries] = useState<SearchRunSummary[]>([])
-  const [searching, setSearching] = useState(false)
-  const [addingKey, setAddingKey] = useState<string | null>(null)
-  const [status, setStatus] = useState<string | null>(null)
+
+  const query = useSearchStore((s) => s.query)
+  const category = useSearchStore((s) => s.category)
+  const results = useSearchStore((s) => s.results)
+  const summaries = useSearchStore((s) => s.summaries)
+  const searching = useSearchStore((s) => s.searching)
+  const addingKey = useSearchStore((s) => s.addingKey)
+  const status = useSearchStore((s) => s.status)
+  const selectedRows = useSearchStore((s) => s.selectedRows)
+  const contextMenu = useSearchStore((s) => s.contextMenu)
+  const selectedPluginIds = useSearchStore((s) => s.selectedPluginIds)
+
+  const {
+    setQuery,
+    setCategory,
+    setResults,
+    setSummaries,
+    setSearching,
+    setAddingKey,
+    setStatus,
+    setSelectedRows,
+    setContextMenu,
+    setSelectedPluginIds,
+    togglePlugin,
+  } = useSearchStore.getState()
+
   const resultsRef = useRef(results)
   resultsRef.current = results
 
-  // Row selection state (mirrors useSelection pattern for Solid bridge)
-  const [selectedRows, setSelectedRows] = useState<Set<string>>(() => new Set())
   const selectedRowsRef = useRef(selectedRows)
   useLayoutEffect(() => {
     selectedRowsRef.current = selectedRows
@@ -178,41 +169,23 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
   const onSelectionChange = useCallback((keys: Set<string>) => setSelectedRows(keys), [])
 
   const [plugins, setPlugins] = useState<InstalledPluginRecord[]>([])
-  const [selectedPluginIds, setSelectedPluginIds] = useState<Set<string>>(loadSelectedPluginIds)
 
   useEffect(() => {
     void pluginService.listInstalledPlugins().then((list) => {
       setPlugins(list)
-      // If no saved selection, default to all enabled plugins
-      setSelectedPluginIds((prev) => {
-        if (prev.size === 0) {
-          const allEnabled = new Set(list.filter((p) => p.enabled).map((p) => p.pluginId))
-          saveSelectedPluginIds(allEnabled)
-          return allEnabled
-        }
-        // Remove any IDs that no longer exist
+      const currentIds = useSearchStore.getState().selectedPluginIds
+      if (currentIds.size === 0) {
+        const allEnabled = new Set(list.filter((p) => p.enabled).map((p) => p.pluginId))
+        setSelectedPluginIds(allEnabled)
+      } else {
         const validIds = new Set(list.map((p) => p.pluginId))
-        const filtered = new Set([...prev].filter((id) => validIds.has(id)))
-        if (filtered.size !== prev.size) {
-          saveSelectedPluginIds(filtered)
+        const filtered = new Set([...currentIds].filter((id) => validIds.has(id)))
+        if (filtered.size !== currentIds.size) {
+          setSelectedPluginIds(filtered)
         }
-        return filtered
-      })
+      }
     })
   }, [pluginService])
-
-  const togglePlugin = useCallback((pluginId: string) => {
-    setSelectedPluginIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(pluginId)) {
-        next.delete(pluginId)
-      } else {
-        next.add(pluginId)
-      }
-      saveSelectedPluginIds(next)
-      return next
-    })
-  }, [])
 
   const searchPlugins = plugins.filter((p) => selectedPluginIds.has(p.pluginId))
 
@@ -273,15 +246,9 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
     [pluginService],
   )
 
-  // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
-
-  const handleRowContextMenu = useCallback(
-    (_row: SearchDisplayResult, x: number, y: number) => {
-      setContextMenu({ x, y })
-    },
-    [],
-  )
+  const handleRowContextMenu = useCallback((_row: SearchDisplayResult, x: number, y: number) => {
+    setContextMenu({ x, y })
+  }, [])
 
   const handleAddSelected = useCallback(async () => {
     const selected = selectedRowsRef.current
@@ -383,31 +350,33 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
               alignItems: 'center',
             }}
           >
-            {plugins.filter((p) => p.enabled).map((p) => {
-              const selected = selectedPluginIds.has(p.pluginId)
-              return (
-                <button
-                  key={p.pluginId}
-                  onClick={() => togglePlugin(p.pluginId)}
-                  title={`${selected ? 'Disable' : 'Enable'} ${p.manifest.name}`}
-                  style={{
-                    padding: '1px 6px',
-                    fontSize: 'var(--font-small, 11px)',
-                    height: '20px',
-                    boxSizing: 'border-box',
-                    cursor: 'pointer',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '3px',
-                    background: selected ? 'var(--accent-primary)' : 'transparent',
-                    color: selected ? '#fff' : 'var(--text-secondary)',
-                    opacity: selected ? 1 : 0.6,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {p.manifest.name}
-                </button>
-              )
-            })}
+            {plugins
+              .filter((p) => p.enabled)
+              .map((p) => {
+                const selected = selectedPluginIds.has(p.pluginId)
+                return (
+                  <button
+                    key={p.pluginId}
+                    onClick={() => togglePlugin(p.pluginId)}
+                    title={`${selected ? 'Disable' : 'Enable'} ${p.manifest.name}`}
+                    style={{
+                      padding: '1px 6px',
+                      fontSize: 'var(--font-small, 11px)',
+                      height: '20px',
+                      boxSizing: 'border-box',
+                      cursor: 'pointer',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '3px',
+                      background: selected ? 'var(--accent-primary)' : 'transparent',
+                      color: selected ? '#fff' : 'var(--text-secondary)',
+                      opacity: selected ? 1 : 0.6,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {p.manifest.name}
+                  </button>
+                )
+              })}
           </div>
         )}
         <button

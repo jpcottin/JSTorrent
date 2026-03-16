@@ -30,7 +30,8 @@
     "@jstorrent/engine": "workspace:*",
     "@jstorrent/plugin-sdk": "workspace:*",
     "@jstorrent/ui": "workspace:*",
-    "playsvideo": "^0.4.7"
+    "playsvideo": "^0.4.7",
+    "zustand": "^5.0.12"
   },
   "peerDependencies": {
     "react": "^18.2.0"

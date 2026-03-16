@@ -1,8 +1,9 @@
 import { formatBytes } from '@jstorrent/ui'
-import { useEffect, useState, type MouseEvent } from 'react'
+import { useEffect, type MouseEvent } from 'react'
 import { useSearchPluginService } from '../context/SearchPluginServiceContext'
 import { standaloneAlert, standaloneConfirm } from '../utils/dialogs'
 import { openExternalUrl } from '../utils/external-links'
+import { useSearchPluginsStore, type SearchPluginsTab } from '../stores/useSearchPluginsStore'
 import type {
   InstalledPluginRecord,
   SearchDisplayResult,
@@ -12,8 +13,6 @@ import type {
   SearchRunSummary,
 } from '../search/types'
 import { INTERNET_ARCHIVE_SAMPLE_PLUGIN_SOURCE } from '../search/samples/internet-archive-plugin-source'
-
-type SearchPluginsTab = 'search' | 'installed' | 'add' | 'lab'
 
 interface SearchPluginsOverlayProps {
   isOpen: boolean
@@ -25,7 +24,6 @@ interface RecommendedPlugin {
   sourceUrl?: string
 }
 
-const SEARCH_PLUGINS_OVERLAY_STATE_KEY = 'jstorrent:searchPluginsOverlayState'
 const INTERNET_ARCHIVE_PLUGIN_RAW_URL =
   'https://raw.githubusercontent.com/kzahel/jstorrent/main/search-plugins/internet-archive.js'
 
@@ -65,74 +63,45 @@ const RECOMMENDED_PLUGINS: RecommendedPlugin[] = [
   },
 ]
 
-function loadSavedOverlayState(): {
-  searchInput: SearchPluginSearchInput
-  selectedPluginIds: string[]
-} {
-  const fallback = {
-    searchInput: {
-      query: 'night of the living dead',
-      category: 'movies',
-    },
-    selectedPluginIds: [],
-  }
-
-  try {
-    const raw = globalThis.localStorage?.getItem(SEARCH_PLUGINS_OVERLAY_STATE_KEY)
-    if (!raw) return fallback
-
-    const parsed = JSON.parse(raw) as {
-      searchInput?: Partial<SearchPluginSearchInput>
-      selectedPluginIds?: string[]
-    }
-
-    const query =
-      typeof parsed.searchInput?.query === 'string' && parsed.searchInput.query.trim().length > 0
-        ? parsed.searchInput.query
-        : fallback.searchInput.query
-    const category =
-      typeof parsed.searchInput?.category === 'string' &&
-      parsed.searchInput.category.trim().length > 0
-        ? parsed.searchInput.category
-        : fallback.searchInput.category
-
-    return {
-      searchInput: {
-        query,
-        category,
-      },
-      selectedPluginIds: Array.isArray(parsed.selectedPluginIds)
-        ? parsed.selectedPluginIds.filter((entry): entry is string => typeof entry === 'string')
-        : fallback.selectedPluginIds,
-    }
-  } catch {
-    return fallback
-  }
-}
-
 export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayProps) {
   const pluginService = useSearchPluginService()
-  const [activeTab, setActiveTab] = useState<SearchPluginsTab>('search')
-  const [installedPlugins, setInstalledPlugins] = useState<InstalledPluginRecord[]>([])
-  const [selectedPluginIds, setSelectedPluginIds] = useState<string[]>(
-    () => loadSavedOverlayState().selectedPluginIds,
-  )
-  const [installPreview, setInstallPreview] = useState<SearchPluginManifest | null>(null)
-  const [sourceUrl, setSourceUrl] = useState('')
-  const [draftSource, setDraftSource] = useState(INITIAL_SAMPLE_SOURCE)
-  const [searchInput, setSearchInput] = useState<SearchPluginSearchInput>(
-    () => loadSavedOverlayState().searchInput,
-  )
-  const [draftRunResult, setDraftRunResult] = useState<SearchPluginDraftRunResult | null>(null)
-  const [labBusy, setLabBusy] = useState(false)
-  const [labStatus, setLabStatus] = useState<string | null>(null)
-  const [installBusy, setInstallBusy] = useState(false)
-  const [installStatus, setInstallStatus] = useState<string | null>(null)
-  const [searchBusy, setSearchBusy] = useState(false)
-  const [resultActionBusyKey, setResultActionBusyKey] = useState<string | null>(null)
-  const [searchStatus, setSearchStatus] = useState<string | null>(null)
-  const [searchResults, setSearchResults] = useState<SearchDisplayResult[]>([])
-  const [searchSummaries, setSearchSummaries] = useState<SearchRunSummary[]>([])
+  const store = useSearchPluginsStore()
+  const {
+    activeTab,
+    setActiveTab,
+    installedPlugins,
+    setInstalledPlugins,
+    selectedPluginIds,
+    setSelectedPluginIds,
+    installPreview,
+    setInstallPreview,
+    sourceUrl,
+    setSourceUrl,
+    draftSource,
+    setDraftSource,
+    searchInput,
+    setSearchInput,
+    draftRunResult,
+    setDraftRunResult,
+    labBusy,
+    setLabBusy,
+    labStatus,
+    setLabStatus,
+    installBusy,
+    setInstallBusy,
+    installStatus,
+    setInstallStatus,
+    searchBusy,
+    setSearchBusy,
+    searchStatus,
+    setSearchStatus,
+    searchResults,
+    setSearchResults,
+    searchSummaries,
+    setSearchSummaries,
+    resultActionBusyKey,
+    setResultActionBusyKey,
+  } = store
 
   useEffect(() => {
     if (!isOpen) return
@@ -141,36 +110,20 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
       .listInstalledPlugins()
       .then((plugins) => {
         setInstalledPlugins(plugins)
-        setSelectedPluginIds((current) => {
-          const available = new Set(
-            plugins.filter((plugin) => plugin.enabled).map((p) => p.pluginId),
-          )
-          if (current.length === 0) {
-            return Array.from(available)
-          }
+        const current = useSearchPluginsStore.getState().selectedPluginIds
+        const available = new Set(plugins.filter((plugin) => plugin.enabled).map((p) => p.pluginId))
+        if (current.length === 0) {
+          setSelectedPluginIds(Array.from(available))
+        } else {
           const next = current.filter((pluginId) => available.has(pluginId))
-          return next.length > 0 ? next : Array.from(available)
-        })
+          setSelectedPluginIds(next.length > 0 ? next : Array.from(available))
+        }
       })
       .catch((error) => {
         console.error('[SearchPluginsOverlay] Failed to load installed plugins', error)
         setInstallStatus(error instanceof Error ? error.message : String(error))
       })
   }, [isOpen, pluginService])
-
-  useEffect(() => {
-    try {
-      globalThis.localStorage?.setItem(
-        SEARCH_PLUGINS_OVERLAY_STATE_KEY,
-        JSON.stringify({
-          searchInput,
-          selectedPluginIds,
-        }),
-      )
-    } catch {
-      // Ignore storage failures; the overlay still functions without persistence.
-    }
-  }, [searchInput, selectedPluginIds])
 
   useEffect(() => {
     if (!isOpen) return
@@ -244,11 +197,10 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
 
       const refreshed = await pluginService.listInstalledPlugins()
       setInstalledPlugins(refreshed)
-      setSelectedPluginIds((current) =>
-        current.includes(prepared.plugin.pluginId)
-          ? current
-          : [...current, prepared.plugin.pluginId],
-      )
+      const currentIds = useSearchPluginsStore.getState().selectedPluginIds
+      if (!currentIds.includes(prepared.plugin.pluginId)) {
+        setSelectedPluginIds([...currentIds, prepared.plugin.pluginId])
+      }
       setInstallPreview(prepared.manifest)
       setDraftSource(prepared.source)
       setInstallStatus(`Installed ${prepared.plugin.manifest.name}.`)
@@ -282,7 +234,9 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
       await pluginService.removeInstalledPlugin(pluginId)
       const refreshed = await pluginService.listInstalledPlugins()
       setInstalledPlugins(refreshed)
-      setSelectedPluginIds((current) => current.filter((id) => id !== pluginId))
+      setSelectedPluginIds(
+        useSearchPluginsStore.getState().selectedPluginIds.filter((id) => id !== pluginId),
+      )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       standaloneAlert(message)
@@ -343,9 +297,10 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
       const plugin = await pluginService.installFromSource(draftSource)
       const refreshed = await pluginService.listInstalledPlugins()
       setInstalledPlugins(refreshed)
-      setSelectedPluginIds((current) =>
-        current.includes(plugin.pluginId) ? current : [...current, plugin.pluginId],
-      )
+      const currentIds = useSearchPluginsStore.getState().selectedPluginIds
+      if (!currentIds.includes(plugin.pluginId)) {
+        setSelectedPluginIds([...currentIds, plugin.pluginId])
+      }
       setLabStatus(`Installed ${plugin.manifest.name}.`)
       setActiveTab('installed')
     } catch (error) {
@@ -376,12 +331,14 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
       const updatedPlugin = await pluginService.setPluginEnabled(plugin, !plugin.enabled)
       const refreshed = await pluginService.listInstalledPlugins()
       setInstalledPlugins(refreshed)
-      setSelectedPluginIds((current) => {
-        if (updatedPlugin.enabled) {
-          return current.includes(plugin.pluginId) ? current : [...current, plugin.pluginId]
+      const currentIds = useSearchPluginsStore.getState().selectedPluginIds
+      if (updatedPlugin.enabled) {
+        if (!currentIds.includes(plugin.pluginId)) {
+          setSelectedPluginIds([...currentIds, plugin.pluginId])
         }
-        return current.filter((id) => id !== plugin.pluginId)
-      })
+      } else {
+        setSelectedPluginIds(currentIds.filter((id) => id !== plugin.pluginId))
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       standaloneAlert(message)
@@ -389,9 +346,7 @@ export function SearchPluginsOverlay({ isOpen, onClose }: SearchPluginsOverlayPr
   }
 
   const handleToggleSearchPlugin = (pluginId: string) => {
-    setSelectedPluginIds((current) =>
-      current.includes(pluginId) ? current.filter((id) => id !== pluginId) : [...current, pluginId],
-    )
+    store.toggleSearchPlugin(pluginId)
   }
 
   const handleRunSearch = async () => {
