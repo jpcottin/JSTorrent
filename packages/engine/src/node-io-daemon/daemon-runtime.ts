@@ -575,6 +575,27 @@ export class NodeIoDaemonRuntime {
       return
     }
 
+    if (pathname === '/ops/free_space' && req.method === 'GET') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystemFromRequest(req)
+      if (!fileSystem) {
+        this.sendText(res, 400, 'Missing root_key')
+        return
+      }
+
+      try {
+        const freeSpace = await fileSystem.getFreeDiskSpace()
+        this.sendJson(res, 200, { free_space: freeSpace })
+      } catch (error) {
+        this.sendText(res, 500, error instanceof Error ? error.message : String(error))
+      }
+      return
+    }
+
     if (pathname === '/ops/list' && req.method === 'GET') {
       if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
         this.sendText(res, 401, 'Unauthorized')
@@ -1019,6 +1040,7 @@ export class NodeIoDaemonRuntime {
       behaviorVersion: IO_DAEMON_BEHAVIOR_VERSION,
       roots_manageable: true,
       lan_share_urls: true,
+      free_space: true,
     }
   }
 

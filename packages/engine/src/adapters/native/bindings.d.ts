@@ -262,6 +262,13 @@ declare global {
   function __jstorrent_file_list_tree(rootKey: string, path: string): string
 
   /**
+   * Get free disk space on the volume containing this storage root.
+   * Returns free bytes as a number (or string due to QuickJS FFI),
+   * or null if the operation is not supported.
+   */
+  function __jstorrent_file_free_space(rootKey: string): number | string | null
+
+  /**
    * Delete a list of entries (files or empty directories) within a directory.
    * Missing entries are silently ignored.
    * Returns JSON array of entry names that failed to delete.

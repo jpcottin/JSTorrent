@@ -14,6 +14,8 @@ export interface DaemonCapabilities {
   roots_manageable: boolean
   /** Whether the daemon can mint LAN share / direct playback URLs for completed files. */
   lan_share_urls: boolean
+  /** Whether the backend supports getFreeDiskSpace() on storage roots. */
+  free_space: boolean
 }
 
 export interface DaemonInfo {

@@ -39,6 +39,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/ops/truncate", post(truncate_file))
         .route("/ops/list_tree", get(list_tree_dir))
         .route("/ops/verify_chunks", post(verify_chunks))
+        .route("/ops/free_space", get(free_space))
         .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
 }
 
@@ -606,6 +607,73 @@ pub fn validate_path(
     let clean_path = clean_path.trim_start_matches('/');
 
     Ok(root_path.join(clean_path))
+}
+
+#[derive(Deserialize)]
+struct FreeSpaceParams {
+    root_key: String,
+}
+
+#[derive(Serialize)]
+struct FreeSpaceResponse {
+    free_space: u64,
+}
+
+async fn free_space(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(params): axum::extract::Query<FreeSpaceParams>,
+) -> Result<Json<FreeSpaceResponse>, (StatusCode, String)> {
+    let root_path = validate_path(&state, &params.root_key, "")?;
+
+    let free = get_available_space(&root_path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("statvfs failed: {e}"),
+        )
+    })?;
+
+    Ok(Json(FreeSpaceResponse { free_space: free }))
+}
+
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn get_available_space(path: &std::path::Path) -> Result<u64, String> {
+    use std::ffi::CString;
+    let c_path = CString::new(path.to_string_lossy().as_bytes())
+        .map_err(|e| format!("invalid path: {e}"))?;
+    unsafe {
+        let mut stat: libc::statvfs = std::mem::zeroed();
+        if libc::statvfs(c_path.as_ptr(), &raw mut stat) != 0 {
+            return Err(format!("statvfs: {}", std::io::Error::last_os_error()));
+        }
+        // Types vary by platform (u32 on some, u64 on others)
+        #[allow(clippy::unnecessary_cast, clippy::cast_lossless)]
+        Ok(stat.f_bavail as u64 * stat.f_frsize as u64)
+    }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn get_available_space(path: &std::path::Path) -> Result<u64, String> {
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut free_bytes: u64 = 0;
+    let result = unsafe {
+        windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut free_bytes,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if result == 0 {
+        return Err("GetDiskFreeSpaceExW failed".to_string());
+    }
+    Ok(free_bytes)
 }
 
 #[derive(Deserialize)]

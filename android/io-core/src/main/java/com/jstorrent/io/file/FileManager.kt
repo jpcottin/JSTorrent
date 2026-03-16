@@ -203,4 +203,12 @@ interface FileManager {
         startChunk: Long,
         chunkCount: Long,
     ): ByteArray
+
+    /**
+     * Get free disk space on the volume containing this storage root.
+     *
+     * @param rootUri SAF tree URI for the root
+     * @return Free bytes available, or -1 if not determinable
+     */
+    fun getFreeDiskSpace(rootUri: Uri): Long
 }

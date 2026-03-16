@@ -655,6 +655,26 @@ public final class FileBindings: @unchecked Sendable {
             }
         }
 
+        engine.setGlobalFunction("__jstorrent_file_free_space") { arguments in
+            guard
+                let rootKey = arguments.first?.toString()
+            else {
+                return .value(nil)
+            }
+
+            let rootURL = self.resolveRootURL(rootKey: rootKey)
+
+            do {
+                let values = try rootURL.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+                if let available = values.volumeAvailableCapacityForImportantUsage {
+                    return .value(available)
+                }
+                return .value(-1)
+            } catch {
+                return .value(-1)
+            }
+        }
+
         engine.setGlobalFunction("__jstorrent_file_verify_chunks") { arguments in
             guard
                 let rootKey = arguments.first?.toString(),

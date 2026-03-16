@@ -240,6 +240,10 @@ export class NodeFileSystem implements IFileSystem {
     return results
   }
 
+  async getFreeDiskSpace(): Promise<number> {
+    return -1
+  }
+
   async listTree(dirPath: string): Promise<Array<{ path: string; size: number }>> {
     const results: Array<{ path: string; size: number }> = []
     const walk = async (dir: string, prefix: string): Promise<void> => {

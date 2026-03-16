@@ -100,6 +100,7 @@ export interface NodeIoDaemonCapabilities {
   fileOps: boolean
   mediaCompleteFile206: boolean
   mediaBlocking206: boolean
+  freeSpace: boolean
 }
 
 export interface NodeIoDaemonRoot {

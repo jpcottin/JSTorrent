@@ -394,6 +394,7 @@ class ControlWebSocketHandler(
                     buildJsonObject {
                         put("roots_manageable", true)
                         put("lan_share_urls", true)
+                        put("free_space", true)
                     }
                 )
             }

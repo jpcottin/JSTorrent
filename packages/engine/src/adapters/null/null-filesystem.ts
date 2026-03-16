@@ -115,6 +115,10 @@ export class NullFileSystem implements IFileSystem {
     return entries
   }
 
+  async getFreeDiskSpace(): Promise<number> {
+    return Infinity
+  }
+
   async verifyChunks(request: VerifyChunksRequest): Promise<Uint8Array> {
     const totalLength = request.files.reduce((sum, file) => sum + file.length, 0)
     const totalChunks = Math.ceil(totalLength / request.chunkSize)

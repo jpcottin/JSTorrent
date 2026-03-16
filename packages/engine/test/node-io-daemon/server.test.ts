@@ -675,6 +675,7 @@ describe('node-io-daemon server', () => {
           capabilities: {
             roots_manageable: true,
             lan_share_urls: true,
+            free_space: true,
           },
         })
       } finally {

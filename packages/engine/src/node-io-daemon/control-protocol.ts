@@ -17,4 +17,5 @@ export interface NodeIoDaemonExternalCapabilities {
   behaviorVersion: number
   roots_manageable: boolean
   lan_share_urls: boolean
+  free_space: boolean
 }

@@ -1,4 +1,5 @@
 import { NodeFileSystem } from './node-filesystem'
+import * as fs from 'fs/promises'
 import * as path from 'path'
 import type { VerifyChunksRequest } from '../../interfaces/filesystem'
 
@@ -36,6 +37,11 @@ export class ScopedNodeFileSystem extends NodeFileSystem {
 
   async batchDelete(directory: string, entries: string[]) {
     return super.batchDelete(this.resolve(directory), entries)
+  }
+
+  async getFreeDiskSpace(): Promise<number> {
+    const stats = await fs.statfs(this.root)
+    return stats.bfree * stats.bsize
   }
 
   async verifyChunks(request: VerifyChunksRequest) {

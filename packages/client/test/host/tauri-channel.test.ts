@@ -235,6 +235,7 @@ describe('TauriChannel', () => {
       expect(channel.getState().daemonInfo?.capabilities).toEqual({
         roots_manageable: true,
         lan_share_urls: true,
+        free_space: false,
       })
 
       channel.disconnect()

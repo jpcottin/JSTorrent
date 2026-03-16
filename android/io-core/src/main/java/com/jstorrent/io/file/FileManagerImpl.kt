@@ -1346,4 +1346,35 @@ class FileManagerImpl(
             }
         }
     }
+
+    override fun getFreeDiskSpace(rootUri: Uri): Long {
+        return when (rootUri.scheme) {
+            "file" -> {
+                val path = rootUri.path ?: return -1
+                try {
+                    val stat = Os.statvfs(path)
+                    stat.f_bavail * stat.f_frsize
+                } catch (e: ErrnoException) {
+                    Log.e(TAG, "statvfs failed for $path", e)
+                    -1
+                }
+            }
+            "content" -> {
+                try {
+                    val docUri = DocumentsContract.buildDocumentUriUsingTree(
+                        rootUri,
+                        DocumentsContract.getTreeDocumentId(rootUri)
+                    )
+                    context.contentResolver.openFileDescriptor(docUri, "r")?.use { pfd ->
+                        val stat = Os.fstatvfs(pfd.fileDescriptor)
+                        stat.f_bavail * stat.f_frsize
+                    } ?: -1
+                } catch (e: Exception) {
+                    Log.e(TAG, "getFreeDiskSpace failed for $rootUri", e)
+                    -1
+                }
+            }
+            else -> -1
+        }
+    }
 }

@@ -178,6 +178,12 @@ export class NodeIoDaemonRootFileSystem {
     }
   }
 
+  async getFreeDiskSpace(): Promise<number> {
+    const rootPath = fileURLToPath(this.rootUri)
+    const stats = await fs.statfs(rootPath)
+    return stats.bfree * stats.bsize
+  }
+
   private resolve(relativePath: string): string {
     const normalized = path.posix.normalize(relativePath)
     if (normalized.startsWith('../') || normalized === '..' || path.posix.isAbsolute(normalized)) {

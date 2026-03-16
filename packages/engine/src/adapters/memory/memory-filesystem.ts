@@ -226,6 +226,10 @@ export class InMemoryFileSystem implements IFileSystem {
     return failed
   }
 
+  async getFreeDiskSpace(): Promise<number> {
+    return Infinity
+  }
+
   async verifyChunks(request: VerifyChunksRequest): Promise<Uint8Array> {
     const { files, chunkSize, hashes } = request
     const totalLength = files.reduce((sum, f) => sum + f.length, 0)

@@ -29,6 +29,7 @@ describe('node-io-daemon capabilities', () => {
       fileOps: true,
       mediaCompleteFile206: true,
       mediaBlocking206: false,
+      freeSpace: true,
     })
   })
 })

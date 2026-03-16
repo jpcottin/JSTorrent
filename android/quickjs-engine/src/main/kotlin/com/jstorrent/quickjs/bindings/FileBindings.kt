@@ -816,6 +816,19 @@ class FileBindings(
             }
         }
 
+        // __jstorrent_file_free_space(rootKey: string): number | string | null
+        ctx.setGlobalFunction("__jstorrent_file_free_space") { args ->
+            val rootKey = args.getOrNull(0) ?: ""
+            val rootUri = resolveRoot(rootKey) ?: return@setGlobalFunction null
+
+            try {
+                fileManager.getFreeDiskSpace(rootUri).toString()
+            } catch (e: Exception) {
+                Log.e(TAG, "getFreeDiskSpace failed", e)
+                null
+            }
+        }
+
         // __jstorrent_file_verify_chunks(rootKey: string, requestJson: string): ArrayBuffer
         ctx.setGlobalFunctionReturnsBinary("__jstorrent_file_verify_chunks") { args, _ ->
             val rootKey = args.getOrNull(0) ?: ""

@@ -87,6 +87,13 @@ export class DaemonFileSystem implements IFileSystem {
     })
   }
 
+  async getFreeDiskSpace(): Promise<number> {
+    const result = await this.connection.request<{ free_space: number }>('GET', '/ops/free_space', {
+      root_key: this.rootKey,
+    })
+    return result.free_space
+  }
+
   async verifyChunks(request: VerifyChunksRequest): Promise<Uint8Array> {
     // Encode hashes as base64 for JSON transport
     let hashesBase64: string

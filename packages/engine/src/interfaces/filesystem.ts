@@ -124,4 +124,10 @@ export interface IFileSystem {
    * @returns List of entry names that failed to delete (empty = all succeeded)
    */
   batchDelete(directory: string, entries: string[]): Promise<string[]>
+
+  /**
+   * Get free disk space on the volume containing this storage root.
+   * Returns bytes available, or -1 if the backend does not support this operation.
+   */
+  getFreeDiskSpace(): Promise<number>
 }

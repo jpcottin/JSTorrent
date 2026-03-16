@@ -13,6 +13,7 @@ export const NODE_IO_DAEMON_CAPABILITIES: NodeIoDaemonCapabilities = {
   fileOps: true,
   mediaCompleteFile206: true,
   mediaBlocking206: false,
+  freeSpace: true,
 }
 
 export function createNodeIoDaemonCapabilities(mediaBlocking206 = false): NodeIoDaemonCapabilities {

@@ -49,6 +49,7 @@ interface GatewayInfo {
 interface DaemonCapabilityPayload {
   roots_manageable?: boolean
   lan_share_urls?: boolean
+  free_space?: boolean
 }
 
 function createOpaqueStreamToken(): string {
@@ -264,6 +265,7 @@ export class TauriChannel implements HostChannel {
               : {
                   roots_manageable: capabilities.roots_manageable !== false,
                   lan_share_urls: capabilities.lan_share_urls === true,
+                  free_space: capabilities.free_space === true,
                 },
           profileId,
         },
@@ -656,6 +658,7 @@ export class TauriChannel implements HostChannel {
                   : {
                       roots_manageable: capabilities.roots_manageable !== false,
                       lan_share_urls: capabilities.lan_share_urls === true,
+                      free_space: capabilities.free_space === true,
                     },
               profileId,
             },

@@ -111,6 +111,18 @@ export class NativeFileSystem implements IFileSystem {
   }
 
   /**
+   * Get free disk space on the volume containing this storage root.
+   */
+  async getFreeDiskSpace(): Promise<number> {
+    const result = __jstorrent_file_free_space(this.rootKey)
+    if (result === null || result === undefined) {
+      return -1
+    }
+    const parsed = typeof result === 'number' ? result : Number(result)
+    return Number.isFinite(parsed) ? parsed : -1
+  }
+
+  /**
    * Verify chunks using native JNI call.
    * Sends file layout + hashes, backend reads and hashes locally.
    */

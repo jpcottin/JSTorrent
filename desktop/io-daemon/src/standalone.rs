@@ -80,6 +80,7 @@ pub struct StatusCapabilities {
     pub file_ops: bool,
     pub media_complete_file206: bool,
     pub media_blocking206: bool,
+    pub free_space: bool,
 }
 
 #[derive(Serialize)]
@@ -171,6 +172,7 @@ async fn status_handler(
             file_ops: true,
             media_complete_file206: true,
             media_blocking206: true,
+            free_space: true,
         },
     })
 }
@@ -331,6 +333,7 @@ mod tests {
                 file_ops: true,
                 media_complete_file206: true,
                 media_blocking206: true,
+                free_space: true,
             },
         };
         let json = serde_json::to_string(&response).unwrap();

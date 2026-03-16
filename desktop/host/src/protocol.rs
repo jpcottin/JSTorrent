@@ -148,6 +148,8 @@ pub struct ProfileListEntry {
 pub struct DaemonCapabilities {
     pub roots_manageable: bool,
     pub lan_share_urls: bool,
+    #[serde(default)]
+    pub free_space: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

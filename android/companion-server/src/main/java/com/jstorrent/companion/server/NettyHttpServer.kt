@@ -42,7 +42,8 @@ private data class StatusCapabilities(
     val rootsWrite: Boolean,
     val fileOps: Boolean,
     val mediaCompleteFile206: Boolean,
-    val mediaBlocking206: Boolean
+    val mediaBlocking206: Boolean,
+    val freeSpace: Boolean = false,
 )
 
 @Serializable
@@ -304,6 +305,7 @@ private class NettyHttpHandler(
                 path.startsWith("/ops/stat") && method == HttpMethod.GET -> handleOpsStat(ctx, request)
                 path.startsWith("/ops/list_tree") && method == HttpMethod.GET -> handleOpsListTree(ctx, request)
                 path == "/ops/verify_chunks" && method == HttpMethod.POST -> handleOpsVerifyChunks(ctx, request)
+                path.startsWith("/ops/free_space") && method == HttpMethod.GET -> handleOpsFreeSpace(ctx, request)
                 path.startsWith("/ops/list") && method == HttpMethod.GET -> handleOpsList(ctx, request)
                 path == "/files/ensure_dir" && method == HttpMethod.POST -> handleEnsureDir(ctx, request)
 
@@ -460,6 +462,7 @@ private class NettyHttpHandler(
                 fileOps = true,
                 mediaCompleteFile206 = true,
                 mediaBlocking206 = true,
+                freeSpace = true,
             )
         )
 
@@ -910,6 +913,38 @@ private class NettyHttpHandler(
         }
         sendJsonResponse(ctx, request, HttpResponseStatus.OK,
             """{"size":${stat.size},"mtime":${stat.mtime},"is_directory":${stat.isDirectory},"is_file":${stat.isFile}}""")
+    }
+
+    /**
+     * Get free disk space for a storage root.
+     * GET /ops/free_space?root_key=...
+     */
+    private fun handleOpsFreeSpace(ctx: ChannelHandlerContext, request: FullHttpRequest) {
+        if (getExtensionHeaders(request) == null && !isStandaloneAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing extension headers")
+            return
+        }
+        if (!validateAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.UNAUTHORIZED, "Invalid token")
+            return
+        }
+
+        val query = QueryStringDecoder(request.uri())
+        val rootKey = query.parameters()["root_key"]?.firstOrNull()
+
+        if (rootKey == null) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing root_key parameter")
+            return
+        }
+
+        val rootUri = deps.rootStore.resolveKey(rootKey)
+        if (rootUri == null) {
+            sendError(ctx, request, HttpResponseStatus.FORBIDDEN, "Invalid root key")
+            return
+        }
+
+        val freeSpace = fileManager.getFreeDiskSpace(rootUri)
+        sendJsonResponse(ctx, request, HttpResponseStatus.OK, """{"free_space":$freeSpace}""")
     }
 
     /**
