@@ -163,7 +163,7 @@ export function FileTable(props: FileTableProps) {
                   } as ContextMenuItem,
                 ]
               : []),
-            { id: 'separator-watch', label: '-' },
+            { id: 'separator-watch', label: '', separator: true },
           ]
         : []),
       {
@@ -191,7 +191,7 @@ export function FileTable(props: FileTableProps) {
             } as ContextMenuItem,
           ]
         : []),
-      { id: 'separator', label: '-' },
+      { id: 'separator', label: '', separator: true },
       {
         id: 'high-priority',
         label: 'High Priority',
@@ -210,7 +210,7 @@ export function FileTable(props: FileTableProps) {
         icon: '▶️',
         disabled: !canUnskipAny,
       },
-      { id: 'separator-delete', label: '-' },
+      { id: 'separator-delete', label: '', separator: true },
       {
         id: 'delete-file-data',
         label:
