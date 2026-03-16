@@ -246,7 +246,9 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
     [pluginService],
   )
 
-  const handleRowContextMenu = useCallback((_row: SearchDisplayResult, x: number, y: number) => {
+  const contextRowRef = useRef<SearchDisplayResult | null>(null)
+  const handleRowContextMenu = useCallback((row: SearchDisplayResult, x: number, y: number) => {
+    contextRowRef.current = row
     setContextMenu({ x, y })
   }, [])
 
@@ -281,11 +283,23 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
   }, [pluginService])
 
   const selectedCount = selectedRows.size
+  const contextRow = contextRowRef.current
   const contextMenuItems: ContextMenuItem[] = [
     {
       id: 'addSelected',
       label: selectedCount > 1 ? `Add ${selectedCount} torrents` : 'Add torrent',
       disabled: selectedCount === 0,
+    },
+    { id: 'sep1', label: '', separator: true },
+    {
+      id: 'copyMagnet',
+      label: 'Copy magnet URL',
+      disabled: !contextRow?.result.magnetUrl,
+    },
+    {
+      id: 'copyTorrentUrl',
+      label: 'Copy torrent URL',
+      disabled: !contextRow?.result.torrentUrl,
     },
   ]
 
@@ -476,6 +490,11 @@ export function SearchTab({ onOpenSearchOverlay }: SearchTabProps) {
           items={contextMenuItems}
           onSelect={(id) => {
             if (id === 'addSelected') void handleAddSelected()
+            else if (id === 'copyMagnet' && contextRowRef.current?.result.magnetUrl) {
+              void navigator.clipboard.writeText(contextRowRef.current.result.magnetUrl)
+            } else if (id === 'copyTorrentUrl' && contextRowRef.current?.result.torrentUrl) {
+              void navigator.clipboard.writeText(contextRowRef.current.result.torrentUrl)
+            }
           }}
           onClose={() => setContextMenu(null)}
         />
