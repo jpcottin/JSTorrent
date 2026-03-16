@@ -17,6 +17,7 @@ export type TorrentActivityState =
   | 'error' // Something went wrong
   | 'queued' // Waiting for active slot
   | 'awaitingFileSelection' // Metadata ready, waiting for user to pick files
+  | 'noFilesChosen' // All files set to skip
   | 'done' // Complete, not in an active seed slot
 
 /**
@@ -29,6 +30,7 @@ export function computeActivityState(
   isChecking: boolean,
   progress: number,
   hasError: boolean,
+  noFilesWanted?: boolean,
 ): TorrentActivityState {
   // Engine suspended = everything stopped
   if (engineSuspended) return 'stopped'
@@ -50,6 +52,9 @@ export function computeActivityState(
 
   // No metadata yet
   if (!hasMetadata) return 'downloading_metadata'
+
+  // All files skipped
+  if (noFilesWanted) return 'noFilesChosen'
 
   // Complete
   if (progress >= 1) return 'seeding'

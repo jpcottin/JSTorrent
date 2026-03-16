@@ -60,6 +60,7 @@ export const torrentColumns: ColumnDef<Torrent>[] = [
         return `${(t.checkingProgress * 100).toFixed(0)}% checking`
       }
       if (t.activityState === 'awaitingFileSelection') return 'select files'
+      if (t.activityState === 'noFilesChosen') return 'no files chosen'
       return t.activityState === 'done' ? 'seeding' : t.activityState
     },
     width: 100,
@@ -71,9 +72,11 @@ export const torrentColumns: ColumnDef<Torrent>[] = [
             'text-decoration': 'underline dotted',
             cursor: 'help',
           }
-        : t.activityState === 'queued' || t.activityState === 'awaitingFileSelection'
-          ? { color: 'var(--text-secondary)' }
-          : undefined,
+        : t.activityState === 'awaitingFileSelection' || t.activityState === 'noFilesChosen'
+          ? { color: 'var(--accent-warning, #e6a817)', 'font-weight': '500' }
+          : t.activityState === 'queued'
+            ? { color: 'var(--text-secondary)' }
+            : undefined,
   },
   {
     id: 'downloaded',
@@ -166,7 +169,16 @@ export function TorrentTable(props: TorrentTableProps) {
       onRowClick={props.onRowClick}
       onRowDoubleClick={props.onRowDoubleClick}
       onRowContextMenu={props.onRowContextMenu}
-      isRowActive={(t) => t.activityState !== 'stopped' && t.activityState !== 'queued'}
+      getRowStyle={(t) =>
+        t.activityState === 'awaitingFileSelection' || t.activityState === 'noFilesChosen'
+          ? { 'border-left': '3px solid var(--accent-warning, #e6a817)' }
+          : undefined
+      }
+      isRowActive={(t) =>
+        t.activityState !== 'stopped' &&
+        t.activityState !== 'queued' &&
+        t.activityState !== 'noFilesChosen'
+      }
     />
   )
 }

@@ -373,7 +373,9 @@ export class Torrent extends EngineComponent {
     return this._persisted.userState
   }
   set userState(value: TorrentUserState) {
+    if (this._persisted.userState === value) return
     this._persisted.userState = value
+    ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
   }
 
   get queuePosition(): number | undefined {
@@ -1972,7 +1974,7 @@ export class Torrent extends EngineComponent {
     // If we have file priorities, calculate progress based on wanted pieces
     if (this.pieceClassification.length > 0) {
       const wanted = this.wantedPiecesCount
-      if (wanted === 0) return 1 // All files skipped = 100% (nothing to do)
+      if (wanted === 0) return 0 // All files skipped = no progress
       return this.completedWantedPiecesCount / wanted
     }
 
@@ -2053,6 +2055,7 @@ export class Torrent extends EngineComponent {
       this._isChecking,
       this.progress,
       !!this.errorMessage,
+      this.pieceClassification.length > 0 && this.wantedPiecesCount === 0,
     )
   }
 

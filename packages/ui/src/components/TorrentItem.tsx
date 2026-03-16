@@ -62,6 +62,8 @@ export const TorrentItem: React.FC<TorrentItemProps> = ({
   onShare,
 }) => {
   const isStopped = torrent.userState === 'stopped'
+  const isAwaiting =
+    torrent.activityState === 'awaitingFileSelection' || torrent.activityState === 'noFilesChosen'
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -85,6 +87,7 @@ export const TorrentItem: React.FC<TorrentItemProps> = ({
     <li
       style={{
         border: '1px solid var(--border-color)',
+        borderLeft: isAwaiting ? '3px solid var(--accent-warning, #e6a817)' : undefined,
         borderRadius: '4px',
         padding: 'var(--spacing-md)',
         marginBottom: 'var(--spacing-sm)',
@@ -95,9 +98,19 @@ export const TorrentItem: React.FC<TorrentItemProps> = ({
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--spacing-md)' }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 'bold' }}>{torrent.name || 'Loading metadata...'}</div>
-          <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-            {torrent.activityState} | {(torrent.progress * 100).toFixed(1)}% | {torrent.numPeers}{' '}
-            peers | {torrent.files.length} files
+          <div
+            style={{
+              fontSize: 'var(--font-sm)',
+              color: isAwaiting ? 'var(--accent-warning, #e6a817)' : 'var(--text-secondary)',
+            }}
+          >
+            {torrent.activityState === 'noFilesChosen'
+              ? 'no files chosen'
+              : isAwaiting
+                ? 'select files'
+                : torrent.activityState}{' '}
+            | {(torrent.progress * 100).toFixed(1)}% | {torrent.numPeers} peers |{' '}
+            {torrent.files.length} files
             {torrent.contentStorage?.getTotalSize()
               ? ` | ${formatBytes(torrent.contentStorage.getTotalSize())}`
               : ''}
