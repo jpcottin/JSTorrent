@@ -133,6 +133,9 @@ export class TorrentParser {
     if (piecesBuffer.length % 20 !== 0) {
       throw new Error('Invalid torrent: pieces length must be multiple of 20')
     }
+    if (piecesBuffer.length === 0) {
+      throw new Error('Invalid torrent: zero pieces')
+    }
 
     const pieces: Uint8Array[] = []
     for (let i = 0; i < piecesBuffer.length; i += 20) {
@@ -184,6 +187,10 @@ export class TorrentParser {
         length: totalLength,
         offset: 0,
       })
+    }
+
+    if (totalLength === 0) {
+      throw new Error('Invalid torrent: zero total size')
     }
 
     const announce: string[] = []
