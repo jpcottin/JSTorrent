@@ -890,6 +890,11 @@ export class Torrent extends EngineComponent {
     return this.btEngine.storageRootManager.getRootForTorrent(this.infoHashStr)
   }
 
+  /** Set the storage root for this torrent */
+  setStorageRoot(rootKey: string): void {
+    this.btEngine.storageRootManager.setRootForTorrent(this.infoHashStr, rootKey)
+  }
+
   get bitfield(): BitField | undefined {
     return this._bitfield
   }

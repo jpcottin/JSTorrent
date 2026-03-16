@@ -539,6 +539,14 @@ export const configSchema = {
     extensionOnly: true,
   },
 
+  /** Show file selection modal when adding torrents. */
+  showFileSelection: {
+    type: 'boolean',
+    category: 'setting',
+    storage: 'local',
+    default: true,
+  },
+
   // ===========================================================================
   // Settings: Logging
   // ===========================================================================

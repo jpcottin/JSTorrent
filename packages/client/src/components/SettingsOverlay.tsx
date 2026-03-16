@@ -22,6 +22,7 @@ function buildConfigSnapshot(config: ConfigHub) {
     // Behavior
     keepAwake: config.keepAwake.get(),
     preventBackgroundThrottling: config.preventBackgroundThrottling.get(),
+    showFileSelection: config.showFileSelection.get(),
     // UI
     theme: config.theme.get(),
     progressBarStyle: config.progressBarStyle.get(),
@@ -598,6 +599,12 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
             onChange={(v) => config.set('preventBackgroundThrottling', v)}
           />
         )}
+        <ToggleRow
+          label="Show file selection when adding torrents"
+          sublabel="Choose which files to download and where to save them"
+          checked={settings.showFileSelection}
+          onChange={(v) => config.set('showFileSelection', v)}
+        />
       </Section>
 
       <Section title="About">

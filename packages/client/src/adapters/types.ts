@@ -24,7 +24,7 @@ export interface EngineAdapter {
   /** Add a torrent from magnet link or .torrent buffer */
   addTorrent(
     magnetOrBuffer: string | Uint8Array,
-    options?: { userState?: 'active' | 'stopped' },
+    options?: { userState?: 'active' | 'stopped' | 'awaitingFileSelection' },
   ): Promise<{ torrent: Torrent | null; isDuplicate: boolean }>
 
   /** Remove a torrent */
@@ -99,7 +99,7 @@ export class DirectEngineAdapter implements EngineAdapter {
 
   async addTorrent(
     magnetOrBuffer: string | Uint8Array,
-    options?: { userState?: 'active' | 'stopped' },
+    options?: { userState?: 'active' | 'stopped' | 'awaitingFileSelection' },
   ): Promise<{ torrent: Torrent | null; isDuplicate: boolean }> {
     return this.engine.addTorrent(magnetOrBuffer, options)
   }

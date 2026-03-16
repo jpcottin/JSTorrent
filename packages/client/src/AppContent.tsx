@@ -26,9 +26,12 @@ import {
   ContextMenuItem,
   ToastProvider,
   useToast,
+  FileSelectionModal,
 } from '@jstorrent/ui'
+import type { FileSelectionFile } from '@jstorrent/ui'
 import { useEngineState } from './hooks/useEngineState'
 import { useConfigValue } from './context/ConfigContext'
+import { useEngineManager } from './context/EngineManagerContext'
 import { copyTextToClipboard } from './utils/clipboard'
 import { standaloneAlert } from './utils/dialogs'
 import type { VideoPopupLaunchOptions } from './host/types'
@@ -138,6 +141,9 @@ function AppContentInner({
   const { adapter, torrents, refresh } = useEngineState()
   const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const engineManager = useEngineManager()
+  const [showFileSelection, setShowFileSelection] = useConfigValue('showFileSelection')
+  const [defaultRootKey] = useConfigValue('defaultRootKey')
   const popupVideoSessionRef = useRef<ReturnType<typeof createVideoPopupSessionHost> | null>(null)
 
   const {
@@ -176,14 +182,74 @@ function AppContentInner({
     hasSelection && selectedTorrentObjects.some((t) => t.activityState === 'checking')
   const allForceActive = hasSelection && selectedTorrentObjects.every((t) => t.forceActive)
 
+  // File selection modal queue — torrents awaiting user file selection, ordered by addedAt
+  const awaitingTorrents = useMemo(() => {
+    return torrents
+      .filter((t) => t.userState === 'awaitingFileSelection')
+      .sort((a, b) => (a.addedAt ?? 0) - (b.addedAt ?? 0))
+  }, [torrents])
+  const currentAwaitingTorrent = awaitingTorrents[0] ?? null
+
+  const fileSelectionFiles: FileSelectionFile[] = useMemo(() => {
+    if (!currentAwaitingTorrent?.hasMetadata) return []
+    return (currentAwaitingTorrent.files ?? []).map((f) => ({
+      index: f.index,
+      path: f.path,
+      filename: f.filename,
+      folder: f.folder,
+      length: f.length,
+    }))
+  }, [currentAwaitingTorrent])
+
+  const fileSelectionRoots = useMemo(() => {
+    return engineManager.getRoots().map((r) => ({
+      key: r.key,
+      label: r.label,
+      path: r.path,
+    }))
+  }, [engineManager, torrents]) // torrents dep to re-derive on engine events
+
+  const handleFileSelectionConfirm = async (rootKey: string, fileIndices: number[]) => {
+    if (!currentAwaitingTorrent) return
+    // Skip files not in the selection
+    const selectedSet = new Set(fileIndices)
+    for (const file of currentAwaitingTorrent.files ?? []) {
+      if (!selectedSet.has(file.index)) {
+        currentAwaitingTorrent.setFilePriority(file.index, 1) // 1 = skip
+      }
+    }
+    currentAwaitingTorrent.setStorageRoot(rootKey)
+    currentAwaitingTorrent.userState = 'active'
+    await currentAwaitingTorrent.start()
+    refresh()
+  }
+
+  const handleFileSelectionConfirmAll = async (rootKey: string) => {
+    if (!currentAwaitingTorrent) return
+    currentAwaitingTorrent.setStorageRoot(rootKey)
+    currentAwaitingTorrent.userState = 'active'
+    await currentAwaitingTorrent.start()
+    refresh()
+  }
+
+  const handleFileSelectionCancel = async () => {
+    if (!currentAwaitingTorrent) return
+    await adapter.removeTorrent(currentAwaitingTorrent)
+    refresh()
+  }
+
   // --- Action handlers ---
+
+  const addTorrentOptions = showFileSelection
+    ? { userState: 'awaitingFileSelection' as const }
+    : undefined
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     try {
       const buffer = await file.arrayBuffer()
-      const result = await adapter.addTorrent(new Uint8Array(buffer))
+      const result = await adapter.addTorrent(new Uint8Array(buffer), addTorrentOptions)
       if (!result.isDuplicate) {
         markDesktopActivated()
         onTorrentAdded?.()
@@ -204,7 +270,7 @@ function AppContentInner({
       return
     }
     try {
-      const result = await adapter.addTorrent(magnetInput)
+      const result = await adapter.addTorrent(magnetInput, addTorrentOptions)
       setMagnetInput('')
       if (!result.isDuplicate) {
         markDesktopActivated()
@@ -905,6 +971,22 @@ function AppContentInner({
           </div>
         </>
       </div>
+
+      {/* File selection modal */}
+      {currentAwaitingTorrent && (
+        <FileSelectionModal
+          torrentName={currentAwaitingTorrent.name || 'Loading...'}
+          hasMetadata={currentAwaitingTorrent.hasMetadata}
+          files={fileSelectionFiles}
+          roots={fileSelectionRoots}
+          defaultRootKey={defaultRootKey}
+          queueCount={awaitingTorrents.length - 1}
+          onConfirm={handleFileSelectionConfirm}
+          onConfirmAll={handleFileSelectionConfirmAll}
+          onCancel={handleFileSelectionCancel}
+          onDontShowAgain={(v) => setShowFileSelection(!v)}
+        />
+      )}
 
       {/* Remove All Data confirmation dialog */}
       {confirmRemoveAll && (

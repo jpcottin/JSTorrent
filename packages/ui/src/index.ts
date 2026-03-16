@@ -7,6 +7,12 @@ export { ContextMenu } from './components/ContextMenu'
 export type { ContextMenuItem, ContextMenuProps } from './components/ContextMenu'
 export { ConfirmDialog } from './components/ConfirmDialog'
 export type { ConfirmDialogProps } from './components/ConfirmDialog'
+export { FileSelectionModal } from './components/FileSelectionModal'
+export type {
+  FileSelectionModalProps,
+  FileSelectionFile,
+  FileSelectionRoot,
+} from './components/FileSelectionModal'
 export { ToastProvider, useToast } from './components/Toast'
 export type { ToastOptions, ToastType } from './components/Toast'
 export { DropdownMenu } from './components/DropdownMenu'

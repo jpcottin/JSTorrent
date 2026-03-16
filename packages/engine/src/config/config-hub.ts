@@ -211,6 +211,9 @@ export interface ConfigHub extends ConfigValueMap {
   /** Prevent background throttling. Extension-only. */
   readonly preventBackgroundThrottling: ConfigValue<boolean>
 
+  /** Show file selection modal when adding torrents. */
+  readonly showFileSelection: ConfigValue<boolean>
+
   // ===========================================================================
   // Settings: Logging
   // ===========================================================================

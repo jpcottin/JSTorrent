@@ -59,6 +59,7 @@ export const torrentColumns: ColumnDef<Torrent>[] = [
       if (t.activityState === 'checking') {
         return `${(t.checkingProgress * 100).toFixed(0)}% checking`
       }
+      if (t.activityState === 'awaitingFileSelection') return 'select files'
       return t.activityState === 'done' ? 'seeding' : t.activityState
     },
     width: 100,
@@ -70,7 +71,7 @@ export const torrentColumns: ColumnDef<Torrent>[] = [
             'text-decoration': 'underline dotted',
             cursor: 'help',
           }
-        : t.activityState === 'queued'
+        : t.activityState === 'queued' || t.activityState === 'awaitingFileSelection'
           ? { color: 'var(--text-secondary)' }
           : undefined,
   },
