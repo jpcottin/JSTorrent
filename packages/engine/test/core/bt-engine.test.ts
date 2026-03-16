@@ -425,4 +425,141 @@ describe('BtEngine', () => {
       expect(await origExists('test-exists-throw.txt')).toBe(false)
     })
   })
+
+  describe('deleteFileData', () => {
+    it('should delete specific files while keeping others', async () => {
+      const info = {
+        name: 'TestDir',
+        'piece length': 16384,
+        pieces: new Uint8Array(20),
+        files: [
+          { length: 100, path: ['keep.txt'] },
+          { length: 100, path: ['delete.txt'] },
+        ],
+      }
+      const buffer = Bencode.encode({ info })
+      const { torrent } = await client.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      await fileSystem.mkdir('TestDir')
+      for (const path of ['TestDir/keep.txt', 'TestDir/delete.txt']) {
+        const h = await fileSystem.open(path, 'w')
+        await h.write(new Uint8Array(100), 0, 100, 0)
+        await h.close()
+      }
+
+      const result = await client.deleteFileData(torrent, [1])
+      expect(result.success).toBe(true)
+      expect(result.errors).toEqual([])
+      expect(await fileSystem.exists('TestDir/keep.txt')).toBe(true)
+      expect(await fileSystem.exists('TestDir/delete.txt')).toBe(false)
+      // Torrent should still exist in engine
+      expect(client.torrents).toContain(torrent)
+    })
+
+    it('should delete .parts file when all files are deleted', async () => {
+      const info = {
+        name: 'PartsTest',
+        'piece length': 16384,
+        pieces: new Uint8Array(20),
+        files: [
+          { length: 100, path: ['file1.txt'] },
+          { length: 100, path: ['file2.txt'] },
+        ],
+      }
+      const buffer = Bencode.encode({ info })
+      const { torrent } = await client.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      const infoHash = torrent.infoHashStr
+      const partsPath = `${infoHash}.parts`
+
+      // Create content files and a .parts file
+      await fileSystem.mkdir('PartsTest')
+      for (const path of ['PartsTest/file1.txt', 'PartsTest/file2.txt']) {
+        const h = await fileSystem.open(path, 'w')
+        await h.write(new Uint8Array(100), 0, 100, 0)
+        await h.close()
+      }
+      const ph = await fileSystem.open(partsPath, 'w')
+      await ph.write(new Uint8Array(50), 0, 50, 0)
+      await ph.close()
+      expect(await fileSystem.exists(partsPath)).toBe(true)
+
+      // Delete all files
+      const result = await client.deleteFileData(torrent, [0, 1])
+      expect(result.success).toBe(true)
+      expect(result.errors).toEqual([])
+      expect(await fileSystem.exists('PartsTest/file1.txt')).toBe(false)
+      expect(await fileSystem.exists('PartsTest/file2.txt')).toBe(false)
+      expect(await fileSystem.exists(partsPath)).toBe(false)
+      // Root directory should also be cleaned up
+      expect(await fileSystem.exists('PartsTest')).toBe(false)
+    })
+
+    it('should NOT delete .parts file when only some files are deleted', async () => {
+      const info = {
+        name: 'PartsPartial',
+        'piece length': 16384,
+        pieces: new Uint8Array(20),
+        files: [
+          { length: 100, path: ['keep.txt'] },
+          { length: 100, path: ['delete.txt'] },
+        ],
+      }
+      const buffer = Bencode.encode({ info })
+      const { torrent } = await client.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      const infoHash = torrent.infoHashStr
+      const partsPath = `${infoHash}.parts`
+
+      await fileSystem.mkdir('PartsPartial')
+      for (const path of ['PartsPartial/keep.txt', 'PartsPartial/delete.txt']) {
+        const h = await fileSystem.open(path, 'w')
+        await h.write(new Uint8Array(100), 0, 100, 0)
+        await h.close()
+      }
+      const ph = await fileSystem.open(partsPath, 'w')
+      await ph.write(new Uint8Array(50), 0, 50, 0)
+      await ph.close()
+
+      // Delete only one file
+      const result = await client.deleteFileData(torrent, [1])
+      expect(result.success).toBe(true)
+      expect(await fileSystem.exists('PartsPartial/keep.txt')).toBe(true)
+      expect(await fileSystem.exists('PartsPartial/delete.txt')).toBe(false)
+      // .parts file should still exist
+      expect(await fileSystem.exists(partsPath)).toBe(true)
+    })
+
+    it('should delete single-file torrent and .parts when all selected', async () => {
+      const info = {
+        name: 'single-file.txt',
+        'piece length': 16384,
+        pieces: new Uint8Array(20),
+        length: 1000,
+      }
+      const buffer = Bencode.encode({ info })
+      const { torrent } = await client.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      const infoHash = torrent.infoHashStr
+      const partsPath = `${infoHash}.parts`
+
+      const h = await fileSystem.open('single-file.txt', 'w')
+      await h.write(new Uint8Array(1000), 0, 1000, 0)
+      await h.close()
+      const ph = await fileSystem.open(partsPath, 'w')
+      await ph.write(new Uint8Array(50), 0, 50, 0)
+      await ph.close()
+
+      const result = await client.deleteFileData(torrent, [0])
+      expect(result.success).toBe(true)
+      expect(await fileSystem.exists('single-file.txt')).toBe(false)
+      expect(await fileSystem.exists(partsPath)).toBe(false)
+      // Torrent should still be in the engine
+      expect(client.torrents).toContain(torrent)
+    })
+  })
 })

@@ -71,6 +71,8 @@ export interface DetailPaneProps {
   onWatchVideo?: (torrentHash: string, file: TorrentFileInfo) => void
   /** Callback when user wants to watch a video file in a popup window */
   onWatchVideoInPopup?: (torrentHash: string, file: TorrentFileInfo) => void
+  /** Callback when user wants to delete file data from disk */
+  onDeleteFileData?: (torrentHash: string, fileIndices: number[]) => void
   /** Callback to open logging settings */
   onOpenLoggingSettings?: () => void
   /** Current piece visualization mode */
@@ -246,6 +248,7 @@ export function DetailPane(props: DetailPaneProps) {
               onSetFilePriority={props.onSetFilePriority}
               onWatchVideo={props.onWatchVideo}
               onWatchVideoInPopup={props.onWatchVideoInPopup}
+              onDeleteFileData={props.onDeleteFileData}
             />
           ) : (
             <TorrentPlaceholder selectedCount={props.selectedHashes.size} tabName="files" />

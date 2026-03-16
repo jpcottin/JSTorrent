@@ -113,6 +113,8 @@ export interface FileTableProps {
   onWatchVideo?: (torrentHash: string, file: TorrentFileInfo) => void
   /** Called when user wants to watch a video file in a popup window. */
   onWatchVideoInPopup?: (torrentHash: string, file: TorrentFileInfo) => void
+  /** Called when user wants to delete file data from disk. Receives torrent hash and file indices. */
+  onDeleteFileData?: (torrentHash: string, fileIndices: number[]) => void
 }
 
 /**
@@ -208,6 +210,17 @@ export function FileTable(props: FileTableProps) {
         icon: '▶️',
         disabled: !canUnskipAny,
       },
+      { id: 'separator-delete', label: '-' },
+      {
+        id: 'delete-file-data',
+        label:
+          selectedFiles.length > 1
+            ? `Delete ${selectedFiles.length} Files from Disk`
+            : 'Delete File from Disk',
+        icon: '✕',
+        danger: true,
+        disabled: !selectedFiles.some((f) => f.progress > 0),
+      },
     ]
   }
 
@@ -289,6 +302,17 @@ export function FileTable(props: FileTableProps) {
       case 'unskip':
         handleSetFilePriorityForSelected(0) // 0 = normal
         break
+      case 'delete-file-data': {
+        if (!props.onDeleteFileData) break
+        const torrent = getTorrent()
+        const selectedKeys = props.getSelectedKeys?.() ?? new Set<string>()
+        const selectedFiles = torrent?.files.filter((f) => selectedKeys.has(String(f.index))) ?? []
+        const indices = selectedFiles.filter((f) => f.progress > 0).map((f) => f.index)
+        if (indices.length > 0) {
+          props.onDeleteFileData(props.torrentHash, indices)
+        }
+        break
+      }
     }
   }
 

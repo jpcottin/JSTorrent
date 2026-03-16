@@ -125,6 +125,13 @@ function AppContentInner({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [confirmRemoveAll, setConfirmRemoveAll] = useState<Torrent[] | null>(null)
   const [removingData, setRemovingData] = useState(false)
+  const [confirmDeleteFiles, setConfirmDeleteFiles] = useState<{
+    torrentHash: string
+    fileIndices: number[]
+    fileNames: string[]
+    totalFiles: number
+  } | null>(null)
+  const [deletingFiles, setDeletingFiles] = useState(false)
   const [watchingVideo, setWatchingVideo] = useState<{
     playback: StreamingPlaybackHandle
     fileName: string
@@ -457,6 +464,36 @@ function AppContentInner({
         `Some files could not be deleted:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? `\n...and ${errors.length - 5} more` : ''}`,
       )
     }
+  }
+
+  const handleDeleteFileDataRequest = (torrentHash: string, fileIndices: number[]) => {
+    const torrent = adapter.getTorrent(torrentHash)
+    if (!torrent) return
+    const files = torrent.files
+    const fileNames = fileIndices.map((i) => files[i]?.filename ?? `file ${i}`).filter(Boolean)
+    setConfirmDeleteFiles({
+      torrentHash,
+      fileIndices,
+      fileNames,
+      totalFiles: files.length,
+    })
+  }
+
+  const handleDeleteFileDataConfirm = async () => {
+    if (!confirmDeleteFiles || deletingFiles) return
+    setDeletingFiles(true)
+    const torrent = adapter.getTorrent(confirmDeleteFiles.torrentHash)
+    if (torrent) {
+      const result = await adapter.deleteFileData(torrent, confirmDeleteFiles.fileIndices)
+      if (result.errors.length > 0) {
+        standaloneAlert(
+          `Some files could not be deleted:\n${result.errors.slice(0, 5).join('\n')}${result.errors.length > 5 ? `\n...and ${result.errors.length - 5} more` : ''}`,
+        )
+      }
+    }
+    setDeletingFiles(false)
+    setConfirmDeleteFiles(null)
+    refresh()
   }
 
   const handleCopyMagnet = async () => {
@@ -838,6 +875,7 @@ function AppContentInner({
                 }}
                 onWatchVideo={handleWatchVideo}
                 onWatchVideoInPopup={onOpenVideoPopup ? handleWatchVideoInPopup : undefined}
+                onDeleteFileData={handleDeleteFileDataRequest}
                 onOpenLoggingSettings={onOpenLoggingSettings}
                 pieceViewMode={pieceViewMode}
                 onPieceViewModeChange={setPieceViewMode}
@@ -862,6 +900,25 @@ function AppContentInner({
           loading={removingData}
           onConfirm={handleRemoveWithDataConfirm}
           onCancel={() => setConfirmRemoveAll(null)}
+        />
+      )}
+
+      {/* Delete File Data confirmation dialog */}
+      {confirmDeleteFiles && (
+        <ConfirmDialog
+          title="Delete File Data"
+          message={
+            confirmDeleteFiles.fileIndices.length === 1
+              ? `Permanently delete "${confirmDeleteFiles.fileNames[0]}" from disk?${confirmDeleteFiles.totalFiles === 1 ? ' The .parts file will also be deleted.' : ''} This cannot be undone.`
+              : `Permanently delete ${confirmDeleteFiles.fileIndices.length} files from disk?${confirmDeleteFiles.fileIndices.length === confirmDeleteFiles.totalFiles ? ' The .parts file will also be deleted.' : ''} This cannot be undone.`
+          }
+          confirmLabel={
+            confirmDeleteFiles.fileIndices.length === 1 ? 'Delete File' : 'Delete Files'
+          }
+          danger
+          loading={deletingFiles}
+          onConfirm={handleDeleteFileDataConfirm}
+          onCancel={() => setConfirmDeleteFiles(null)}
         />
       )}
 

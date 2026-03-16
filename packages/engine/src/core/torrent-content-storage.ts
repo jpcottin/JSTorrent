@@ -118,6 +118,22 @@ export class TorrentContentStorage extends EngineComponent {
   }
 
   /**
+   * Close cached file handles for specific paths.
+   * Must be called before deleting files from disk to release file descriptors.
+   */
+  async closeFileHandles(paths: string[]): Promise<void> {
+    for (const path of paths) {
+      const handle = this.fileHandles.get(path)
+      if (handle) {
+        await handle.close()
+        this.fileHandles.delete(path)
+      }
+      this.openingFiles.delete(path)
+      this.failedPaths.delete(path)
+    }
+  }
+
+  /**
    * Get or open a file handle, caching for reuse.
    *
    * Caching is an optimization for Node.js where file descriptors are expensive to open.

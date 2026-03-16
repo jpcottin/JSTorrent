@@ -1113,6 +1113,124 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   }
 
   /**
+   * Delete specific files from disk for a torrent without removing the torrent itself.
+   * Closes file handles first, deletes the files, and if all files are deleted,
+   * also deletes the .parts file and the torrent root directory.
+   */
+  async deleteFileData(
+    torrent: Torrent,
+    fileIndices: number[],
+  ): Promise<{ success: boolean; errors: string[] }> {
+    const errors: string[] = []
+    const infoHash = toHex(torrent.infoHash)
+
+    if (!torrent.contentStorage) {
+      return { success: false, errors: ['No content storage'] }
+    }
+
+    let fs: IFileSystem | null = null
+    try {
+      fs = this.storageRootManager.getFileSystemForTorrent(infoHash)
+    } catch {
+      return { success: false, errors: ['No storage root'] }
+    }
+
+    const allFiles = torrent.contentStorage.filesList
+    const filesToDelete = fileIndices
+      .map((i) => allFiles[i])
+      .filter((f): f is (typeof allFiles)[number] => f !== undefined)
+
+    if (filesToDelete.length === 0) {
+      return { success: true, errors: [] }
+    }
+
+    // Close file handles for the files we're about to delete
+    await torrent.contentStorage.closeFileHandles(filesToDelete.map((f) => f.path))
+
+    const isMultiFile = allFiles[0].path.indexOf('/') >= 0
+    const deletingAll = filesToDelete.length === allFiles.length
+
+    // Group files by parent directory for batchDelete
+    const dirToEntries = new Map<string, string[]>()
+    for (const file of filesToDelete) {
+      const lastSlash = file.path.lastIndexOf('/')
+      if (lastSlash >= 0) {
+        const dir = file.path.substring(0, lastSlash)
+        const name = file.path.substring(lastSlash + 1)
+        const entries = dirToEntries.get(dir)
+        if (entries) entries.push(name)
+        else dirToEntries.set(dir, [name])
+      } else {
+        // Single-file torrent or root-level file
+        try {
+          await fs.delete(file.path)
+        } catch (e) {
+          errors.push(`${file.path}: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    }
+
+    // Delete grouped files bottom-up
+    const sortedDirs = [...dirToEntries.keys()].sort(
+      (a, b) => b.split('/').length - a.split('/').length,
+    )
+
+    const deletedSubdirs = new Map<string, string[]>()
+    for (const dir of sortedDirs) {
+      const entries = dirToEntries.get(dir)!
+      const subdirEntries = deletedSubdirs.get(dir)
+      if (subdirEntries) entries.push(...subdirEntries)
+      try {
+        const failed = await fs.batchDelete(dir, entries)
+        for (const name of failed) {
+          errors.push(`${dir}/${name}: failed to delete`)
+        }
+        if (failed.length === 0) {
+          const parentSlash = dir.lastIndexOf('/')
+          if (parentSlash >= 0) {
+            const parentDir = dir.substring(0, parentSlash)
+            const subdirName = dir.substring(parentSlash + 1)
+            const parentSubdirs = deletedSubdirs.get(parentDir)
+            if (parentSubdirs) parentSubdirs.push(subdirName)
+            else deletedSubdirs.set(parentDir, [subdirName])
+          }
+        }
+      } catch (e) {
+        errors.push(`${dir}: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+
+    // If deleting all files, also clean up .parts file and torrent root directory
+    if (deletingAll) {
+      // Delete .parts file
+      try {
+        await fs.delete(`${infoHash}.parts`)
+      } catch {
+        // Ignore — .parts file may not exist
+      }
+
+      // Delete torrent root directory (multi-file only)
+      if (isMultiFile) {
+        const torrentRootDir = allFiles[0].path.substring(0, allFiles[0].path.indexOf('/'))
+        try {
+          const rootSubdirs = deletedSubdirs.get(torrentRootDir)
+          if (rootSubdirs) {
+            const failed = await fs.batchDelete(torrentRootDir, rootSubdirs)
+            for (const name of failed) {
+              errors.push(`${torrentRootDir}/${name}: failed to delete`)
+            }
+          }
+          await fs.delete(torrentRootDir)
+        } catch (e) {
+          errors.push(`${torrentRootDir}: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    }
+
+    return { success: errors.length === 0, errors }
+  }
+
+  /**
    * Batch SHA1 computation for MSE handshake.
    * Uses hasher.sha1Batch if available, otherwise falls back to sequential calls.
    */
