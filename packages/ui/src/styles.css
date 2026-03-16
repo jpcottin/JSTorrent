@@ -39,6 +39,8 @@
   --accent-success: #4caf50;
   --accent-error: #f44336;
   --accent-warning: #ff9800;
+  --accent-info-bg: #eff6ff;
+  --accent-error-bg: #fef2f2;
 
   --button-bg: #eeeeee;
   --button-text: #000000;
@@ -80,6 +82,8 @@
     --accent-success: #5cb85c;
     --accent-error: #f55a4e;
     --accent-warning: #ffb74d;
+    --accent-info-bg: #1a2a3a;
+    --accent-error-bg: #2d1f1f;
 
     --button-bg: #3c3c3c;
     --button-text: #d4d4d4;
@@ -122,6 +126,8 @@
   --accent-success: #5cb85c;
   --accent-error: #f55a4e;
   --accent-warning: #ffb74d;
+  --accent-info-bg: #1a2a3a;
+  --accent-error-bg: #2d1f1f;
 
   --button-bg: #3c3c3c;
   --button-text: #d4d4d4;
@@ -163,6 +169,8 @@
   --accent-success: #4caf50;
   --accent-error: #f44336;
   --accent-warning: #ff9800;
+  --accent-info-bg: #eff6ff;
+  --accent-error-bg: #fef2f2;
 
   --button-bg: #eeeeee;
   --button-text: #000000;
