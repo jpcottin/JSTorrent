@@ -100,9 +100,9 @@ Minimal. The adapter already exposes `addTorrent()` with `userState`, file prior
 
 No new adapter methods needed — `confirmFileSelection` / `confirmAllFiles` / `cancelAwaitingTorrent` are UI-level compositions of existing engine operations.
 
-## Free Disk Space (Future Enhancement)
+## Free Disk Space
 
-Adding `getFreeDiskSpace(path): Promise<number>` to `IFileSystem` requires implementation across all backends (Node, daemon, native, memory, null, iOS). Not required for v1 of this feature — the modal can show storage roots without free space initially, and free space display can be added incrementally.
+`IFileSystem.getFreeDiskSpace()` is implemented across all backends. Each `IFileSystem` instance is scoped to one storage root, so the method takes no parameters and returns available bytes (or -1 if unsupported). Backend capability negotiated via `free_space` boolean in `StatusCapabilities` / `DaemonCapabilities` for backward/forward compat — old backends missing the field are treated as unsupported, and the UI hides free space gracefully.
 
 ## Platform Notes
 
@@ -124,7 +124,7 @@ Not applicable for modal UI. CLI users would use the `so=` magnet parameter or a
 
 ## Implementation Plan
 
-### Phase 1: Engine state model + tests
+### Phase 1: Engine state model + tests ✅
 
 **State changes (`core/torrent-state.ts`):**
 - Add `'awaitingFileSelection'` to `TorrentUserState`
@@ -150,7 +150,7 @@ Integration tests with memory engine:
 - Cancel: remove torrent — verify cleanup
 - Persistence: add torrent in `awaitingFileSelection`, save session, restore — verify torrent restores into same state, no pieces requested
 
-### Phase 2: UI (extension/Tauri)
+### Phase 2: UI (extension/Tauri) ✅
 
 - User preference: "Show file selection when adding torrents" (Always / Never)
 - Modal component: torrent name, storage root dropdown, file tree (with spinner while awaiting metadata), summary bar, action buttons
@@ -159,10 +159,10 @@ Integration tests with memory engine:
 - Torrent list: distinct visual state for `awaitingFileSelection` torrents
 - "Don't show again" checkbox in modal
 
-### Phase 3: Free disk space (deferred)
+### Phase 3: Free disk space ✅
 
-`IFileSystem.getFreeDiskSpace()` across all backends. Surface in modal's storage root dropdown and summary bar warning.
+`IFileSystem.getFreeDiskSpace()` implemented across all backends (Node, ScopedNode, Daemon, Native, Memory, Null) and all backend runtimes (Rust io-daemon, Android FileManager/companion, iOS, Node daemon). Capability negotiated via `free_space` flag. Surfaced in modal's storage root dropdown and summary bar warning.
 
-### Phase 4: Android / iOS native UI (deferred)
+### Phase 4: Android / iOS native UI
 
 Compose dialog (Android) and SwiftUI sheet (iOS) equivalents of the modal. Engine changes from Phase 1 are shared. These are independent of each other and can be done in parallel.

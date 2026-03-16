@@ -13,6 +13,8 @@ export interface FileSelectionRoot {
   key: string
   label: string
   path: string
+  /** Free disk space in bytes, or -1 if unknown */
+  freeSpace?: number
 }
 
 export interface FileSelectionModalProps {
@@ -218,6 +220,10 @@ export function FileSelectionModal({
   }, [files])
 
   const hasRoot = selectedRootKey !== ''
+  const selectedRoot = roots.find((r) => r.key === selectedRootKey)
+  const freeSpace = selectedRoot?.freeSpace
+  const hasFreeSpace = freeSpace != null && freeSpace >= 0
+  const exceedsFreeSpace = hasFreeSpace && selectedSize > freeSpace
 
   const handleConfirm = () => {
     if (!hasRoot) return
@@ -253,6 +259,9 @@ export function FileSelectionModal({
               {roots.map((root) => (
                 <option key={root.key} value={root.key}>
                   {root.label} — {root.path}
+                  {root.freeSpace != null && root.freeSpace >= 0
+                    ? ` (${formatBytes(root.freeSpace)} free)`
+                    : ''}
                 </option>
               ))}
             </select>
@@ -340,8 +349,17 @@ export function FileSelectionModal({
             </div>
 
             {/* Summary */}
-            <div style={summaryStyle}>
+            <div
+              style={{
+                ...summaryStyle,
+                ...(exceedsFreeSpace
+                  ? { color: 'var(--accent-error, #d32f2f)', fontWeight: 500 }
+                  : {}),
+              }}
+            >
               {selectedFiles.size} of {files.length} files selected — {formatBytes(selectedSize)}
+              {hasFreeSpace ? ` / ${formatBytes(freeSpace)} free` : ''}
+              {exceedsFreeSpace ? ' — not enough space' : ''}
             </div>
           </>
         )}

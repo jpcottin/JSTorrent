@@ -76,6 +76,17 @@ export class StorageRootManager {
     return null
   }
 
+  getFileSystemForRoot(key: string): IFileSystem | null {
+    const root = this.roots.get(key)
+    if (!root) return null
+    let fs = this.fsCache.get(key)
+    if (!fs) {
+      fs = this.createFileSystem(root)
+      this.fsCache.set(key, fs)
+    }
+    return fs
+  }
+
   getFileSystemForTorrent(torrentId: string): IFileSystem {
     const root = this.getRootForTorrent(torrentId)
     if (!root) {

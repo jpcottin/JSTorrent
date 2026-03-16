@@ -80,6 +80,8 @@ export interface IEngineManager {
   getRoots(): StorageRoot[]
   getDefaultRootKey(): Promise<string | null>
   setDefaultRoot(key: string): Promise<void>
+  /** Returns free disk space in bytes for the given root, or -1 if unsupported. */
+  getFreeDiskSpace(rootKey: string): Promise<number>
 
   // File operations (optional - check supportsFileOperations first)
   openFile?(torrentHash: string, filePath: string): Promise<FileOperationResult>

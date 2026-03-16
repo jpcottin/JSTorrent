@@ -837,6 +837,17 @@ export class DaemonEngineManager implements IEngineManager {
     return this.readLegacyDefaultRootKey()
   }
 
+  async getFreeDiskSpace(rootKey: string): Promise<number> {
+    if (!this.engine) return -1
+    const fs = this.engine.storageRootManager.getFileSystemForRoot(rootKey)
+    if (!fs) return -1
+    try {
+      return await fs.getFreeDiskSpace()
+    } catch {
+      return -1
+    }
+  }
+
   setLoggingConfig(config: EngineLoggingConfig): void {
     if (!this.engine) {
       console.warn('[DaemonEngineManager] Cannot set logging config: engine not initialized')

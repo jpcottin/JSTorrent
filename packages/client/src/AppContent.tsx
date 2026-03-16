@@ -6,7 +6,7 @@
  * handled via optional callback props.
  */
 import React from 'react'
-import { useState, useRef, useMemo, useCallback } from 'react'
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import {
   Torrent,
   generateMagnet,
@@ -204,10 +204,34 @@ function AppContentInner({
       }))
     : []
 
-  const fileSelectionRoots = engineManager.getRoots().map((r) => ({
+  const rawRoots = engineManager.getRoots()
+  const [rootFreeSpace, setRootFreeSpace] = useState<Record<string, number>>({})
+
+  // Fetch free disk space for all roots when the modal is shown
+  useEffect(() => {
+    if (!currentAwaitingTorrent) return
+    let cancelled = false
+    const fetchSpace = async () => {
+      const result: Record<string, number> = {}
+      await Promise.all(
+        rawRoots.map(async (r) => {
+          const space = await engineManager.getFreeDiskSpace(r.key)
+          result[r.key] = space
+        }),
+      )
+      if (!cancelled) setRootFreeSpace(result)
+    }
+    fetchSpace()
+    return () => {
+      cancelled = true
+    }
+  }, [currentAwaitingTorrent?.infoHash, rawRoots.length])
+
+  const fileSelectionRoots = rawRoots.map((r) => ({
     key: r.key,
     label: r.label,
     path: r.path,
+    freeSpace: rootFreeSpace[r.key] ?? -1,
   }))
 
   const handleFileSelectionConfirm = async (rootKey: string, fileIndices: number[]) => {

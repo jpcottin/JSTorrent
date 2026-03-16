@@ -56,18 +56,25 @@ describe('chromeos connection-complete', () => {
   })
 
   it('buildDaemonCapabilities defaults roots_manageable to true', () => {
-    expect(buildDaemonCapabilities()).toEqual({ roots_manageable: true, lan_share_urls: false })
+    expect(buildDaemonCapabilities()).toEqual({
+      roots_manageable: true,
+      lan_share_urls: false,
+      free_space: false,
+    })
     expect(buildDaemonCapabilities({})).toEqual({
       roots_manageable: true,
       lan_share_urls: false,
+      free_space: false,
     })
     expect(buildDaemonCapabilities({ roots_manageable: false })).toEqual({
       roots_manageable: false,
       lan_share_urls: false,
+      free_space: false,
     })
     expect(buildDaemonCapabilities({ lan_share_urls: true })).toEqual({
       roots_manageable: true,
       lan_share_urls: true,
+      free_space: false,
     })
   })
 
@@ -100,7 +107,7 @@ describe('chromeos connection-complete', () => {
       version: 'unknown',
       roots,
       host: '100.115.92.2',
-      capabilities: { roots_manageable: true, lan_share_urls: false },
+      capabilities: { roots_manageable: true, lan_share_urls: false, free_space: false },
       ioPort: 7801,
       streamingPort: 7802,
     })
