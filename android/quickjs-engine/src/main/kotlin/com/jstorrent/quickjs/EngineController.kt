@@ -528,10 +528,11 @@ class EngineController(
      * Add a torrent (suspend version).
      * Awaits until the torrent is fully added to the engine.
      * Returns parsed result with duplicate detection info.
+     * @param optionsJson Optional JSON string with options, e.g. {"userState":"awaitingFileSelection"}
      */
-    suspend fun addTorrentAsync(magnetOrBase64: String): AddTorrentResult {
+    suspend fun addTorrentAsync(magnetOrBase64: String, optionsJson: String? = null): AddTorrentResult {
         val eng = requireEngine()
-        val result = eng.callGlobalFunctionAwaitPromise("__jstorrent_cmd_add_torrent", magnetOrBase64)
+        val result = eng.callGlobalFunctionAwaitPromise("__jstorrent_cmd_add_torrent", magnetOrBase64, optionsJson)
         Log.i(TAG, "addTorrentAsync completed: $result")
         if (result == null) {
             return AddTorrentResult(ok = false, infoHash = null, isDuplicate = false)
@@ -730,6 +731,27 @@ class EngineController(
     suspend fun removeRootAsync(key: String) {
         requireEngine().callGlobalFunctionAsync("__jstorrent_cmd_remove_root", key.escapeJs())
         Log.i(TAG, "Removed root (async): $key")
+    }
+
+    /**
+     * Assign a storage root to a specific torrent.
+     * Used in the file selection flow before activating a torrent.
+     * @return true if the root was set, false if the root key doesn't exist
+     */
+    suspend fun setTorrentRootAsync(infoHash: String, rootKey: String): Boolean {
+        val result = requireEngine().callGlobalFunctionAsync(
+            "__jstorrent_cmd_set_torrent_root",
+            infoHash.escapeJs(),
+            rootKey.escapeJs()
+        )
+        val resultStr = result?.toString() ?: "{}"
+        return try {
+            val json = JSONObject(resultStr)
+            json.optBoolean("ok", false)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse setTorrentRoot response: $resultStr", e)
+            false
+        }
     }
 
     // =========================================================================

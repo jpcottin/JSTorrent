@@ -37,8 +37,12 @@ final class EngineControllerIntakeTests: XCTestCase {
         }
         func setTickMode(_ mode: EngineTickMode) throws {}
 
-        func addTorrent(_ magnetOrBase64: String) throws {
+        func addTorrent(_ magnetOrBase64: String, optionsJson: String? = nil) throws {
             addedTorrentInputs.append(magnetOrBase64)
+        }
+
+        func setTorrentRoot(_ infoHash: String, rootKey: String) throws -> Bool {
+            return true
         }
 
         func addTestTorrent() throws {

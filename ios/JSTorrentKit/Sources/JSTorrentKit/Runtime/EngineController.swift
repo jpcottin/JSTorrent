@@ -8,7 +8,8 @@ protocol EngineRuntimeHandling: AnyObject {
     func unsubscribe(type: String, hash: String) throws
     func unsubscribeAll(hash: String) throws
     func setTickMode(_ mode: EngineTickMode) throws
-    func addTorrent(_ magnetOrBase64: String) throws
+    func addTorrent(_ magnetOrBase64: String, optionsJson: String?) throws
+    func setTorrentRoot(_ infoHash: String, rootKey: String) throws -> Bool
     func addTestTorrent() throws
     func queryTorrentList() throws -> EngineStatePayload
     func queryFiles(_ infoHash: String) throws -> TorrentFilesPayload
@@ -568,10 +569,11 @@ public final class EngineController: ObservableObject {
 
     private func executeTorrentPayload(
         _ payload: String,
+        optionsJson: String? = nil,
         using runtime: any EngineRuntimeHandling
     ) {
         do {
-            try runtime.addTorrent(payload)
+            try runtime.addTorrent(payload, optionsJson: optionsJson)
             noteSuccessfulCommand()
             scheduleTorrentRefreshes()
         } catch {

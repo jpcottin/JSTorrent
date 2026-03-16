@@ -47,6 +47,7 @@
  */
 
 import type { BtEngine } from '../../core/bt-engine'
+import type { TorrentUserState } from '../../core/torrent-state'
 import { getPendingHashCount } from './native-hasher'
 import type { Torrent } from '../../core/torrent'
 import type { StorageRoot } from '../../storage/types'
@@ -221,6 +222,7 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
    */
   ;(globalThis as Record<string, unknown>).__jstorrent_cmd_add_torrent = async (
     magnetOrBase64: string,
+    optionsJson?: string,
   ): Promise<{
     ok: boolean
     infoHash?: string
@@ -229,6 +231,9 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
     queued?: boolean
     error?: string
   }> => {
+    // Parse options if provided (e.g. {"userState":"awaitingFileSelection"})
+    const options: { userState?: TorrentUserState } = optionsJson ? JSON.parse(optionsJson) : {}
+
     // Queue if engine not ready - this handles the race condition where Kotlin
     // thinks engine is ready (controller exists) but JS engine.init() hasn't completed
     if (!isReady()) {
@@ -237,8 +242,9 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
         // Re-invoke - by the time this runs, engine will be ready
         const fn = (globalThis as Record<string, unknown>).__jstorrent_cmd_add_torrent as (
           m: string,
+          o?: string,
         ) => Promise<unknown>
-        fn(magnetOrBase64)
+        fn(magnetOrBase64, optionsJson)
       })
       return { ok: true, queued: true }
     }
@@ -259,12 +265,12 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
 
       if (isMagnet) {
         console.log('[controller] Adding magnet link...')
-        result = await engine.addTorrent(magnetOrBase64)
+        result = await engine.addTorrent(magnetOrBase64, options)
       } else if (isBareHash) {
         // Convert bare info hash to magnet link
         const magnetLink = bareHashToMagnet(magnetOrBase64)
         console.log('[controller] Adding bare hash as magnet...')
-        result = await engine.addTorrent(magnetLink)
+        result = await engine.addTorrent(magnetLink, options)
       } else {
         // Assume base64-encoded .torrent file
         console.log('[controller] Adding base64 torrent file...')
@@ -273,7 +279,7 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
         for (let i = 0; i < binary.length; i++) {
           bytes[i] = binary.charCodeAt(i)
         }
-        result = await engine.addTorrent(bytes)
+        result = await engine.addTorrent(bytes, options)
       }
 
       if (result.torrent) {
@@ -648,6 +654,25 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
     if (!engine) return
     engine.storageRootManager.removeRoot(key)
     console.log(`[controller] Removed root: ${key}`)
+  }
+
+  /**
+   * Assign a storage root to a specific torrent.
+   * Used in the file selection flow to set where a torrent's files will be saved.
+   */
+  ;(globalThis as Record<string, unknown>).__jstorrent_cmd_set_torrent_root = (
+    infoHash: string,
+    rootKey: string,
+  ): string => {
+    const engine = requireEngine('set_torrent_root')
+    if (!engine) return JSON.stringify({ ok: false, error: 'Engine not ready' })
+    const ok = engine.storageRootManager.setRootForTorrent(infoHash, rootKey)
+    if (ok) {
+      console.log(`[controller] Set torrent root: ${infoHash} -> ${rootKey}`)
+    } else {
+      console.warn(`[controller] Failed to set torrent root: unknown rootKey ${rootKey}`)
+    }
+    return JSON.stringify({ ok })
   }
 
   // ============================================================

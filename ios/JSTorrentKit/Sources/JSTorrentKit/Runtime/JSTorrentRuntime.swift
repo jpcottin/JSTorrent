@@ -142,12 +142,27 @@ public final class JSTorrentRuntime {
         )
     }
 
-    public func addTorrent(_ magnetOrBase64: String) throws {
+    public func addTorrent(_ magnetOrBase64: String, optionsJson: String? = nil) throws {
         let inputLiteral = try jsonLiteral(magnetOrBase64)
+        let optionsArg = optionsJson.map { ", \(try! jsonLiteral($0))" } ?? ""
         _ = try engine.evaluate(
-            "__jstorrent_cmd_add_torrent(\(inputLiteral))",
+            "__jstorrent_cmd_add_torrent(\(inputLiteral)\(optionsArg))",
             filename: "runtime-add-torrent.js"
         )
+    }
+
+    public func setTorrentRoot(_ infoHash: String, rootKey: String) throws -> Bool {
+        let hashLiteral = try jsonLiteral(infoHash)
+        let keyLiteral = try jsonLiteral(rootKey)
+        let result = try engine.evaluate(
+            "__jstorrent_cmd_set_torrent_root(\(hashLiteral), \(keyLiteral))",
+            filename: "runtime-set-torrent-root.js"
+        )?.toString() ?? "{}"
+        guard let data = result.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return json["ok"] as? Bool ?? false
     }
 
     public func addTestTorrent() throws {
