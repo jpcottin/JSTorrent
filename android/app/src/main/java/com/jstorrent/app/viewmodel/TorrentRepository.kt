@@ -40,6 +40,18 @@ interface TorrentRepository {
     fun addTorrent(magnetOrBase64: String)
 
     /**
+     * Add a torrent with options (e.g., userState for file selection flow).
+     * @param optionsJson JSON string with options, e.g. {"userState":"awaitingFileSelection"}
+     */
+    fun addTorrentWithOptions(magnetOrBase64: String, optionsJson: String)
+
+    /**
+     * Assign a storage root to a specific torrent.
+     * Used in the file selection flow before activating a torrent.
+     */
+    fun setTorrentRoot(infoHash: String, rootKey: String)
+
+    /**
      * Pause a torrent by info hash.
      */
     fun pauseTorrent(infoHash: String)

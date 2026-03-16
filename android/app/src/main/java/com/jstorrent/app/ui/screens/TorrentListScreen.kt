@@ -1,5 +1,6 @@
 package com.jstorrent.app.ui.screens
 
+import android.net.Uri
 import android.util.Base64
 import android.util.Log
 import android.widget.Toast
@@ -81,9 +82,13 @@ import com.jstorrent.app.ui.components.SharedMenuItems
 import com.jstorrent.app.ui.components.TorrentCard
 import com.jstorrent.app.ui.dialogs.AddTorrentDialog
 import com.jstorrent.app.ui.dialogs.BulkRemoveTorrentDialog
+import com.jstorrent.app.ui.dialogs.FileSelectionDialog
 import com.jstorrent.app.ui.theme.JSTorrentTheme
 import com.jstorrent.app.JSTorrentApplication
+import com.jstorrent.app.storage.DownloadRoot
+import com.jstorrent.app.storage.RootStore
 import com.jstorrent.app.viewmodel.TorrentListViewModel
+import com.jstorrent.io.file.FileManagerImpl
 import com.jstorrent.quickjs.model.TorrentSummary
 
 /**
@@ -117,6 +122,8 @@ fun TorrentListScreen(
     val pendingTorrents by viewModel.pendingTorrents.collectAsState()
     val pendingRemovalTorrents by viewModel.pendingRemovalTorrents.collectAsState()
     val highlightedTorrent by viewModel.highlightedTorrent.collectAsState()
+    val awaitingTorrents by viewModel.awaitingTorrents.collectAsState()
+    val awaitingTorrentFiles by viewModel.awaitingTorrentFiles.collectAsState()
 
     // Get network restriction status to show "Waiting for WiFi/VPN" status
     // The Application exposes this StateFlow directly, so it's always available
@@ -125,6 +132,24 @@ fun TorrentListScreen(
     val app = context.applicationContext as? JSTorrentApplication
     val networkWaitingStatus by (app?.restrictionStatus
         ?: kotlinx.coroutines.flow.MutableStateFlow<String?>(null)).collectAsState()
+
+    // Roots and free space for file selection dialog
+    var roots by remember { mutableStateOf<List<DownloadRoot>>(emptyList()) }
+    var rootFreeSpace by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
+
+    val showFileSelection = awaitingTorrents.isNotEmpty()
+    LaunchedEffect(showFileSelection) {
+        if (showFileSelection) {
+            val rootStore = RootStore(context)
+            val loadedRoots = rootStore.listRoots()
+            roots = loadedRoots
+            val fileManager = FileManagerImpl(context)
+            rootFreeSpace = loadedRoots.associate { root ->
+                val free = fileManager.getFreeDiskSpace(Uri.parse(root.uri))
+                root.key to free
+            }
+        }
+    }
 
     // Lifecycle-aware subscriptions: pause when screen is not visible (e.g., navigated
     // to detail view or app backgrounded), resume when screen becomes visible again.
@@ -497,6 +522,39 @@ fun TorrentListScreen(
             },
             onBrowseForFile = {
                 torrentFilePicker.launch(arrayOf("application/x-bittorrent"))
+            }
+        )
+    }
+
+    // File selection dialog
+    val currentAwaitingTorrent = awaitingTorrents.firstOrNull()
+    if (currentAwaitingTorrent != null) {
+        FileSelectionDialog(
+            torrentName = currentAwaitingTorrent.name,
+            hasMetadata = currentAwaitingTorrent.hasMetadata,
+            files = awaitingTorrentFiles,
+            roots = roots,
+            rootFreeSpace = rootFreeSpace,
+            defaultRootKey = roots.firstOrNull()?.key,
+            queueCount = (awaitingTorrents.size - 1).coerceAtLeast(0),
+            onConfirm = { rootKey, selectedFileIndices ->
+                viewModel.confirmFileSelection(currentAwaitingTorrent.infoHash, rootKey, selectedFileIndices)
+            },
+            onConfirmAll = { rootKey ->
+                viewModel.confirmAllFiles(currentAwaitingTorrent.infoHash, rootKey)
+            },
+            onCancel = {
+                viewModel.cancelAwaitingTorrent(currentAwaitingTorrent.infoHash)
+            },
+            onDontShowAgain = {
+                viewModel.disableFileSelection()
+            },
+            onAddRootClick = onAddRootClick,
+            onDismiss = {
+                viewModel.confirmAllFiles(
+                    currentAwaitingTorrent.infoHash,
+                    roots.firstOrNull()?.key ?: ""
+                )
             }
         )
     }

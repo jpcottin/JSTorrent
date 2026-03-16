@@ -9,12 +9,15 @@ import com.jstorrent.app.model.TorrentListUiState
 import com.jstorrent.app.model.TorrentSortOrder
 import com.jstorrent.app.model.filterByStatus
 import com.jstorrent.app.model.sortByOrder
+import com.jstorrent.app.settings.SettingsStore
+import com.jstorrent.quickjs.model.FileInfo
 import com.jstorrent.quickjs.model.TorrentSummary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -31,6 +34,7 @@ import kotlinx.coroutines.launch
 class TorrentListViewModel(
     private val repository: TorrentRepository,
     private val cache: TorrentSummaryCache? = null,
+    private val settingsStore: SettingsStore? = null,
     private val onEnsureEngineStarted: () -> Unit = {},
     private val onTorrentAdded: () -> Unit = {}
 ) : ViewModel() {
@@ -409,7 +413,11 @@ class TorrentListViewModel(
     fun addTorrent(magnetOrBase64: String) {
         if (magnetOrBase64.isBlank()) return
         onEnsureEngineStarted()
-        repository.addTorrent(magnetOrBase64)
+        if (settingsStore?.showFileSelection == true) {
+            repository.addTorrentWithOptions(magnetOrBase64, """{"userState":"awaitingFileSelection"}""")
+        } else {
+            repository.addTorrent(magnetOrBase64)
+        }
         onTorrentAdded()
     }
 
@@ -589,6 +597,110 @@ class TorrentListViewModel(
         }
     }
 
+    // =========================================================================
+    // File selection flow
+    // =========================================================================
+
+    /**
+     * Torrents awaiting file selection, sorted by addedAt.
+     * The first entry is the one to show in the dialog.
+     */
+    val awaitingTorrents: StateFlow<List<TorrentSummary>> = repository.state
+        .map { state ->
+            state?.torrents
+                ?.filter { it.userState == "awaitingFileSelection" }
+                ?.sortedBy { it.addedAt }
+                ?: emptyList()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Files for the current awaiting torrent (first in queue).
+     * Updated via subscription when the awaiting torrent changes.
+     */
+    private val _awaitingTorrentFiles = MutableStateFlow<List<FileInfo>>(emptyList())
+    val awaitingTorrentFiles: StateFlow<List<FileInfo>> = _awaitingTorrentFiles.asStateFlow()
+
+    private var filesSubscription: SubscriptionHandle? = null
+    private var subscribedFilesHash: String? = null
+
+    init {
+        // Auto-subscribe to files for the first awaiting torrent
+        viewModelScope.launch {
+            awaitingTorrents
+                .map { it.firstOrNull()?.infoHash }
+                .distinctUntilChanged()
+                .collect { hash ->
+                    if (hash != subscribedFilesHash) {
+                        filesSubscription?.close()
+                        filesSubscription = null
+                        subscribedFilesHash = null
+                        _awaitingTorrentFiles.value = emptyList()
+                    }
+                    if (hash != null) {
+                        subscribedFilesHash = hash
+                        filesSubscription = repository.subscribe("files", hash, 1000)
+                    }
+                }
+        }
+        // Forward files data from engine state
+        viewModelScope.launch {
+            repository.state.collect { state ->
+                val hash = subscribedFilesHash ?: return@collect
+                val files = state?.files?.get(hash)?.files
+                if (files != null) {
+                    _awaitingTorrentFiles.value = files
+                }
+            }
+        }
+    }
+
+    /**
+     * Confirm file selection: set root, set priorities, resume.
+     */
+    fun confirmFileSelection(infoHash: String, rootKey: String, selectedFileIndices: Set<Int>) {
+        onEnsureEngineStarted()
+        repository.setTorrentRoot(infoHash, rootKey)
+        // Build priority map: selected = 0 (Normal), unselected = 1 (Skip)
+        val allFiles = _awaitingTorrentFiles.value
+        if (allFiles.isNotEmpty()) {
+            val priorities = allFiles.associate { file ->
+                file.index to if (file.index in selectedFileIndices) 0 else 1
+            }
+            repository.setFilePriorities(infoHash, priorities)
+        }
+        repository.resumeTorrent(infoHash)
+    }
+
+    /**
+     * Confirm all files (no selection needed, works before metadata arrives).
+     */
+    fun confirmAllFiles(infoHash: String, rootKey: String) {
+        onEnsureEngineStarted()
+        repository.setTorrentRoot(infoHash, rootKey)
+        repository.resumeTorrent(infoHash)
+    }
+
+    /**
+     * Disable file selection dialog permanently ("Don't show again").
+     */
+    fun disableFileSelection() {
+        settingsStore?.showFileSelection = false
+        // Confirm all awaiting torrents with default root
+        val awaiting = awaitingTorrents.value
+        awaiting.forEach { torrent ->
+            confirmAllFiles(torrent.infoHash, "")
+        }
+    }
+
+    /**
+     * Cancel file selection: remove the torrent.
+     */
+    fun cancelAwaitingTorrent(infoHash: String) {
+        onEnsureEngineStarted()
+        repository.removeTorrent(infoHash, deleteFiles = false)
+    }
+
     /**
      * Clean up subscriptions when ViewModel is cleared.
      */
@@ -596,6 +708,8 @@ class TorrentListViewModel(
         super.onCleared()
         torrentsSubscription?.close()
         torrentsSubscription = null
+        filesSubscription?.close()
+        filesSubscription = null
     }
 
     // =========================================================================
@@ -692,6 +806,7 @@ class TorrentListViewModel(
                 return TorrentListViewModel(
                     repository = app.engineServiceRepository,
                     cache = app.torrentSummaryCache,
+                    settingsStore = com.jstorrent.app.settings.SettingsStore(application),
                     onEnsureEngineStarted = { app.ensureEngineStarted() },
                     onTorrentAdded = { metricsStore.incrementTorrentsAdded() }
                 ) as T

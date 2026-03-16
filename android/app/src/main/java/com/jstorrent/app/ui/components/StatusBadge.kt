@@ -96,6 +96,7 @@ fun formatStatusComposable(status: String, checkingProgress: Double = 0.0): Stri
     "removing" -> stringResource(R.string.status_removing)
     "waiting_wifi" -> stringResource(R.string.status_waiting_wifi)
     "waiting_vpn" -> stringResource(R.string.status_waiting_vpn)
+    "awaiting_selection" -> stringResource(R.string.status_awaiting_selection)
     else -> status.replaceFirstChar { it.uppercase() }
 }
 
@@ -115,6 +116,7 @@ fun statusColor(status: String): Color = when (status) {
     "removing" -> MaterialTheme.colorScheme.outline
     "waiting_wifi" -> MaterialTheme.colorScheme.secondary
     "waiting_vpn" -> MaterialTheme.colorScheme.secondary
+    "awaiting_selection" -> MaterialTheme.colorScheme.secondary
     else -> MaterialTheme.colorScheme.onSurface
 }
 

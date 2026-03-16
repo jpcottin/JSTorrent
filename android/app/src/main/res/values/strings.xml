@@ -400,6 +400,7 @@
     <string name="status_removing">Removing…</string>
     <string name="status_waiting_wifi">Waiting for WiFi</string>
     <string name="status_waiting_vpn">Waiting for VPN</string>
+    <string name="status_awaiting_selection">Select files</string>
 
     <!-- SharedMenuItems -->
     <string name="component_shared_menu_speed">Speed</string>

@@ -184,6 +184,20 @@ class EngineServiceRepository(
         }
     }
 
+    override fun addTorrentWithOptions(magnetOrBase64: String, optionsJson: String) {
+        withEngine {
+            val result = it.addTorrentAsync(magnetOrBase64, optionsJson)
+            val hash = result.infoHash
+            if (result.isDuplicate && hash != null) {
+                _duplicateTorrentEvent.tryEmit(hash)
+            }
+        }
+    }
+
+    override fun setTorrentRoot(infoHash: String, rootKey: String) {
+        withEngine { it.setTorrentRootAsync(infoHash, rootKey) }
+    }
+
     override fun pauseTorrent(infoHash: String) {
         withEngine { it.pauseTorrentAsync(infoHash) }
     }

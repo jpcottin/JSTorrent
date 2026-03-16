@@ -86,9 +86,10 @@ fun TorrentCard(
     // because user still intends the torrent to run when network is available.
     // Queued torrents also show pause: user's intent is active, pressing pause → stopped.
     val isPaused = torrent.userState == "stopped"
-    // Override status based on priority: removing > waiting_wifi/vpn > actual status
+    // Override status based on priority: removing > awaiting > waiting_wifi/vpn > actual status
     val displayStatus = when {
         isPendingRemoval -> "removing"
+        torrent.userState == "awaitingFileSelection" -> "awaiting_selection"
         networkWaitingStatus != null && torrent.status == "stopped" && !isPaused -> networkWaitingStatus
         else -> torrent.status
     }

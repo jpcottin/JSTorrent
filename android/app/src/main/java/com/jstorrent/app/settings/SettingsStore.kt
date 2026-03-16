@@ -75,6 +75,18 @@ class SettingsStore(context: Context) {
         set(value) = prefs.edit { putInt(KEY_SHUTDOWN_LOW_BATTERY_THRESHOLD, value.coerceIn(5, 50)) }
 
     // =========================================================================
+    // Torrent Adding (Android-only)
+    // =========================================================================
+
+    /**
+     * Whether to show the file selection dialog when adding torrents.
+     * ON by default for new users.
+     */
+    var showFileSelection: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_FILE_SELECTION, true)
+        set(value) = prefs.edit { putBoolean(KEY_SHOW_FILE_SELECTION, value) }
+
+    // =========================================================================
     // Standalone Behavior (Android-only)
     // =========================================================================
 
@@ -158,6 +170,9 @@ class SettingsStore(context: Context) {
 
     companion object {
         private const val PREFS_NAME = "jstorrent_settings"
+
+        // Torrent adding
+        private const val KEY_SHOW_FILE_SELECTION = "show_file_selection"
 
         // Network restrictions
         private const val KEY_WIFI_ONLY_ENABLED = "wifi_only_enabled"
