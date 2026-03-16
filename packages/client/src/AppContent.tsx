@@ -183,31 +183,29 @@ function AppContentInner({
   const allForceActive = hasSelection && selectedTorrentObjects.every((t) => t.forceActive)
 
   // File selection modal queue — torrents awaiting user file selection, ordered by addedAt
-  const awaitingTorrents = useMemo(() => {
-    return torrents
-      .filter((t) => t.userState === 'awaitingFileSelection')
-      .sort((a, b) => (a.addedAt ?? 0) - (b.addedAt ?? 0))
-  }, [torrents])
+  // Note: no useMemo — torrents is the same array reference across renders (engine mutates
+  // it in place), so memo deps wouldn't detect changes. Recomputing on every render is fine
+  // since this is a cheap filter.
+  const awaitingTorrents = torrents
+    .filter((t) => t.userState === 'awaitingFileSelection')
+    .sort((a, b) => (a.addedAt ?? 0) - (b.addedAt ?? 0))
   const currentAwaitingTorrent = awaitingTorrents[0] ?? null
 
-  const fileSelectionFiles: FileSelectionFile[] = useMemo(() => {
-    if (!currentAwaitingTorrent?.hasMetadata) return []
-    return (currentAwaitingTorrent.files ?? []).map((f) => ({
-      index: f.index,
-      path: f.path,
-      filename: f.filename,
-      folder: f.folder,
-      length: f.length,
-    }))
-  }, [currentAwaitingTorrent])
+  const fileSelectionFiles: FileSelectionFile[] = currentAwaitingTorrent?.hasMetadata
+    ? (currentAwaitingTorrent.files ?? []).map((f) => ({
+        index: f.index,
+        path: f.path,
+        filename: f.filename,
+        folder: f.folder,
+        length: f.length,
+      }))
+    : []
 
-  const fileSelectionRoots = useMemo(() => {
-    return engineManager.getRoots().map((r) => ({
-      key: r.key,
-      label: r.label,
-      path: r.path,
-    }))
-  }, [engineManager, torrents]) // torrents dep to re-derive on engine events
+  const fileSelectionRoots = engineManager.getRoots().map((r) => ({
+    key: r.key,
+    label: r.label,
+    path: r.path,
+  }))
 
   const handleFileSelectionConfirm = async (rootKey: string, fileIndices: number[]) => {
     if (!currentAwaitingTorrent) return
