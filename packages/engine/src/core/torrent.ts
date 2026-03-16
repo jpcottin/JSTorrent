@@ -765,7 +765,7 @@ export class Torrent extends EngineComponent {
       return
     }
 
-    if (this.userState !== 'active') {
+    if (this.userState !== 'active' && this.userState !== 'awaitingFileSelection') {
       this.logger.debug('User state is not active, not starting')
       return
     }
@@ -3168,7 +3168,7 @@ export class Torrent extends EngineComponent {
     }
 
     this._webSeedManager = new WebSeedManager(this.engineInstance, this.createWebSeedHttpClient(), {
-      isNetworkActive: () => this._networkActive,
+      isNetworkActive: () => this._networkActive && this.userState !== 'awaitingFileSelection',
       isComplete: () => this.isComplete,
       hasMetadata: () => this.hasMetadata,
       isDownloadRateLimited: () => this.btEngine.bandwidthTracker.downloadBucket.isLimited,
@@ -3209,7 +3209,7 @@ export class Torrent extends EngineComponent {
       getPiecePriority: () => this.piecePriority,
       getBitfield: () => this._bitfield,
       isKillSwitchEnabled: () => this.isKillSwitchEnabled,
-      isNetworkActive: () => this._networkActive,
+      isNetworkActive: () => this._networkActive && this.userState !== 'awaitingFileSelection',
       isWriteQueueBackpressured: () => this.btEngine.isWriteQueueBackpressured(),
       hasMetadata: () => this.hasMetadata,
       getConnectedPeerCount: () => this.connectedPeers.length,

@@ -1,7 +1,7 @@
 /**
  * User's intent for the torrent - persisted to session store.
  */
-export type TorrentUserState = 'active' | 'stopped' | 'queued'
+export type TorrentUserState = 'active' | 'stopped' | 'queued' | 'awaitingFileSelection'
 
 /**
  * What the torrent is actually doing right now.
@@ -16,6 +16,7 @@ export type TorrentActivityState =
   | 'seeding' // Complete, uploading to peers
   | 'error' // Something went wrong
   | 'queued' // Waiting for active slot
+  | 'awaitingFileSelection' // Metadata ready, waiting for user to pick files
   | 'done' // Complete, not in an active seed slot
 
 /**
@@ -38,6 +39,11 @@ export function computeActivityState(
   // User stopped = stopped, queued = queued
   if (userState === 'stopped') return 'stopped'
   if (userState === 'queued') return progress >= 1 ? 'done' : 'queued'
+
+  // Awaiting file selection: fetching metadata or waiting for user to pick files
+  if (userState === 'awaitingFileSelection') {
+    return hasMetadata ? 'awaitingFileSelection' : 'downloading_metadata'
+  }
 
   // Error state
   if (hasError) return 'error'

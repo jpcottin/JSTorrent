@@ -284,6 +284,14 @@ export class TorrentQueueManager extends EngineComponent {
       // Skip stopped torrents
       if (t.userState === 'stopped') continue
 
+      // awaitingFileSelection: start networking (for metadata) but don't count against limits
+      if (t.userState === 'awaitingFileSelection') {
+        if (!t.isActive) {
+          t.start()
+        }
+        continue
+      }
+
       // Skip torrents that are checking or queued for check — they don't
       // count against download/seed limits
       if (this._activelyChecking.has(t) || this._checkingQueue.includes(t)) continue
@@ -485,7 +493,10 @@ export class TorrentQueueManager extends EngineComponent {
         // Start networking if the torrent should be active.
         // _needsDataCheck is already false and _isChecking is cleared by _doCheckPieces(),
         // so start() will proceed past the check guards to activate networking.
-        if (torrent.userState === 'active' && !this.btEngine.isSuspended) {
+        if (
+          (torrent.userState === 'active' || torrent.userState === 'awaitingFileSelection') &&
+          !this.btEngine.isSuspended
+        ) {
           torrent.start()
         }
 

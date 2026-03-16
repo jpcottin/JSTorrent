@@ -599,7 +599,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       this.queueManager.recalculateImmediate()
     } else {
       for (const torrent of this.torrents) {
-        if (torrent.userState === 'active') {
+        if (torrent.userState === 'active' || torrent.userState === 'awaitingFileSelection') {
           // start() is idempotent and handles all checks internally
           torrent.start()
         }
@@ -923,13 +923,18 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     }
 
     // Start if engine not suspended AND user wants it active
-    if (!this._suspended && torrent.userState === 'active') {
-      if (this.queueManager && options.source !== 'restore') {
-        this.queueManager.onTorrentAdded(torrent)
-      } else if (!this.queueManager) {
+    if (!this._suspended) {
+      if (torrent.userState === 'awaitingFileSelection') {
+        // Start networking immediately for metadata exchange — not subject to queue limits
         await torrent.start()
+      } else if (torrent.userState === 'active') {
+        if (this.queueManager && options.source !== 'restore') {
+          this.queueManager.onTorrentAdded(torrent)
+        } else if (!this.queueManager) {
+          await torrent.start()
+        }
+        // For restore: queue manager handles batch recalculation after all torrents are restored
       }
-      // For restore: queue manager handles batch recalculation after all torrents are restored
     }
 
     return { torrent, isDuplicate: false }

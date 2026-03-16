@@ -55,7 +55,7 @@ export interface TorrentSummary {
   downloadSpeed: number
   uploadSpeed: number
   status: string // TorrentActivityState
-  userState: string // TorrentUserState - user's intended state: 'active' | 'stopped' | 'queued'
+  userState: string // TorrentUserState - user's intended state: 'active' | 'stopped' | 'queued' | 'awaitingFileSelection'
   numPeers: number
   swarmPeers: number
   skippedFilesCount: number
