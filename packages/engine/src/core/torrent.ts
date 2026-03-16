@@ -373,9 +373,7 @@ export class Torrent extends EngineComponent {
     return this._persisted.userState
   }
   set userState(value: TorrentUserState) {
-    if (this._persisted.userState === value) return
     this._persisted.userState = value
-    ;(this.engine as BtEngine).sessionPersistence?.saveTorrentState(this)
   }
 
   get queuePosition(): number | undefined {

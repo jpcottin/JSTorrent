@@ -915,11 +915,12 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       await this.sessionPersistence.saveTorrentFile(input.infoHashStr, input.torrentFileBuffer)
     }
 
-    // Persist torrent list BEFORE starting - must happen before any async work
-    // that could yield control (e.g., torrent.start()), otherwise a quick pause
-    // could interrupt before the list is saved
+    // Persist torrent list and initial state BEFORE starting - must happen before
+    // any async work that could yield control (e.g., torrent.start()), otherwise a
+    // quick pause could interrupt before the list is saved
     if (options.source !== 'restore' && options.source !== 'reset') {
       await this.sessionPersistence.saveTorrentList()
+      await this.sessionPersistence.saveTorrentState(torrent)
     }
 
     // Start if engine not suspended AND user wants it active
