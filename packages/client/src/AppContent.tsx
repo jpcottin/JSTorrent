@@ -212,13 +212,21 @@ function AppContentInner({
 
   const handleFileSelectionConfirm = async (rootKey: string, fileIndices: number[]) => {
     if (!currentAwaitingTorrent) return
-    // Skip files not in the selection
-    const selectedSet = new Set(fileIndices)
-    for (const file of currentAwaitingTorrent.files ?? []) {
-      if (!selectedSet.has(file.index)) {
-        currentAwaitingTorrent.setFilePriority(file.index, 1) // 1 = skip
+
+    if (!currentAwaitingTorrent.hasMetadata) {
+      // Pre-metadata: store selection for when metadata arrives
+      // [] means skip all, [0, 2] means download only those indices
+      currentAwaitingTorrent.magnetSelectOnly = fileIndices
+    } else {
+      // Post-metadata: skip files not in the selection
+      const selectedSet = new Set(fileIndices)
+      for (const file of currentAwaitingTorrent.files ?? []) {
+        if (!selectedSet.has(file.index)) {
+          currentAwaitingTorrent.setFilePriority(file.index, 1) // 1 = skip
+        }
       }
     }
+
     currentAwaitingTorrent.setStorageRoot(rootKey)
     currentAwaitingTorrent.userState = 'active'
     await currentAwaitingTorrent.start()

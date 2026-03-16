@@ -454,5 +454,94 @@ describe('File Skip Prevention', () => {
 
       expect(torrent.filePriorities).toEqual([1, 0, 1, 0])
     })
+
+    it('magnetSelectOnly=[] skips all files on metadata arrival', async () => {
+      const buffer = createMultiFileTorrent({
+        name: 'test-folder',
+        files: [
+          { path: 'a.txt', length: 16384 },
+          { path: 'b.txt', length: 16384 },
+          { path: 'c.txt', length: 16384 },
+        ],
+        pieceLength: 16384,
+      })
+
+      const parsed = await TorrentParser.parse(buffer, engine.hasher)
+      const infoHash = Buffer.from(parsed.infoHash).toString('hex')
+      const magnetLink = `magnet:?xt=urn:btih:${infoHash}`
+
+      const { torrent } = await engine.addTorrent(magnetLink)
+      if (!torrent) throw new Error('Torrent is null')
+
+      // Simulate user clicking "Add" with no files selected pre-metadata
+      torrent.magnetSelectOnly = []
+
+      torrent.emit('metadata', parsed.infoBuffer)
+
+      await vi.waitFor(() => {
+        expect(torrent.hasMetadata).toBe(true)
+      })
+
+      // All files should be skipped
+      expect(torrent.filePriorities).toEqual([1, 1, 1])
+    })
+
+    it('magnetSelectOnly=[1] selects only file 1 on metadata arrival', async () => {
+      const buffer = createMultiFileTorrent({
+        name: 'test-folder',
+        files: [
+          { path: 'a.txt', length: 16384 },
+          { path: 'b.txt', length: 16384 },
+          { path: 'c.txt', length: 16384 },
+        ],
+        pieceLength: 16384,
+      })
+
+      const parsed = await TorrentParser.parse(buffer, engine.hasher)
+      const infoHash = Buffer.from(parsed.infoHash).toString('hex')
+      const magnetLink = `magnet:?xt=urn:btih:${infoHash}`
+
+      const { torrent } = await engine.addTorrent(magnetLink)
+      if (!torrent) throw new Error('Torrent is null')
+
+      torrent.magnetSelectOnly = [1]
+
+      torrent.emit('metadata', parsed.infoBuffer)
+
+      await vi.waitFor(() => {
+        expect(torrent.hasMetadata).toBe(true)
+      })
+
+      expect(torrent.filePriorities).toEqual([1, 0, 1])
+    })
+
+    it('magnetSelectOnly=undefined downloads all files (default)', async () => {
+      const buffer = createMultiFileTorrent({
+        name: 'test-folder',
+        files: [
+          { path: 'a.txt', length: 16384 },
+          { path: 'b.txt', length: 16384 },
+          { path: 'c.txt', length: 16384 },
+        ],
+        pieceLength: 16384,
+      })
+
+      const parsed = await TorrentParser.parse(buffer, engine.hasher)
+      const infoHash = Buffer.from(parsed.infoHash).toString('hex')
+      const magnetLink = `magnet:?xt=urn:btih:${infoHash}`
+
+      const { torrent } = await engine.addTorrent(magnetLink)
+      if (!torrent) throw new Error('Torrent is null')
+
+      // magnetSelectOnly left as undefined (default)
+      torrent.emit('metadata', parsed.infoBuffer)
+
+      await vi.waitFor(() => {
+        expect(torrent.hasMetadata).toBe(true)
+      })
+
+      // All files should be normal priority (all 0s)
+      expect(torrent.filePriorities.every((p) => p === 0)).toBe(true)
+    })
   })
 })

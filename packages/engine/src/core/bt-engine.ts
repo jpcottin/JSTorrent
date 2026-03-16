@@ -839,6 +839,10 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       torrent.magnetUrlSeeds = [...input.magnetUrlSeeds]
     }
 
+    if (input.magnetSelectOnly !== undefined) {
+      torrent.magnetSelectOnly = input.magnetSelectOnly
+    }
+
     // Store origin info for persistence
     if (input.magnetLink) {
       torrent.initFromMagnet(input.magnetLink)
@@ -876,7 +880,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     torrent.on('metadata', async (infoBuffer) => {
       try {
         await initializeTorrentMetadata(this, torrent, infoBuffer, undefined, {
-          magnetSelectOnly: input.magnetSelectOnly,
+          magnetSelectOnly: torrent.magnetSelectOnly,
         })
 
         // Save infodict for future restores

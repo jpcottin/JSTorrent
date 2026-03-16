@@ -78,6 +78,9 @@ export interface TorrentStateData {
 
   // File priorities (absent until metadata received and user sets priorities)
   filePriorities?: number[] // Per-file: 0=normal, 1=skip
+
+  // Magnet file selection intent (before metadata arrives)
+  magnetSelectOnly?: number[] // undefined=all, []=skip all, [0,2]=only these
 }
 
 /**
@@ -160,6 +163,7 @@ export class SessionPersistence {
       downloaded: torrent.totalDownloaded,
       updatedAt: Date.now(),
       filePriorities: torrent.filePriorities?.length > 0 ? [...torrent.filePriorities] : undefined,
+      magnetSelectOnly: torrent.magnetSelectOnly,
     }
 
     await this._store.setJson(stateKey(infoHash), state)
@@ -384,6 +388,11 @@ export class SessionPersistence {
             // Restore file priorities (must be after metadata is initialized)
             if (state.filePriorities && torrent.hasMetadata) {
               torrent.restoreFilePriorities(state.filePriorities)
+            }
+
+            // Restore magnetSelectOnly for magnets awaiting metadata
+            if (state.magnetSelectOnly !== undefined) {
+              torrent.magnetSelectOnly = state.magnetSelectOnly
             }
           }
 

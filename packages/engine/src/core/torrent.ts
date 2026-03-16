@@ -335,6 +335,13 @@ export class Torrent extends EngineComponent {
   public magnetUrlSeeds: string[] = []
 
   /**
+   * File indices to download when metadata arrives (from magnet `so` parameter or UI).
+   * undefined = download all, [] = skip all, [0,2] = only download files 0 and 2.
+   * Persisted in session state so it survives restarts before metadata arrives.
+   */
+  public magnetSelectOnly?: number[]
+
+  /**
    * Web seeds from `.torrent` top-level `url-list`.
    * Only available when the torrent originated from a `.torrent` file.
    */

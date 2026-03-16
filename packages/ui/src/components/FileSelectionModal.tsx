@@ -369,22 +369,20 @@ export function FileSelectionModal({
             <button style={cancelButtonStyle} onClick={onCancel}>
               Cancel
             </button>
-            {hasMetadata && (
-              <button
-                style={{
-                  ...primaryButtonStyle,
-                  ...(!hasRoot ? disabledButtonStyle : {}),
-                }}
-                onClick={handleConfirm}
-                disabled={!hasRoot}
-              >
-                {selectedFiles.size === 0
-                  ? 'Add'
-                  : selectedFiles.size < files.length
-                    ? `Download (${selectedFiles.size})`
-                    : 'Download'}
-              </button>
-            )}
+            <button
+              style={{
+                ...primaryButtonStyle,
+                ...(!hasRoot ? disabledButtonStyle : {}),
+              }}
+              onClick={handleConfirm}
+              disabled={!hasRoot}
+            >
+              {selectedFiles.size === 0
+                ? 'Add'
+                : selectedFiles.size < files.length
+                  ? `Download (${selectedFiles.size})`
+                  : 'Download'}
+            </button>
             <button
               style={{
                 ...primaryButtonStyle,

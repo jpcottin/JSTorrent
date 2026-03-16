@@ -4,6 +4,7 @@ import { InMemoryFileSystem, MemorySessionStore } from '../../src/adapters/memor
 import { ISocketFactory } from '../../src/interfaces/socket'
 import { Bencode } from '../../src/utils/bencode'
 import { StorageRootManager } from '../../src/storage/storage-root-manager'
+import { TorrentParser } from '../../src/core/torrent-parser'
 
 // Mock dependencies
 const mockSocketFactory: ISocketFactory = {
@@ -304,6 +305,98 @@ describe('Session File Priority Persistence', () => {
 
       const state = await engine.sessionPersistence!.loadTorrentState(infoHash)
       expect(state!.filePriorities).toEqual([1, 1, 0])
+    })
+  })
+
+  describe('magnetSelectOnly persistence', () => {
+    it('magnetSelectOnly persists and applies after restore + metadata arrival', async () => {
+      const buffer = createMultiFileTorrent({
+        name: 'test-folder',
+        files: [
+          { path: 'a.txt', length: 16384 },
+          { path: 'b.txt', length: 16384 },
+          { path: 'c.txt', length: 16384 },
+        ],
+        pieceLength: 16384,
+      })
+
+      const parsed = await TorrentParser.parse(buffer, engine.hasher)
+      const infoHash = Buffer.from(parsed.infoHash).toString('hex')
+      const magnetLink = `magnet:?xt=urn:btih:${infoHash}&dn=test`
+
+      // Engine 1: Add magnet, set magnetSelectOnly=[], save
+      const { torrent: torrent1 } = await engine.addTorrent(magnetLink)
+      if (!torrent1) throw new Error('Torrent is null')
+
+      torrent1.magnetSelectOnly = []
+
+      await engine.sessionPersistence!.saveTorrentList()
+      await engine.sessionPersistence!.saveTorrentState(torrent1)
+
+      // Engine 2: Restore session
+      const engine2 = createEngine(fileSystem, sessionStore)
+      await engine2.restoreSession()
+
+      expect(engine2.torrents.length).toBe(1)
+      const torrent2 = engine2.torrents[0]
+
+      // magnetSelectOnly should be restored
+      expect(torrent2.magnetSelectOnly).toEqual([])
+
+      // Now simulate metadata arriving
+      torrent2.emit('metadata', parsed.infoBuffer)
+
+      await vi.waitFor(() => {
+        expect(torrent2.hasMetadata).toBe(true)
+      })
+
+      // All files should be skipped
+      expect(torrent2.filePriorities).toEqual([1, 1, 1])
+    })
+
+    it('filePriorities takes precedence over magnetSelectOnly after metadata', async () => {
+      const buffer = createMultiFileTorrent({
+        name: 'test-folder',
+        files: [
+          { path: 'a.txt', length: 16384 },
+          { path: 'b.txt', length: 16384 },
+          { path: 'c.txt', length: 16384 },
+        ],
+        pieceLength: 16384,
+      })
+
+      const parsed = await TorrentParser.parse(buffer, engine.hasher)
+      const infoHash = Buffer.from(parsed.infoHash).toString('hex')
+      const magnetLink = `magnet:?xt=urn:btih:${infoHash}&dn=test`
+
+      // Engine 1: Add magnet, get metadata, skip all, then unskip file 1
+      const { torrent: torrent1 } = await engine.addTorrent(magnetLink)
+      if (!torrent1) throw new Error('Torrent is null')
+
+      torrent1.magnetSelectOnly = []
+      torrent1.emit('metadata', parsed.infoBuffer)
+
+      await vi.waitFor(() => {
+        expect(torrent1.hasMetadata).toBe(true)
+      })
+
+      // Unskip file 1
+      torrent1.setFilePriority(1, 0)
+      expect(torrent1.filePriorities).toEqual([1, 0, 1])
+
+      // Save state (now has filePriorities)
+      await engine.sessionPersistence!.saveTorrentList()
+      await engine.sessionPersistence!.saveTorrentState(torrent1)
+      await engine.sessionPersistence!.saveTorrentFile(infoHash, buffer)
+
+      // Engine 2: Restore
+      const engine2 = createEngine(fileSystem, sessionStore)
+      await engine2.restoreSession()
+
+      const torrent2 = engine2.torrents[0]
+
+      // filePriorities should be restored, not magnetSelectOnly
+      expect(torrent2.filePriorities).toEqual([1, 0, 1])
     })
   })
 })
