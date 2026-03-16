@@ -156,7 +156,8 @@ When adding a new method (e.g., `listTree`), implement in this order:
 4. **Android FileBindings**: `android/quickjs-engine/.../FileBindings.kt` (register JNI function)
 5. **Android companion HTTP**: `android/companion-server/.../NettyHttpServer.kt` (add endpoint)
 6. **Rust io-daemon**: `desktop/io-daemon/src/files.rs` (add endpoint + route in `main.rs`)
-7. **Verify**: `pnpm typecheck && pnpm test` (engine), `./gradlew :app:compileDebugKotlin` (android), `cargo clippy --workspace` (desktop)
+7. **iOS FileBindings**: `ios/JSTorrentKit/Sources/JSTorrentKit/Bindings/FileBindings.swift`
+8. **Verify**: `pnpm typecheck && pnpm test` (engine), `./gradlew :app:compileDebugKotlin` (android), `cargo clippy --workspace` (desktop), `xcodebuild -scheme JSTorrent -destination 'platform=iOS Simulator,name=iPhone 16' build` (ios)
 
 ### QuickJS FFI: Boolean String Coercion Pitfall
 
