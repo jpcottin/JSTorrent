@@ -11,9 +11,7 @@ import { ControlConnection } from '../../src/adapters/daemon/control-connection'
 import { fetchDaemonRoots, fetchDaemonStatus } from '../../src/adapters/daemon/daemon-client'
 import { DaemonConnection } from '../../src/adapters/daemon/daemon-connection'
 import { DaemonSocketFactory } from '../../src/adapters/daemon/daemon-socket-factory'
-import {
-  createNodeIoDaemonCapabilities,
-} from '../../src/node-io-daemon/capabilities'
+import { createNodeIoDaemonCapabilities } from '../../src/node-io-daemon/capabilities'
 import { buildIoProtocolFrame } from '../../src/node-io-daemon/io-protocol'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
 import type { NodeIoDaemonHttpStreamBridge } from '../../src/node-io-daemon/types'
@@ -705,6 +703,94 @@ describe('node-io-daemon server', () => {
 
       expect(response.statusCode).toBe(200)
       expect(Array.isArray(JSON.parse(response.body.toString('utf8')))).toBe(true)
+    },
+  )
+
+  conformanceCase(
+    'node',
+    'ops.write_atomic.creates_file',
+    'atomically creates a new file via POST /ops/write_atomic/:root_key',
+    async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-write-atomic-'))
+      tempDirs.push(tempDir)
+
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        roots: [
+          {
+            key: 'root-a',
+            uri: pathToFileURL(tempDir).toString(),
+            display_name: 'Temp Root',
+            removable: true,
+            last_stat_ok: true,
+            last_checked: Date.now(),
+          },
+        ],
+      })
+      await daemon.start()
+
+      const data = Buffer.from('{"infohash":"abc123"}', 'utf8')
+      const pathB64 = Buffer.from('.abc123.jstorrent.json').toString('base64')
+
+      const response = await makeRequest(daemon.getStatus().port, '/ops/write_atomic/root-a', {
+        method: 'POST',
+        headers: {
+          'X-JST-Auth': 'secret',
+          'X-Path-Base64': pathB64,
+        },
+        body: data,
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(fs.readFileSync(path.join(tempDir, '.abc123.jstorrent.json'), 'utf8')).toBe(
+        '{"infohash":"abc123"}',
+      )
+    },
+  )
+
+  conformanceCase(
+    'node',
+    'ops.write_atomic.overwrites_existing',
+    'atomically overwrites an existing file via POST /ops/write_atomic/:root_key',
+    async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-io-daemon-write-atomic-'))
+      tempDirs.push(tempDir)
+      fs.writeFileSync(path.join(tempDir, '.test.jstorrent.json'), 'old content')
+
+      daemon = createNodeIoDaemon({
+        host: '127.0.0.1',
+        port: 0,
+        bootstrapMode: 'realistic',
+        authToken: 'secret',
+        roots: [
+          {
+            key: 'root-a',
+            uri: pathToFileURL(tempDir).toString(),
+            display_name: 'Temp Root',
+            removable: true,
+            last_stat_ok: true,
+            last_checked: Date.now(),
+          },
+        ],
+      })
+      await daemon.start()
+
+      const response = await makeRequest(daemon.getStatus().port, '/ops/write_atomic/root-a', {
+        method: 'POST',
+        headers: {
+          'X-JST-Auth': 'secret',
+          'X-Path-Base64': Buffer.from('.test.jstorrent.json').toString('base64'),
+        },
+        body: Buffer.from('new content', 'utf8'),
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(fs.readFileSync(path.join(tempDir, '.test.jstorrent.json'), 'utf8')).toBe(
+        'new content',
+      )
     },
   )
 

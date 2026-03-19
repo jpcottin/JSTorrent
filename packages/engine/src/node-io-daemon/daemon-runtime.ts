@@ -527,6 +527,35 @@ export class NodeIoDaemonRuntime {
       return
     }
 
+    if (pathname.startsWith('/ops/write_atomic/') && req.method === 'POST') {
+      if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
+        this.sendText(res, 401, 'Unauthorized')
+        return
+      }
+
+      const fileSystem = this.getRootFileSystem(pathname.slice('/ops/write_atomic/'.length))
+      if (!fileSystem) {
+        this.sendText(res, 404, 'Unknown root')
+        return
+      }
+
+      const relativePath = this.readPathHeader(req)
+      if (relativePath === null) {
+        this.sendText(res, 400, 'Missing X-Path-Base64')
+        return
+      }
+
+      const body = await this.readBinaryBody(req)
+
+      try {
+        await fileSystem.writeAtomic(relativePath, body)
+        this.sendText(res, 200, 'ok')
+      } catch (error) {
+        this.sendText(res, 500, error instanceof Error ? error.message : String(error))
+      }
+      return
+    }
+
     if (pathname === '/files/ensure_dir' && req.method === 'POST') {
       if (!this.isHttpAuthAccepted(this.readAuthToken(req))) {
         this.sendText(res, 401, 'Unauthorized')

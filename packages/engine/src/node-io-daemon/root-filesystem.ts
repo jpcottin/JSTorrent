@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 export interface NodeIoDaemonRootFsEntry {
@@ -133,6 +133,14 @@ export class NodeIoDaemonRootFileSystem {
     for (const write of writes) {
       await this.write(write.path, write.position, write.data, write.expectedHashHex)
     }
+  }
+
+  async writeAtomic(relativePath: string, data: Uint8Array): Promise<void> {
+    const absolutePath = this.resolve(relativePath)
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true })
+    const tempPath = `${absolutePath}.${randomBytes(6).toString('hex')}.tmp`
+    await fs.writeFile(tempPath, data)
+    await fs.rename(tempPath, absolutePath)
   }
 
   async list(relativePath: string): Promise<string[]> {
