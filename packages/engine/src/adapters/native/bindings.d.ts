@@ -262,6 +262,17 @@ declare global {
   function __jstorrent_file_list_tree(rootKey: string, path: string): string
 
   /**
+   * Atomically write a complete file (write to temp, then rename).
+   * Creates parent directories if needed.
+   * Returns "true"/"false" string (QuickJS FFI limitation — see native-filesystem.ts).
+   */
+  function __jstorrent_file_write_atomic(
+    rootKey: string,
+    path: string,
+    data: ArrayBuffer,
+  ): string | boolean
+
+  /**
    * Get free disk space on the volume containing this storage root.
    * Returns free bytes as a number (or string due to QuickJS FFI),
    * or null if the operation is not supported.

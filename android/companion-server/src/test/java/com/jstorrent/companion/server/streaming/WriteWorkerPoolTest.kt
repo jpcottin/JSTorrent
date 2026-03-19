@@ -77,6 +77,10 @@ class WriteWorkerPoolTest {
                 chunkCount: Long,
             ): ByteArray = ByteArray(chunkCount.toInt())
 
+            override fun writeAtomic(rootUri: Uri, relativePath: String, data: ByteArray) {
+                throw UnsupportedOperationException()
+            }
+
             override fun getFreeDiskSpace(rootUri: Uri): Long = Long.MAX_VALUE
         }
 

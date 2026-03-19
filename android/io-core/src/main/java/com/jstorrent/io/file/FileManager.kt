@@ -205,6 +205,21 @@ interface FileManager {
     ): ByteArray
 
     /**
+     * Atomically write a complete file (write to temp, then rename).
+     *
+     * Creates parent directories if needed. If the process crashes mid-write,
+     * the previous file content (if any) is preserved.
+     *
+     * @param rootUri SAF tree URI for the download root
+     * @param relativePath Path relative to root (e.g., ".abc123.jstorrent.json")
+     * @param data Bytes to write
+     * @throws FileManagerException.CannotCreateFile if file/directories can't be created
+     * @throws FileManagerException.DiskFull if storage is full
+     * @throws FileManagerException.WriteError on I/O error
+     */
+    fun writeAtomic(rootUri: Uri, relativePath: String, data: ByteArray)
+
+    /**
      * Get free disk space on the volume containing this storage root.
      *
      * @param rootUri SAF tree URI for the root

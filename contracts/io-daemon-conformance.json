@@ -140,12 +140,12 @@
     {
       "id": "ops.write_atomic.creates_file",
       "kind": "behavior",
-      "requiredIn": ["node", "rust"]
+      "requiredIn": ["node", "rust", "android"]
     },
     {
       "id": "ops.write_atomic.overwrites_existing",
       "kind": "behavior",
-      "requiredIn": ["node", "rust"]
+      "requiredIn": ["node", "rust", "android"]
     }
   ]
 }

@@ -374,6 +374,78 @@ class FileManagerImpl(
         }
     }
 
+    override fun writeAtomic(rootUri: Uri, relativePath: String, data: ByteArray) {
+        if (isFileUri(rootUri)) {
+            return writeAtomicNative(rootUri, relativePath, data)
+        }
+
+        // SAF: write to temp file, then rename via DocumentsContract
+        try {
+            val parentPath = relativePath.substringBeforeLast('/', "")
+            val fileName = relativePath.substringAfterLast('/')
+            val tmpName = "$fileName.${System.nanoTime()}.tmp"
+            val tmpRelativePath = if (parentPath.isEmpty()) tmpName else "$parentPath/$tmpName"
+
+            // Create parent dirs + write temp file
+            val tmpDoc = getOrCreateFile(rootUri, tmpRelativePath)
+                ?: throw FileManagerException.CannotCreateFile(tmpRelativePath)
+
+            // Write data to temp file
+            context.contentResolver.openOutputStream(tmpDoc.uri, "wt")?.use { out ->
+                out.write(data)
+            } ?: throw FileManagerException.CannotOpenFile(tmpRelativePath)
+
+            // Rename temp -> target (atomic on same filesystem)
+            try {
+                DocumentsContract.renameDocument(context.contentResolver, tmpDoc.uri, fileName)
+                // Invalidate caches for both paths
+                invalidateDocumentCachePath(rootUri, tmpRelativePath)
+                invalidateDocumentCachePath(rootUri, relativePath)
+            } catch (e: Exception) {
+                // Clean up temp file on rename failure
+                try { tmpDoc.delete() } catch (_: Exception) {}
+                invalidateDocumentCachePath(rootUri, tmpRelativePath)
+                throw FileManagerException.WriteError(relativePath, e)
+            }
+        } catch (e: FileManagerException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "writeAtomic SAF failed: ${e.message}", e)
+            val msg = e.message ?: ""
+            when {
+                msg.contains("ENOSPC") || msg.contains("No space") ->
+                    throw FileManagerException.DiskFull(relativePath)
+                else ->
+                    throw FileManagerException.WriteError(relativePath, e)
+            }
+        }
+    }
+
+    private fun writeAtomicNative(rootUri: Uri, relativePath: String, data: ByteArray) {
+        val file = resolveNativeFile(rootUri, relativePath)
+        try {
+            file.parentFile?.mkdirs()
+            val tmp = File(file.parent, "${file.name}.${System.nanoTime()}.tmp")
+            FileOutputStream(tmp).use { out -> out.write(data) }
+            if (!tmp.renameTo(file)) {
+                tmp.delete()
+                throw FileManagerException.WriteError(relativePath,
+                    Exception("rename failed: ${tmp.name} -> ${file.name}"))
+            }
+        } catch (e: FileManagerException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "writeAtomic native failed: ${e.message}", e)
+            val msg = e.message ?: ""
+            when {
+                msg.contains("ENOSPC") || msg.contains("No space") ->
+                    throw FileManagerException.DiskFull(relativePath)
+                else ->
+                    throw FileManagerException.WriteError(relativePath, e)
+            }
+        }
+    }
+
     override fun exists(rootUri: Uri, relativePath: String): Boolean {
         if (isFileUri(rootUri)) {
             return existsNative(rootUri, relativePath)

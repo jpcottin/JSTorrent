@@ -305,6 +305,7 @@ private class NettyHttpHandler(
                 path.startsWith("/ops/stat") && method == HttpMethod.GET -> handleOpsStat(ctx, request)
                 path.startsWith("/ops/list_tree") && method == HttpMethod.GET -> handleOpsListTree(ctx, request)
                 path == "/ops/verify_chunks" && method == HttpMethod.POST -> handleOpsVerifyChunks(ctx, request)
+                path.startsWith("/ops/write_atomic/") && method == HttpMethod.POST -> handleOpsWriteAtomic(ctx, request, path)
                 path.startsWith("/ops/free_space") && method == HttpMethod.GET -> handleOpsFreeSpace(ctx, request)
                 path.startsWith("/ops/list") && method == HttpMethod.GET -> handleOpsList(ctx, request)
                 path == "/files/ensure_dir" && method == HttpMethod.POST -> handleEnsureDir(ctx, request)
@@ -772,6 +773,65 @@ private class NettyHttpHandler(
 
         val exists = fileManager.exists(rootUri, relativePath)
         sendJsonResponse(ctx, request, HttpResponseStatus.OK, """{"exists":$exists}""")
+    }
+
+    /**
+     * Atomically write a file (write to temp, rename).
+     * POST /ops/write_atomic/{root_key}
+     * Headers: X-Path-Base64 — base64-encoded relative path
+     * Body: raw bytes to write
+     */
+    private fun handleOpsWriteAtomic(ctx: ChannelHandlerContext, request: FullHttpRequest, path: String) {
+        if (getExtensionHeaders(request) == null && !isStandaloneAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing extension headers")
+            return
+        }
+        if (!validateAuth(request)) {
+            sendError(ctx, request, HttpResponseStatus.UNAUTHORIZED, "Invalid token")
+            return
+        }
+
+        val rootKey = path.removePrefix("/ops/write_atomic/")
+        if (rootKey.isBlank()) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing root_key")
+            return
+        }
+
+        val pathBase64 = request.headers().get("X-Path-Base64")
+        if (pathBase64 == null) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Missing X-Path-Base64 header")
+            return
+        }
+
+        val relativePath = try {
+            String(Base64.decode(pathBase64, Base64.DEFAULT))
+        } catch (e: Exception) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid base64 in X-Path-Base64")
+            return
+        }
+
+        if (relativePath.contains("..")) {
+            sendError(ctx, request, HttpResponseStatus.BAD_REQUEST, "Invalid path")
+            return
+        }
+
+        val rootUri = deps.rootStore.resolveKey(rootKey)
+        if (rootUri == null) {
+            sendError(ctx, request, HttpResponseStatus.FORBIDDEN, "Invalid root key")
+            return
+        }
+
+        val content = request.content()
+        val body = ByteArray(content.readableBytes())
+        content.readBytes(body)
+
+        try {
+            fileManager.writeAtomic(rootUri, relativePath, body)
+            sendResponse(ctx, request, HttpResponseStatus.OK, "text/plain", "OK")
+        } catch (e: FileManagerException) {
+            val (status, message) = fileManagerExceptionToHttpResponse(e)
+            sendError(ctx, request, status, message)
+        }
     }
 
     /**

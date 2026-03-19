@@ -341,6 +341,44 @@ class DaemonContractHttpConformanceTest : CompanionTestBase() {
     }
 
     @Test
+    fun conformance__ops__write_atomic__creates_file__impl__android() {
+        val data = """{"infohash":"abc123"}""".toByteArray()
+        val pathB64 = android.util.Base64.encodeToString(
+            ".abc123.jstorrent.json".toByteArray(), android.util.Base64.NO_WRAP
+        )
+
+        val response = postBytes(
+            "/ops/write_atomic/$testRootKey",
+            data,
+            extensionHeaders(token) + ("X-Path-Base64" to pathB64)
+        )
+
+        assertEquals(200, response.code)
+        val written = File(testDir, ".abc123.jstorrent.json").readText()
+        assertEquals("""{"infohash":"abc123"}""", written)
+    }
+
+    @Test
+    fun conformance__ops__write_atomic__overwrites_existing__impl__android() {
+        File(testDir, ".test.jstorrent.json").writeText("old content")
+
+        val data = "new content".toByteArray()
+        val pathB64 = android.util.Base64.encodeToString(
+            ".test.jstorrent.json".toByteArray(), android.util.Base64.NO_WRAP
+        )
+
+        val response = postBytes(
+            "/ops/write_atomic/$testRootKey",
+            data,
+            extensionHeaders(token) + ("X-Path-Base64" to pathB64)
+        )
+
+        assertEquals(200, response.code)
+        val written = File(testDir, ".test.jstorrent.json").readText()
+        assertEquals("new content", written)
+    }
+
+    @Test
     fun conformance__files__ensure_dir_creates_directory__impl__android() {
         val response = post(
             "/files/ensure_dir",

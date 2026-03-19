@@ -110,9 +110,12 @@ export class NativeFileSystem implements IFileSystem {
     return JSON.parse(result) as Array<{ path: string; size: number }>
   }
 
-  async writeAtomic(_path: string, _data: Uint8Array): Promise<void> {
-    // TODO: Phase 3 — JNI binding __jstorrent_file_write_atomic
-    throw new Error('writeAtomic not yet implemented for native backend')
+  async writeAtomic(path: string, data: Uint8Array): Promise<void> {
+    // QuickJS FFI returns all values as strings — "false" is truthy in JS
+    const result = __jstorrent_file_write_atomic(this.rootKey, path, data.buffer as ArrayBuffer)
+    if (result !== true && result !== 'true') {
+      throw new Error(`writeAtomic failed: ${path}`)
+    }
   }
 
   /**

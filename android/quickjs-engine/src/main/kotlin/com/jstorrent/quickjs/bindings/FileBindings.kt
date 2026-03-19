@@ -829,6 +829,24 @@ class FileBindings(
             }
         }
 
+        // __jstorrent_file_write_atomic(rootKey: string, path: string, data: ArrayBuffer): string ("true"/"false")
+        // binaryArgIndex=2 means arg[2] (data) is delivered as binary ByteArray
+        ctx.setGlobalFunctionWithBinary("__jstorrent_file_write_atomic", binaryArgIndex = 2) { args, binary ->
+            val rootKey = args.getOrNull(0) ?: ""
+            val path = args.getOrNull(1) ?: ""
+            val data = binary ?: ByteArray(0)
+
+            val rootUri = resolveRoot(rootKey) ?: return@setGlobalFunctionWithBinary "false"
+
+            try {
+                fileManager.writeAtomic(rootUri, path, data)
+                "true"
+            } catch (e: Exception) {
+                Log.e(TAG, "writeAtomic failed: $path", e)
+                "false"
+            }
+        }
+
         // __jstorrent_file_verify_chunks(rootKey: string, requestJson: string): ArrayBuffer
         ctx.setGlobalFunctionReturnsBinary("__jstorrent_file_verify_chunks") { args, _ ->
             val rootKey = args.getOrNull(0) ?: ""
