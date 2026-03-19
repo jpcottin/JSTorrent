@@ -6,9 +6,9 @@ import {
 
 describe('torrent input classification', () => {
   it('flags remote URLs as unsupported manual add input', () => {
-    expect(isUnsupportedRemoteTorrentUrl('https://webtorrent.io/torrents/big-buck-bunny.torrent')).toBe(
-      true,
-    )
+    expect(
+      isUnsupportedRemoteTorrentUrl('https://webtorrent.io/torrents/big-buck-bunny.torrent'),
+    ).toBe(true)
     expect(isUnsupportedRemoteTorrentUrl(' http://example.com/file.torrent ')).toBe(true)
     expect(isUnsupportedRemoteTorrentUrl('file:///Users/test/Downloads/test.torrent')).toBe(true)
   })

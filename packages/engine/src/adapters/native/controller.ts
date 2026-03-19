@@ -288,9 +288,7 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
         try {
           binary = atob(magnetOrBase64)
         } catch {
-          throw new Error(
-            'Unsupported torrent input. Use a magnet link or import a .torrent file.',
-          )
+          throw new Error('Unsupported torrent input. Use a magnet link or import a .torrent file.')
         }
         const bytes = new Uint8Array(binary.length)
         for (let i = 0; i < binary.length; i++) {
