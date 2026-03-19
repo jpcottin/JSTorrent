@@ -72,6 +72,10 @@ function getTorrentSize(t: Torrent): number {
   return (t.piecesCount - 1) * t.pieceLength + t.lastPieceLength
 }
 
+function looksLikeRemoteTorrentUrl(input: string): boolean {
+  return /^(https?|file):\/\//i.test(input.trim())
+}
+
 // Queue for commands that arrive before engine is ready
 // This prevents commands from being silently dropped during engine startup
 const commandQueue: Array<() => void> = []
@@ -272,9 +276,22 @@ export function setupController(getEngine: () => BtEngine | null, isReady: () =>
         console.log('[controller] Adding bare hash as magnet...')
         result = await engine.addTorrent(magnetLink, options)
       } else {
+        if (looksLikeRemoteTorrentUrl(magnetOrBase64)) {
+          throw new Error(
+            'Remote torrent URLs are not supported here. Use a magnet link or import the .torrent file.',
+          )
+        }
+
         // Assume base64-encoded .torrent file
         console.log('[controller] Adding base64 torrent file...')
-        const binary = atob(magnetOrBase64)
+        let binary: string
+        try {
+          binary = atob(magnetOrBase64)
+        } catch {
+          throw new Error(
+            'Unsupported torrent input. Use a magnet link or import a .torrent file.',
+          )
+        }
         const bytes = new Uint8Array(binary.length)
         for (let i = 0; i < binary.length; i++) {
           bytes[i] = binary.charCodeAt(i)

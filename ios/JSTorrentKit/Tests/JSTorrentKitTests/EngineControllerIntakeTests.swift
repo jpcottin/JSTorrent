@@ -125,12 +125,32 @@ final class EngineControllerIntakeTests: XCTestCase {
         }
     }
 
-    private func makeController(runtime: MockRuntime) -> EngineController {
+    private func makeController(
+        runtime: MockRuntime,
+        torrentPayloadDownloader: @escaping TorrentPayloadDownloader = { _ in Data() }
+    ) -> EngineController {
         EngineController(
             bootstrapConfig: EngineBootstrapConfig(contentRoots: []),
             bundle: .main,
-            runtimeFactory: { _, _ in runtime }
+            runtimeFactory: { _, _ in runtime },
+            torrentPayloadDownloader: torrentPayloadDownloader
         )
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 1.0,
+        pollInterval: TimeInterval = 0.01,
+        condition: () -> Bool
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+
+        XCTFail("Timed out waiting for condition")
     }
 
     func testHandleIncomingMagnetURLStartsRuntimeAndForwardsInput() throws {
@@ -165,6 +185,26 @@ final class EngineControllerIntakeTests: XCTestCase {
         controller.handleIncomingURL(torrentURL)
 
         XCTAssertEqual(runtime.addedTorrentInputs, [torrentData.base64EncodedString()])
+    }
+
+    func testAddTorrentRemoteURLDownloadsAndBase64EncodesData() {
+        let runtime = MockRuntime()
+        let torrentData = Data([0x64, 0x31, 0x3A, 0x61, 0x31, 0x3A, 0x62, 0x65])
+        let controller = makeController(
+            runtime: runtime,
+            torrentPayloadDownloader: { _ in torrentData }
+        )
+
+        controller.addTorrent("https://webtorrent.io/torrents/big-buck-bunny.torrent")
+
+        waitUntil {
+            runtime.addedTorrentInputs.count == 1
+        }
+
+        XCTAssertEqual(runtime.addedTorrentInputs, [torrentData.base64EncodedString()])
+        XCTAssertTrue(controller.isStarted)
+
+        controller.suspend()
     }
 
     func testAddTestTorrentStartsRuntimeOnDemand() {

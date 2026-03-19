@@ -22,11 +22,15 @@ function toBase64(buffer: Uint8Array): string {
   return btoa(binary)
 }
 
+function normalizeBase64(base64: string): string {
+  return base64.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/')
+}
+
 /**
  * Convert base64 string back to Uint8Array.
  */
 function fromBase64(base64: string): Uint8Array {
-  const binary = atob(base64)
+  const binary = atob(normalizeBase64(base64))
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i)

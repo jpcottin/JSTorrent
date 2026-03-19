@@ -25,6 +25,8 @@ protocol EngineRuntimeHandling: AnyObject {
     func shutdown() throws
 }
 
+typealias TorrentPayloadDownloader = (URL) async throws -> Data
+
 extension JSTorrentRuntime: EngineRuntimeHandling {
     func prepareDefaultBundle(in bundle: Bundle) throws {
         _ = try loadDefaultBundle(in: bundle)
@@ -37,12 +39,18 @@ extension JSTorrentRuntime: EngineRuntimeHandling {
 
 enum EngineControllerIntakeError: LocalizedError {
     case emptyImportSelection
+    case invalidRemoteResponse
+    case emptyRemoteTorrentData
     case unsupportedURL(URL)
 
     var errorDescription: String? {
         switch self {
         case .emptyImportSelection:
             return "No torrent file was selected."
+        case .invalidRemoteResponse:
+            return "Torrent download returned an invalid response."
+        case .emptyRemoteTorrentData:
+            return "Torrent download returned an empty file."
         case .unsupportedURL(let url):
             return "Unsupported torrent input: \(url.absoluteString)"
         }
@@ -120,6 +128,7 @@ public final class EngineController: ObservableObject {
     private let bundle: Bundle
     private let fileBaseDirectory: URL?
     private let runtimeFactory: (NativeEventSink, URL?) throws -> any EngineRuntimeHandling
+    private let torrentPayloadDownloader: TorrentPayloadDownloader
     private let tickQueue = DispatchQueue(label: "com.jstorrent.ios.tick")
     private var tickTimer: DispatchSourceTimer?
     private let minimumTickDelayMs: Int32 = 1
@@ -145,6 +154,7 @@ public final class EngineController: ObservableObject {
         self.bootstrapConfig = bootstrapConfig
         self.bundle = bundle
         self.fileBaseDirectory = fileBaseDirectory
+        self.torrentPayloadDownloader = Self.downloadTorrentPayload
         self.runtimeFactory = { sink, fileBaseDirectory in
             try JSTorrentRuntime(
                 eventSink: sink,
@@ -158,12 +168,14 @@ public final class EngineController: ObservableObject {
         bootstrapConfig: EngineBootstrapConfig,
         bundle: Bundle = .main,
         fileBaseDirectory: URL? = nil,
-        runtimeFactory: @escaping (NativeEventSink, URL?) throws -> any EngineRuntimeHandling
+        runtimeFactory: @escaping (NativeEventSink, URL?) throws -> any EngineRuntimeHandling,
+        torrentPayloadDownloader: @escaping TorrentPayloadDownloader = EngineController.downloadTorrentPayload
     ) {
         self.bootstrapConfig = bootstrapConfig
         self.bundle = bundle
         self.fileBaseDirectory = fileBaseDirectory
         self.runtimeFactory = runtimeFactory
+        self.torrentPayloadDownloader = torrentPayloadDownloader
     }
 
     public func startIfNeeded() {
@@ -331,6 +343,22 @@ public final class EngineController: ObservableObject {
     public func addTorrent(_ magnetOrBase64: String) {
         let input = magnetOrBase64.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else {
+            return
+        }
+
+        if let remoteURL = remoteTorrentURL(from: input) {
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+
+                do {
+                    let data = try await self.torrentPayloadDownloader(remoteURL)
+                    self.addTorrentFileData(data)
+                } catch {
+                    self.handle(error)
+                }
+            }
             return
         }
 
@@ -590,6 +618,35 @@ public final class EngineController: ObservableObject {
         }
 
         return try Data(contentsOf: url)
+    }
+
+    private func remoteTorrentURL(from input: String) -> URL? {
+        guard let url = URL(string: input),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return nil
+        }
+
+        return url
+    }
+
+    static func downloadTorrentPayload(from url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("JSTorrent-iOS/1.0 (+https://jstorrent.com)", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw EngineControllerIntakeError.invalidRemoteResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        guard !data.isEmpty else {
+            throw EngineControllerIntakeError.emptyRemoteTorrentData
+        }
+
+        return data
     }
 
     private func noteSuccessfulCommand() {

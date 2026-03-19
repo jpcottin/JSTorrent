@@ -36,6 +36,10 @@ import { useEngineManager } from './context/EngineManagerContext'
 import { getUserAddTorrentOptions } from './utils/add-torrent-options'
 import { copyTextToClipboard } from './utils/clipboard'
 import { standaloneAlert } from './utils/dialogs'
+import {
+  isUnsupportedRemoteTorrentUrl,
+  UNSUPPORTED_REMOTE_TORRENT_URL_MESSAGE,
+} from './utils/torrent-input'
 import type { VideoPopupLaunchOptions } from './host/types'
 import { prepareTorrentForVideoPlayback } from './utils/watch-video'
 import { createVideoPopupSessionHost } from './utils/video-popup-session'
@@ -301,8 +305,13 @@ function AppContentInner({
       fileInputRef.current?.click()
       return
     }
+    const input = magnetInput.trim()
+    if (isUnsupportedRemoteTorrentUrl(input)) {
+      toast.show(UNSUPPORTED_REMOTE_TORRENT_URL_MESSAGE, { type: 'error' })
+      return
+    }
     try {
-      const result = await adapter.addTorrent(magnetInput, getUserAddTorrentOptions(configHub))
+      const result = await adapter.addTorrent(input, getUserAddTorrentOptions(configHub))
       setMagnetInput('')
       if (!result.isDuplicate) {
         markDesktopActivated()
@@ -314,6 +323,7 @@ function AppContentInner({
       }
     } catch (e) {
       console.error('Failed to add torrent:', e)
+      toast.show('Failed to add torrent.', { type: 'error' })
     }
   }
 

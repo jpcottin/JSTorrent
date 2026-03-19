@@ -19,10 +19,35 @@ public final class PolyfillBindings {
     }
 
     public func register() {
+        maybeForceBase64Polyfill()
         registerTextBindings()
         registerRandomBindings()
         registerConsoleBindings()
         registerTimerBindings()
+    }
+
+    private func maybeForceBase64Polyfill() {
+#if DEBUG
+        guard ProcessInfo.processInfo.environment["JST_FORCE_BASE64_POLYFILL"] == "1" else {
+            return
+        }
+
+        do {
+            _ = try engine.evaluate(
+                """
+                delete globalThis.atob;
+                delete globalThis.btoa;
+                """,
+                filename: "force-base64-polyfill.js"
+            )
+            logHandler("info", "Forcing JS base64 polyfill for debugging")
+        } catch {
+            logHandler(
+                "warn",
+                "Failed to force JS base64 polyfill: \(error.localizedDescription)"
+            )
+        }
+#endif
     }
 
     private func registerTextBindings() {

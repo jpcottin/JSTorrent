@@ -228,6 +228,10 @@ if (typeof crypto === 'undefined' || !crypto.getRandomValues) {
 
 const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
+function normalizeBase64(base64: string): string {
+  return base64.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/')
+}
+
 if (typeof btoa === 'undefined') {
   ;(globalThis as Record<string, unknown>).btoa = (str: string): string => {
     // Convert string to bytes (Latin-1 encoding)
@@ -257,8 +261,9 @@ if (typeof btoa === 'undefined') {
 
 if (typeof atob === 'undefined') {
   ;(globalThis as Record<string, unknown>).atob = (base64: string): string => {
-    // Remove padding and validate
-    const clean = base64.replace(/=+$/, '')
+    // Match native atob behavior for common persisted data:
+    // ignore ASCII whitespace and accept URL-safe variants.
+    const clean = normalizeBase64(base64).replace(/=+$/, '')
     let result = ''
 
     for (let i = 0; i < clean.length; i += 4) {

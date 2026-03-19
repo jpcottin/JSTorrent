@@ -133,6 +133,14 @@ class FakeTorrentRepository : TorrentRepository {
         addedTorrents.add(magnetOrBase64)
     }
 
+    override fun addTorrentWithOptions(magnetOrBase64: String, optionsJson: String) {
+        addedTorrents.add(magnetOrBase64)
+    }
+
+    override fun setTorrentRoot(infoHash: String, rootKey: String) {
+        // No-op for testing
+    }
+
     override fun pauseTorrent(infoHash: String) {
         pausedTorrents.add(infoHash)
         // Update state to reflect pause
