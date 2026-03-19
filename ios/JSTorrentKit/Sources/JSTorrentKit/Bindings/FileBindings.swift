@@ -675,6 +675,26 @@ public final class FileBindings: @unchecked Sendable {
             }
         }
 
+        engine.setGlobalFunction("__jstorrent_file_write_atomic") { [weak engine] arguments in
+            guard
+                let engine,
+                let rootKey = arguments.first?.toString(),
+                let path = arguments.dropFirst().first?.toString(),
+                let data = try engine.data(from: arguments.dropFirst(2).first),
+                let fileURL = self.resolveFileURL(rootKey: rootKey, relativePath: path)
+            else {
+                return .value("false")
+            }
+
+            do {
+                try self.ensureParentDirectoryExists(for: fileURL)
+                try data.write(to: fileURL, options: .atomic)
+                return .value("true")
+            } catch {
+                return .value("false")
+            }
+        }
+
         engine.setGlobalFunction("__jstorrent_file_verify_chunks") { arguments in
             guard
                 let rootKey = arguments.first?.toString(),
