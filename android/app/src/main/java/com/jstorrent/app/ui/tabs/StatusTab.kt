@@ -98,19 +98,22 @@ private fun ProgressSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             StatusBadge(status = torrent.status, suffix = if (isPartial) stringResource(R.string.tab_status_partial_suffix) else null, checkingProgress = torrent.checkingProgress)
+            val isChecking = torrent.status == "checking"
             Text(
-                text = Formatters.formatPercent(torrent.progress),
+                text = Formatters.formatPercent(if (isChecking) torrent.checkingProgress else torrent.progress),
                 style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.primary
+                color = if (isChecking) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
             )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
         // Progress bar
+        val isChecking = torrent.status == "checking"
         TorrentProgressBar(
-            progress = torrent.progress.toFloat(),
-            modifier = Modifier.fillMaxWidth()
+            progress = if (isChecking) torrent.checkingProgress.toFloat() else torrent.progress.toFloat(),
+            modifier = Modifier.fillMaxWidth(),
+            color = if (isChecking) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
         )
 
         Spacer(modifier = Modifier.height(12.dp))

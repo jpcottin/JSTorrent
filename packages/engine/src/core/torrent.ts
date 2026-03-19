@@ -78,6 +78,14 @@ import {
  */
 export const MAX_INCOMING_RATIO = 0.6
 
+/**
+ * Yield to the macrotask queue between recheck batches so subscription timers
+ * can push intermediate checkingProgress updates to the UI. Without this,
+ * synchronous JNI/native verifyChunks calls resolve as microtasks and the
+ * entire loop completes before any setTimeout-based push fires.
+ */
+const RECHECK_YIELD_TO_MACROTASK = true
+
 // Re-export tick loop constants for consumers
 export { CLEANUP_TICK_INTERVAL, BLOCK_REQUEST_TIMEOUT_MS }
 export type { TickStats }
@@ -4404,6 +4412,7 @@ export class Torrent extends EngineComponent {
 
       verified += batchPieces.length
       this._checkingProgress = verified / totalToVerify
+      if (RECHECK_YIELD_TO_MACROTASK) await new Promise<void>((r) => setTimeout(r, 0))
     }
   }
 
@@ -4423,6 +4432,7 @@ export class Torrent extends EngineComponent {
         this.logger.debug(`Piece ${pieceIndex} read error during recheck:`, { err })
       }
       this._checkingProgress = (i + 1) / piecesToVerify.length
+      if (RECHECK_YIELD_TO_MACROTASK) await new Promise<void>((r) => setTimeout(r, 0))
     }
   }
 

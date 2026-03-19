@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -199,10 +200,13 @@ fun TorrentCard(
                                 overflow = TextOverflow.Ellipsis
                             )
                         } else {
+                            val isChecking = displayStatus == "checking"
                             val partialSuffix = stringResource(R.string.component_torrent_card_partial_suffix)
                             Text(
                                 text = if (!torrent.hasMetadata) {
                                     "—" // Unknown progress for magnets without metadata
+                                } else if (isChecking) {
+                                    Formatters.formatPercent(torrent.checkingProgress)
                                 } else {
                                     buildString {
                                         append(Formatters.formatPercent(torrent.progress))
@@ -213,7 +217,7 @@ fun TorrentCard(
                                     }
                                 },
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (isChecking) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -240,8 +244,10 @@ fun TorrentCard(
                 // Only show progress bar when we have metadata; otherwise show nothing
                 // (status badge already shows "Getting metadata..." when applicable)
                 if (torrent.hasMetadata) {
+                    val isCheckingBar = displayStatus == "checking"
                     TorrentProgressBar(
-                        progress = torrent.progress.toFloat()
+                        progress = if (isCheckingBar) torrent.checkingProgress.toFloat() else torrent.progress.toFloat(),
+                        color = if (isCheckingBar) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
                     )
                 }
 
@@ -308,17 +314,22 @@ fun SimpleTorrentCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val isCheckingSimple = torrent.status == "checking"
                 StatusBadge(status = torrent.status, checkingProgress = torrent.checkingProgress)
                 Text(
-                    text = Formatters.formatPercent(torrent.progress),
-                    style = MaterialTheme.typography.bodySmall
+                    text = Formatters.formatPercent(if (isCheckingSimple) torrent.checkingProgress else torrent.progress),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isCheckingSimple) MaterialTheme.colorScheme.tertiary else Color.Unspecified
                 )
             }
 
             Spacer(modifier = Modifier.height(4.dp))
 
             // Progress bar
-            TorrentProgressBar(progress = torrent.progress.toFloat())
+            TorrentProgressBar(
+                progress = if (torrent.status == "checking") torrent.checkingProgress.toFloat() else torrent.progress.toFloat(),
+                color = if (torrent.status == "checking") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+            )
         }
     }
 }
