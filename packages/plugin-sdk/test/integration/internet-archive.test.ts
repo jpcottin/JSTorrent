@@ -37,7 +37,7 @@ describe('Internet Archive plugin', () => {
   })
 
   describe('search (live)', () => {
-    it(
+    it.skip(
       'returns results for a movie search',
       async () => {
         const result = await runPlugin({

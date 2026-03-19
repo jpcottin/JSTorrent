@@ -76,6 +76,8 @@ class WriteWorkerPoolTest {
                 startChunk: Long,
                 chunkCount: Long,
             ): ByteArray = ByteArray(chunkCount.toInt())
+
+            override fun getFreeDiskSpace(rootUri: Uri): Long = Long.MAX_VALUE
         }
 
         val pool = WriteWorkerPool(
