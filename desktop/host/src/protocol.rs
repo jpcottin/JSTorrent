@@ -150,6 +150,8 @@ pub struct DaemonCapabilities {
     pub lan_share_urls: bool,
     #[serde(default)]
     pub free_space: bool,
+    #[serde(default)]
+    pub write_atomic: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

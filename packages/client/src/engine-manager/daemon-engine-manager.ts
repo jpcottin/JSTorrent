@@ -86,6 +86,13 @@ function concatChunks(chunks: Uint8Array[]): Uint8Array {
   return merged
 }
 
+export function shouldDisableDownloadManifestSetting(
+  daemonInfo: Pick<DaemonInfo, 'capabilities'> | null | undefined,
+  downloadManifestEnabled: boolean,
+): boolean {
+  return downloadManifestEnabled && daemonInfo?.capabilities?.write_atomic !== true
+}
+
 function isRedirectStatus(statusCode: number): boolean {
   return (
     statusCode === 301 ||
@@ -327,6 +334,13 @@ export class DaemonEngineManager implements IEngineManager {
     await configHub.init()
     this.configHub = configHub
     console.log('[DaemonEngineManager] ConfigHub initialized')
+
+    if (shouldDisableDownloadManifestSetting(daemonInfo, configHub.downloadManifest.get())) {
+      console.warn(
+        '[DaemonEngineManager] Disabling downloadManifest because daemon does not advertise write_atomic',
+      )
+      configHub.set('downloadManifest', false)
+    }
 
     // Set initial runtime values from daemon info
     configHub.setRuntime('daemonPort', daemonInfo.port)

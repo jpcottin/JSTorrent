@@ -13,7 +13,6 @@ import { DaemonConnection } from '../../src/adapters/daemon/daemon-connection'
 import { DaemonSocketFactory } from '../../src/adapters/daemon/daemon-socket-factory'
 import {
   createNodeIoDaemonCapabilities,
-  NODE_IO_DAEMON_CAPABILITIES,
 } from '../../src/node-io-daemon/capabilities'
 import { buildIoProtocolFrame } from '../../src/node-io-daemon/io-protocol'
 import { createNodeIoDaemon } from '../../src/node-io-daemon/server'
@@ -676,6 +675,7 @@ describe('node-io-daemon server', () => {
             roots_manageable: true,
             lan_share_urls: true,
             free_space: true,
+            write_atomic: true,
           },
         })
       } finally {

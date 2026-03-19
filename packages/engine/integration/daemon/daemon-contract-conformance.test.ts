@@ -201,7 +201,12 @@ describe('Rust daemon HTTP contract conformance', () => {
           ok: boolean
           protocolVersion?: number
           behaviorVersion?: number
-          capabilities: { roots_manageable: boolean; lan_share_urls: boolean; free_space: boolean }
+          capabilities: {
+            roots_manageable: boolean
+            lan_share_urls: boolean
+            free_space: boolean
+            write_atomic: boolean
+          }
         }>(ws, 0xed, 9, {})
 
         expect(response.opcode).toBe(0xed)
@@ -214,6 +219,7 @@ describe('Rust daemon HTTP contract conformance', () => {
             roots_manageable: false,
             lan_share_urls: true,
             free_space: true,
+            write_atomic: true,
           },
         })
       } finally {

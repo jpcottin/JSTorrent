@@ -236,6 +236,7 @@ describe('TauriChannel', () => {
         roots_manageable: true,
         lan_share_urls: true,
         free_space: false,
+        write_atomic: false,
       })
 
       channel.disconnect()

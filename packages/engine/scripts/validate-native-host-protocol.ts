@@ -203,6 +203,16 @@ function validateResponseShapeAgainstSource(
       /\blan_share_urls: bool\b/,
       `${operationName} DaemonCapabilities lan_share_urls`,
     )
+    requirePattern(
+      protocolSource,
+      /\bfree_space: bool\b/,
+      `${operationName} DaemonCapabilities free_space`,
+    )
+    requirePattern(
+      protocolSource,
+      /\bwrite_atomic: bool\b/,
+      `${operationName} DaemonCapabilities write_atomic`,
+    )
   }
 }
 

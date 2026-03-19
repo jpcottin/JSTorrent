@@ -221,6 +221,14 @@ fn conformance__handshake__capabilities_are_reported__impl__rust() {
         capabilities.get("lan_share_urls").and_then(|v| v.as_bool()),
         Some(true)
     );
+    assert_eq!(
+        capabilities.get("free_space").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        capabilities.get("write_atomic").and_then(|v| v.as_bool()),
+        Some(true)
+    );
 
     drop(stdin);
     if !wait_with_timeout(&mut child, Duration::from_secs(10)) {

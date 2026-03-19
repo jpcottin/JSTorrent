@@ -377,6 +377,7 @@ async fn do_handshake(
                 roots_manageable: true,
                 lan_share_urls: true,
                 free_space: true,
+                write_atomic: true,
             }),
             desktop_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         })

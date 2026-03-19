@@ -18,4 +18,5 @@ export interface NodeIoDaemonExternalCapabilities {
   roots_manageable: boolean
   lan_share_urls: boolean
   free_space: boolean
+  write_atomic: boolean
 }

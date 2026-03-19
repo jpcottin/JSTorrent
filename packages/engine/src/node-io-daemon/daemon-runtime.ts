@@ -1041,6 +1041,7 @@ export class NodeIoDaemonRuntime {
       roots_manageable: true,
       lan_share_urls: true,
       free_space: true,
+      write_atomic: true,
     }
   }
 

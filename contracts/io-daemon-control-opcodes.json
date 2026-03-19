@@ -99,7 +99,9 @@
         "nestedRequired": {
           "capabilities": [
             "roots_manageable",
-            "lan_share_urls"
+            "lan_share_urls",
+            "free_space",
+            "write_atomic"
           ]
         }
       }
