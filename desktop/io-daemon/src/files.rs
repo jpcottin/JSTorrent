@@ -10,7 +10,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use std::io::{ErrorKind, SeekFrom};
-use std::path::PathBuf;
+use std::path::{Component, Path as StdPath, PathBuf};
 use std::sync::Arc;
 use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
@@ -526,8 +526,7 @@ async fn batch_delete(
     let mut failed: Vec<String> = Vec::new();
 
     for entry in &payload.entries {
-        // Reject entries with path separators or traversal
-        if entry.contains('/') || entry.contains('\\') || entry.contains("..") {
+        if !is_single_path_entry(entry) {
             failed.push(entry.clone());
             continue;
         }
@@ -551,6 +550,15 @@ async fn batch_delete(
     }
 
     Ok(Json(failed))
+}
+
+fn is_single_path_entry(entry: &str) -> bool {
+    if entry.is_empty() {
+        return false;
+    }
+
+    let mut components = StdPath::new(entry).components();
+    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
 }
 
 #[derive(Deserialize)]
@@ -650,17 +658,93 @@ pub fn validate_path(
         .ok_or_else(|| (StatusCode::FORBIDDEN, "Invalid root key".to_string()))?;
 
     let root_path = PathBuf::from(&root.path);
+    let safe_root = resolve_with_existing_prefix(&root_path)?;
+    let components = normalized_relative_components(path)?;
 
-    // Prevent directory traversal
-    if path.contains("..") {
+    let mut current = safe_root.clone();
+    for component in components {
+        let candidate = current.join(&component);
+        if candidate.exists() {
+            let resolved = candidate.canonicalize().map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to resolve path: {e}"),
+                )
+            })?;
+            if !resolved.starts_with(&safe_root) {
+                return Err((StatusCode::BAD_REQUEST, "Invalid path".to_string()));
+            }
+            current = resolved;
+        } else {
+            current.push(component);
+        }
+    }
+
+    if !current.starts_with(&safe_root) {
         return Err((StatusCode::BAD_REQUEST, "Invalid path".to_string()));
     }
 
-    // Sanitize path separators
-    let clean_path = path.replace('\\', "/");
-    let clean_path = clean_path.trim_start_matches('/');
+    Ok(current)
+}
 
-    Ok(root_path.join(clean_path))
+fn normalized_relative_components(
+    path: &str,
+) -> Result<Vec<std::ffi::OsString>, (StatusCode, String)> {
+    let mut components = Vec::new();
+
+    for component in StdPath::new(path).components() {
+        match component {
+            Component::Normal(part) => components.push(part.to_os_string()),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err((StatusCode::BAD_REQUEST, "Invalid path".to_string()))
+            }
+        }
+    }
+
+    Ok(components)
+}
+
+fn resolve_with_existing_prefix(path: &StdPath) -> Result<PathBuf, (StatusCode, String)> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to resolve current directory: {e}"),
+                )
+            })?
+            .join(path)
+    };
+
+    let mut current = absolute.clone();
+    let mut missing_components = Vec::new();
+
+    while !current.exists() {
+        let name = current
+            .file_name()
+            .ok_or_else(|| (StatusCode::BAD_REQUEST, "Invalid root path".to_string()))?;
+        missing_components.push(name.to_os_string());
+        current = current
+            .parent()
+            .ok_or_else(|| (StatusCode::BAD_REQUEST, "Invalid root path".to_string()))?
+            .to_path_buf();
+    }
+
+    let mut resolved = current.canonicalize().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to resolve root path: {e}"),
+        )
+    })?;
+
+    for component in missing_components.iter().rev() {
+        resolved.push(component);
+    }
+
+    Ok(resolved)
 }
 
 #[derive(Deserialize)]
@@ -1026,6 +1110,37 @@ mod tests {
         assert_eq!(hash, hash.to_lowercase());
         // Verify uppercase would NOT match (this is intentional behavior)
         assert_ne!(hash, hash.to_uppercase());
+    }
+
+    #[test]
+    fn test_validate_path_rejects_parent_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = make_test_state(dir.path());
+
+        let result = validate_path(&state, "root-a", "../escape.bin");
+        assert!(matches!(result, Err((StatusCode::BAD_REQUEST, _))));
+    }
+
+    #[test]
+    fn test_validate_path_rejects_symlink_escape() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("safe")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("safe").join("escape")).unwrap();
+
+        let state = make_test_state(dir.path());
+        let result = validate_path(&state, "root-a", "safe/escape/file.bin");
+
+        #[cfg(unix)]
+        assert!(matches!(result, Err((StatusCode::BAD_REQUEST, _))));
+    }
+
+    #[test]
+    fn test_is_single_path_entry_allows_literal_double_dots() {
+        assert!(is_single_path_entry("temp....abc"));
+        assert!(!is_single_path_entry("../escape"));
+        assert!(!is_single_path_entry("nested/file"));
     }
 
     #[tokio::test]

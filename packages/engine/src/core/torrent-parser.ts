@@ -7,6 +7,7 @@ import {
   getPreferredTorrentName,
   getPreferredTorrentTextField,
 } from './torrent-metadata'
+import { buildSanitizedTorrentFiles, sanitizeTorrentRootName } from './torrent-path-sanitizer'
 
 export interface ParsedTorrent {
   infoHash: Uint8Array
@@ -105,7 +106,6 @@ export class TorrentParser {
   }
 
   static parseInfoDictionary(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     info: Record<string, unknown>,
     infoHash: Uint8Array,
     announceList?: Uint8Array[][],
@@ -116,8 +116,8 @@ export class TorrentParser {
     createdBy?: string,
     creationDate?: number,
   ): ParsedTorrent {
-    const name = getPreferredTorrentName(info)
-    if (!name) {
+    const rawName = getPreferredTorrentName(info)
+    if (!rawName) {
       throw new Error('Invalid torrent: missing or invalid name')
     }
 
@@ -144,10 +144,13 @@ export class TorrentParser {
 
     const files: TorrentFile[] = []
     let totalLength = 0
+    const infoHashHex = Array.from(infoHash, (byte) => byte.toString(16).padStart(2, '0')).join('')
+    const name = sanitizeTorrentRootName(rawName, infoHashHex)
 
     if (Array.isArray(info.files)) {
       // Multi-file torrent: info.name is the root directory
       let offset = 0
+      const parsedFiles: Array<{ pathParts: string[]; length: number; offset: number }> = []
       for (const file of info.files) {
         if (!file || typeof file !== 'object' || Array.isArray(file)) {
           throw new Error('Invalid torrent: file entry must be a dictionary')
@@ -162,20 +165,15 @@ export class TorrentParser {
         if (pathParts.length !== pathEntries.length) {
           throw new Error('Invalid torrent: file path contains invalid UTF-8')
         }
-        // Path includes torrent name as root directory per BT spec
-        const path = name + '/' + pathParts.join('/')
         const length = (file as Record<string, unknown>).length
         if (typeof length !== 'number') {
           throw new Error('Invalid torrent: file length missing')
         }
-        files.push({
-          path,
-          length,
-          offset,
-        })
+        parsedFiles.push({ pathParts, length, offset })
         offset += length
         totalLength += length
       }
+      files.push(...buildSanitizedTorrentFiles(rawName, infoHashHex, parsedFiles))
     } else {
       // Single file
       if (typeof info.length !== 'number') {

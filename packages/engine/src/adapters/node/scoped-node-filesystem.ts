@@ -1,42 +1,42 @@
 import { NodeFileSystem } from './node-filesystem'
 import * as fs from 'fs/promises'
-import * as path from 'path'
 import type { VerifyChunksRequest } from '../../interfaces/filesystem'
+import { resolvePathWithinRoot } from './root-path-safety'
 
 export class ScopedNodeFileSystem extends NodeFileSystem {
   constructor(private root: string) {
     super()
   }
 
-  private resolve(p: string): string {
-    return path.resolve(this.root, p)
+  private async resolve(p: string): Promise<string> {
+    return resolvePathWithinRoot(this.root, p)
   }
 
   // Override methods to resolve paths relative to root
   // Note: NodeFileSystem methods are async
 
   async open(filePath: string, mode: 'r' | 'w' | 'r+') {
-    return super.open(this.resolve(filePath), mode)
+    return super.open(await this.resolve(filePath), mode)
   }
 
   async stat(filePath: string) {
-    return super.stat(this.resolve(filePath))
+    return super.stat(await this.resolve(filePath))
   }
 
   async mkdir(dirPath: string) {
-    return super.mkdir(this.resolve(dirPath))
+    return super.mkdir(await this.resolve(dirPath))
   }
 
   async exists(filePath: string) {
-    return super.exists(this.resolve(filePath))
+    return super.exists(await this.resolve(filePath))
   }
 
   async listTree(dirPath: string) {
-    return super.listTree(this.resolve(dirPath))
+    return super.listTree(await this.resolve(dirPath))
   }
 
   async batchDelete(directory: string, entries: string[]) {
-    return super.batchDelete(this.resolve(directory), entries)
+    return super.batchDelete(await this.resolve(directory), entries)
   }
 
   async getFreeDiskSpace(): Promise<number> {
@@ -45,13 +45,16 @@ export class ScopedNodeFileSystem extends NodeFileSystem {
   }
 
   async writeAtomic(filePath: string, data: Uint8Array) {
-    return super.writeAtomic(this.resolve(filePath), data)
+    return super.writeAtomic(await this.resolve(filePath), data)
   }
 
   async verifyChunks(request: VerifyChunksRequest) {
+    const files = await Promise.all(
+      request.files.map(async (file) => ({ ...file, path: await this.resolve(file.path) })),
+    )
     return super.verifyChunks({
       ...request,
-      files: request.files.map((f) => ({ ...f, path: this.resolve(f.path) })),
+      files,
     })
   }
 }

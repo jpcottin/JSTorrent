@@ -613,11 +613,14 @@ public final class FileBindings: @unchecked Sendable {
 
             var failed: [String] = []
             for entry in request.entries {
-                let entryURL = directoryURL.appendingPathComponent(entry, isDirectory: false).standardizedFileURL
-                guard entryURL.path.hasPrefix(directoryURL.standardizedFileURL.path) else {
+                guard
+                    let entryComponents = self.normalizedRelativePathComponents(entry),
+                    entryComponents.count == 1
+                else {
                     failed.append(entry)
                     continue
                 }
+                let entryURL = directoryURL.appendingPathComponent(entryComponents[0], isDirectory: false)
                 guard self.fileManager.fileExists(atPath: entryURL.path) else {
                     continue
                 }
@@ -1226,16 +1229,79 @@ public final class FileBindings: @unchecked Sendable {
     }
 
     private func resolveFileURL(rootKey: String, relativePath: String) -> URL? {
-        let rootURL = resolveRootURL(rootKey: rootKey)
-        let candidate = rootURL.appendingPathComponent(relativePath, isDirectory: false).standardizedFileURL
-        let rootPath = rootURL.standardizedFileURL.path
-        let candidatePath = candidate.path
-
-        if candidatePath == rootPath || candidatePath.hasPrefix(rootPath + "/") {
-            return candidate
+        guard let rootURL = resolvePathWithExistingPrefix(resolveRootURL(rootKey: rootKey)) else {
+            return nil
         }
 
-        return nil
+        guard let components = normalizedRelativePathComponents(relativePath) else {
+            return nil
+        }
+
+        var current = rootURL
+        for component in components {
+            let candidate = current.appendingPathComponent(component, isDirectory: false)
+            if fileManager.fileExists(atPath: candidate.path) {
+                let resolvedCandidate = candidate.resolvingSymlinksInPath()
+                guard isWithinRoot(rootURL: rootURL, candidateURL: resolvedCandidate) else {
+                    return nil
+                }
+                current = resolvedCandidate
+            } else {
+                current = candidate.standardizedFileURL
+            }
+        }
+
+        guard isWithinRoot(rootURL: rootURL, candidateURL: current.standardizedFileURL) else {
+            return nil
+        }
+        return current
+    }
+
+    private func normalizedRelativePathComponents(_ relativePath: String) -> [String]? {
+        if relativePath.isEmpty || relativePath == "/" {
+            return []
+        }
+
+        let normalized = relativePath.replacingOccurrences(of: "\\", with: "/")
+        let components = normalized
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+
+        for component in components {
+            if component == "." || component == ".." || component.contains("\0") {
+                return nil
+            }
+        }
+        return components
+    }
+
+    private func resolvePathWithExistingPrefix(_ url: URL) -> URL? {
+        var current = url.standardizedFileURL
+        var missingComponents: [String] = []
+
+        while !fileManager.fileExists(atPath: current.path) {
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path {
+                break
+            }
+            let name = current.lastPathComponent
+            if !name.isEmpty {
+                missingComponents.append(name)
+            }
+            current = parent
+        }
+
+        var resolved = current.resolvingSymlinksInPath()
+        for component in missingComponents.reversed() {
+            resolved.appendPathComponent(component, isDirectory: false)
+        }
+        return resolved
+    }
+
+    private func isWithinRoot(rootURL: URL, candidateURL: URL) -> Bool {
+        let rootPath = rootURL.path
+        let candidatePath = candidateURL.path
+        return candidatePath == rootPath || candidatePath.hasPrefix(rootPath + "/")
     }
 
     private func resolveRootURL(rootKey: String) -> URL {

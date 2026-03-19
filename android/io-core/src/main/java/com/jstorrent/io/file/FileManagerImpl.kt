@@ -505,7 +505,7 @@ class FileManagerImpl(
 
         var current = DocumentFile.fromTreeUri(context, rootUri) ?: return false
 
-        val segments = relativePath.trimStart('/').split('/').filter { it.isNotEmpty() }
+        val segments = normalizedRelativeSegmentsOrNull(relativePath) ?: return false
         val pathBuilder = StringBuilder()
         for (segment in segments) {
             if (pathBuilder.isNotEmpty()) pathBuilder.append('/')
@@ -667,7 +667,7 @@ class FileManagerImpl(
         val dirFile = resolveNativeFile(rootUri, directory)
         val failed = mutableListOf<String>()
         for (entry in entries) {
-            if (entry.contains('/') || entry.contains('\\') || entry.contains("..")) {
+            if (!isSinglePathEntry(entry)) {
                 failed.add(entry)
                 continue
             }
@@ -691,7 +691,7 @@ class FileManagerImpl(
         if (!dirDoc.isDirectory) return entries.toList()
         val failed = mutableListOf<String>()
         for (entry in entries) {
-            if (entry.contains('/') || entry.contains('\\') || entry.contains("..")) {
+            if (!isSinglePathEntry(entry)) {
                 failed.add(entry)
                 continue
             }
@@ -815,7 +815,7 @@ class FileManagerImpl(
             return current
         }
 
-        val segments = relativePath.trimStart('/').split('/').filter { it.isNotEmpty() }
+        val segments = normalizedRelativeSegmentsOrNull(relativePath) ?: return null
         for (segment in segments) {
             current = current.findFile(segment) ?: return null
         }
@@ -884,7 +884,7 @@ class FileManagerImpl(
     private fun createFile(rootUri: Uri, relativePath: String): DocumentFile? {
         var current = DocumentFile.fromTreeUri(context, rootUri) ?: return null
 
-        val segments = relativePath.trimStart('/').split('/')
+        val segments = normalizedRelativeSegmentsOrNull(relativePath) ?: return null
         val fileName = segments.lastOrNull() ?: return null
         val dirSegments = segments.dropLast(1)
 
@@ -1106,12 +1106,74 @@ class FileManagerImpl(
      * Resolve a file:// URI + relative path to a File object.
      */
     private fun resolveNativeFile(rootUri: Uri, relativePath: String): File {
-        val root = uriToFile(rootUri) ?: throw FileManagerException.CannotOpenFile(relativePath)
-        return if (relativePath.isEmpty() || relativePath == "/") {
-            root
-        } else {
-            File(root, relativePath.trimStart('/'))
+        val root = uriToFile(rootUri)?.absoluteFile ?: throw FileManagerException.CannotOpenFile(relativePath)
+        val segments = normalizedRelativeSegmentsOrNull(relativePath)
+            ?: throw FileManagerException.PermissionDenied(relativePath)
+        val safeRoot = resolveNativePathWithExistingPrefix(root)
+
+        var current = safeRoot
+        for (segment in segments) {
+            val candidate = File(current, segment)
+            current = if (candidate.exists()) {
+                val canonicalCandidate = candidate.canonicalFile
+                if (!isWithinRoot(safeRoot, canonicalCandidate)) {
+                    throw FileManagerException.PermissionDenied(relativePath)
+                }
+                canonicalCandidate
+            } else {
+                candidate
+            }
         }
+
+        if (!isWithinRoot(safeRoot, current.absoluteFile)) {
+            throw FileManagerException.PermissionDenied(relativePath)
+        }
+        return current
+    }
+
+    private fun normalizedRelativeSegmentsOrNull(relativePath: String): List<String>? {
+        if (relativePath.isEmpty() || relativePath == "/") return emptyList()
+
+        val normalized = relativePath.replace('\\', '/')
+        val segments = normalized.split('/').filter { it.isNotEmpty() }
+        for (segment in segments) {
+            if (segment == "." || segment == ".." || segment.indexOf('\u0000') != -1) {
+                return null
+            }
+        }
+        return segments
+    }
+
+    private fun isSinglePathEntry(entry: String): Boolean {
+        return entry.isNotEmpty() && entry != "." && entry != ".." &&
+            !entry.contains('/') && !entry.contains('\\')
+    }
+
+    private fun resolveNativePathWithExistingPrefix(target: File): File {
+        var current = target.absoluteFile
+        val missingSegments = mutableListOf<String>()
+
+        while (!current.exists()) {
+            val name = current.name
+            val parent = current.parentFile ?: break
+            if (parent == current) break
+            if (name.isNotEmpty()) {
+                missingSegments.add(name)
+            }
+            current = parent
+        }
+
+        var resolved = current.canonicalFile
+        for (segment in missingSegments.asReversed()) {
+            resolved = File(resolved, segment)
+        }
+        return resolved
+    }
+
+    private fun isWithinRoot(root: File, candidate: File): Boolean {
+        val rootPath = root.path
+        val candidatePath = candidate.path
+        return candidatePath == rootPath || candidatePath.startsWith("$rootPath${File.separator}")
     }
 
     /**

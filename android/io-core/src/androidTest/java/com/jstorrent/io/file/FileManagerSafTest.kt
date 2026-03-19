@@ -142,6 +142,17 @@ class FileManagerSafTest {
         assertFalse("subdir should be gone", fileManager.exists(safTreeUri, "parent/sub"))
     }
 
+    @Test
+    fun batchDeleteAllowsFilenamesContainingDoubleDots() {
+        val testData = ByteArray(32) { it.toByte() }
+        fileManager.write(safTreeUri, "batch-dir/temp....abc", 0L, testData)
+
+        val failed = fileManager.batchDelete(safTreeUri, "batch-dir", listOf("temp....abc"))
+
+        assertEquals("Literal double dots in filenames should not be treated as traversal", emptyList<String>(), failed)
+        assertFalse("file should be deleted", fileManager.exists(safTreeUri, "batch-dir/temp....abc"))
+    }
+
     // =========================================================================
     // stat() tests
     // =========================================================================

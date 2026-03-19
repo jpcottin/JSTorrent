@@ -64,4 +64,22 @@ describe('ScopedNodeFileSystem.writeAtomic', () => {
     const stat = await fs.stat(path.join(tmpDir, 'empty.json'))
     expect(stat.size).toBe(0)
   })
+
+  it('should reject path traversal outside the root', async () => {
+    await expect(nodeFs.writeAtomic('../escape.txt', new TextEncoder().encode('nope'))).rejects.toThrow(
+      /Invalid root-relative path|Path escapes root/,
+    )
+  })
+
+  it('should reject writes through a symlink that escapes the root', async () => {
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jstorrent-writeatomic-outside-'))
+    try {
+      await fs.symlink(outsideDir, path.join(tmpDir, 'escaped'))
+      await expect(
+        nodeFs.writeAtomic('escaped/secret.txt', new TextEncoder().encode('blocked')),
+      ).rejects.toThrow(/Path escapes root/)
+    } finally {
+      await fs.rm(outsideDir, { recursive: true, force: true })
+    }
+  })
 })

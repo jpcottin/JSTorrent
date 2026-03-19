@@ -82,4 +82,10 @@ describe('ScopedNodeFileSystem.batchDelete', () => {
     expect(await nodeFs.exists('Movie/extras')).toBe(false)
     expect(await nodeFs.exists('Movie/subs')).toBe(false)
   })
+
+  it('should reject nested batch delete entries', async () => {
+    await fs.mkdir(path.join(tmpDir, 'torrent'), { recursive: true })
+    const failed = await nodeFs.batchDelete('torrent', ['../escape.txt', 'nested/file.txt'])
+    expect(failed).toEqual(['../escape.txt', 'nested/file.txt'])
+  })
 })

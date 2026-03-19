@@ -6,6 +6,7 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -126,6 +127,20 @@ class FileManagerConcurrencyTest {
                 assertEquals("File size should match", testData.size.toLong(), file.length())
             }
         }
+    }
+
+    @Test
+    fun fileUriRejectsTraversalOutsideRoot() {
+        val testData = ByteArray(16) { it.toByte() }
+
+        try {
+            fileManager.write(rootUri, "../escape.bin", 0L, testData)
+        } catch (e: FileManagerException.PermissionDenied) {
+            assertFalse("escape target should not be created", File(testDir.parentFile, "escape.bin").exists())
+            return
+        }
+
+        throw AssertionError("Expected PermissionDenied for traversal path")
     }
 
     /**

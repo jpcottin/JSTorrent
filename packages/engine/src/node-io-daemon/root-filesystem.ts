@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { resolvePathWithinRoot } from '../adapters/node/root-path-safety'
 
 export interface NodeIoDaemonRootFsEntry {
   path: string
@@ -19,7 +20,7 @@ export class NodeIoDaemonRootFileSystem {
   constructor(private readonly rootUri: string) {}
 
   async stat(relativePath: string): Promise<NodeIoDaemonFileStat> {
-    const stats = await fs.stat(this.resolve(relativePath))
+    const stats = await fs.stat(await this.resolve(relativePath))
     return {
       size: stats.size,
       mtime: stats.mtimeMs,
@@ -30,7 +31,7 @@ export class NodeIoDaemonRootFileSystem {
 
   async exists(relativePath: string): Promise<boolean> {
     try {
-      await fs.access(this.resolve(relativePath))
+      await fs.access(await this.resolve(relativePath))
       return true
     } catch {
       return false
@@ -38,12 +39,12 @@ export class NodeIoDaemonRootFileSystem {
   }
 
   async ensureDir(relativePath: string): Promise<void> {
-    await fs.mkdir(this.resolve(relativePath), { recursive: true })
+    await fs.mkdir(await this.resolve(relativePath), { recursive: true })
   }
 
   async delete(relativePath: string): Promise<void> {
     try {
-      await fs.rm(this.resolve(relativePath), { recursive: true, force: false })
+      await fs.rm(await this.resolve(relativePath), { recursive: true, force: false })
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new NodeIoDaemonFileNotFoundError(relativePath)
@@ -53,7 +54,7 @@ export class NodeIoDaemonRootFileSystem {
   }
 
   async batchDelete(directory: string, entries: string[]): Promise<string[]> {
-    const absoluteDirectory = this.resolve(directory)
+    const absoluteDirectory = await this.resolve(directory)
     const failed: string[] = []
 
     for (const entry of entries) {
@@ -77,7 +78,7 @@ export class NodeIoDaemonRootFileSystem {
   }
 
   async truncate(relativePath: string, length: number): Promise<void> {
-    const absolutePath = this.resolve(relativePath)
+    const absolutePath = await this.resolve(relativePath)
     await fs.mkdir(path.dirname(absolutePath), { recursive: true })
     const handle = await this.openForWrite(absolutePath)
     try {
@@ -88,7 +89,7 @@ export class NodeIoDaemonRootFileSystem {
   }
 
   async read(relativePath: string, offset: number, length: number): Promise<Uint8Array> {
-    const handle = await fs.open(this.resolve(relativePath), 'r')
+    const handle = await fs.open(await this.resolve(relativePath), 'r')
     try {
       const buffer = Buffer.alloc(length)
       const result = await handle.read(buffer, 0, length, offset)
@@ -111,7 +112,7 @@ export class NodeIoDaemonRootFileSystem {
       }
     }
 
-    const absolutePath = this.resolve(relativePath)
+    const absolutePath = await this.resolve(relativePath)
     await fs.mkdir(path.dirname(absolutePath), { recursive: true })
     const handle = await this.openForWrite(absolutePath)
     try {
@@ -136,7 +137,7 @@ export class NodeIoDaemonRootFileSystem {
   }
 
   async writeAtomic(relativePath: string, data: Uint8Array): Promise<void> {
-    const absolutePath = this.resolve(relativePath)
+    const absolutePath = await this.resolve(relativePath)
     await fs.mkdir(path.dirname(absolutePath), { recursive: true })
     const tempPath = `${absolutePath}.${randomBytes(6).toString('hex')}.tmp`
     await fs.writeFile(tempPath, data)
@@ -145,7 +146,7 @@ export class NodeIoDaemonRootFileSystem {
 
   async list(relativePath: string): Promise<string[]> {
     try {
-      return await fs.readdir(this.resolve(relativePath))
+      return await fs.readdir(await this.resolve(relativePath))
     } catch {
       return []
     }
@@ -162,7 +163,7 @@ export class NodeIoDaemonRootFileSystem {
     baseRelativePath: string,
     results: NodeIoDaemonRootFsEntry[],
   ): Promise<void> {
-    const absolutePath = this.resolve(currentRelativePath)
+    const absolutePath = await this.resolve(currentRelativePath)
     let entries: string[]
     try {
       entries = await fs.readdir(absolutePath)
@@ -172,7 +173,7 @@ export class NodeIoDaemonRootFileSystem {
 
     for (const entry of entries) {
       const childRelativePath = currentRelativePath ? `${currentRelativePath}/${entry}` : entry
-      const childAbsolutePath = this.resolve(childRelativePath)
+      const childAbsolutePath = await this.resolve(childRelativePath)
       const stats = await fs.stat(childAbsolutePath)
       if (stats.isDirectory()) {
         await this.walk(childRelativePath, baseRelativePath, results)
@@ -192,14 +193,8 @@ export class NodeIoDaemonRootFileSystem {
     return stats.bfree * stats.bsize
   }
 
-  private resolve(relativePath: string): string {
-    const normalized = path.posix.normalize(relativePath)
-    if (normalized.startsWith('../') || normalized === '..' || path.posix.isAbsolute(normalized)) {
-      throw new Error(`Invalid root-relative path: ${relativePath}`)
-    }
-
-    const rootPath = fileURLToPath(this.rootUri)
-    return path.resolve(rootPath, normalized)
+  private async resolve(relativePath: string): Promise<string> {
+    return resolvePathWithinRoot(fileURLToPath(this.rootUri), relativePath)
   }
 
   private async openForWrite(absolutePath: string): Promise<fs.FileHandle> {

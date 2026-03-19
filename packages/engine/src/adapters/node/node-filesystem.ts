@@ -45,6 +45,10 @@ export class NodeFileHandle implements IFileHandle {
 }
 
 export class NodeFileSystem implements IFileSystem {
+  private isSinglePathEntry(entry: string): boolean {
+    return !entry.includes('/') && !entry.includes('\\') && entry !== '.' && entry !== '..'
+  }
+
   async open(filePath: string, mode: 'r' | 'w' | 'r+'): Promise<IFileHandle> {
     // Map modes to Node.js flags
     let flags = 'r'
@@ -106,6 +110,9 @@ export class NodeFileSystem implements IFileSystem {
     const failed: string[] = []
     const results = await Promise.allSettled(
       entries.map(async (entry) => {
+        if (!this.isSinglePathEntry(entry)) {
+          throw new Error(`Invalid batch delete entry: ${entry}`)
+        }
         const p = path.join(directory, entry)
         try {
           await fs.rm(p, { force: true })

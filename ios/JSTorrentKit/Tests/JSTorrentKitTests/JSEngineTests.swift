@@ -640,6 +640,30 @@ final class JSEngineTests: XCTestCase {
         )
     }
 
+    func testFileBindingsRejectTraversalOutsideRoot() throws {
+        let (engine, _, baseDirectory, userDefaults, suiteName) = try makeBindingsEnvironment()
+        defer {
+            try? FileManager.default.removeItem(at: baseDirectory)
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let result = try engine.evaluate(
+            """
+            const writeResult = __jstorrent_file_write("default", "../escape.bin", 0, new Uint8Array([1,2,3]).buffer);
+            const exists = __jstorrent_file_exists("default", "../escape.bin") === true;
+            JSON.stringify({ writeResult, exists });
+            """,
+            filename: "file-traversal.js"
+        )
+
+        XCTAssertEqual(result?.toString(), #"{"writeResult":-1,"exists":false}"#)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: baseDirectory.deletingLastPathComponent().appendingPathComponent("escape.bin").path
+            )
+        )
+    }
+
     func testVerifyChunksReportsMatchAndMismatch() throws {
         let (engine, _, baseDirectory, userDefaults, suiteName) = try makeBindingsEnvironment()
         defer {
