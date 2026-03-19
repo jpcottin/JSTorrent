@@ -47,6 +47,7 @@ function buildConfigSnapshot(config: ConfigHub) {
     activeDownloads: config.activeDownloads.get(),
     activeSeeds: config.activeSeeds.get(),
     // Advanced
+    downloadManifest: config.downloadManifest.get(),
     loggingLevel: config.loggingLevel.get(),
     loggingLevelClient: config.loggingLevelClient.get(),
     loggingLevelTorrent: config.loggingLevelTorrent.get(),
@@ -1176,6 +1177,7 @@ const AdvancedTab: React.FC<AdvancedTabProps> = ({
   onClearAllData,
   clearingData,
 }) => {
+  const channel = useHostChannel()
   // Clear all data dialog state
   const [showClearDataDialog, setShowClearDataDialog] = useState(false)
   const [deleteFilesChecked, setDeleteFilesChecked] = useState(false)
@@ -1208,6 +1210,17 @@ const AdvancedTab: React.FC<AdvancedTabProps> = ({
           </select>
         </div>
       </Section>
+
+      {channel.getState().daemonInfo?.capabilities?.write_atomic && (
+        <Section title="Integrations">
+          <ToggleRow
+            label="Write download manifest files"
+            sublabel="Write .jstorrent.json sidecar files alongside downloads for PlayVideo integration"
+            checked={settings.downloadManifest}
+            onChange={(v) => config.set('downloadManifest', v)}
+          />
+        </Section>
+      )}
 
       <Section title="Danger Zone">
         <div style={styles.dangerItem}>

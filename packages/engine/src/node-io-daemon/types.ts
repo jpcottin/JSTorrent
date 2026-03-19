@@ -101,6 +101,7 @@ export interface NodeIoDaemonCapabilities {
   mediaCompleteFile206: boolean
   mediaBlocking206: boolean
   freeSpace: boolean
+  writeAtomic: boolean
 }
 
 export interface NodeIoDaemonRoot {

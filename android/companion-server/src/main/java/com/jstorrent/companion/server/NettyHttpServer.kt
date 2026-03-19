@@ -44,6 +44,7 @@ private data class StatusCapabilities(
     val mediaCompleteFile206: Boolean,
     val mediaBlocking206: Boolean,
     val freeSpace: Boolean = false,
+    val writeAtomic: Boolean = false,
 )
 
 @Serializable
@@ -464,6 +465,7 @@ private class NettyHttpHandler(
                 mediaCompleteFile206 = true,
                 mediaBlocking206 = true,
                 freeSpace = true,
+                writeAtomic = true,
             )
         )
 

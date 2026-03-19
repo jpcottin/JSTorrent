@@ -569,7 +569,13 @@ export class DaemonBridge {
   }
 
   private async fetchChromeosCapabilities(): Promise<
-    { roots_manageable?: boolean; lan_share_urls?: boolean; free_space?: boolean } | undefined
+    | {
+        roots_manageable?: boolean
+        lan_share_urls?: boolean
+        free_space?: boolean
+        write_atomic?: boolean
+      }
+    | undefined
   > {
     const response = await this.sendControlRequest(OP_CTRL_GET_CAPABILITIES, {})
     if (!response.ok) {
@@ -585,6 +591,7 @@ export class DaemonBridge {
       roots_manageable?: boolean
       lan_share_urls?: boolean
       free_space?: boolean
+      write_atomic?: boolean
     }
   }
 

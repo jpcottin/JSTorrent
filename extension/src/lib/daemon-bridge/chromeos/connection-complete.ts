@@ -22,11 +22,13 @@ export function buildDaemonCapabilities(capabilities?: {
   roots_manageable?: boolean
   lan_share_urls?: boolean
   free_space?: boolean
+  write_atomic?: boolean
 }): DaemonCapabilities {
   return {
     roots_manageable: capabilities?.roots_manageable !== false,
     lan_share_urls: capabilities?.lan_share_urls === true,
     free_space: capabilities?.free_space === true,
+    write_atomic: capabilities?.write_atomic === true,
   }
 }
 
@@ -36,7 +38,12 @@ export function buildConnectedDaemonInfo(options: {
   version?: string | null
   roots: DownloadRoot[]
   host: string
-  capabilities?: { roots_manageable?: boolean; lan_share_urls?: boolean; free_space?: boolean }
+  capabilities?: {
+    roots_manageable?: boolean
+    lan_share_urls?: boolean
+    free_space?: boolean
+    write_atomic?: boolean
+  }
   ioPort?: number
   streamingPort?: number
 }): DaemonInfo {

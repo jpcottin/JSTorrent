@@ -1149,6 +1149,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, mode: Connection
                             "roots_manageable": false,
                             "lan_share_urls": true,
                             "free_space": true,
+                            "write_atomic": true,
                         }
                     })
                     .to_string()

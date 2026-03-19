@@ -11,6 +11,8 @@ export interface DaemonCapabilities {
   lan_share_urls: boolean
   /** Whether the backend supports getFreeDiskSpace() on storage roots. */
   free_space: boolean
+  /** Whether the backend supports atomic file writes (writeAtomic). */
+  write_atomic: boolean
 }
 
 export interface DaemonInfo {

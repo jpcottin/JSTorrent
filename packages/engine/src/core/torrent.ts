@@ -4291,6 +4291,9 @@ export class Torrent extends EngineComponent {
 
     // Persist the verified bitfield
     this.btEngine.sessionPersistence.schedulePiecePersistence(this)
+
+    // Update download manifest with current file completion state
+    this.btEngine.manifestWriter?.scheduleSave(this)
   }
 
   /**

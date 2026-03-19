@@ -81,6 +81,7 @@ pub struct StatusCapabilities {
     pub media_complete_file206: bool,
     pub media_blocking206: bool,
     pub free_space: bool,
+    pub write_atomic: bool,
 }
 
 #[derive(Serialize)]
@@ -173,6 +174,7 @@ async fn status_handler(
             media_complete_file206: true,
             media_blocking206: true,
             free_space: true,
+            write_atomic: true,
         },
     })
 }
@@ -334,6 +336,7 @@ mod tests {
                 media_complete_file206: true,
                 media_blocking206: true,
                 free_space: true,
+                write_atomic: true,
             },
         };
         let json = serde_json::to_string(&response).unwrap();
