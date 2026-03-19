@@ -2,6 +2,24 @@
 
 All notable changes to the iOS app are documented here.
 
+## [1.0.1]
+
+### Added
+- File selection and priority editing UI
+- Free disk space display
+- Async boundary-piece writes for improved I/O performance
+
+### Fixed
+- Invalid torrent URL input now shows a friendly error
+- Live updates for torrent detail tabs
+- Pieces tab refresh and rendering
+- File opening uses system handoff correctly
+- Header title layout
+- Flaky interval test in CI
+
+### Changed
+- Localization updates
+
 ## [1.0.0]
 
 ### Added
