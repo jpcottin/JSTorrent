@@ -342,6 +342,7 @@
   "status_removing": "Odstraňování…",
   "status_waiting_wifi": "Čekání na WiFi",
   "status_waiting_vpn": "Čekání na VPN",
+  "status_awaiting_selection": "Select files",
   "component_shared_menu_speed": "Rychlost",
   "component_shared_menu_dht_info": "Informace DHT",
   "component_shared_menu_logs": "Záznamy",

@@ -342,6 +342,7 @@
   "status_removing": "Kaldırılıyor…",
   "status_waiting_wifi": "WiFi bekleniyor",
   "status_waiting_vpn": "VPN bekleniyor",
+  "status_awaiting_selection": "Select files",
   "component_shared_menu_speed": "Hız",
   "component_shared_menu_dht_info": "DHT Bilgisi",
   "component_shared_menu_logs": "Günlükler",

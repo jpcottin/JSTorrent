@@ -342,6 +342,7 @@
   "status_removing": "Видалення…",
   "status_waiting_wifi": "Очікування WiFi",
   "status_waiting_vpn": "Очікування VPN",
+  "status_awaiting_selection": "Select files",
   "component_shared_menu_speed": "Швидкість",
   "component_shared_menu_dht_info": "Інфо DHT",
   "component_shared_menu_logs": "Журнали",

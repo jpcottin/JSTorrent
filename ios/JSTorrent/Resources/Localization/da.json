@@ -342,6 +342,7 @@
   "status_removing": "Fjerner…",
   "status_waiting_wifi": "Venter på WiFi",
   "status_waiting_vpn": "Venter på VPN",
+  "status_awaiting_selection": "Select files",
   "component_shared_menu_speed": "Hastighed",
   "component_shared_menu_dht_info": "DHT-info",
   "component_shared_menu_logs": "Logfiler",

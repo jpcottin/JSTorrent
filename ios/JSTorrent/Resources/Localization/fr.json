@@ -342,6 +342,7 @@
   "status_removing": "Suppression…",
   "status_waiting_wifi": "En attente du WiFi",
   "status_waiting_vpn": "En attente du VPN",
+  "status_awaiting_selection": "Select files",
   "component_shared_menu_speed": "Vitesse",
   "component_shared_menu_dht_info": "Infos DHT",
   "component_shared_menu_logs": "Journaux",

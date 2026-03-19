@@ -342,6 +342,7 @@
   "status_removing": "Tar bort…",
   "status_waiting_wifi": "Väntar på WiFi",
   "status_waiting_vpn": "Väntar på VPN",
+  "status_awaiting_selection": "Select files",
   "component_shared_menu_speed": "Hastighet",
   "component_shared_menu_dht_info": "DHT-info",
   "component_shared_menu_logs": "Loggar",

@@ -342,6 +342,7 @@
   "status_removing": "Wird entfernt…",
   "status_waiting_wifi": "Warte auf WiFi",
   "status_waiting_vpn": "Warte auf VPN",
+  "status_awaiting_selection": "Select files",
   "component_shared_menu_speed": "Geschwindigkeit",
   "component_shared_menu_dht_info": "DHT-Info",
   "component_shared_menu_logs": "Protokolle",

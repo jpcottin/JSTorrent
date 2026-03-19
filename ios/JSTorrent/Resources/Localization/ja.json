@@ -342,6 +342,7 @@
   "status_removing": "削除中…",
   "status_waiting_wifi": "WiFi待機中",
   "status_waiting_vpn": "VPN待機中",
+  "status_awaiting_selection": "Select files",
   "component_shared_menu_speed": "速度",
   "component_shared_menu_dht_info": "DHT情報",
   "component_shared_menu_logs": "ログ",

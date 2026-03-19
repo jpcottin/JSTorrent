@@ -342,6 +342,7 @@
   "status_removing": "Verwijderen…",
   "status_waiting_wifi": "Wachten op WiFi",
   "status_waiting_vpn": "Wachten op VPN",
+  "status_awaiting_selection": "Select files",
   "component_shared_menu_speed": "Snelheid",
   "component_shared_menu_dht_info": "DHT-info",
   "component_shared_menu_logs": "Logboeken",

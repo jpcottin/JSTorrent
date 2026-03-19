@@ -342,6 +342,7 @@
   "status_removing": "Se elimină…",
   "status_waiting_wifi": "Se așteaptă WiFi",
   "status_waiting_vpn": "Se așteaptă VPN",
+  "status_awaiting_selection": "Select files",
   "component_shared_menu_speed": "Viteză",
   "component_shared_menu_dht_info": "Info DHT",
   "component_shared_menu_logs": "Jurnale",

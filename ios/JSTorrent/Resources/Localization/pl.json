@@ -342,6 +342,7 @@
   "status_removing": "Usuwanie…",
   "status_waiting_wifi": "Oczekiwanie na WiFi",
   "status_waiting_vpn": "Oczekiwanie na VPN",
+  "status_awaiting_selection": "Select files",
   "component_shared_menu_speed": "Prędkość",
   "component_shared_menu_dht_info": "Informacje DHT",
   "component_shared_menu_logs": "Dzienniki",
