@@ -19,9 +19,9 @@ describe('NodeIoDaemonRootFileSystem', () => {
   })
 
   it('rejects lexical traversal outside the root', async () => {
-    await expect(rootFs.write('../escape.txt', 0, new TextEncoder().encode('blocked'))).rejects.toThrow(
-      /Invalid root-relative path/,
-    )
+    await expect(
+      rootFs.write('../escape.txt', 0, new TextEncoder().encode('blocked')),
+    ).rejects.toThrow(/Invalid root-relative path/)
   })
 
   it('rejects symlink traversal outside the root', async () => {

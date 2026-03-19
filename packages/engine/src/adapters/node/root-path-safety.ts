@@ -46,7 +46,10 @@ function normalizeRelativeSegments(relativePath: string): string[] {
   return normalized.split('/').filter((segment) => segment.length > 0)
 }
 
-export async function resolvePathWithinRoot(rootPath: string, relativePath: string): Promise<string> {
+export async function resolvePathWithinRoot(
+  rootPath: string,
+  relativePath: string,
+): Promise<string> {
   const safeRoot = await resolveWithExistingPrefix(rootPath)
   const segments = normalizeRelativeSegments(relativePath)
 

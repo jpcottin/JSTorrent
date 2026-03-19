@@ -66,9 +66,9 @@ describe('ScopedNodeFileSystem.writeAtomic', () => {
   })
 
   it('should reject path traversal outside the root', async () => {
-    await expect(nodeFs.writeAtomic('../escape.txt', new TextEncoder().encode('nope'))).rejects.toThrow(
-      /Invalid root-relative path|Path escapes root/,
-    )
+    await expect(
+      nodeFs.writeAtomic('../escape.txt', new TextEncoder().encode('nope')),
+    ).rejects.toThrow(/Invalid root-relative path|Path escapes root/)
   })
 
   it('should reject writes through a symlink that escapes the root', async () => {
