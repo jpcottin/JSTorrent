@@ -87,6 +87,11 @@ export class DaemonFileSystem implements IFileSystem {
     })
   }
 
+  async writeAtomic(_path: string, _data: Uint8Array): Promise<void> {
+    // TODO: Phase 2 — POST /ops/write_atomic endpoint
+    throw new Error('writeAtomic not yet implemented for daemon backend')
+  }
+
   async getFreeDiskSpace(): Promise<number> {
     const result = await this.connection.request<{ free_space: number }>('GET', '/ops/free_space', {
       root_key: this.rootKey,

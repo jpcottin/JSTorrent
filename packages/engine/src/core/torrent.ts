@@ -3656,6 +3656,9 @@ export class Torrent extends EngineComponent {
       // (avoids excessive storage writes during fast downloads)
       btEngine.sessionPersistence?.schedulePiecePersistence(this)
     }
+
+    // Schedule debounced manifest update (tracks file completion)
+    btEngine.manifestWriter?.scheduleSave(this)
   }
 
   /**

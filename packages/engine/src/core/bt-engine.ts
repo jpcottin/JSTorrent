@@ -33,6 +33,7 @@ import type { ConfigHub } from '../config/config-hub'
 import { MemoryConfigHub } from '../config/memory-config-hub'
 import type { ConfigType } from '../config/config-schema'
 import { SessionPersistence } from './session-persistence'
+import { ManifestWriter } from './manifest-writer'
 import { Torrent } from './torrent'
 import { PeerConnection } from './peer-connection'
 import { TorrentUserState } from './torrent-state'
@@ -272,6 +273,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
   public readonly storageRootManager: StorageRootManager
   public readonly socketFactory: ISocketFactory
   public readonly sessionPersistence: SessionPersistence
+  public manifestWriter: ManifestWriter | null = null
   public readonly hasher: IHasher
   public readonly bandwidthTracker = new BandwidthTracker()
   public torrents: Torrent[] = []
@@ -511,6 +513,19 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     if (this.config) {
       this.queueManager = new TorrentQueueManager(this, this.config)
     }
+
+    // Initialize manifest writer if setting is enabled
+    if (this.config.downloadManifest.get()) {
+      this.manifestWriter = new ManifestWriter(this)
+    }
+    this.config.downloadManifest.subscribe((enabled) => {
+      if (enabled) {
+        this.manifestWriter = new ManifestWriter(this)
+      } else {
+        this.manifestWriter?.dispose()
+        this.manifestWriter = null
+      }
+    })
 
     this._skipDHTBootstrap = options._skipDHTBootstrap ?? false
     this.autoDrainBuffers = options.autoDrainBuffers ?? false
@@ -865,6 +880,8 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     if (input.infoBuffer && input.parsedTorrent) {
       try {
         await initializeTorrentMetadata(this, torrent, input.infoBuffer, input.parsedTorrent)
+        // Write download manifest now that metadata is available
+        await this.manifestWriter?.writeNow(torrent)
       } catch (e) {
         // Handle missing storage gracefully - torrent will be in error state but still visible
         if (e instanceof Error && e.name === 'MissingStorageRootError') {
@@ -885,6 +902,9 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
 
         // Save infodict for future restores
         await this.sessionPersistence.saveInfoDict(input.infoHashStr, infoBuffer)
+
+        // Write download manifest now that metadata is available
+        await this.manifestWriter?.writeNow(torrent)
 
         // If data check is needed (files exist from a previous download) and
         // torrent is already active, run the check now before proceeding
@@ -908,6 +928,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     torrent.on('complete', () => {
       this.emit('torrent-complete', torrent)
       this.queueManager?.onTorrentCompleted(torrent)
+      void this.manifestWriter?.writeNow(torrent)
     })
 
     torrent.on('error', (err) => {
@@ -966,6 +987,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
       // Remove persisted data
       await this.sessionPersistence.removeTorrentData(infoHash)
       await this.sessionPersistence.saveTorrentList()
+      await this.manifestWriter?.deleteManifest(torrent)
       await torrent.destroy({ skipAnnounce: true })
 
       this.emit('torrent-removed', torrent)
@@ -1361,6 +1383,7 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
 
     // Flush any pending persistence saves
     await this.sessionPersistence.flushPendingSaves()
+    await this.manifestWriter?.flushPendingSaves()
 
     // Destroy all torrents
     await Promise.all(this.torrents.map((t) => t.destroy()))

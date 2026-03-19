@@ -115,6 +115,8 @@ export class NullFileSystem implements IFileSystem {
     return entries
   }
 
+  async writeAtomic(_path: string, _data: Uint8Array): Promise<void> {}
+
   async getFreeDiskSpace(): Promise<number> {
     return Infinity
   }

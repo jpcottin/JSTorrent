@@ -110,6 +110,11 @@ export class NativeFileSystem implements IFileSystem {
     return JSON.parse(result) as Array<{ path: string; size: number }>
   }
 
+  async writeAtomic(_path: string, _data: Uint8Array): Promise<void> {
+    // TODO: Phase 3 — JNI binding __jstorrent_file_write_atomic
+    throw new Error('writeAtomic not yet implemented for native backend')
+  }
+
   /**
    * Get free disk space on the volume containing this storage root.
    */

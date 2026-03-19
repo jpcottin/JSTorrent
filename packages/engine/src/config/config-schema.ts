@@ -547,6 +547,14 @@ export const configSchema = {
     default: true,
   },
 
+  /** Write a .jstorrent.json manifest per torrent for playsvideo integration. */
+  downloadManifest: {
+    type: 'boolean',
+    category: 'setting',
+    storage: 'local',
+    default: false,
+  },
+
   // ===========================================================================
   // Settings: Logging
   // ===========================================================================

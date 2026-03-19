@@ -44,6 +44,10 @@ export class ScopedNodeFileSystem extends NodeFileSystem {
     return stats.bfree * stats.bsize
   }
 
+  async writeAtomic(filePath: string, data: Uint8Array) {
+    return super.writeAtomic(this.resolve(filePath), data)
+  }
+
   async verifyChunks(request: VerifyChunksRequest) {
     return super.verifyChunks({
       ...request,

@@ -132,6 +132,7 @@ export abstract class BaseConfigHub implements ConfigHub {
   readonly keepAwake = createConfigValue(this, 'keepAwake')
   readonly preventBackgroundThrottling = createConfigValue(this, 'preventBackgroundThrottling')
   readonly showFileSelection = createConfigValue(this, 'showFileSelection')
+  readonly downloadManifest = createConfigValue(this, 'downloadManifest')
 
   // Settings: Logging
   readonly loggingLevel = createConfigValue(this, 'loggingLevel')

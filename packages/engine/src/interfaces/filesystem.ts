@@ -130,4 +130,10 @@ export interface IFileSystem {
    * Returns bytes available, or -1 if the backend does not support this operation.
    */
   getFreeDiskSpace(): Promise<number>
+
+  /**
+   * Atomically write a complete file (write to temp, then rename).
+   * If the process crashes mid-write, the previous file content is preserved.
+   */
+  writeAtomic(path: string, data: Uint8Array): Promise<void>
 }

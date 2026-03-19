@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { createHash } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import {
   IFileSystem,
   IFileHandle,
@@ -242,6 +242,13 @@ export class NodeFileSystem implements IFileSystem {
 
   async getFreeDiskSpace(): Promise<number> {
     return -1
+  }
+
+  async writeAtomic(filePath: string, data: Uint8Array): Promise<void> {
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    const tmp = `${filePath}.${randomBytes(6).toString('hex')}.tmp`
+    await fs.writeFile(tmp, data)
+    await fs.rename(tmp, filePath)
   }
 
   async listTree(dirPath: string): Promise<Array<{ path: string; size: number }>> {

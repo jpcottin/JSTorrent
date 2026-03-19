@@ -226,6 +226,16 @@ export class InMemoryFileSystem implements IFileSystem {
     return failed
   }
 
+  async writeAtomic(path: string, data: Uint8Array): Promise<void> {
+    // Auto-create parent directories recursively (matches NodeFileSystem mkdir -p behavior)
+    const parts = path.split('/')
+    for (let i = 1; i < parts.length; i++) {
+      const dir = parts.slice(0, i).join('/')
+      this.dirs.add(dir)
+    }
+    this.files.set(path, new Uint8Array(data))
+  }
+
   async getFreeDiskSpace(): Promise<number> {
     return Infinity
   }
