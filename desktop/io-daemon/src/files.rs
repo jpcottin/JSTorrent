@@ -40,6 +40,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/ops/list_tree", get(list_tree_dir))
         .route("/ops/verify_chunks", post(verify_chunks))
         .route("/ops/free_space", get(free_space))
+        .route("/ops/write_atomic/:root_key", post(write_atomic))
         .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
 }
 
@@ -574,6 +575,59 @@ async fn truncate_file(
     file.set_len(payload.length)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(())
+}
+
+/// Atomically write a file (write to temp, then rename).
+/// POST /`ops/write_atomic/{root_key`}
+/// Headers:
+///   X-Path-Base64: <base64 encoded path>
+/// Body: raw bytes
+async fn write_atomic(
+    State(state): State<Arc<AppState>>,
+    Path(root_key): Path<String>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<(), (StatusCode, String)> {
+    let path = extract_path_from_header(&headers)?;
+    let full_path = validate_path(&state, &root_key, &path)?;
+
+    // Ensure parent directory exists
+    if let Some(parent) = full_path.parent() {
+        fs::create_dir_all(parent).await.map_err(|e| {
+            if e.kind() == ErrorKind::StorageFull {
+                (StatusCode::INSUFFICIENT_STORAGE, e.to_string())
+            } else {
+                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+            }
+        })?;
+    }
+
+    // Write to a temp file, then rename atomically
+    let tmp_path = full_path.with_extension(format!(
+        "{}.tmp",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+
+    // Write data to temp file
+    fs::write(&tmp_path, &body).await.map_err(|e| {
+        if e.kind() == ErrorKind::StorageFull {
+            (StatusCode::INSUFFICIENT_STORAGE, e.to_string())
+        } else {
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        }
+    })?;
+
+    // Atomic rename
+    if let Err(e) = fs::rename(&tmp_path, &full_path).await {
+        // Clean up temp file on rename failure
+        let _ = fs::remove_file(&tmp_path).await;
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    }
 
     Ok(())
 }

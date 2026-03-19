@@ -136,6 +136,16 @@
       "id": "download.cleanup_removes_data",
       "kind": "behavior",
       "requiredIn": ["node", "rust"]
+    },
+    {
+      "id": "ops.write_atomic.creates_file",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust"]
+    },
+    {
+      "id": "ops.write_atomic.overwrites_existing",
+      "kind": "behavior",
+      "requiredIn": ["node", "rust"]
     }
   ]
 }

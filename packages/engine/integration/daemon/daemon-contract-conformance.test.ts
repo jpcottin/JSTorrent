@@ -427,4 +427,54 @@ describe('Rust daemon HTTP contract conformance', () => {
       expect(hashBytes).toEqual(crypto.createHash('sha1').update(payload).digest())
     },
   )
+
+  conformanceCase(
+    'rust',
+    'ops.write_atomic.creates_file',
+    'atomically creates a new file via POST /ops/write_atomic/:root_key',
+    async () => {
+      harness = await startDaemon()
+
+      const data = new TextEncoder().encode('{"infohash":"abc123"}')
+      const pathB64 = Buffer.from('.abc123.jstorrent.json').toString('base64')
+
+      const response = await makeAuthenticatedRequest(`/ops/write_atomic/default`, {
+        method: 'POST',
+        headers: { 'X-Path-Base64': pathB64 },
+        body: data,
+      })
+      expect(response.status).toBe(200)
+
+      const content = await fs.readFile(
+        path.join(harness.dataDir, '.abc123.jstorrent.json'),
+        'utf8',
+      )
+      expect(content).toBe('{"infohash":"abc123"}')
+    },
+  )
+
+  conformanceCase(
+    'rust',
+    'ops.write_atomic.overwrites_existing',
+    'atomically overwrites an existing file via POST /ops/write_atomic/:root_key',
+    async () => {
+      harness = await startDaemon()
+
+      const filePath = path.join(harness.dataDir, '.test.jstorrent.json')
+      await fs.writeFile(filePath, 'old content')
+
+      const data = new TextEncoder().encode('new content')
+      const pathB64 = Buffer.from('.test.jstorrent.json').toString('base64')
+
+      const response = await makeAuthenticatedRequest(`/ops/write_atomic/default`, {
+        method: 'POST',
+        headers: { 'X-Path-Base64': pathB64 },
+        body: data,
+      })
+      expect(response.status).toBe(200)
+
+      const content = await fs.readFile(filePath, 'utf8')
+      expect(content).toBe('new content')
+    },
+  )
 })

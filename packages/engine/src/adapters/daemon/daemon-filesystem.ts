@@ -4,6 +4,7 @@ import {
   IFileStat,
   VerifyChunksRequest,
 } from '../../interfaces/filesystem'
+import { toBase64 } from '../../utils/buffer'
 import { DaemonConnection } from './daemon-connection'
 import { DaemonFileHandle } from './daemon-file-handle'
 
@@ -87,9 +88,15 @@ export class DaemonFileSystem implements IFileSystem {
     })
   }
 
-  async writeAtomic(_path: string, _data: Uint8Array): Promise<void> {
-    // TODO: Phase 2 — POST /ops/write_atomic endpoint
-    throw new Error('writeAtomic not yet implemented for daemon backend')
+  async writeAtomic(path: string, data: Uint8Array): Promise<void> {
+    const pathB64 = toBase64(new TextEncoder().encode(path))
+    await this.connection.requestBinary(
+      'POST',
+      `/ops/write_atomic/${this.rootKey}`,
+      undefined,
+      data,
+      { 'X-Path-Base64': pathB64 },
+    )
   }
 
   async getFreeDiskSpace(): Promise<number> {
