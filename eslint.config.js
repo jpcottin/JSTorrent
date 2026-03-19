@@ -64,7 +64,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['packages/engine/**/*.{ts,tsx}'],
+    files: ['packages/engine/src/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-syntax': [
         'error',
