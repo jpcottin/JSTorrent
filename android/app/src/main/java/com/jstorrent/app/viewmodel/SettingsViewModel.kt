@@ -86,6 +86,8 @@ data class SettingsUiState(
     val canRequestNotificationPermission: Boolean = true,
     val showNotificationRequiredDialog: Boolean = false,
     val showKeepSeedingWarningDialog: Boolean = false,
+    // Integrations
+    val downloadManifest: Boolean = false,
     // Language & Appearance
     val appLocale: String = "",
     val appTheme: String = ""
@@ -150,6 +152,8 @@ class SettingsViewModel(
             proxyHttpTrackers = configHub.proxyHttpTrackers,
             proxyUdpTrackers = configHub.proxyUdpTrackers,
             proxyPeerConnections = configHub.proxyPeerConnections,
+            // Integrations (engine settings)
+            downloadManifest = configHub.downloadManifest,
             // Android-only settings (from SharedPreferences)
             whenDownloadsComplete = settingsStore.whenDownloadsComplete,
             wifiOnlyEnabled = settingsStore.wifiOnlyEnabled,
@@ -403,6 +407,19 @@ class SettingsViewModel(
     fun setActiveSeeds(max: Int) {
         configHub.activeSeeds = max
         _uiState.value = _uiState.value.copy(activeSeeds = max)
+    }
+
+    // =========================================================================
+    // Integration Settings
+    // =========================================================================
+
+    /**
+     * Set download manifest writing enabled.
+     * Writes .jstorrent.json sidecar files alongside downloads for PlayVideo integration.
+     */
+    fun setDownloadManifest(enabled: Boolean) {
+        configHub.downloadManifest = enabled
+        _uiState.value = _uiState.value.copy(downloadManifest = enabled)
     }
 
     // =========================================================================

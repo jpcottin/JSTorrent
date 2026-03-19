@@ -314,6 +314,9 @@
     <string name="settings_advanced_mode_section">Mode</string>
     <string name="settings_advanced_companion_mode_label">Switch to Companion Mode</string>
     <string name="settings_advanced_companion_mode_description">Use with Chrome extension instead</string>
+    <string name="settings_advanced_integrations_section">Integrations</string>
+    <string name="settings_advanced_download_manifest_label">Write download manifest files</string>
+    <string name="settings_advanced_download_manifest_description">Write .jstorrent.json sidecar files alongside downloads for PlayVideo integration</string>
     <string name="settings_advanced_support_section">Support</string>
     <string name="settings_advanced_report_bug_label">Report Bug / Send Feedback</string>
     <string name="settings_advanced_report_bug_description">Help us improve JSTorrent</string>

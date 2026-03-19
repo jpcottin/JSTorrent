@@ -157,6 +157,21 @@ fun AdvancedSettingsScreen(
                 }
             }
 
+            // Integrations
+            item {
+                SectionHeader(title = stringResource(R.string.settings_advanced_integrations_section))
+            }
+
+            item {
+                SettingToggleRow(
+                    label = stringResource(R.string.settings_advanced_download_manifest_label),
+                    description = stringResource(R.string.settings_advanced_download_manifest_description),
+                    checked = uiState.downloadManifest,
+                    onCheckedChange = { viewModel.setDownloadManifest(it) },
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+
             item {
                 SectionHeader(title = stringResource(R.string.settings_advanced_support_section))
             }

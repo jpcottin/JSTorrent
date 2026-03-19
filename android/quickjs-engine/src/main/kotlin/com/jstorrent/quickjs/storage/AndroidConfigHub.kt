@@ -168,6 +168,14 @@ class AndroidConfigHub(
         set(value) = set("proxyPeerConnections", value)
 
     // =========================================================================
+    // Integrations
+    // =========================================================================
+
+    var downloadManifest: Boolean
+        get() = getBoolean("downloadManifest", false)
+        set(value) = set("downloadManifest", value)
+
+    // =========================================================================
     // Storage
     // =========================================================================
 
@@ -341,6 +349,7 @@ class AndroidConfigHub(
             "proxyHttpTrackers" -> bridge.setProxyHttpTrackers(value as Boolean)
             "proxyUdpTrackers" -> bridge.setProxyUdpTrackers(value as Boolean)
             "proxyPeerConnections" -> bridge.setProxyPeerConnections(value as Boolean)
+            "downloadManifest" -> bridge.batchUpdate(mapOf(key to (value as Any)))
             // defaultRootKey is handled separately via syncRoots
             "defaultRootKey" -> { /* No-op, handled by RootStore */ }
             else -> Log.w(TAG, "No JS notification handler for key: $key")
@@ -376,6 +385,7 @@ class AndroidConfigHub(
             bridge.setPexEnabled(true)
             bridge.setUpnpEnabled(true)
             bridge.setProxyEnabled(false)
+            bridge.batchUpdate(mapOf("downloadManifest" to false))
         }
 
         // Emit change events for UI subscribers
