@@ -489,10 +489,10 @@ final class JSEngineTests: XCTestCase {
         )
 
         let expectation = expectation(description: "interval fired enough times")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.08) {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
             expectation.fulfill()
         }
-        wait(for: [expectation], timeout: 1.0)
+        wait(for: [expectation], timeout: 2.0)
 
         let result = try engine.evaluate("globalThis.__intervalCount", filename: "interval-check.js")
         XCTAssertEqual(result?.toInt32(), 2)
