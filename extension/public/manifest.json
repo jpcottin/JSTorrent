@@ -33,12 +33,15 @@
     "ids": [
       "anhdpjpojoipgpmfanmedjghaligalgb",
       "abmohcnlldaiaodkpacnldcdnjjgldfh",
-      "bnceafpojmnimbnhamaeedgomdcgnbjk"
+      "bnceafpojmnimbnhamaeedgomdcgnbjk",
+      "leanfmncjikipbkbjghejpaenkpanimp"
     ],
     "matches": [
       "https://new.jstorrent.com/*",
       "https://jstorrent.com/*",
-      "http://local.jstorrent.com/*"
+      "http://local.jstorrent.com/*",
+      "https://playsvideo.com/*",
+      "http://local.playsvideo.com/*"
     ]
   }
 }
