@@ -275,7 +275,8 @@ data class TorrentSummary(
     val errorMessage: String? = null, // Error description when status == "error"
     val checkingProgress: Double = 0.0, // 0-1, only meaningful when status == "checking"
     val queuePosition: Int? = null, // Queue position (0-based), null if not assigned
-    val forceActive: Boolean = false // Bypasses queue limits when true
+    val forceActive: Boolean = false, // Bypasses queue limits when true
+    val magnetSelectOnly: List<Int>? = null // File indices from magnet so= parameter
 )
 
 /**

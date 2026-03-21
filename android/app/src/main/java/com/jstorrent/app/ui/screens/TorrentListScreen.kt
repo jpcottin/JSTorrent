@@ -550,6 +550,7 @@ fun TorrentListScreen(
                 viewModel.disableFileSelection()
             },
             onAddRootClick = onAddRootClick,
+            initialSelectedIndices = currentAwaitingTorrent.magnetSelectOnly,
             onDismiss = {
                 viewModel.confirmAllFiles(
                     currentAwaitingTorrent.infoHash,

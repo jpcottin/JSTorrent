@@ -433,4 +433,133 @@ describe('awaitingFileSelection integration', () => {
       await engine2.destroy()
     })
   })
+
+  describe('duplicate torrent handling', () => {
+    let engine: BtEngine
+
+    beforeEach(() => {
+      engine = createMemoryEngine()
+    })
+
+    afterEach(async () => {
+      await engine.destroy()
+    })
+
+    it('auto-starts stopped duplicate torrent', async () => {
+      const buffer = createMultiFileTorrent({
+        name: 'test-folder',
+        files: [
+          { path: 'a.txt', length: 16384 },
+          { path: 'b.txt', length: 16384 },
+        ],
+        pieceLength: 16384,
+      })
+
+      const { torrent } = await engine.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      // Stop the torrent
+      torrent.userStop()
+      expect(torrent.userState).toBe('stopped')
+
+      // Add the same torrent again
+      const { torrent: dup, isDuplicate } = await engine.addTorrent(buffer)
+      expect(isDuplicate).toBe(true)
+      expect(dup).toBe(torrent)
+      expect(torrent.userState).toBe('active')
+    })
+
+    it('unskips files from so= param on existing torrent', async () => {
+      const buffer = createMultiFileTorrent({
+        name: 'test-folder',
+        files: [
+          { path: 'a.txt', length: 16384 },
+          { path: 'b.txt', length: 16384 },
+          { path: 'c.txt', length: 16384 },
+        ],
+        pieceLength: 16384,
+      })
+
+      const { torrent } = await engine.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      // Skip files b.txt and c.txt
+      torrent.setFilePriority(1, 1)
+      torrent.setFilePriority(2, 1)
+      expect(torrent.filePriorities[1]).toBe(1)
+      expect(torrent.filePriorities[2]).toBe(1)
+
+      // Add duplicate magnet with so=1 (unskip b.txt)
+      const magnetLink = `magnet:?xt=urn:btih:${torrent.infoHashStr}&so=1`
+      const { isDuplicate } = await engine.addTorrent(magnetLink)
+      expect(isDuplicate).toBe(true)
+
+      // b.txt should be unskipped, c.txt should remain skipped
+      expect(torrent.filePriorities[0]).toBe(0)
+      expect(torrent.filePriorities[1]).toBe(0)
+      expect(torrent.filePriorities[2]).toBe(1)
+    })
+
+    it('unskips files and auto-starts stopped torrent with so=', async () => {
+      const buffer = createMultiFileTorrent({
+        name: 'test-folder',
+        files: [
+          { path: 'a.txt', length: 16384 },
+          { path: 'b.txt', length: 16384 },
+        ],
+        pieceLength: 16384,
+      })
+
+      const { torrent } = await engine.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      // Skip b.txt and stop
+      torrent.setFilePriority(1, 1)
+      torrent.userStop()
+
+      // Add duplicate with so=1
+      const magnetLink = `magnet:?xt=urn:btih:${torrent.infoHashStr}&so=1`
+      await engine.addTorrent(magnetLink)
+
+      expect(torrent.filePriorities[1]).toBe(0) // unskipped
+      expect(torrent.userState).toBe('active') // auto-started
+    })
+
+    it('handles so= on duplicate without metadata (no crash)', async () => {
+      const magnetLink = 'magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=Test'
+      const { torrent } = await engine.addTorrent(magnetLink)
+      if (!torrent) throw new Error('Torrent is null')
+
+      expect(torrent.hasMetadata).toBe(false)
+
+      // Add same torrent with so= — should not crash
+      const magnetWithSo = 'magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&so=0,1'
+      const { isDuplicate } = await engine.addTorrent(magnetWithSo)
+      expect(isDuplicate).toBe(true)
+    })
+
+    it('handles so= with out-of-bounds file index (no crash)', async () => {
+      const buffer = createMultiFileTorrent({
+        name: 'test-folder',
+        files: [
+          { path: 'a.txt', length: 16384 },
+          { path: 'b.txt', length: 16384 },
+        ],
+        pieceLength: 16384,
+      })
+
+      const { torrent } = await engine.addTorrent(buffer)
+      if (!torrent) throw new Error('Torrent is null')
+
+      torrent.setFilePriority(0, 1) // skip a.txt
+
+      // so=999 — out of bounds, should be ignored without crash
+      const magnetLink = `magnet:?xt=urn:btih:${torrent.infoHashStr}&so=999`
+      const { isDuplicate } = await engine.addTorrent(magnetLink)
+      expect(isDuplicate).toBe(true)
+
+      // a.txt should remain skipped (so=999 didn't match any file)
+      expect(torrent.filePriorities[0]).toBe(1)
+    })
+  })
 })

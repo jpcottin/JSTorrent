@@ -67,6 +67,7 @@ export interface TorrentSummary {
   checkingProgress: number // 0-1, only meaningful when status='checking'
   queuePosition: number | undefined
   forceActive: boolean
+  magnetSelectOnly: number[] | undefined
 }
 
 export interface PeerInfo {
@@ -484,6 +485,7 @@ export class SubscriptionManager {
       checkingProgress: t.checkingProgress,
       queuePosition: t.queuePosition,
       forceActive: t.forceActive,
+      magnetSelectOnly: t.magnetSelectOnly,
     }
   }
 

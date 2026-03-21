@@ -263,6 +263,8 @@ function AppContentInner({
 
   const handleFileSelectionConfirmAll = async (rootKey: string) => {
     if (!currentAwaitingTorrent) return
+    // Clear magnetSelectOnly so all files are downloaded when metadata arrives
+    currentAwaitingTorrent.magnetSelectOnly = undefined
     currentAwaitingTorrent.setStorageRoot(rootKey)
     currentAwaitingTorrent.userState = 'active'
     await currentAwaitingTorrent.start()
@@ -1027,6 +1029,7 @@ function AppContentInner({
           onConfirmAll={handleFileSelectionConfirmAll}
           onCancel={handleFileSelectionCancel}
           onDontShowAgain={(v) => setShowFileSelection(!v)}
+          initialSelectedIndices={currentAwaitingTorrent.magnetSelectOnly}
         />
       )}
 

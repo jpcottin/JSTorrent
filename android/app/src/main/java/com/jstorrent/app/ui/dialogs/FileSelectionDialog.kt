@@ -67,7 +67,8 @@ fun FileSelectionDialog(
     onCancel: () -> Unit,
     onDontShowAgain: () -> Unit,
     onAddRootClick: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    initialSelectedIndices: List<Int>? = null
 ) {
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true,
@@ -82,12 +83,27 @@ fun FileSelectionDialog(
             selectedRootKey = defaultRootKey
         }
     }
-    var selectedFiles by remember { mutableStateOf(files.map { it.index }.toSet()) }
+    val hasInitialSelection = initialSelectedIndices != null && initialSelectedIndices.isNotEmpty()
+    var selectedFiles by remember {
+        mutableStateOf(
+            if (hasInitialSelection && files.isNotEmpty()) {
+                val selected = initialSelectedIndices!!.toSet()
+                files.filter { it.index in selected }.map { it.index }.toSet()
+            } else {
+                files.map { it.index }.toSet()
+            }
+        )
+    }
     var metadataApplied by remember { mutableStateOf(files.isNotEmpty()) }
     // Update selected files when metadata arrives (but not when user deselects all)
     if (hasMetadata && files.isNotEmpty() && !metadataApplied) {
         metadataApplied = true
-        selectedFiles = files.map { it.index }.toSet()
+        selectedFiles = if (hasInitialSelection) {
+            val selected = initialSelectedIndices!!.toSet()
+            files.filter { it.index in selected }.map { it.index }.toSet()
+        } else {
+            files.map { it.index }.toSet()
+        }
     }
 
     Log.d("FileSelectionDialog", "Recompose: rootKey='$selectedRootKey', selectedFiles=${selectedFiles.size}, files=${files.size}, hasMetadata=$hasMetadata, metadataApplied=$metadataApplied")

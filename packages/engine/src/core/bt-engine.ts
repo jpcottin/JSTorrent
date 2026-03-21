@@ -817,6 +817,27 @@ export class BtEngine extends EventEmitter implements ILoggingEngine, ILoggableC
     // Check for existing torrent
     const existing = this.getTorrent(input.infoHashStr)
     if (existing) {
+      // If magnet has so= and torrent has metadata, unskip those files
+      if (input.magnetSelectOnly !== undefined && existing.hasMetadata) {
+        const priorities = new Map<number, number>()
+        for (const fileIndex of input.magnetSelectOnly) {
+          if (
+            fileIndex >= 0 &&
+            fileIndex < existing.filePriorities.length &&
+            existing.filePriorities[fileIndex] === 1
+          ) {
+            priorities.set(fileIndex, 0)
+          }
+        }
+        if (priorities.size > 0) {
+          existing.setFilePriorities(priorities)
+          this.sessionPersistence.saveTorrentState(existing)
+        }
+      }
+      // Auto-start if stopped
+      if (existing.userState === 'stopped') {
+        await existing.userStart()
+      }
       return { torrent: existing, isDuplicate: true }
     }
 

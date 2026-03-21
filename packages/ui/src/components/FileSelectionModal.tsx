@@ -38,6 +38,8 @@ export interface FileSelectionModalProps {
   onCancel: () => void
   /** Called when user toggles "don't show again" */
   onDontShowAgain?: (value: boolean) => void
+  /** Pre-selected file indices from magnet so= parameter */
+  initialSelectedIndices?: number[]
 }
 
 const overlayStyle: React.CSSProperties = {
@@ -169,15 +171,31 @@ export function FileSelectionModal({
   onConfirmAll,
   onCancel,
   onDontShowAgain,
+  initialSelectedIndices,
 }: FileSelectionModalProps) {
   const effectiveDefaultRoot =
     defaultRootKey && roots.some((r) => r.key === defaultRootKey)
       ? defaultRootKey
       : (roots[0]?.key ?? '')
   const [selectedRootKey, setSelectedRootKey] = useState(effectiveDefaultRoot)
-  // All files selected by default. Track user deselections instead.
+  // Track user deselections. If initialSelectedIndices is provided, pre-deselect files not in it.
   const allFileIndices = useMemo(() => new Set(files.map((f) => f.index)), [files])
+  const hasInitialSelection =
+    initialSelectedIndices !== undefined && initialSelectedIndices.length > 0
+  const initialSelectedSet = useMemo(
+    () => (hasInitialSelection ? new Set(initialSelectedIndices) : undefined),
+    [], // Intentionally stable — only use the initial value
+  )
+  const [initialSelectionApplied, setInitialSelectionApplied] = useState(false)
   const [deselectedFiles, setDeselectedFiles] = useState<Set<number>>(new Set())
+
+  // When files arrive (metadata loaded) and we have initial selection, apply it once
+  if (initialSelectedSet && files.length > 0 && !initialSelectionApplied) {
+    setInitialSelectionApplied(true)
+    setDeselectedFiles(
+      new Set(files.filter((f) => !initialSelectedSet.has(f.index)).map((f) => f.index)),
+    )
+  }
   const selectedFiles = useMemo(() => {
     const sel = new Set(allFileIndices)
     for (const idx of deselectedFiles) {
