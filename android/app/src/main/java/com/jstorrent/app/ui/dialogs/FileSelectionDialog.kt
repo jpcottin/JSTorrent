@@ -31,6 +31,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jstorrent.app.storage.DownloadRoot
+import android.util.Log
 import com.jstorrent.app.util.Formatters
 import com.jstorrent.quickjs.model.FileInfo
 
@@ -67,7 +69,10 @@ fun FileSelectionDialog(
     onAddRootClick: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { it != SheetValue.Hidden }
+    )
     var selectedRootKey by remember {
         mutableStateOf(defaultRootKey ?: roots.firstOrNull()?.key ?: "")
     }
@@ -78,11 +83,14 @@ fun FileSelectionDialog(
         }
     }
     var selectedFiles by remember { mutableStateOf(files.map { it.index }.toSet()) }
-    // Update selected files when metadata arrives
-    if (hasMetadata && files.isNotEmpty() && selectedFiles.isEmpty()) {
+    var metadataApplied by remember { mutableStateOf(files.isNotEmpty()) }
+    // Update selected files when metadata arrives (but not when user deselects all)
+    if (hasMetadata && files.isNotEmpty() && !metadataApplied) {
+        metadataApplied = true
         selectedFiles = files.map { it.index }.toSet()
     }
 
+    Log.d("FileSelectionDialog", "Recompose: rootKey='$selectedRootKey', selectedFiles=${selectedFiles.size}, files=${files.size}, hasMetadata=$hasMetadata, metadataApplied=$metadataApplied")
     val selectedSize = files.filter { it.index in selectedFiles }.sumOf { it.size }
     val freeSpace = rootFreeSpace[selectedRootKey]
     val overCapacity = freeSpace != null && freeSpace > 0 && selectedSize > freeSpace
@@ -154,23 +162,26 @@ fun FileSelectionDialog(
                         text = "${selectedFiles.size}/${files.size} files",
                         style = MaterialTheme.typography.labelMedium
                     )
-                    Row {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             text = "All",
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable {
-                                selectedFiles = files.map { it.index }.toSet()
-                            }
+                            modifier = Modifier
+                                .clickable {
+                                    selectedFiles = files.map { it.index }.toSet()
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
                         )
-                        Spacer(modifier = Modifier.width(16.dp))
                         Text(
                             text = "None",
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable {
-                                selectedFiles = emptySet()
-                            }
+                            modifier = Modifier
+                                .clickable {
+                                    selectedFiles = emptySet()
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
                         )
                     }
                 }
@@ -181,7 +192,7 @@ fun FileSelectionDialog(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 300.dp)
+                        .heightIn(max = 400.dp)
                 ) {
                     items(files, key = { it.index }) { file ->
                         Row(
@@ -194,7 +205,7 @@ fun FileSelectionDialog(
                                         selectedFiles + file.index
                                     }
                                 }
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Checkbox(
@@ -256,7 +267,10 @@ fun FileSelectionDialog(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
-                    onClick = onCancel,
+                    onClick = {
+                        Log.i("FileSelectionDialog", "onCancel clicked")
+                        onCancel()
+                    },
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("Cancel")
@@ -264,36 +278,42 @@ fun FileSelectionDialog(
 
                 if (hasMetadata && files.isNotEmpty()) {
                     Button(
-                        onClick = { onConfirm(selectedRootKey, selectedFiles) },
+                        onClick = {
+                            Log.i("FileSelectionDialog", "onConfirm clicked: rootKey='$selectedRootKey', selectedFiles=$selectedFiles, filesCount=${files.size}")
+                            onConfirm(selectedRootKey, selectedFiles)
+                        },
                         modifier = Modifier.weight(1f),
-                        enabled = selectedRootKey.isNotEmpty() && selectedFiles.isNotEmpty()
+                        enabled = selectedRootKey.isNotEmpty()
                     ) {
-                        Text("Download")
+                        Text(if (selectedFiles.isEmpty()) "Add" else "Download")
                     }
                 }
 
-                Button(
-                    onClick = { onConfirmAll(selectedRootKey) },
-                    modifier = Modifier.weight(1f),
-                    enabled = selectedRootKey.isNotEmpty()
-                ) {
-                    Text(if (hasMetadata && files.isNotEmpty()) "All" else "Download All")
+                if (!hasMetadata || files.isEmpty()) {
+                    Button(
+                        onClick = { onConfirmAll(selectedRootKey) },
+                        modifier = Modifier.weight(1f),
+                        enabled = selectedRootKey.isNotEmpty()
+                    ) {
+                        Text("Download All")
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // "Don't show again"
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onDontShowAgain() },
+                    .clickable { onDontShowAgain() }
+                    .padding(vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
                 Text(
                     text = "Don't show again",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
