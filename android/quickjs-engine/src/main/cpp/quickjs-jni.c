@@ -171,6 +171,50 @@ static void log_and_clear_java_exception(JNIEnv *env, const char *context) {
     (*env)->ExceptionClear(env);
 }
 
+typedef struct {
+    int js_entry_depth;
+} QuickJsRuntimeState;
+
+static void throw_quickjs_message(JNIEnv *env, const char *message) {
+    jclass cls = (*env)->FindClass(env, "com/jstorrent/quickjs/QuickJsException");
+    if (!cls) {
+        return;
+    }
+    (*env)->ThrowNew(env, cls, message);
+}
+
+static QuickJsRuntimeState *get_runtime_state(JSContext *ctx) {
+    return (QuickJsRuntimeState *)JS_GetRuntimeOpaque(JS_GetRuntime(ctx));
+}
+
+static int enter_js_from_kotlin(JNIEnv *env, JSContext *ctx, const char *entrypoint) {
+    QuickJsRuntimeState *state = get_runtime_state(ctx);
+    if (!state) {
+        throw_quickjs_message(env, "QuickJS runtime state unavailable");
+        return 0;
+    }
+    if (state->js_entry_depth > 0) {
+        char message[160];
+        snprintf(
+            message,
+            sizeof(message),
+            "Re-entrant QuickJS entry blocked in %s; queue work onto the JS thread instead",
+            entrypoint
+        );
+        throw_quickjs_message(env, message);
+        return 0;
+    }
+    state->js_entry_depth++;
+    return 1;
+}
+
+static void leave_js_from_kotlin(JSContext *ctx) {
+    QuickJsRuntimeState *state = get_runtime_state(ctx);
+    if (state && state->js_entry_depth > 0) {
+        state->js_entry_depth--;
+    }
+}
+
 // -----------------------------------------------------------------------------
 // JNI: Create runtime and context
 // Returns: long (pointer to JSContext)
@@ -186,6 +230,15 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeCreate(JNIEnv *env, jclass clazz
         return 0;
     }
 
+    QuickJsRuntimeState *runtime_state = calloc(1, sizeof(QuickJsRuntimeState));
+    if (!runtime_state) {
+        JS_FreeRuntime(rt);
+        jclass cls = (*env)->FindClass(env, "com/jstorrent/quickjs/QuickJsException");
+        (*env)->ThrowNew(env, cls, "Failed to allocate QuickJS runtime state");
+        return 0;
+    }
+    JS_SetRuntimeOpaque(rt, runtime_state);
+
     // Register our callback class if not yet registered
     if (js_callback_class_id == 0) {
         JS_NewClassID(rt, &js_callback_class_id);
@@ -194,6 +247,8 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeCreate(JNIEnv *env, jclass clazz
 
     JSContext *ctx = JS_NewContext(rt);
     if (!ctx) {
+        JS_SetRuntimeOpaque(rt, NULL);
+        free(runtime_state);
         JS_FreeRuntime(rt);
         jclass cls = (*env)->FindClass(env, "com/jstorrent/quickjs/QuickJsException");
         (*env)->ThrowNew(env, cls, "Failed to create QuickJS context");
@@ -215,7 +270,10 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeDestroy(JNIEnv *env, jclass claz
     JSContext *ctx = (JSContext *)(intptr_t)ctxPtr;
     if (ctx) {
         JSRuntime *rt = JS_GetRuntime(ctx);
+        QuickJsRuntimeState *runtime_state = (QuickJsRuntimeState *)JS_GetRuntimeOpaque(rt);
         JS_FreeContext(ctx);
+        JS_SetRuntimeOpaque(rt, NULL);
+        free(runtime_state);
         JS_FreeRuntime(rt);
         LOGD("QuickJS context destroyed: %p", ctx);
     }
@@ -236,6 +294,9 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeEvaluate(
     (void)clazz;
 
     JSContext *ctx = (JSContext *)(intptr_t)ctxPtr;
+    if (!enter_js_from_kotlin(env, ctx, "evaluate")) {
+        return NULL;
+    }
 
     const char *scriptStr = (*env)->GetStringUTFChars(env, script, NULL);
     const char *filenameStr = (*env)->GetStringUTFChars(env, filename, NULL);
@@ -246,12 +307,14 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeEvaluate(
     (*env)->ReleaseStringUTFChars(env, filename, filenameStr);
 
     if (JS_IsException(result)) {
+        leave_js_from_kotlin(ctx);
         throw_js_exception(env, ctx);
         return NULL;
     }
 
     jobject jresult = js_value_to_jobject(env, ctx, result);
     JS_FreeValue(ctx, result);
+    leave_js_from_kotlin(ctx);
 
     return jresult;
 }
@@ -403,8 +466,12 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeExecutePendingJob(JNIEnv *env, j
     (void)clazz;
 
     JSContext *ctx = (JSContext *)(intptr_t)ctxPtr;
+    if (!enter_js_from_kotlin(env, ctx, "executePendingJob")) {
+        return JNI_FALSE;
+    }
     JSContext *ctx2;
     int ret = JS_ExecutePendingJob(JS_GetRuntime(ctx), &ctx2);
+    leave_js_from_kotlin(ctx);
     return ret > 0 ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -642,6 +709,9 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeCallGlobalFunction(
     (void)clazz;
 
     JSContext *ctx = (JSContext *)(intptr_t)ctxPtr;
+    if (!enter_js_from_kotlin(env, ctx, "callGlobalFunction")) {
+        return NULL;
+    }
 
     // Get the global function
     const char *funcNameStr = (*env)->GetStringUTFChars(env, funcName, NULL);
@@ -652,6 +722,7 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeCallGlobalFunction(
     if (!JS_IsFunction(ctx, func)) {
         JS_FreeValue(ctx, func);
         JS_FreeValue(ctx, global);
+        leave_js_from_kotlin(ctx);
         return NULL;  // Function not found
     }
 
@@ -696,6 +767,7 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeCallGlobalFunction(
     JS_FreeValue(ctx, global);
 
     if (JS_IsException(result)) {
+        leave_js_from_kotlin(ctx);
         throw_js_exception(env, ctx);
         return NULL;
     }
@@ -704,15 +776,18 @@ Java_com_jstorrent_quickjs_QuickJsContext_nativeCallGlobalFunction(
     jbyteArray binaryResult = array_buffer_to_byte_array(ctx, env, result);
     if ((*env)->ExceptionCheck(env)) {
         JS_FreeValue(ctx, result);
+        leave_js_from_kotlin(ctx);
         return NULL;
     }
     if (binaryResult) {
         JS_FreeValue(ctx, result);
+        leave_js_from_kotlin(ctx);
         return binaryResult;
     }
 
     jobject jresult = js_value_to_jobject(env, ctx, result);
     JS_FreeValue(ctx, result);
+    leave_js_from_kotlin(ctx);
 
     return jresult;
 }

@@ -219,6 +219,30 @@ class NativeBindingsTest {
     }
 
     @Test
+    fun nestedKotlinToJsCallIsRejected() {
+        var message: String? = null
+
+        engine.postAndWait {
+            engine.context.evaluate("globalThis.__inner_dispatch = function() { return 'ok'; }")
+            engine.context.setGlobalFunction("__outer_dispatch") { _ ->
+                try {
+                    engine.context.callGlobalFunction("__inner_dispatch")
+                    "unexpected"
+                } catch (e: QuickJsException) {
+                    e.message ?: "missing error message"
+                }
+            }
+            message = engine.context.evaluate("__outer_dispatch()") as? String
+        }
+
+        assertNotNull(message)
+        assertTrue(
+            message!!.contains("Re-entrant QuickJS entry blocked"),
+            "Expected re-entry guard message, got: $message"
+        )
+    }
+
+    @Test
     fun clearTimeoutCancelsTimer() {
         engine.postAndWait {
             engine.context.evaluate("""
@@ -626,8 +650,7 @@ class NativeBindingsTest {
             attempts++
 
             engine.postAndWait {
-                // Flush results from I/O threads to JS
-                engine.context.evaluate("__jstorrent_file_flush()")
+                bindings.dispatchPendingCallbacks(engine.context)
 
                 val r = engine.context.evaluate("globalThis.__test_write_result")
                 if (r != null) {
@@ -728,7 +751,7 @@ class NativeBindingsTest {
             attempts++
 
             engine.postAndWait {
-                engine.context.evaluate("__jstorrent_file_flush()")
+                bindings.dispatchPendingCallbacks(engine.context)
                 val keys = engine.context.evaluate("Object.keys(globalThis.__test_write_results).length")
                 bothDone = (keys as? Number)?.toInt() == 2
             }

@@ -1158,10 +1158,11 @@ class EngineController(
      * - Automatic backoff when idle
      *
      * The tick runs directly on the JS thread:
-     * 1. Call __jstorrent_engine_tick (JS work)
-     * 2. Pump all pending jobs (microtasks)
-     * 3. Check for pending work
-     * 4. Schedule next tick: immediate if work pending, delayed if idle
+     * 1. Dispatch queued native callbacks from a top-level Kotlin entry point
+     * 2. Call __jstorrent_engine_tick (JS work)
+     * 3. Pump all pending jobs (microtasks)
+     * 4. Check for pending work
+     * 5. Schedule next tick: immediate if work pending, delayed if idle
      */
     fun startHostDrivenTick() {
         if (tickEnabled) {
@@ -1213,6 +1214,7 @@ class EngineController(
                 var pendingHashes = 0
 
                 try {
+                    bindings?.dispatchPendingCallbacks(eng.context)
                     val result = eng.context.callGlobalFunction("__jstorrent_engine_tick")
                     when (result) {
                         is ByteArray -> {

@@ -585,6 +585,35 @@ class FileBindings(
     }
 
     /**
+     * Drain queued disk write and read results and deliver them to JS from a
+     * top-level Kotlin entry point.
+     *
+     * This must run on the JS thread. Using a top-level call avoids re-entering
+     * QuickJS from inside a JS -> Kotlin callback.
+     */
+    fun dispatchPendingCallbacks(ctx: QuickJsContext) {
+        val writePacked = drainAndPackDiskBatch()
+        if (writePacked != null) {
+            ctx.callGlobalFunctionWithBinary(
+                "__jstorrent_file_dispatch_batch",
+                writePacked,
+                0,
+                null
+            )
+        }
+
+        val readPacked = drainAndPackDiskReadBatch()
+        if (readPacked != null) {
+            ctx.callGlobalFunctionWithBinary(
+                "__jstorrent_file_dispatch_read_batch",
+                readPacked,
+                0,
+                null
+            )
+        }
+    }
+
+    /**
      * Resolve rootKey to a Uri.
      * - Empty or "default" -> app-private downloads directory
      * - Otherwise -> use rootResolver (for SAF URIs)
@@ -899,28 +928,10 @@ class FileBindings(
         """.trimIndent(), "file-bindings-init.js")
 
         // __jstorrent_file_flush(): void
-        // Flush accumulated disk write AND read results from I/O threads to JS.
-        // Called by JS at start of engine tick to batch all pending results
-        // into a single FFI crossing per type.
+        // Android host-driven mode dispatches pending callbacks from Kotlin before
+        // entering __jstorrent_engine_tick(). Keep this as a no-op so the shared JS
+        // engine can still call flushCallbacks() without triggering nested FFI re-entry.
         ctx.setGlobalFunction("__jstorrent_file_flush") { _ ->
-            val writePacked = drainAndPackDiskBatch()
-            if (writePacked != null) {
-                ctx.callGlobalFunctionWithBinary(
-                    "__jstorrent_file_dispatch_batch",
-                    writePacked,
-                    0,
-                    null
-                )
-            }
-            val readPacked = drainAndPackDiskReadBatch()
-            if (readPacked != null) {
-                ctx.callGlobalFunctionWithBinary(
-                    "__jstorrent_file_dispatch_read_batch",
-                    readPacked,
-                    0,
-                    null
-                )
-            }
             null
         }
 

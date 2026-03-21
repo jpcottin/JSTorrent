@@ -120,6 +120,19 @@ class NativeBindings(
     }
 
     /**
+     * Deliver batched native callbacks to JS from a top-level Kotlin entry point.
+     *
+     * Must be called on the JS thread before entering JS work that could otherwise
+     * trigger nested JS -> Kotlin -> JS re-entry on Android QuickJS.
+     */
+    fun dispatchPendingCallbacks(ctx: QuickJsContext) {
+        tcpBindings.dispatchPendingCallbacks(ctx)
+        udpBindings.dispatchPendingCallbacks(ctx)
+        fileBindings.dispatchPendingCallbacks(ctx)
+        polyfillBindings.dispatchPendingCallbacks(ctx)
+    }
+
+    /**
      * Shutdown all I/O services.
      */
     fun shutdown() {

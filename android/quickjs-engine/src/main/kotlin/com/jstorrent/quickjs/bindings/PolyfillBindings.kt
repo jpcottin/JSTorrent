@@ -161,26 +161,31 @@ class PolyfillBindings(
     }
 
     /**
+     * Drain queued hash results and deliver them to JS from a top-level Kotlin
+     * entry point.
+     *
+     * This must run on the JS thread. Using a top-level call avoids re-entering
+     * QuickJS from inside a JS -> Kotlin callback.
+     */
+    fun dispatchPendingCallbacks(ctx: QuickJsContext) {
+        val packed = drainAndPackHashBatch() ?: return
+        ctx.callGlobalFunctionWithBinary(
+            "__jstorrent_hash_dispatch_batch",
+            packed,
+            0,
+            null
+        )
+    }
+
+    /**
      * Register Phase 4 flush functions for batch crossing.
      */
     private fun registerFlushFunctions(ctx: QuickJsContext) {
         // __jstorrent_hash_flush(): void
-        // Phase 4: Flush accumulated hash results from I/O threads to JS.
-        // Called by JS at start of engine tick to batch all pending results
-        // into a single FFI crossing.
+        // Android host-driven mode dispatches pending callbacks from Kotlin before
+        // entering __jstorrent_engine_tick(). Keep this as a no-op so the shared JS
+        // engine can still call flushCallbacks() without triggering nested FFI re-entry.
         ctx.setGlobalFunction("__jstorrent_hash_flush") { _ ->
-            val packed = drainAndPackHashBatch()
-            if (packed != null) {
-                // Dispatch batch to JS - single FFI call for all accumulated results
-                ctx.callGlobalFunctionWithBinary(
-                    "__jstorrent_hash_dispatch_batch",
-                    packed,
-                    0,  // binary is first argument
-                    null
-                )
-                // Note: We don't call scheduleJobPump here because flush is called
-                // at the start of tick. The tick will pump jobs at the end.
-            }
             null
         }
     }

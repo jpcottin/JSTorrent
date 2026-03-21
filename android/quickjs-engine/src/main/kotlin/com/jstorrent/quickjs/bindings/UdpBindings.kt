@@ -167,6 +167,22 @@ class UdpBindings(
         setupNativeCallbacks(ctx)
     }
 
+    /**
+     * Drain queued UDP messages and deliver them to JS from a top-level Kotlin entry point.
+     *
+     * This must run on the JS thread. Using a top-level call avoids re-entering
+     * QuickJS from inside a JS -> Kotlin callback.
+     */
+    fun dispatchPendingCallbacks(ctx: QuickJsContext) {
+        val packed = drainAndPackUdpBatch() ?: return
+        ctx.callGlobalFunctionWithBinary(
+            "__jstorrent_udp_dispatch_batch",
+            packed,
+            0,
+            null
+        )
+    }
+
     private fun registerCommandFunctions(ctx: QuickJsContext) {
         // __jstorrent_udp_bind(socketId: number, addr: string, port: number): void
         // Note: addr is accepted but ignored on Android (we always bind to all interfaces)
@@ -182,22 +198,10 @@ class UdpBindings(
         }
 
         // __jstorrent_udp_flush(): void
-        // Phase 4: Flush accumulated UDP messages from I/O threads to JS.
-        // Called by JS at start of engine tick to batch all pending data
-        // into a single FFI crossing.
+        // Android host-driven mode dispatches pending callbacks from Kotlin before
+        // entering __jstorrent_engine_tick(). Keep this as a no-op so the shared JS
+        // engine can still call flushCallbacks() without triggering nested FFI re-entry.
         ctx.setGlobalFunction("__jstorrent_udp_flush") { _ ->
-            val packed = drainAndPackUdpBatch()
-            if (packed != null) {
-                // Dispatch batch to JS - single FFI call for all accumulated messages
-                ctx.callGlobalFunctionWithBinary(
-                    "__jstorrent_udp_dispatch_batch",
-                    packed,
-                    0,  // binary is first argument
-                    null
-                )
-                // Note: We don't call scheduleJobPump here because flush is called
-                // at the start of tick. The tick will pump jobs at the end.
-            }
             null
         }
 
