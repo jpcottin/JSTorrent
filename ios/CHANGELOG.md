@@ -2,6 +2,11 @@
 
 All notable changes to the iOS app are documented here.
 
+## [1.0.7]
+
+### Changed
+- Fix CI: repurpose versions in any non-terminal state (cancel active submissions first)
+
 ## [1.0.6]
 
 ### Changed

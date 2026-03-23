@@ -207,8 +207,21 @@ def wait_for_processing(client: ASCClient, build_id: str):
     sys.exit(1)
 
 
-def _find_reusable_version(client: ASCClient, app_id: str, version_string: str) -> str:
-    """Find a PREPARE_FOR_SUBMISSION version that can be repurposed."""
+def _find_reusable_version(
+    client: ASCClient, app_id: str, version_string: str
+) -> str:
+    """Find a non-terminal version that can be repurposed for the new release.
+
+    ASC won't let you create a new version while another non-terminal version
+    exists. This finds such a version, gets it into an editable state
+    (cancelling active submissions if needed), and updates its version string.
+    """
+    REUSABLE_STATES = {
+        "PREPARE_FOR_SUBMISSION",
+        "DEVELOPER_REJECTED",
+        "WAITING_FOR_REVIEW",
+        "IN_REVIEW",
+    }
     data = client.get(
         f"/apps/{app_id}/appStoreVersions",
         {
@@ -220,10 +233,31 @@ def _find_reusable_version(client: ASCClient, app_id: str, version_string: str) 
         attrs = v.get("attributes", {})
         vs = attrs.get("versionString", "")
         state = attrs.get("appVersionState", "")
-        if state == "PREPARE_FOR_SUBMISSION":
-            print(
-                f"Repurposing version {vs} ({v['id']}) as {version_string}..."
-            )
+        if vs == version_string:
+            continue  # Already handled by find_or_create_version
+        if state not in REUSABLE_STATES:
+            continue
+
+        print(f"Found reusable version {vs} ({v['id']}, state={state})")
+
+        # If in review or waiting, cancel the submission first
+        if state in ("WAITING_FOR_REVIEW", "IN_REVIEW"):
+            print(f"  Cancelling active submissions for version {vs}...")
+            cancel_conflicting_submissions(client, app_id, v["id"])
+            # Wait for version to become editable
+            for attempt in range(12):
+                vdata = client.get(
+                    f"/appStoreVersions/{v['id']}",
+                    {"fields[appStoreVersions]": "appVersionState"},
+                )
+                new_state = vdata["data"]["attributes"]["appVersionState"]
+                if new_state in ("PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED"):
+                    break
+                print(f"  Version state: {new_state}, waiting... ({attempt * 5}s)")
+                time.sleep(5)
+
+        print(f"  Repurposing as {version_string}...")
+        try:
             client.patch(
                 f"/appStoreVersions/{v['id']}",
                 {
@@ -236,6 +270,9 @@ def _find_reusable_version(client: ASCClient, app_id: str, version_string: str) 
             )
             print(f"  Updated version string to {version_string}")
             return v["id"]
+        except HTTPError as e:
+            print(f"  Could not repurpose: {e.code}")
+            continue
     return None
 
 
