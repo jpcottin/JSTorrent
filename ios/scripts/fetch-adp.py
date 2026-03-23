@@ -116,6 +116,9 @@ class ASCClient:
     def patch(self, path: str, body: dict) -> dict:
         return self._request("PATCH", path, body=body)
 
+    def delete(self, path: str):
+        return self._request("DELETE", path)
+
 
 def find_app(client: ASCClient, bundle_id: str) -> str:
     data = client.get(
@@ -204,11 +207,43 @@ def wait_for_processing(client: ASCClient, build_id: str):
     sys.exit(1)
 
 
+def _find_reusable_version(client: ASCClient, app_id: str, version_string: str) -> str:
+    """Find a PREPARE_FOR_SUBMISSION version that can be repurposed."""
+    data = client.get(
+        f"/apps/{app_id}/appStoreVersions",
+        {
+            "filter[platform]": "IOS",
+            "fields[appStoreVersions]": "versionString,appVersionState",
+        },
+    )
+    for v in data.get("data", []):
+        attrs = v.get("attributes", {})
+        vs = attrs.get("versionString", "")
+        state = attrs.get("appVersionState", "")
+        if state == "PREPARE_FOR_SUBMISSION":
+            print(
+                f"Repurposing version {vs} ({v['id']}) as {version_string}..."
+            )
+            client.patch(
+                f"/appStoreVersions/{v['id']}",
+                {
+                    "data": {
+                        "type": "appStoreVersions",
+                        "id": v["id"],
+                        "attributes": {"versionString": version_string},
+                    }
+                },
+            )
+            print(f"  Updated version string to {version_string}")
+            return v["id"]
+    return None
+
+
 def find_or_create_version(
     client: ASCClient, app_id: str, version_string: str, build_id: str
 ) -> str:
     """Find an existing appStoreVersion for this version string, or create one."""
-    # Check for existing version
+    # Check for existing version with matching version string
     data = client.get(
         f"/apps/{app_id}/appStoreVersions",
         {
@@ -222,6 +257,12 @@ def find_or_create_version(
         state = v.get("attributes", {}).get("appStoreState", "")
         print(f"Found existing version {version_string}: {v['id']} (state={state})")
         return v["id"]
+
+    # Try to repurpose a PREPARE_FOR_SUBMISSION version (can't create new
+    # versions when one exists in this state, and can't delete them either)
+    reused = _find_reusable_version(client, app_id, version_string)
+    if reused:
+        return reused
 
     # Create new version with reviewType NOTARIZATION
     print(f"Creating new app store version {version_string}...")
@@ -291,37 +332,116 @@ def attach_build_to_version(client: ASCClient, version_id: str, build_id: str):
             raise
 
 
+def _cancel_submission(client: ASCClient, sub_id: str):
+    """Cancel a single submission, handling various states."""
+    try:
+        client.patch(
+            f"/reviewSubmissions/{sub_id}",
+            {
+                "data": {
+                    "type": "reviewSubmissions",
+                    "id": sub_id,
+                    "attributes": {"canceled": True},
+                }
+            },
+        )
+        return True
+    except HTTPError as e:
+        if e.code == 409:
+            return False
+        raise
+
+
 def cancel_conflicting_submissions(
     client: ASCClient, app_id: str, version_id: str
 ):
-    """Cancel any existing review submissions that claim this version."""
+    """Cancel any non-terminal review submissions to free up concurrency slots."""
+    # Get all non-terminal submissions
+    non_terminal_states = (
+        "READY_FOR_REVIEW,UNRESOLVED_ISSUES,WAITING_FOR_REVIEW,IN_REVIEW,CANCELING"
+    )
     data = client.get(
         f"/apps/{app_id}/reviewSubmissions",
-        {"filter[state]": "UNRESOLVED_ISSUES,WAITING_FOR_REVIEW,IN_REVIEW,CANCELING"},
+        {"filter[state]": non_terminal_states},
     )
-    for sub in data.get("data", []):
+    subs = data.get("data", [])
+    if not subs:
+        print("No conflicting submissions found.")
+        return
+
+    print(f"Found {len(subs)} non-terminal submission(s) to clean up...")
+
+    for sub in subs:
         sub_id = sub["id"]
         state = sub["attributes"]["state"]
+
         if state == "CANCELING":
-            print(f"Submission {sub_id} already cancelling, waiting...")
-        else:
-            print(f"Cancelling conflicting submission {sub_id} (state={state})...")
+            print(f"  {sub_id}: already cancelling")
+            continue
+
+        if state == "READY_FOR_REVIEW":
+            # READY_FOR_REVIEW can't be cancelled directly. We need to add an
+            # item, submit it, wait for it to become WAITING_FOR_REVIEW, then
+            # cancel. We need a version in a submittable state to do this.
+            print(f"  {sub_id}: READY_FOR_REVIEW — need submit-then-cancel")
+            # Wait for version to be submittable
+            for attempt in range(12):
+                v = client.get(
+                    f"/appStoreVersions/{version_id}",
+                    {"fields[appStoreVersions]": "appVersionState"},
+                )
+                vstate = v["data"]["attributes"]["appVersionState"]
+                if vstate in ("PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED"):
+                    break
+                print(f"    Version state: {vstate}, waiting... ({attempt * 5}s)")
+                time.sleep(5)
             try:
+                client.post(
+                    "/reviewSubmissionItems",
+                    {
+                        "data": {
+                            "type": "reviewSubmissionItems",
+                            "relationships": {
+                                "reviewSubmission": {
+                                    "data": {
+                                        "type": "reviewSubmissions",
+                                        "id": sub_id,
+                                    }
+                                },
+                                "appStoreVersion": {
+                                    "data": {
+                                        "type": "appStoreVersions",
+                                        "id": version_id,
+                                    }
+                                },
+                            },
+                        }
+                    },
+                )
                 client.patch(
                     f"/reviewSubmissions/{sub_id}",
                     {
                         "data": {
                             "type": "reviewSubmissions",
                             "id": sub_id,
-                            "attributes": {"canceled": True},
+                            "attributes": {"submitted": True},
                         }
                     },
                 )
-            except HTTPError as e:
-                if e.code == 409:
-                    print(f"  Could not cancel {sub_id}, may already be terminal.")
+                time.sleep(3)
+                if _cancel_submission(client, sub_id):
+                    print(f"  {sub_id}: submitted and cancelled")
                 else:
-                    raise
+                    print(f"  {sub_id}: submitted but cancel failed")
+                time.sleep(5)
+            except HTTPError:
+                print(f"  {sub_id}: could not clear (submit failed)")
+            continue
+
+        # WAITING_FOR_REVIEW, IN_REVIEW, UNRESOLVED_ISSUES — try direct cancel
+        print(f"  {sub_id}: {state} — cancelling...")
+        if not _cancel_submission(client, sub_id):
+            print(f"  {sub_id}: could not cancel, may already be terminal")
 
     # Wait for all cancellations to complete
     max_wait = 300
@@ -333,7 +453,7 @@ def cancel_conflicting_submissions(
         )
         cancelling = data.get("data", [])
         if not cancelling:
-            print("All conflicting submissions cancelled.")
+            print("All conflicting submissions cleared.")
             return
         print(f"  Still cancelling {len(cancelling)} submission(s)... ({elapsed}s)")
         time.sleep(10)

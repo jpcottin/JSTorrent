@@ -2,6 +2,11 @@
 
 All notable changes to the iOS app are documented here.
 
+## [1.0.6]
+
+### Changed
+- Fix CI: handle all ASC submission states (READY_FOR_REVIEW cleanup, version repurposing, build wait)
+
 ## [1.0.5]
 
 ### Changed
