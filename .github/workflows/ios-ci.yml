@@ -185,7 +185,7 @@ jobs:
 
       # --- Submit for notarization and fetch ADP ---
       - name: Install Python dependencies
-        run: pip install PyJWT cryptography
+        run: python3 -m pip install PyJWT cryptography
 
       - name: Submit for notarization and fetch ADP
         id: adp
