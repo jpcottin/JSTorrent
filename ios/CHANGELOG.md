@@ -2,6 +2,11 @@
 
 All notable changes to the iOS app are documented here.
 
+## [1.0.2]
+
+### Changed
+- Automated AltStore PAL notarization and ADP fetch in CI
+
 ## [1.0.1]
 
 ### Added

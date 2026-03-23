@@ -1,0 +1,93 @@
+name: iOS Finalize Release
+
+# Fallback workflow if the main CI didn't complete the ADP fetch
+# (e.g., notarization took too long, or the main job timed out).
+#
+# Normally the main ios-ci.yml handles everything automatically.
+# This workflow can be re-run manually if needed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'iOS version (e.g. 1.0.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up ASC API key
+        env:
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+        run: |
+          mkdir -p ~/private_keys
+          KEY_PATH="$HOME/private_keys/AuthKey_${ASC_API_KEY_ID}.p8"
+          echo "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Install Python dependencies
+        run: pip install PyJWT cryptography
+
+      - name: Fetch ADP from App Store Connect
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          python3 ios/scripts/fetch-adp.py \
+            --key-path "$APPLE_API_KEY_PATH" \
+            --key-id "$ASC_API_KEY_ID" \
+            --issuer-id "$ASC_API_ISSUER_ID" \
+            --bundle-id com.jstorrent.ios \
+            --version "$VERSION" \
+            --output-dir adp-output
+
+      - name: Upload ADP to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          TAG="ios-v${VERSION}"
+          tar -czf adp.tar.gz -C adp-output .
+          gh release upload "$TAG" adp.tar.gz --clobber
+
+      - name: Generate AltStore source JSON
+        run: |
+          VERSION="${{ inputs.version }}"
+          TAG="ios-v${VERSION}"
+          ADP_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/adp.tar.gz"
+          ./scripts/ios-finalize-release.sh "$VERSION" "$ADP_URL"
+
+      - name: Commit AltStore source JSON
+        run: |
+          VERSION="${{ inputs.version }}"
+          OUTPUT="website/public/altstore-source.json"
+          if [ -f "$OUTPUT" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add "$OUTPUT"
+            git commit -m "Update AltStore source for iOS v${VERSION}" || echo "No changes to commit"
+            git push origin main
+          fi
+
+      - name: Undraft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="ios-v${{ inputs.version }}"
+          gh release edit "$TAG" --draft=false
+
+      - name: Clean up
+        if: always()
+        run: rm -rf ~/private_keys adp-output adp.tar.gz
