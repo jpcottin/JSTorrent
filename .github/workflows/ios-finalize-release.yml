@@ -37,7 +37,7 @@ jobs:
           echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
 
       - name: Install Python dependencies
-        run: python3 -m pip install PyJWT cryptography
+        run: python3 -m pip install --break-system-packages PyJWT cryptography
 
       - name: Fetch ADP from App Store Connect
         env:
