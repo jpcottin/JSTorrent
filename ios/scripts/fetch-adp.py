@@ -131,29 +131,52 @@ def find_app(client: ASCClient, bundle_id: str) -> str:
     return app_id
 
 
-def find_latest_build(client: ASCClient, app_id: str) -> dict:
-    data = client.get(
-        "/builds",
-        {
-            "filter[app]": app_id,
-            "sort": "-uploadedDate",
-            "limit": "1",
-            "fields[builds]": "version,uploadedDate,processingState",
-        },
-    )
-    builds = data.get("data", [])
-    if not builds:
-        print("ERROR: No builds found", file=sys.stderr)
-        sys.exit(1)
-    build = builds[0]
-    attrs = build.get("attributes", {})
-    print(
-        f"Latest build: {build['id']} "
-        f"(version={attrs.get('version')}, "
-        f"uploaded={attrs.get('uploadedDate')}, "
-        f"state={attrs.get('processingState')})"
-    )
-    return build
+def find_latest_build(
+    client: ASCClient, app_id: str, min_build_number: int = 0
+) -> dict:
+    """Find the latest build, optionally waiting for a build >= min_build_number."""
+    max_wait = 600  # 10 minutes for build to appear after upload
+    elapsed = 0
+    while True:
+        data = client.get(
+            "/builds",
+            {
+                "filter[app]": app_id,
+                "sort": "-uploadedDate",
+                "limit": "1",
+                "fields[builds]": "version,uploadedDate,processingState",
+            },
+        )
+        builds = data.get("data", [])
+        if not builds:
+            if elapsed >= max_wait:
+                print("ERROR: No builds found", file=sys.stderr)
+                sys.exit(1)
+        else:
+            build = builds[0]
+            attrs = build.get("attributes", {})
+            build_version = int(attrs.get("version", "0"))
+            print(
+                f"Latest build: {build['id']} "
+                f"(version={build_version}, "
+                f"uploaded={attrs.get('uploadedDate')}, "
+                f"state={attrs.get('processingState')})"
+            )
+            if build_version >= min_build_number:
+                return build
+            print(
+                f"  Waiting for build >= {min_build_number} "
+                f"(current: {build_version}, waited {elapsed}s)"
+            )
+
+        if elapsed >= max_wait:
+            print(
+                f"ERROR: Build >= {min_build_number} not found after {max_wait}s",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        time.sleep(POLL_INTERVAL)
+        elapsed += POLL_INTERVAL
 
 
 def wait_for_processing(client: ASCClient, build_id: str):
@@ -544,6 +567,12 @@ def main():
         default="./adp",
         help="Directory to download ADP into (default: ./adp)",
     )
+    parser.add_argument(
+        "--min-build-number",
+        type=int,
+        default=0,
+        help="Wait for a build with version >= this number (0 = use latest)",
+    )
     args = parser.parse_args()
 
     client = ASCClient(args.key_path, args.key_id, args.issuer_id)
@@ -551,8 +580,8 @@ def main():
     # 1. Find app
     app_id = find_app(client, args.bundle_id)
 
-    # 2. Find latest build
-    build = find_latest_build(client, app_id)
+    # 2. Find latest build (wait for it if just uploaded)
+    build = find_latest_build(client, app_id, args.min_build_number)
     build_id = build["id"]
 
     # 3. Wait for build processing

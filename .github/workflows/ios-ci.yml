@@ -194,12 +194,14 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
         run: |
           VERSION="${GITHUB_REF_NAME#ios-v}"
+          BUILD_NUMBER=$(grep "CURRENT_PROJECT_VERSION" ios/project.yml | grep -o "[0-9]*")
           python3 ios/scripts/fetch-adp.py \
             --key-path "$APPLE_API_KEY_PATH" \
             --key-id "$ASC_API_KEY_ID" \
             --issuer-id "$ASC_API_ISSUER_ID" \
             --bundle-id com.jstorrent.ios \
             --version "$VERSION" \
+            --min-build-number "$BUILD_NUMBER" \
             --output-dir ios/build/adp
 
       # --- Extract changelog ---

@@ -2,6 +2,11 @@
 
 All notable changes to the iOS app are documented here.
 
+## [1.0.4]
+
+### Changed
+- Fix CI: wait for newly uploaded build to appear in ASC before creating version
+
 ## [1.0.3]
 
 ### Changed
