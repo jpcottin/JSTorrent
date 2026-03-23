@@ -103,6 +103,8 @@ class ASCClient:
             print(
                 f"ASC API {method} {e.code} for {url}: {resp_body}", file=sys.stderr
             )
+            # Attach body to exception so callers can inspect it
+            e.response_body = resp_body
             raise
 
     def get(self, path: str, params=None) -> dict:
@@ -266,13 +268,61 @@ def attach_build_to_version(client: ASCClient, version_id: str, build_id: str):
             raise
 
 
-def submit_for_notarization(client: ASCClient, app_id: str, version_id: str):
-    """Submit the version for review/notarization."""
-    print("Submitting for notarization...")
+def cancel_conflicting_submissions(
+    client: ASCClient, app_id: str, version_id: str
+):
+    """Cancel any existing review submissions that claim this version."""
+    data = client.get(
+        f"/apps/{app_id}/reviewSubmissions",
+        {"filter[state]": "UNRESOLVED_ISSUES,WAITING_FOR_REVIEW,IN_REVIEW,CANCELING"},
+    )
+    for sub in data.get("data", []):
+        sub_id = sub["id"]
+        state = sub["attributes"]["state"]
+        if state == "CANCELING":
+            print(f"Submission {sub_id} already cancelling, waiting...")
+        else:
+            print(f"Cancelling conflicting submission {sub_id} (state={state})...")
+            try:
+                client.patch(
+                    f"/reviewSubmissions/{sub_id}",
+                    {
+                        "data": {
+                            "type": "reviewSubmissions",
+                            "id": sub_id,
+                            "attributes": {"canceled": True},
+                        }
+                    },
+                )
+            except HTTPError as e:
+                if e.code == 409:
+                    print(f"  Could not cancel {sub_id}, may already be terminal.")
+                else:
+                    raise
 
-    # Try the newer reviewSubmissions API first
-    try:
-        # Create a review submission
+    # Wait for all cancellations to complete
+    max_wait = 300
+    elapsed = 0
+    while elapsed < max_wait:
+        data = client.get(
+            f"/apps/{app_id}/reviewSubmissions",
+            {"filter[state]": "CANCELING"},
+        )
+        cancelling = data.get("data", [])
+        if not cancelling:
+            print("All conflicting submissions cancelled.")
+            return
+        print(f"  Still cancelling {len(cancelling)} submission(s)... ({elapsed}s)")
+        time.sleep(10)
+        elapsed += 10
+    print("WARNING: Cancellation still pending after 5 min, proceeding anyway...")
+
+
+def _create_and_submit(
+    client: ASCClient, app_id: str, version_id: str, submission_id: str = None
+):
+    """Create (or reuse) a review submission, add the version, and submit."""
+    if not submission_id:
         result = client.post(
             "/reviewSubmissions",
             {
@@ -288,48 +338,74 @@ def submit_for_notarization(client: ASCClient, app_id: str, version_id: str):
         submission_id = result["data"]["id"]
         print(f"Created review submission: {submission_id}")
 
-        # Add the version as a submission item
-        client.post(
-            "/reviewSubmissionItems",
-            {
-                "data": {
-                    "type": "reviewSubmissionItems",
-                    "relationships": {
-                        "reviewSubmission": {
-                            "data": {
-                                "type": "reviewSubmissions",
-                                "id": submission_id,
-                            }
-                        },
-                        "appStoreVersion": {
-                            "data": {
-                                "type": "appStoreVersions",
-                                "id": version_id,
-                            }
-                        },
+    # Add the version as a submission item
+    client.post(
+        "/reviewSubmissionItems",
+        {
+            "data": {
+                "type": "reviewSubmissionItems",
+                "relationships": {
+                    "reviewSubmission": {
+                        "data": {
+                            "type": "reviewSubmissions",
+                            "id": submission_id,
+                        }
                     },
-                }
-            },
-        )
-        print("Added version to submission.")
+                    "appStoreVersion": {
+                        "data": {
+                            "type": "appStoreVersions",
+                            "id": version_id,
+                        }
+                    },
+                },
+            }
+        },
+    )
+    print("Added version to submission.")
 
-        # Submit
-        client.patch(
-            f"/reviewSubmissions/{submission_id}",
-            {
-                "data": {
-                    "type": "reviewSubmissions",
-                    "id": submission_id,
-                    "attributes": {"submitted": True},
-                }
-            },
-        )
-        print("Submitted for notarization!")
+    # Submit
+    client.patch(
+        f"/reviewSubmissions/{submission_id}",
+        {
+            "data": {
+                "type": "reviewSubmissions",
+                "id": submission_id,
+                "attributes": {"submitted": True},
+            }
+        },
+    )
+    print("Submitted for notarization!")
+
+
+def submit_for_notarization(client: ASCClient, app_id: str, version_id: str):
+    """Submit the version for review/notarization."""
+    print("Submitting for notarization...")
+
+    # Try the newer reviewSubmissions API first
+    try:
+        _create_and_submit(client, app_id, version_id)
         return
     except HTTPError as e:
+        body = getattr(e, "response_body", "")
         if e.code == 409:
-            print("Already submitted for review, continuing...")
-            return
+            if "ITEM_PART_OF_ANOTHER_SUBMISSION" in body:
+                print(
+                    "Version is claimed by another submission. "
+                    "Cancelling conflicting submissions..."
+                )
+                cancel_conflicting_submissions(client, app_id, version_id)
+                # Retry after cancellation
+                try:
+                    _create_and_submit(client, app_id, version_id)
+                    return
+                except HTTPError as e2:
+                    if e2.code == 409:
+                        print("Already submitted for review, continuing...")
+                        return
+                    raise
+            else:
+                print("Already submitted for review, continuing...")
+                return
         print(
             f"reviewSubmissions API failed ({e.code}), "
             f"trying appStoreVersionSubmissions...",
@@ -366,12 +442,15 @@ def submit_for_notarization(client: ASCClient, app_id: str, version_id: str):
             raise
 
 
-def wait_for_adp(client: ASCClient, build_id: str) -> str:
+def wait_for_adp(client: ASCClient, version_id: str) -> str:
     """Wait for the alternative distribution package to be generated."""
     elapsed = 0
     while elapsed < MAX_WAIT_NOTARIZATION:
         try:
-            data = client.get(f"/builds/{build_id}/alternativeDistributionPackage")
+            # Use the version-level endpoint (build-level returns 404)
+            data = client.get(
+                f"/appStoreVersions/{version_id}/alternativeDistributionPackage"
+            )
             adp = data.get("data")
             if adp:
                 adp_id = adp["id"]
@@ -490,7 +569,7 @@ def main():
     submit_for_notarization(client, app_id, version_id)
 
     # 6. Wait for ADP
-    adp_id = wait_for_adp(client, build_id)
+    adp_id = wait_for_adp(client, version_id)
 
     # 7. Download ADP
     output_dir = Path(args.output_dir)
