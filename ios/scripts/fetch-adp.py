@@ -400,9 +400,42 @@ def _create_and_submit(
     print("Submitted for notarization!")
 
 
+def _check_already_submitted(client: ASCClient, app_id: str, version_id: str) -> bool:
+    """Check if this version is already part of an active submission."""
+    data = client.get(
+        f"/apps/{app_id}/reviewSubmissions",
+        {
+            "filter[state]": "WAITING_FOR_REVIEW,IN_REVIEW",
+        },
+    )
+    for sub in data.get("data", []):
+        # Check if this submission contains our version
+        items = client.get(
+            f"/reviewSubmissions/{sub['id']}/items",
+            {"fields[reviewSubmissionItems]": "state"},
+        )
+        for item in items.get("data", []):
+            relationships = item.get("relationships", {})
+            ver_data = relationships.get("appStoreVersion", {}).get("data", {})
+            if ver_data.get("id") == version_id:
+                print(
+                    f"Version already in active submission {sub['id']} "
+                    f"(state={sub['attributes']['state']})"
+                )
+                return True
+    return False
+
+
 def submit_for_notarization(client: ASCClient, app_id: str, version_id: str):
     """Submit the version for review/notarization."""
     print("Submitting for notarization...")
+
+    # Check if already submitted
+    if _check_already_submitted(client, app_id, version_id):
+        return
+
+    # Cancel stale submissions to free up concurrency slots
+    cancel_conflicting_submissions(client, app_id, version_id)
 
     # Try the newer reviewSubmissions API first
     try:
@@ -426,7 +459,16 @@ def submit_for_notarization(client: ASCClient, app_id: str, version_id: str):
                         print("Already submitted for review, continuing...")
                         return
                     raise
+            elif "CONCURRENT_REVIEW_SUBMISSION_LIMIT" in body:
+                print(
+                    "Concurrency limit reached even after cancellation. "
+                    "Waiting for cancellations to complete..."
+                )
+                time.sleep(30)
+                _create_and_submit(client, app_id, version_id)
+                return
             else:
+                print(f"409 response: {body}")
                 print("Already submitted for review, continuing...")
                 return
         print(

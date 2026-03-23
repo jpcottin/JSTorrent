@@ -2,6 +2,11 @@
 
 All notable changes to the iOS app are documented here.
 
+## [1.0.5]
+
+### Changed
+- Fix CI: cancel stale review submissions before creating new ones (concurrent limit fix)
+
 ## [1.0.4]
 
 ### Changed
