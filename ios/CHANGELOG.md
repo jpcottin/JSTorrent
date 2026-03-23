@@ -2,6 +2,11 @@
 
 All notable changes to the iOS app are documented here.
 
+## [1.0.3]
+
+### Changed
+- Fix CI ADP fetch: use Admin API key, handle version conflicts, bump notarization timeout to 90 min
+
 ## [1.0.2]
 
 ### Changed

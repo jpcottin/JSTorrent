@@ -46,7 +46,7 @@ except ImportError:
 ASC_BASE = "https://api.appstoreconnect.apple.com/v1"
 POLL_INTERVAL = 30  # seconds
 MAX_WAIT_PROCESSING = 600  # 10 min for build processing
-MAX_WAIT_NOTARIZATION = 3600  # 60 min for notarization
+MAX_WAIT_NOTARIZATION = 5400  # 90 min for notarization
 
 
 def generate_jwt(key_path: str, key_id: str, issuer_id: str) -> str:
