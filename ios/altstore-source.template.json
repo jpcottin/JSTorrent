@@ -10,6 +10,7 @@
     {
       "name": "JSTorrent",
       "bundleIdentifier": "com.jstorrent.ios",
+      "marketplaceID": "6760584856",
       "developerName": "Kyle Graehl",
       "subtitle": "BitTorrent downloads on iOS",
       "localizedDescription": "JSTorrent is a full-featured BitTorrent client for iOS. Download torrents with magnet links, .torrent files, DHT, PEX, tracker support, and more. Features a native SwiftUI interface with torrent search via the Internet Archive.",
