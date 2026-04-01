@@ -177,11 +177,21 @@ jobs:
       - name: Upload to App Store Connect
         working-directory: ios
         run: |
+          set +e
           xcrun altool --upload-app \
             --type ios \
             --file build/export/JSTorrent.ipa \
             --apiKey "${{ secrets.ASC_API_KEY_ID }}" \
-            --apiIssuer "${{ secrets.ASC_API_ISSUER_ID }}"
+            --apiIssuer "${{ secrets.ASC_API_ISSUER_ID }}" 2>&1 | tee /tmp/upload-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+          if [ $EXIT_CODE -ne 0 ]; then
+            if grep -q "ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE" /tmp/upload-output.txt; then
+              echo "Build already uploaded — continuing"
+            else
+              exit $EXIT_CODE
+            fi
+          fi
 
       # --- Submit for notarization and fetch ADP ---
       - name: Install Python dependencies
