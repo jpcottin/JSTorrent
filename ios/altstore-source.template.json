@@ -5,6 +5,7 @@
   "iconURL": "https://jstorrent.com/icons/ios-icon-512.png",
   "headerURL": "https://jstorrent.com/images/ios-header.png",
   "website": "https://jstorrent.com",
+  "fediUsername": "jstorrent",
   "tintColor": "#4A90D9",
   "apps": [
     {
