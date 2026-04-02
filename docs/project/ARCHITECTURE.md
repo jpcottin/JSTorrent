@@ -12,6 +12,8 @@ Currently the BtEngine runs in the UI page (same JS heap as React UI). This allo
 
 **Potential future:** Engine may move to service worker (or offscreen document) to support background downloading when user closes all UI windows. This would be a user setting. The service worker lifecycle is tied to native-host connection - Chrome won't reap a SW that's actively using a native messaging channel.
 
+See [docs/design/explicit-launch-model.md](/Users/kgraehl/code/jstorrent/docs/design/explicit-launch-model.md) for the current launch-path inventory and the proposed explicit launch contract.
+
 **Current implication:** Closing all JSTorrent tabs stops downloads.
 
 ### 2. Daemon Bridge (Multi-Platform Connection)
