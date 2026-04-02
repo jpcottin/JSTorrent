@@ -86,6 +86,8 @@ data class SettingsUiState(
     val canRequestNotificationPermission: Boolean = true,
     val showNotificationRequiredDialog: Boolean = false,
     val showKeepSeedingWarningDialog: Boolean = false,
+    // Adding
+    val showFileSelection: Boolean = true,
     // Integrations
     val downloadManifest: Boolean = false,
     // Language & Appearance
@@ -155,6 +157,7 @@ class SettingsViewModel(
             // Integrations (engine settings)
             downloadManifest = configHub.downloadManifest,
             // Android-only settings (from SharedPreferences)
+            showFileSelection = settingsStore.showFileSelection,
             whenDownloadsComplete = settingsStore.whenDownloadsComplete,
             wifiOnlyEnabled = settingsStore.wifiOnlyEnabled,
             vpnOnlyEnabled = settingsStore.vpnOnlyEnabled,
@@ -205,6 +208,11 @@ class SettingsViewModel(
     fun setDefaultRoot(key: String) {
         configHub.defaultRootKey = key
         _uiState.value = _uiState.value.copy(defaultRootKey = key)
+    }
+
+    fun setShowFileSelection(enabled: Boolean) {
+        settingsStore.showFileSelection = enabled
+        _uiState.value = _uiState.value.copy(showFileSelection = enabled)
     }
 
     /**

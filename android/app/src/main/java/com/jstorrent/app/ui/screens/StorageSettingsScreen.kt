@@ -112,6 +112,16 @@ fun StorageSettingsScreen(
             item {
                 AddFolderButton(onClick = onAddRootClick)
             }
+
+            item {
+                SettingToggleRow(
+                    label = stringResource(R.string.settings_storage_file_selection_label),
+                    description = stringResource(R.string.settings_storage_file_selection_description),
+                    checked = uiState.showFileSelection,
+                    onCheckedChange = { viewModel.setShowFileSelection(it) },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
         }
     }
 }

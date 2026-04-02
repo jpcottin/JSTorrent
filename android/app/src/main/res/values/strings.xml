@@ -284,6 +284,8 @@
     <string name="settings_storage_remove_folder_title">Remove folder?</string>
     <string name="settings_storage_remove_folder_message">Removing this folder may disrupt %1$d torrent(s) that are downloading to or seeding from it.</string>
     <string name="settings_storage_remove_folder_confirm">Remove</string>
+    <string name="settings_storage_file_selection_label">Show file selection when adding</string>
+    <string name="settings_storage_file_selection_description">Choose which files to download before starting</string>
 
     <!-- PowerManagementSettingsScreen -->
     <string name="settings_power_background_section">Background Activity</string>
